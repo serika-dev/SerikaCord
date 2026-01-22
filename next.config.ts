@@ -4,6 +4,16 @@ const nextConfig: NextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
   
+  // Skip type checking during build for faster builds
+  typescript: {
+    ignoreBuildErrors: false,
+  },
+  
+  // Experimental optimizations
+  experimental: {
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons', 'date-fns'],
+  },
+  
   // Security headers
   async headers() {
     return [
@@ -46,12 +56,11 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'cdn.serika.dev',
       },
+      {
+        protocol: 'https',
+        hostname: 'cdn.discordapp.com',
+      },
     ],
-  },
-  
-  // TypeScript strict mode
-  typescript: {
-    ignoreBuildErrors: false,
   },
 };
 
