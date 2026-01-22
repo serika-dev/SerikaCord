@@ -37,7 +37,7 @@ export default function RegisterPage() {
         throw new Error(data.error || "Failed to register");
       }
 
-      router.push("/channels/me");
+      router.push("/channels/@me");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

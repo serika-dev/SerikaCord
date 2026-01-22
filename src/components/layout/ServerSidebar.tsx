@@ -23,7 +23,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
 
   const handleHomeClick = () => {
     setCurrentServer(null);
-    router.push("/channels/me");
+    router.push("/channels/@me");
   };
 
   return (

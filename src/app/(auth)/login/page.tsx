@@ -35,7 +35,7 @@ export default function LoginPage() {
         throw new Error(data.error || "Failed to login");
       }
 
-      router.push("/channels/me");
+      router.push("/channels/@me");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

@@ -62,6 +62,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+
+  // URL rewrites for Discord-like @me route
+  async rewrites() {
+    return [
+      {
+        source: '/channels/@me',
+        destination: '/channels/me',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

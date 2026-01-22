@@ -20,7 +20,7 @@ export default function ServerPage() {
       if (server) {
         setCurrentServer(server);
       } else {
-        router.push("/channels/me");
+        router.push("/channels/@me");
       }
     }
   }, [serverId, servers, isLoading, setCurrentServer, router]);
