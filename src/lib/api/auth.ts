@@ -130,7 +130,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
     if (token) {
       const verification = await verifyToken(token);
-      if (verification.valid && verification.payload) {
+      if (verification.valid && verification.payload && verification.payload.sid) {
         await deleteSession(verification.payload.sid);
       }
     }
