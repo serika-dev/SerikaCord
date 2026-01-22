@@ -283,12 +283,7 @@ export async function authenticateRequest(
           $setOnInsert: {
             _id: userId,
             username: accountsUser.username,
-            displayName: accountsUser.username,
             email: accountsUser.email || `${accountsUser.username}@serika.dev`,
-            avatar: accountsUser.avatar,
-            banner: accountsUser.banner,
-            isPremium: accountsUser.isPremium || false,
-            isVerified: accountsUser.isVerified || true,
             status: 'online',
           },
           $set: {
@@ -296,6 +291,7 @@ export async function authenticateRequest(
             avatar: accountsUser.avatar,
             banner: accountsUser.banner,
             isPremium: accountsUser.isPremium || false,
+            isVerified: accountsUser.isVerified || true,
           },
         },
         { upsert: true, new: true }

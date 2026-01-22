@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
-    emailOrUsername: "",
+    email: "",
     password: "",
   });
 
@@ -64,18 +64,18 @@ export default function LoginPage() {
           </div>
         )}
         
-        {/* Email/Username Field */}
+        {/* Email Field */}
         <div className="space-y-2">
           <Label className="text-sm font-medium text-[#888888]">
-            Email or Username
+            Email
           </Label>
           <Input
-            type="text"
+            type="email"
             required
-            value={formData.emailOrUsername}
-            onChange={(e) => setFormData({ ...formData, emailOrUsername: e.target.value })}
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors"
-            placeholder="you@example.com or username"
+            placeholder="you@example.com"
           />
         </div>
 

@@ -66,10 +66,10 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
   // Login - proxies to accounts.serika.dev
   .post('/login', async ({ body, set, headers }) => {
-    const { emailOrUsername, password } = body;
+    const { email, password } = body;
 
     try {
-      // Proxy to accounts API (accounts API uses 'email' field)
+      // Proxy to accounts API
       const accountsResponse = await fetch(`${config.ACCOUNTS_API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
@@ -78,7 +78,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           'X-Forwarded-For': headers['x-forwarded-for'] || headers['x-real-ip'] || '',
         },
         body: JSON.stringify({ 
-          email: emailOrUsername, 
+          email, 
           password,
           rememberMe: true,
           productId: 'serikacord',
@@ -115,7 +115,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }
   }, {
     body: t.Object({
-      emailOrUsername: t.String(),
+      email: t.String({ format: 'email' }),
       password: t.String(),
     }),
   })
