@@ -10,6 +10,7 @@ import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes } from './servers';
 import { channelRoutes } from './channels';
 import { uploadRoutes } from './uploads';
+import { dmRoutes } from './dms';
 import type { Types } from 'mongoose';
 
 // Helper function for auth
@@ -66,6 +67,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
       status: user.status,
       customStatus: user.customStatus,
       isPremium: user.isPremium,
+      premiumSince: user.premiumSince,
+      premiumTier: user.premiumTier,
+      badges: user.badges || [],
       isVerified: user.isVerified,
       settings: user.settings,
       createdAt: user.createdAt,
@@ -88,6 +92,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
       status: user.status,
       customStatus: user.customStatus,
       isPremium: user.isPremium,
+      premiumSince: user.premiumSince,
+      premiumTier: user.premiumTier,
+      badges: user.badges || [],
       isVerified: user.isVerified,
       settings: user.settings,
       createdAt: user.createdAt,
@@ -244,21 +251,68 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const populatedUser = await User.findById(user._id).populate('friends', 'username displayName avatar status customStatus');
+    const populatedUser = await User.findById(user._id)
+      .populate('friends', 'username displayName avatar status customStatus isPremium badges createdAt')
+      .populate('pendingFriendRequests.incoming', 'username displayName avatar status customStatus isPremium badges createdAt')
+      .populate('pendingFriendRequests.outgoing', 'username displayName avatar status customStatus isPremium badges createdAt')
+      .populate('blockedUsers', 'username displayName avatar');
     
     return {
-      friends: populatedUser?.friends || [],
+      friends: (populatedUser?.friends || []).map((friend: any) => ({
+        id: friend._id,
+        username: friend.username,
+        displayName: friend.displayName,
+        avatar: friend.avatar,
+        status: friend.status || 'offline',
+        customStatus: friend.customStatus,
+        isPremium: friend.isPremium,
+        badges: friend.badges || [],
+        createdAt: friend.createdAt,
+      })),
       pending: {
-        incoming: populatedUser?.pendingFriendRequests?.incoming || [],
-        outgoing: populatedUser?.pendingFriendRequests?.outgoing || [],
+        incoming: (populatedUser?.pendingFriendRequests?.incoming || []).map((u: any) => ({
+          id: u._id,
+          username: u.username,
+          displayName: u.displayName,
+          avatar: u.avatar,
+          status: u.status || 'offline',
+          customStatus: u.customStatus,
+          isPremium: u.isPremium,
+          badges: u.badges || [],
+          createdAt: u.createdAt,
+        })),
+        outgoing: (populatedUser?.pendingFriendRequests?.outgoing || []).map((u: any) => ({
+          id: u._id,
+          username: u.username,
+          displayName: u.displayName,
+          avatar: u.avatar,
+          status: u.status || 'offline',
+          customStatus: u.customStatus,
+          isPremium: u.isPremium,
+          badges: u.badges || [],
+          createdAt: u.createdAt,
+        })),
       },
+      blocked: (populatedUser?.blockedUsers || []).map((u: any) => ({
+        id: u._id,
+        username: u.username,
+        displayName: u.displayName,
+        avatar: u.avatar,
+      })),
     };
   })
-  .post('/request/:userId', async ({ headers, cookie, params, request, set }) => {
+  // Add friend by username
+  .post('/add', async ({ headers, cookie, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    const { username } = body;
+    if (!username || typeof username !== 'string') {
+      set.status = 400;
+      return { error: 'Username is required' };
     }
 
     // Rate limit friend requests
@@ -269,39 +323,49 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: 'Too many friend requests', retryAfter: rateLimit.retryAfter };
     }
 
-    const targetUser = await User.findById(params.userId);
+    // Find user by username (case insensitive)
+    const targetUser = await User.findOne({ 
+      username: { $regex: new RegExp(`^${username}$`, 'i') } 
+    });
+    
     if (!targetUser) {
       set.status = 404;
-      return { error: 'User not found' };
+      return { error: `User "${username}" not found. Make sure you entered the correct username.` };
     }
 
     if (targetUser._id.equals(user._id)) {
       set.status = 400;
-      return { error: 'Cannot send friend request to yourself' };
+      return { error: 'You cannot send a friend request to yourself' };
     }
 
     // Check if already friends
     if (user.friends.some((f: Types.ObjectId) => f.equals(targetUser._id))) {
       set.status = 400;
-      return { error: 'Already friends' };
+      return { error: `You're already friends with ${targetUser.displayName || targetUser.username}` };
     }
 
     // Check if blocked
     if (user.blockedUsers.some((b: Types.ObjectId) => b.equals(targetUser._id))) {
       set.status = 400;
-      return { error: 'User is blocked' };
+      return { error: 'You have blocked this user. Unblock them first to send a friend request.' };
+    }
+
+    // Check if target blocked the user
+    if (targetUser.blockedUsers.some((b: Types.ObjectId) => b.equals(user._id))) {
+      set.status = 403;
+      return { error: 'Unable to send friend request to this user' };
     }
 
     // Check privacy settings
     if (targetUser.settings.privacy.friendRequests === 'none') {
       set.status = 403;
-      return { error: 'User is not accepting friend requests' };
+      return { error: `${targetUser.displayName || targetUser.username} is not accepting friend requests` };
     }
 
     // Check if request already pending
     if (user.pendingFriendRequests.outgoing.some((p: Types.ObjectId) => p.equals(targetUser._id))) {
       set.status = 400;
-      return { error: 'Friend request already sent' };
+      return { error: `You already sent a friend request to ${targetUser.displayName || targetUser.username}` };
     }
 
     // Check if they sent us a request - auto-accept
@@ -319,7 +383,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
 
       await Promise.all([user.save(), targetUser.save()]);
 
-      return { success: true, message: 'Friend request accepted' };
+      return { 
+        success: true, 
+        message: `You are now friends with ${targetUser.displayName || targetUser.username}!`,
+        user: {
+          id: targetUser._id,
+          username: targetUser.username,
+          displayName: targetUser.displayName,
+          avatar: targetUser.avatar,
+          status: targetUser.status,
+        },
+      };
     }
 
     // Send friend request
@@ -328,13 +402,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
 
     await Promise.all([user.save(), targetUser.save()]);
 
-    return { success: true, message: 'Friend request sent' };
+    return { 
+      success: true, 
+      message: `Friend request sent to ${targetUser.displayName || targetUser.username}` 
+    };
   }, {
-    params: t.Object({
-      userId: t.String(),
+    body: t.Object({
+      username: t.String({ minLength: 1 }),
     }),
   })
-  .delete('/:userId', async ({ headers, cookie, params, set }) => {
+  // Accept friend request
+  .post('/accept/:userId', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
       set.status = 401;
@@ -347,11 +425,124 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: 'User not found' };
     }
 
-    // Remove from friends
+    // Check if there's a pending request
+    if (!user.pendingFriendRequests.incoming.some((p: Types.ObjectId) => p.equals(targetUser._id))) {
+      set.status = 400;
+      return { error: 'No pending friend request from this user' };
+    }
+
+    // Accept the request
+    user.pendingFriendRequests.incoming = user.pendingFriendRequests.incoming.filter(
+      (p: Types.ObjectId) => !p.equals(targetUser._id)
+    );
+    targetUser.pendingFriendRequests.outgoing = targetUser.pendingFriendRequests.outgoing.filter(
+      (p: Types.ObjectId) => !p.equals(user._id)
+    );
+    
+    user.friends.push(targetUser._id);
+    targetUser.friends.push(user._id);
+
+    await Promise.all([user.save(), targetUser.save()]);
+
+    return { 
+      success: true, 
+      message: `You are now friends with ${targetUser.displayName || targetUser.username}!`,
+    };
+  }, {
+    params: t.Object({
+      userId: t.String(),
+    }),
+  })
+  // Cancel outgoing friend request
+  .delete('/cancel/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const targetUser = await User.findById(params.userId);
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+
+    // Remove from outgoing
+    user.pendingFriendRequests.outgoing = user.pendingFriendRequests.outgoing.filter(
+      (p: Types.ObjectId) => !p.equals(targetUser._id)
+    );
+    targetUser.pendingFriendRequests.incoming = targetUser.pendingFriendRequests.incoming.filter(
+      (p: Types.ObjectId) => !p.equals(user._id)
+    );
+
+    await Promise.all([user.save(), targetUser.save()]);
+
+    return { success: true, message: 'Friend request cancelled' };
+  }, {
+    params: t.Object({
+      userId: t.String(),
+    }),
+  })
+  // Decline incoming friend request  
+  .delete('/decline/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const targetUser = await User.findById(params.userId);
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+
+    // Remove from incoming
+    user.pendingFriendRequests.incoming = user.pendingFriendRequests.incoming.filter(
+      (p: Types.ObjectId) => !p.equals(targetUser._id)
+    );
+    targetUser.pendingFriendRequests.outgoing = targetUser.pendingFriendRequests.outgoing.filter(
+      (p: Types.ObjectId) => !p.equals(user._id)
+    );
+
+    await Promise.all([user.save(), targetUser.save()]);
+
+    return { success: true, message: 'Friend request declined' };
+  }, {
+    params: t.Object({
+      userId: t.String(),
+    }),
+  })
+  // Block user
+  .post('/block/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const targetUser = await User.findById(params.userId);
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+
+    if (targetUser._id.equals(user._id)) {
+      set.status = 400;
+      return { error: 'You cannot block yourself' };
+    }
+
+    // Already blocked?
+    if (user.blockedUsers.some((b: Types.ObjectId) => b.equals(targetUser._id))) {
+      set.status = 400;
+      return { error: 'User is already blocked' };
+    }
+
+    // Remove from friends if present
     user.friends = user.friends.filter((f: Types.ObjectId) => !f.equals(targetUser._id));
     targetUser.friends = targetUser.friends.filter((f: Types.ObjectId) => !f.equals(user._id));
 
-    // Also remove any pending requests
+    // Remove any pending requests
     user.pendingFriendRequests.incoming = user.pendingFriendRequests.incoming.filter(
       (p: Types.ObjectId) => !p.equals(targetUser._id)
     );
@@ -365,9 +556,67 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       (p: Types.ObjectId) => !p.equals(user._id)
     );
 
+    // Add to blocked list
+    user.blockedUsers.push(targetUser._id);
+
     await Promise.all([user.save(), targetUser.save()]);
 
-    return { success: true };
+    return { success: true, message: 'User blocked' };
+  }, {
+    params: t.Object({
+      userId: t.String(),
+    }),
+  })
+  // Unblock user
+  .delete('/unblock/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const targetUser = await User.findById(params.userId);
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+
+    user.blockedUsers = user.blockedUsers.filter((b: Types.ObjectId) => !b.equals(targetUser._id));
+    await user.save();
+
+    return { success: true, message: 'User unblocked' };
+  }, {
+    params: t.Object({
+      userId: t.String(),
+    }),
+  })
+  // Remove friend
+  .delete('/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const targetUser = await User.findById(params.userId);
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+
+    // Check if actually friends
+    if (!user.friends.some((f: Types.ObjectId) => f.equals(targetUser._id))) {
+      set.status = 400;
+      return { error: 'You are not friends with this user' };
+    }
+
+    // Remove from friends
+    user.friends = user.friends.filter((f: Types.ObjectId) => !f.equals(targetUser._id));
+    targetUser.friends = targetUser.friends.filter((f: Types.ObjectId) => !f.equals(user._id));
+
+    await Promise.all([user.save(), targetUser.save()]);
+
+    return { success: true, message: 'Friend removed' };
   }, {
     params: t.Object({
       userId: t.String(),
@@ -403,6 +652,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(serverRoutes)
   .use(inviteRoutes)
   .use(channelRoutes)
+  .use(dmRoutes)
   .use(uploadRoutes);
 
 // Initialize database connection

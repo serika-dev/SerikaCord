@@ -1,11 +1,37 @@
 // Badge system for SerikaCord
-export const BADGES = {
+import {
+  ShieldCheck,
+  Shield,
+  ShieldAlert,
+  Handshake,
+  Sparkles,
+  Heart,
+  Bot,
+  Bug,
+  Crown,
+  Code,
+  Zap,
+  Flame,
+  Scale,
+  type LucideIcon,
+} from "lucide-react";
+
+export interface Badge {
+  id: string;
+  name: string;
+  description: string;
+  icon: LucideIcon;
+  color: string;
+  priority: number;
+}
+
+export const BADGES: Record<string, Badge> = {
   // Staff Badges
   STAFF: {
     id: 'staff',
     name: 'Serika Staff',
     description: 'Official Serika staff member',
-    icon: 'shield-check',
+    icon: ShieldCheck,
     color: '#5865F2',
     priority: 100,
   },
@@ -13,7 +39,7 @@ export const BADGES = {
     id: 'admin',
     name: 'Administrator',
     description: 'Platform administrator',
-    icon: 'shield',
+    icon: Shield,
     color: '#ED4245',
     priority: 99,
   },
@@ -21,7 +47,7 @@ export const BADGES = {
     id: 'moderator',
     name: 'Moderator',
     description: 'Platform moderator',
-    icon: 'shield-half',
+    icon: ShieldAlert,
     color: '#FEE75C',
     priority: 98,
   },
@@ -31,7 +57,7 @@ export const BADGES = {
     id: 'partner',
     name: 'Partnered Server Owner',
     description: 'Owner of a partnered server',
-    icon: 'handshake',
+    icon: Handshake,
     color: '#5865F2',
     priority: 90,
   },
@@ -39,7 +65,7 @@ export const BADGES = {
     id: 'serika_plus',
     name: 'Serika+',
     description: 'Serika+ subscriber',
-    icon: 'sparkles',
+    icon: Sparkles,
     color: '#F47FFF',
     priority: 85,
   },
@@ -47,7 +73,7 @@ export const BADGES = {
     id: 'early_supporter',
     name: 'Early Supporter',
     description: 'Supported Serika in its early days',
-    icon: 'heart',
+    icon: Heart,
     color: '#EB459E',
     priority: 80,
   },
@@ -57,7 +83,7 @@ export const BADGES = {
     id: 'verified_bot_developer',
     name: 'Verified Bot Developer',
     description: 'Developer of a verified bot',
-    icon: 'bot',
+    icon: Bot,
     color: '#57F287',
     priority: 70,
   },
@@ -65,7 +91,7 @@ export const BADGES = {
     id: 'bug_hunter',
     name: 'Bug Hunter',
     description: 'Found and reported critical bugs',
-    icon: 'bug',
+    icon: Bug,
     color: '#57F287',
     priority: 65,
   },
@@ -73,7 +99,7 @@ export const BADGES = {
     id: 'bug_hunter_gold',
     name: 'Bug Hunter (Gold)',
     description: 'Elite bug hunter',
-    icon: 'bug',
+    icon: Bug,
     color: '#FFD700',
     priority: 66,
   },
@@ -83,7 +109,7 @@ export const BADGES = {
     id: 'server_owner',
     name: 'Server Owner',
     description: 'Owns at least one server',
-    icon: 'crown',
+    icon: Crown,
     color: '#FFD700',
     priority: 50,
   },
@@ -91,7 +117,7 @@ export const BADGES = {
     id: 'active_developer',
     name: 'Active Developer',
     description: 'Active application developer',
-    icon: 'code',
+    icon: Code,
     color: '#23A55A',
     priority: 55,
   },
@@ -101,7 +127,7 @@ export const BADGES = {
     id: 'hypesquad_bravery',
     name: 'HypeSquad Bravery',
     description: 'Member of HypeSquad Bravery',
-    icon: 'zap',
+    icon: Zap,
     color: '#9C84EF',
     priority: 40,
   },
@@ -109,7 +135,7 @@ export const BADGES = {
     id: 'hypesquad_brilliance',
     name: 'HypeSquad Brilliance',
     description: 'Member of HypeSquad Brilliance',
-    icon: 'flame',
+    icon: Flame,
     color: '#F47B67',
     priority: 40,
   },
@@ -117,17 +143,16 @@ export const BADGES = {
     id: 'hypesquad_balance',
     name: 'HypeSquad Balance',
     description: 'Member of HypeSquad Balance',
-    icon: 'scale',
+    icon: Scale,
     color: '#45DDC0',
     priority: 40,
   },
-} as const;
+};
 
 // BadgeKey is the uppercase key like 'STAFF'
 export type BadgeKey = keyof typeof BADGES;
 // BadgeId is the lowercase id like 'staff'
-export type BadgeId = typeof BADGES[BadgeKey]['id'];
-export type Badge = typeof BADGES[BadgeKey];
+export type BadgeId = Badge['id'];
 
 export const getBadgesByPriority = (badgeIds: BadgeId[]): Badge[] => {
   const badgeMap = Object.values(BADGES).reduce((acc, badge) => {

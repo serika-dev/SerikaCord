@@ -181,16 +181,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   return (
     <div className="flex-1 flex flex-col bg-[#0a0a0a] min-w-0">
       {/* Channel Header */}
-      <div className="h-12 px-4 flex items-center justify-between border-b border-[#1a1a1a] flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <Hash className="w-6 h-6 text-[#555555] flex-shrink-0" />
-          <span className="font-semibold text-white truncate">{currentChannel.name}</span>
+      <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] flex-shrink-0">
+        <div className="flex items-center gap-2 min-w-0 ml-10 md:ml-0">
+          <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[#555555] flex-shrink-0" />
+          <span className="font-semibold text-white truncate text-sm sm:text-base">{currentChannel.name}</span>
         </div>
-        <div className="flex items-center gap-4 text-[#888888]">
-          <button className="hover:text-white transition-colors">
+        <div className="flex items-center gap-2 sm:gap-4 text-[#888888]">
+          <button className="hover:text-white transition-colors hidden sm:block">
             <Bell className="w-5 h-5" />
           </button>
-          <button className="hover:text-white transition-colors">
+          <button className="hover:text-white transition-colors hidden sm:block">
             <Pin className="w-5 h-5" />
           </button>
           <button
@@ -202,8 +202,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           >
             <Users className="w-5 h-5" />
           </button>
-          <div className="h-6 w-px bg-[#222222]" />
-          <div className="relative">
+          <div className="h-6 w-px bg-[#222222] hidden md:block" />
+          <div className="relative hidden md:block">
             <input
               type="text"
               placeholder="Search"
@@ -211,10 +211,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             />
             <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
           </div>
-          <button className="hover:text-white transition-colors">
+          <button className="hover:text-white transition-colors hidden sm:block">
             <Inbox className="w-5 h-5" />
           </button>
-          <button className="hover:text-white transition-colors">
+          <button className="hover:text-white transition-colors hidden sm:block">
             <HelpCircle className="w-5 h-5" />
           </button>
         </div>
@@ -310,10 +310,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       </ScrollArea>
 
       {/* Message Input */}
-      <div className="px-4 pb-6 flex-shrink-0">
+      <div className="px-2 sm:px-4 pb-4 sm:pb-6 flex-shrink-0">
         <div className="relative bg-[#111111] rounded-lg border border-[#1a1a1a]">
-          <button className="absolute left-4 top-1/2 -translate-y-1/2 text-[#888888] hover:text-white transition-colors">
-            <PlusCircle className="w-6 h-6" />
+          <button className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-[#888888] hover:text-white transition-colors">
+            <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
           </button>
           <Textarea
             ref={textareaRef}
@@ -321,25 +321,25 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
             placeholder={`Message #${currentChannel.name}`}
-            className="w-full min-h-[44px] max-h-[300px] py-2.5 pl-14 pr-36 bg-transparent border-none text-white placeholder:text-[#555555] resize-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            className="w-full min-h-[44px] max-h-[300px] py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent border-none text-white placeholder:text-[#555555] resize-none focus-visible:ring-0 focus-visible:ring-offset-0 text-sm sm:text-base"
             rows={1}
           />
-          <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-4 text-[#888888]">
-            <button className="hover:text-white transition-colors">
+          <div className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-4 text-[#888888]">
+            <button className="hover:text-white transition-colors hidden sm:block">
               <Gift className="w-6 h-6" />
             </button>
-            <button className="hover:text-white transition-colors">
+            <button className="hover:text-white transition-colors hidden sm:block">
               <Sticker className="w-6 h-6" />
             </button>
             <button className="hover:text-white transition-colors">
-              <Smile className="w-6 h-6" />
+              <Smile className="w-5 sm:w-6 h-5 sm:h-6" />
             </button>
             {newMessage.trim() && (
               <button
                 onClick={handleSendMessage}
                 className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors"
               >
-                <SendHorizontal className="w-6 h-6" />
+                <SendHorizontal className="w-5 sm:w-6 h-5 sm:h-6" />
               </button>
             )}
           </div>

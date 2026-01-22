@@ -2,6 +2,13 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
+export type BadgeId = 
+  | 'staff' | 'admin' | 'moderator' 
+  | 'partner' | 'serika_plus' | 'early_supporter'
+  | 'verified_bot_developer' | 'bug_hunter' | 'bug_hunter_gold'
+  | 'server_owner' | 'active_developer'
+  | 'hypesquad_bravery' | 'hypesquad_brilliance' | 'hypesquad_balance';
+
 interface User {
   id: string;
   username: string;
@@ -10,8 +17,14 @@ interface User {
   avatar?: string;
   banner?: string;
   bio?: string;
+  pronouns?: string;
   status: "online" | "idle" | "dnd" | "offline";
   customStatus?: string;
+  isPremium?: boolean;
+  premiumSince?: string;
+  premiumTier?: 'monthly' | 'yearly' | 'lifetime';
+  badges?: BadgeId[];
+  createdAt?: string;
 }
 
 interface AuthContextType {

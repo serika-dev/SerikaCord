@@ -80,15 +80,29 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createServer = async (name: string, icon?: File): Promise<Server> => {
-    const formData = new FormData();
-    formData.append("name", name);
+    let iconUrl: string | undefined;
+    
+    // Upload icon first if provided
     if (icon) {
-      formData.append("icon", icon);
+      const formData = new FormData();
+      formData.append("file", icon);
+      formData.append("type", "server-icon");
+      
+      const uploadResponse = await fetch("/api/uploads/icon", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (uploadResponse.ok) {
+        const uploadData = await uploadResponse.json();
+        iconUrl = uploadData.url;
+      }
     }
 
     const response = await fetch("/api/servers", {
       method: "POST",
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, icon: iconUrl }),
     });
 
     if (!response.ok) {
@@ -96,7 +110,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       throw new Error(data.error || "Failed to create server");
     }
 
-    const server = await response.json();
+    const data = await response.json();
+    const server = data.server || data;
     setServers((prev) => [...prev, server]);
     return server;
   };

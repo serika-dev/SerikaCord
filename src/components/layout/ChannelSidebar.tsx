@@ -24,14 +24,35 @@ import {
   Shield,
   LogOut,
   Mic,
+  MicOff,
   Headphones,
-  Cog,
+  HeadphoneOff,
   ChevronRight,
   Lock,
   Clock,
+  Users,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { UserProfilePopup } from "@/components/user/UserProfilePopup";
+
+interface DMChannel {
+  id: string;
+  type: string;
+  recipients: {
+    id: string;
+    username: string;
+    displayName: string;
+    avatar?: string;
+    status: string;
+    isPremium?: boolean;
+  }[];
+  lastMessageId?: string;
+  updatedAt?: string;
+}
 
 interface ChannelSidebarProps {
   onInvitePeople?: () => void;
@@ -71,6 +92,8 @@ export function ChannelSidebar({
   
   // State for collapsed categories
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
+  const pathname = usePathname();
   
   const toggleCategory = (categoryId: string) => {
     setCollapsedCategories(prev => {
@@ -84,31 +107,122 @@ export function ChannelSidebar({
     });
   };
 
+  // Fetch DM channels when no server is selected
+  const fetchDMChannels = useCallback(async () => {
+    try {
+      const response = await fetch("/api/dms");
+      if (response.ok) {
+        const data = await response.json();
+        setDmChannels(data.channels || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch DM channels:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!currentServer) {
+      fetchDMChannels();
+    }
+  }, [currentServer, fetchDMChannels]);
+
+  const statusColors: Record<string, string> = {
+    online: "#8B5CF6",
+    idle: "#A78BFA",
+    dnd: "#EF4444",
+    offline: "#555555",
+  };
+
   if (!currentServer) {
     return (
       <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a]">
         {/* DM Header */}
         <div className="h-12 px-4 flex items-center border-b border-[#1a1a1a]">
-          <button className="w-full h-7 px-2 rounded bg-[#111111] text-[#666666] text-sm text-left">
+          <button className="w-full h-7 px-2 rounded bg-[#111111] text-[#666666] text-sm text-left hover:bg-[#1a1a1a] transition-colors">
             Find or start a conversation
           </button>
         </div>
 
+        {/* Navigation */}
+        <div className="px-2 pt-3 pb-1">
+          <Link 
+            href="/channels/me"
+            className={cn(
+              "flex items-center gap-3 px-2 py-2 rounded-md transition-colors",
+              pathname === "/channels/me"
+                ? "bg-[#8B5CF6]/10 text-white"
+                : "text-[#888888] hover:bg-[#111111] hover:text-white"
+            )}
+          >
+            <Users className="w-5 h-5" />
+            <span className="font-medium">Friends</span>
+          </Link>
+        </div>
+
         {/* DM List */}
         <ScrollArea className="flex-1">
-          <div className="px-2 py-4">
+          <div className="px-2 py-2">
             <div className="px-2 mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-[#666666]">
                 Direct Messages
               </span>
-              <button className="text-[#888888] hover:text-white">
+              <button className="text-[#888888] hover:text-white transition-colors">
                 <PlusCircle className="w-4 h-4" />
               </button>
             </div>
-            {/* DM items would go here */}
-            <div className="text-center text-[#666666] text-sm py-8">
-              No direct messages yet
-            </div>
+            
+            {dmChannels.length > 0 ? (
+              <div className="space-y-0.5">
+                {dmChannels.map((channel) => {
+                  const recipient = channel.recipients[0];
+                  if (!recipient) return null;
+                  const isActive = pathname === `/dm/${recipient.id}`;
+                  
+                  return (
+                    <Link
+                      key={channel.id}
+                      href={`/dm/${recipient.id}`}
+                      className={cn(
+                        "group flex items-center gap-3 px-2 py-1.5 rounded-md transition-colors",
+                        isActive
+                          ? "bg-[#8B5CF6]/10 text-white"
+                          : "text-[#888888] hover:bg-[#111111] hover:text-white"
+                      )}
+                    >
+                      <div className="relative flex-shrink-0">
+                        <Avatar className="w-8 h-8">
+                          <AvatarImage src={recipient.avatar} />
+                          <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                            {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div
+                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0a0a0a]"
+                          style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
+                        />
+                      </div>
+                      <span className="flex-1 truncate text-sm">
+                        {recipient.displayName || recipient.username}
+                      </span>
+                      <button 
+                        className="p-1 opacity-0 group-hover:opacity-100 hover:text-white transition-opacity"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // Close DM functionality would go here
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center text-[#666666] text-sm py-8">
+                No direct messages yet
+              </div>
+            )}
           </div>
         </ScrollArea>
 
@@ -323,27 +437,51 @@ interface UserPanelProps {
 }
 
 function UserPanel({ user }: UserPanelProps) {
+  const [isMuted, setIsMuted] = useState(false);
+  const [isDeafened, setIsDeafened] = useState(false);
+
+  const handleMuteToggle = () => {
+    setIsMuted(!isMuted);
+    // TODO: Implement actual mute functionality
+  };
+
+  const handleDeafenToggle = () => {
+    setIsDeafened(!isDeafened);
+    if (!isDeafened) {
+      setIsMuted(true); // Deafening also mutes
+    }
+    // TODO: Implement actual deafen functionality
+  };
+
+  const handleSettingsClick = () => {
+    // Open user settings - for now we'll use an alert, but this should open a modal
+    window.dispatchEvent(new CustomEvent('openUserSettings'));
+  };
+
   return (
     <div className="h-[52px] px-2 flex items-center bg-[#0a0a0a] border-t border-[#1a1a1a]">
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <div className="relative">
-          <Avatar className="w-8 h-8">
-            <AvatarImage src={user?.avatar} alt={user?.displayName} />
-            <AvatarFallback className="bg-[#8B5CF6] text-white text-sm">
-              {user?.displayName?.charAt(0).toUpperCase() || "?"}
-            </AvatarFallback>
-          </Avatar>
-          <div
-            className={cn(
-              "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[#0a0a0a]",
-              user?.status === "online" && "bg-[#8B5CF6]",
-              user?.status === "idle" && "bg-[#A78BFA]",
-              user?.status === "dnd" && "bg-red-500",
-              (!user?.status || user?.status === "offline") && "bg-[#555555]"
-            )}
-          />
+      <UserProfilePopup onOpenSettings={handleSettingsClick}>
+        <button 
+          className="flex items-center gap-2 flex-1 min-w-0 p-1 rounded hover:bg-[#111111] transition-colors"
+        >
+          <div className="relative">
+            <Avatar className="w-8 h-8">
+              <AvatarImage src={user?.avatar} alt={user?.displayName} />
+              <AvatarFallback className="bg-[#8B5CF6] text-white text-sm">
+                {user?.displayName?.charAt(0).toUpperCase() || "?"}
+              </AvatarFallback>
+            </Avatar>
+            <div
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[#0a0a0a]",
+                user?.status === "online" && "bg-[#8B5CF6]",
+                user?.status === "idle" && "bg-[#A78BFA]",
+                user?.status === "dnd" && "bg-red-500",
+                (!user?.status || user?.status === "offline") && "bg-[#555555]"
+              )}
+            />
         </div>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 text-left">
           <div className="text-sm font-medium text-white truncate">
             {user?.displayName || "Unknown"}
           </div>
@@ -351,16 +489,35 @@ function UserPanel({ user }: UserPanelProps) {
             {user?.username || "unknown"}
           </div>
         </div>
-      </div>
-      <div className="flex items-center gap-1">
-        <button className="p-1.5 rounded hover:bg-[#111111] text-[#888888]">
-          <Mic className="w-5 h-5" />
+      </button>
+      </UserProfilePopup>
+      <div className="flex items-center gap-0.5">
+        <button 
+          onClick={handleMuteToggle}
+          className={cn(
+            "p-1.5 rounded hover:bg-[#111111] transition-colors",
+            isMuted ? "text-red-500" : "text-[#888888] hover:text-white"
+          )}
+          title={isMuted ? "Unmute" : "Mute"}
+        >
+          {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
-        <button className="p-1.5 rounded hover:bg-[#111111] text-[#888888]">
-          <Headphones className="w-5 h-5" />
+        <button 
+          onClick={handleDeafenToggle}
+          className={cn(
+            "p-1.5 rounded hover:bg-[#111111] transition-colors",
+            isDeafened ? "text-red-500" : "text-[#888888] hover:text-white"
+          )}
+          title={isDeafened ? "Undeafen" : "Deafen"}
+        >
+          {isDeafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
         </button>
-        <button className="p-1.5 rounded hover:bg-[#111111] text-[#888888]">
-          <Cog className="w-5 h-5" />
+        <button 
+          onClick={handleSettingsClick}
+          className="p-1.5 rounded hover:bg-[#111111] text-[#888888] hover:text-white transition-colors"
+          title="User Settings"
+        >
+          <Settings className="w-5 h-5" />
         </button>
       </div>
     </div>

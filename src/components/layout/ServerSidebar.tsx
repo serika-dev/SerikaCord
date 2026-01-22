@@ -5,7 +5,7 @@ import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Compass, Download } from "lucide-react";
+import { Plus, Compass, Download, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ServerSidebarProps {
@@ -23,7 +23,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
 
   const handleHomeClick = () => {
     setCurrentServer(null);
-    router.push("/channels/@me");
+    router.push("/channels/me");
   };
 
   return (
@@ -39,13 +39,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                 !currentServer && "rounded-[16px] bg-[#8B5CF6]"
               )}
             >
-              <svg
-                className="w-7 h-7 text-[#888888] group-hover:text-white"
-                viewBox="0 0 28 20"
-                fill="currentColor"
-              >
-                <path d="M23.0212 1.67671C21.3107 0.879656 19.5079 0.318797 17.6584 0C17.4062 0.461742 17.1749 0.934541 16.9708 1.4184C15.003 1.12145 12.9974 1.12145 11.0283 1.4184C10.819 0.934541 10.589 0.461744 10.3368 0.00546311C8.48074 0.324393 6.## 0.885118 4.## 1.68231C0.## 7.77919 -0.## 13.## 0.## 17.##C2.## 18.## 4.## 19.## 6.## 20C7.## 18.## 8.## 17.## 8.## 16.##C7.## 16.## 6.## 16.## 5.## 15.##C5.## 15.## 5.## 15.## 5.## 15.##C9.## 17.## 14.## 17.## 18.## 15.##C18.## 15.## 18.## 15.## 18.## 15.##C17.## 16.## 16.## 16.## 15.## 16.##C16.## 17.## 16.## 18.## 17.## 20C19.## 19.## 21.## 18.## 23.## 17.##C24.## 13.## 23.## 7.## 23.## 1.##Z" />
-              </svg>
+              <MessageSquare className="w-7 h-7 text-[#888888] group-hover:text-white transition-colors" />
               {/* Pill indicator */}
               <div
                 className={cn(

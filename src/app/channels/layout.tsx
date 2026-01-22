@@ -8,8 +8,10 @@ import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
 import { CreateChannelDialog } from "@/components/dialogs/CreateChannelDialog";
-import { Loader2, MessageSquare } from "lucide-react";
+import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
+import { Loader2, MessageSquare, Menu, X } from "lucide-react";
 import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -81,19 +83,65 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [showUserSettings, setShowUserSettings] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Listen for custom events from UserPanel
+  useEffect(() => {
+    const handleOpenSettings = () => setShowUserSettings(true);
+    window.addEventListener('openUserSettings', handleOpenSettings);
+    return () => window.removeEventListener('openUserSettings', handleOpenSettings);
+  }, []);
+
+  // Close mobile menu when navigating
+  useEffect(() => {
+    const handleRouteChange = () => setMobileMenuOpen(false);
+    window.addEventListener('popstate', handleRouteChange);
+    return () => window.removeEventListener('popstate', handleRouteChange);
+  }, []);
 
   return (
     <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-      {/* Server Sidebar */}
-      <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
+      {/* Mobile Menu Toggle */}
+      <button
+        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+        className="fixed top-3 left-3 z-50 p-2 rounded-lg bg-[#111111] border border-[#222222] md:hidden"
+      >
+        {mobileMenuOpen ? (
+          <X className="w-5 h-5 text-white" />
+        ) : (
+          <Menu className="w-5 h-5 text-white" />
+        )}
+      </button>
 
-      {/* Channel Sidebar */}
-      <ChannelSidebar
-        onCreateChannel={() => setShowCreateChannel(true)}
-      />
+      {/* Mobile Overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Server Sidebar - Hidden on mobile unless menu open */}
+      <div className={cn(
+        "fixed md:relative z-40 h-full transition-transform duration-200 md:translate-x-0",
+        mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
+      </div>
+
+      {/* Channel Sidebar - Hidden on mobile unless menu open */}
+      <div className={cn(
+        "fixed md:relative z-40 h-full transition-transform duration-200 md:translate-x-0",
+        mobileMenuOpen ? "translate-x-[72px]" : "-translate-x-full"
+      )}>
+        <ChannelSidebar
+          onCreateChannel={() => setShowCreateChannel(true)}
+        />
+      </div>
 
       {/* Main Content */}
-      <main className="flex-1 flex min-w-0">{children}</main>
+      <main className="flex-1 flex min-w-0 pt-14 md:pt-0">{children}</main>
 
       {/* Dialogs */}
       <CreateServerDialog
@@ -103,6 +151,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       <CreateChannelDialog
         open={showCreateChannel}
         onOpenChange={setShowCreateChannel}
+      />
+      <UserSettingsDialog
+        open={showUserSettings}
+        onOpenChange={setShowUserSettings}
       />
     </div>
   );
