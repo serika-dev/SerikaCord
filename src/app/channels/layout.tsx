@@ -1,14 +1,22 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { ServerProvider } from "@/contexts/ServerContext";
+import { ServerProvider, useServer } from "@/contexts/ServerContext";
 import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
 import { CreateChannelDialog } from "@/components/dialogs/CreateChannelDialog";
 import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
+import { 
+  BottomNavigation, 
+  MobileServerList, 
+  MobileServerView,
+  MobileMessagesView,
+  MobileNotificationsView,
+  MobileProfileView,
+} from "@/components/mobile";
 import { Loader2, MessageSquare, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -85,6 +93,9 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<"servers" | "messages" | "notifications" | "profile">("servers");
+  const pathname = usePathname();
+  const { currentServer } = useServer();
 
   // Listen for custom events from UserPanel
   useEffect(() => {
@@ -110,42 +121,75 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  // Update mobile view based on pathname
+  useEffect(() => {
+    if (pathname?.includes("/messages")) {
+      setMobileView("messages");
+    } else if (pathname?.includes("/notifications")) {
+      setMobileView("notifications");
+    } else if (pathname?.includes("/profile")) {
+      setMobileView("profile");
+    } else {
+      setMobileView("servers");
+    }
+  }, [pathname]);
+
+  // Mobile Layout
+  if (isMobile) {
+    return (
+      <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
+        {/* Mobile Server List (left edge) */}
+        <MobileServerList 
+          onCreateServer={() => setShowCreateServer(true)}
+        />
+
+        {/* Mobile Content Area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {mobileView === "servers" && currentServer ? (
+            <MobileServerView />
+          ) : mobileView === "messages" ? (
+            <MobileMessagesView />
+          ) : mobileView === "notifications" ? (
+            <MobileNotificationsView />
+          ) : mobileView === "profile" ? (
+            <MobileProfileView />
+          ) : (
+            // Show channel content or DMs when in servers view without a selected server
+            <main className="flex-1 flex min-w-0 pb-16">{children}</main>
+          )}
+        </div>
+
+        {/* Bottom Navigation */}
+        <BottomNavigation />
+
+        {/* Dialogs */}
+        <CreateServerDialog
+          open={showCreateServer}
+          onOpenChange={setShowCreateServer}
+        />
+        <CreateChannelDialog
+          open={showCreateChannel}
+          onOpenChange={setShowCreateChannel}
+        />
+        <UserSettingsDialog
+          open={showUserSettings}
+          onOpenChange={setShowUserSettings}
+        />
+      </div>
+    );
+  }
+
+  // Desktop Layout
   return (
     <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-      {/* Mobile Menu Toggle */}
-      <button
-        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-        className="fixed top-3 left-3 z-50 p-2 rounded-lg bg-[#111111] border border-[#222222] md:hidden"
-        aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
-      >
-        {mobileMenuOpen ? (
-          <X className="w-5 h-5 text-white" />
-        ) : (
-          <Menu className="w-5 h-5 text-white" />
-        )}
-      </button>
-
-      {/* Mobile Overlay */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-
       {/* Combined Sidebars */}
-      <div 
-        className={cn(
-          "fixed md:relative z-40 h-full flex transition-transform duration-200 md:translate-x-0",
-          mobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        )}
-      >
+      <div className="flex">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
         <ChannelSidebar onCreateChannel={() => setShowCreateChannel(true)} />
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 flex min-w-0 pt-14 md:pt-0">{children}</main>
+      <main className="flex-1 flex min-w-0">{children}</main>
 
       {/* Dialogs */}
       <CreateServerDialog

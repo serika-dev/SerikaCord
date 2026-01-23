@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
+import { useEffect, useState } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
@@ -12,9 +13,28 @@ interface ServerSidebarProps {
   onCreateServer: () => void;
 }
 
+// Check if running in native app (Electron or Capacitor)
+function isNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  // Check for Electron
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((window as any).electron) return true;
+  // Check for Capacitor
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((window as any).Capacitor?.isNativePlatform?.()) return true;
+  // Check for standalone mode (PWA)
+  if (window.matchMedia('(display-mode: standalone)').matches) return true;
+  return false;
+}
+
 export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
   const router = useRouter();
   const { servers, currentServer, setCurrentServer } = useServer();
+  const [isNative, setIsNative] = useState(false);
+
+  useEffect(() => {
+    setIsNative(isNativeApp());
+  }, []);
 
   const handleServerClick = (server: typeof servers[0]) => {
     setCurrentServer(server);
@@ -130,17 +150,22 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
           </TooltipContent>
         </Tooltip>
 
-        {/* Download Apps */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[#111111] transition-all duration-200 hover:rounded-[16px] hover:bg-[#8B5CF6] group">
-              <Download className="w-6 h-6 text-[#8B5CF6] group-hover:text-white transition-colors" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" className="bg-[#111111] text-white border border-[#222222]">
-            Download Apps
-          </TooltipContent>
-        </Tooltip>
+        {/* Download Apps - Hidden in native apps */}
+        {!isNative && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button 
+                onClick={() => router.push("/download")}
+                className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[#111111] transition-all duration-200 hover:rounded-[16px] hover:bg-[#8B5CF6] group"
+              >
+                <Download className="w-6 h-6 text-[#8B5CF6] group-hover:text-white transition-colors" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="bg-[#111111] text-white border border-[#222222]">
+              Download Apps
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </TooltipProvider>
   );
