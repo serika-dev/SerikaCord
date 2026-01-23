@@ -1,0 +1,45 @@
+{
+  "name": "serikacord-mobile",
+  "version": "1.0.0",
+  "description": "SerikaCord mobile app",
+  "main": "index.js",
+  "scripts": {
+    "build:web": "cd .. && npm run build && cp -r out/* mobile/www/",
+    "cap:init": "npx cap init SerikaCord dev.serika.serikacord --web-dir www",
+    "cap:add:ios": "npx cap add ios",
+    "cap:add:android": "npx cap add android",
+    "cap:sync": "npx cap sync",
+    "cap:open:ios": "npx cap open ios",
+    "cap:open:android": "npx cap open android",
+    "ios": "npx cap run ios",
+    "android": "npx cap run android",
+    "build:ios": "npx cap build ios",
+    "build:android": "npx cap build android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^5.6.0",
+    "@capacitor/app": "^5.0.6",
+    "@capacitor/browser": "^5.2.0",
+    "@capacitor/core": "^5.6.0",
+    "@capacitor/haptics": "^5.0.6",
+    "@capacitor/ios": "^5.6.0",
+    "@capacitor/keyboard": "^5.0.6",
+    "@capacitor/local-notifications": "^5.0.6",
+    "@capacitor/push-notifications": "^5.1.0",
+    "@capacitor/share": "^5.0.6",
+    "@capacitor/splash-screen": "^5.0.6",
+    "@capacitor/status-bar": "^5.0.6",
+    "@capacitor/toast": "^5.0.6"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^5.6.0"
+  },
+  "keywords": [
+    "serikacord",
+    "discord",
+    "chat",
+    "mobile"
+  ],
+  "author": "Serika Dev",
+  "license": "MIT"
+}

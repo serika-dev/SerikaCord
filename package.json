@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "desktop": "cd desktop && npm start",
+    "desktop:dev": "cd desktop && npm run dev",
+    "desktop:build": "cd desktop && npm run build",
+    "mobile:ios": "cd mobile && npm run ios",
+    "mobile:android": "cd mobile && npm run android",
+    "mobile:sync": "cd mobile && npm run cap:sync"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.972.0",
