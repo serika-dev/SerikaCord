@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { BadgeList, ServerBadge } from "@/components/ui/badges";
+import { BadgeList, ServerBadge, type BadgeId } from "@/components/ui/badges";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -28,7 +28,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { BadgeId } from "@/lib/constants/badges";
 
 interface UserProfileProps {
   user: {

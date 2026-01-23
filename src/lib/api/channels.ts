@@ -124,11 +124,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Publish update event
     const publisher = getPublisher();
-    await publisher.publish('channel:update', JSON.stringify({
-      channelId: channel._id,
-      serverId: channel.serverId,
-      updates: body,
-    }));
+    if (publisher) {
+      await publisher.publish('channel:update', JSON.stringify({
+        channelId: channel._id,
+        serverId: channel.serverId,
+        updates: body,
+      }));
+    }
 
     return { success: true, channel };
   }, {
@@ -187,10 +189,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Publish delete event
     const publisher = getPublisher();
-    await publisher.publish('channel:delete', JSON.stringify({
-      channelId: params.channelId,
-      serverId: channel.serverId,
-    }));
+    if (publisher) {
+      await publisher.publish('channel:delete', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+      }));
+    }
 
     return { success: true };
   }, {
@@ -385,11 +389,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Publish message event
     const publisher = getPublisher();
-    await publisher.publish('message:create', JSON.stringify({
-      channelId: params.channelId,
-      serverId: channel.serverId,
-      message: message.toJSON(),
-    }));
+    if (publisher) {
+      await publisher.publish('message:create', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+        message: message.toJSON(),
+      }));
+    }
 
     return { message };
   }, {
@@ -463,13 +469,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Publish update event
     const publisher = getPublisher();
-    await publisher.publish('message:update', JSON.stringify({
-      channelId: params.channelId,
-      serverId: channel.serverId,
-      messageId: params.messageId,
-      content: message.content,
-      editedTimestamp: message.editedTimestamp,
-    }));
+    if (publisher) {
+      await publisher.publish('message:update', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+        messageId: params.messageId,
+        content: message.content,
+        editedTimestamp: message.editedTimestamp,
+      }));
+    }
 
     return { success: true, message };
   }, {
@@ -531,11 +539,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Publish delete event
     const publisher = getPublisher();
-    await publisher.publish('message:delete', JSON.stringify({
-      channelId: params.channelId,
-      serverId: channel.serverId,
-      messageId: params.messageId,
-    }));
+    if (publisher) {
+      await publisher.publish('message:delete', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+        messageId: params.messageId,
+      }));
+    }
 
     return { success: true };
   }, {
@@ -567,12 +577,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Publish typing event
     const publisher = getPublisher();
-    await publisher.publish('typing:start', JSON.stringify({
-      channelId: params.channelId,
-      serverId: channel.serverId,
-      userId: user._id,
-      username: user.username,
-    }));
+    if (publisher) {
+      await publisher.publish('typing:start', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+        userId: user._id,
+        username: user.username,
+      }));
+    }
 
     return { success: true };
   }, {
