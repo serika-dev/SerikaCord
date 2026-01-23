@@ -501,6 +501,266 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       maxAge: t.Optional(t.Number({ minimum: 0, maximum: 604800 })),
       temporary: t.Optional(t.Boolean()),
     }),
+  })
+  // Get server channels
+  .get('/:serverId/channels', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    // Check membership
+    const membership = await ServerMember.findOne({
+      serverId: params.serverId,
+      userId: user._id,
+    });
+
+    if (!membership) {
+      set.status = 403;
+      return { error: 'You are not a member of this server' };
+    }
+
+    const channels = await Channel.find({ serverId: params.serverId }).sort({ position: 1 });
+    return channels;
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Get server roles
+  .get('/:serverId/roles', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    // Check membership
+    const membership = await ServerMember.findOne({
+      serverId: params.serverId,
+      userId: user._id,
+    });
+
+    if (!membership) {
+      set.status = 403;
+      return { error: 'You are not a member of this server' };
+    }
+
+    const roles = await Role.find({ serverId: params.serverId }).sort({ position: -1 });
+    return { roles };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Get server invites
+  .get('/:serverId/invites', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Only owner can view all invites
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'You do not have permission to view invites' };
+    }
+
+    const invites = await Invite.find({ serverId: params.serverId })
+      .populate('inviterId', 'username displayName avatar')
+      .sort({ createdAt: -1 });
+
+    return { invites };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Delete invite
+  .delete('/:serverId/invites/:code', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Only owner can delete invites
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'You do not have permission to delete invites' };
+    }
+
+    await Invite.deleteOne({ code: params.code, serverId: params.serverId });
+    return { success: true };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      code: t.String(),
+    }),
+  })
+  // Get server bans
+  .get('/:serverId/bans', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Only owner can view bans
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'You do not have permission to view bans' };
+    }
+
+    // TODO: Implement ban model, for now return empty
+    return { bans: [] };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Unban user
+  .delete('/:serverId/bans/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Only owner can unban
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'You do not have permission to unban users' };
+    }
+
+    // TODO: Implement ban removal
+    return { success: true };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      userId: t.String(),
+    }),
+  })
+  // Join server by ID (for explore page)
+  .post('/:serverId/join', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Check if server is discoverable/public (for now, only allow official servers)
+    if (!server.isOfficial && !server.isVerified) {
+      set.status = 403;
+      return { error: 'This server is not discoverable. You need an invite to join.' };
+    }
+
+    // Check if already a member
+    const existingMembership = await ServerMember.findOne({
+      serverId: server._id,
+      userId: user._id,
+    });
+
+    if (existingMembership) {
+      set.status = 400;
+      return { error: 'Already a member of this server' };
+    }
+
+    // Check server limit
+    const serverCount = await ServerMember.countDocuments({ userId: user._id });
+    if (serverCount >= config.MAX_SERVERS_PER_USER) {
+      set.status = 400;
+      return { error: `You can only be in ${config.MAX_SERVERS_PER_USER} servers` };
+    }
+
+    // Get @everyone role
+    const everyoneRole = await Role.findOne({
+      serverId: server._id,
+      isDefault: true,
+    });
+
+    // Create membership
+    const membership = new ServerMember({
+      serverId: server._id,
+      userId: user._id,
+      roles: everyoneRole ? [everyoneRole._id] : [],
+    });
+
+    await membership.save();
+
+    // Update server member count
+    server.memberCount += 1;
+    await server.save();
+
+    return {
+      success: true,
+      server: {
+        id: server._id,
+        name: server.name,
+        icon: server.icon,
+      },
+    };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
   });
 
 // Invite routes

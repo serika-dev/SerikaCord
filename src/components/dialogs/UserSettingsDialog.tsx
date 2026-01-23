@@ -261,9 +261,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         </div>
 
         {/* Sidebar */}
-        <div className="hidden md:flex w-56 lg:w-64 bg-[#0a0a0a] flex-col border-r border-[#1a1a1a]">
+        <div className="hidden md:flex w-56 lg:w-64 bg-[#0a0a0a] flex-col border-r border-[#1a1a1a] h-full overflow-hidden">
           {/* User Header */}
-          <div className="p-4 border-b border-[#1a1a1a]">
+          <div className="p-4 border-b border-[#1a1a1a] flex-shrink-0">
             <div className="flex items-center gap-3">
               <Avatar className="w-10 h-10">
                 <AvatarImage src={user?.avatar} />
@@ -287,7 +287,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           </div>
 
           {/* Search */}
-          <div className="p-2">
+          <div className="p-2 flex-shrink-0">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555555]" />
               <Input
@@ -300,7 +300,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           </div>
 
           {/* Menu */}
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0">
             <div className="px-2 pb-4">
               {filteredSections.map((section, i) => (
                 <div key={i} className="mb-2">

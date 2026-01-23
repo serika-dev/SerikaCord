@@ -134,12 +134,15 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
     }
   }, [pathname]);
 
+  // Check if we're in a specific channel
+  const isInChannel = pathname?.match(/\/channels\/[^/]+\/[^/]+$/);
+
   // Mobile Layout
   if (isMobile) {
     return (
       <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
-        {/* Mobile Server List - Only show in servers view */}
-        {mobileView === "servers" && (
+        {/* Mobile Server List - Only show in servers view when not in a channel */}
+        {mobileView === "servers" && !isInChannel && (
           <MobileServerList 
             onCreateServer={() => setShowCreateServer(true)}
           />
@@ -147,7 +150,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
         {/* Mobile Content Area */}
         <div className="flex-1 flex flex-col min-w-0">
-          {mobileView === "servers" && currentServer ? (
+          {isInChannel ? (
+            // When in a specific channel, render the chat
+            <main className="flex-1 flex flex-col min-w-0 pb-16">{children}</main>
+          ) : mobileView === "servers" && currentServer ? (
             <MobileServerView />
           ) : mobileView === "messages" ? (
             <MobileMessagesView />

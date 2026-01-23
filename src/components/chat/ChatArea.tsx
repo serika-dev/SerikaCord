@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -19,6 +20,7 @@ import {
   Sticker,
   Smile,
   SendHorizontal,
+  ChevronLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -51,11 +53,21 @@ interface ChatAreaProps {
 export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const { currentChannel, currentServer } = useServer();
   const { user } = useAuth();
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Detect mobile
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   const fetchMessages = useCallback(async () => {
     if (!currentChannel) return;
@@ -182,7 +194,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     <div className="flex-1 flex flex-col bg-[#0a0a0a] min-w-0">
       {/* Channel Header */}
       <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0 ml-10 md:ml-0">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Mobile back button */}
+          {isMobile && (
+            <button
+              onClick={() => router.push(`/channels/${currentServer?.id}`)}
+              className="p-2 -ml-1 rounded-lg hover:bg-[#1a1a1a] transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5 text-[#888888]" />
+            </button>
+          )}
           <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[#555555] flex-shrink-0" />
           <span className="font-semibold text-white truncate text-sm sm:text-base">{currentChannel.name}</span>
         </div>
