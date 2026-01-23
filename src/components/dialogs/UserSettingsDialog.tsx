@@ -32,6 +32,11 @@ import {
   Volume2,
   Image,
   Plug,
+  ShieldCheck,
+  Users,
+  Settings,
+  Database,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getBadgesByPriority, type BadgeId } from "@/lib/constants/badges";
@@ -56,7 +61,11 @@ type SettingsTab =
   | "text-images"
   | "keybinds"
   | "language"
-  | "premium";
+  | "premium"
+  | "admin-users"
+  | "admin-servers"
+  | "admin-settings"
+  | "admin-logs";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -203,6 +212,23 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     },
   ];
 
+  // Add admin section if user has staff badge
+  const isStaff = user?.badges?.some((badge: string) => 
+    ['staff', 'admin', 'moderator', 'serikacord_developer'].includes(badge)
+  );
+
+  if (isStaff) {
+    menuSections.push({
+      title: "Admin",
+      items: [
+        { id: "admin-users" as SettingsTab, label: "User Management", icon: Users },
+        { id: "admin-servers" as SettingsTab, label: "Server Management", icon: Database },
+        { id: "admin-settings" as SettingsTab, label: "Platform Settings", icon: Settings },
+        { id: "admin-logs" as SettingsTab, label: "Activity Logs", icon: Activity },
+      ],
+    });
+  }
+
   // Filter menu items based on search
   const filteredSections = searchQuery
     ? menuSections.map(section => ({
@@ -296,9 +322,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-[#111111] relative flex flex-col">
-          <ScrollArea className="flex-1">
-            <div className="max-w-[740px] py-10 px-10 mx-auto">
+        <div className="flex-1 bg-[#111111] relative flex flex-col overflow-hidden">
+          <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
+            <div className="max-w-[740px] py-10 px-10 mx-auto pb-24">
               {/* Profiles Tab */}
               {activeTab === "profiles" && (
                 <div>
@@ -691,7 +717,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               )}
 
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 capitalize">
                     {activeTab.replace(/-/g, " ")}
@@ -702,6 +728,160 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <p className="text-[#b5bac1] text-sm max-w-md mx-auto">
                       This settings page is under development.
                     </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Panel - User Management */}
+              {activeTab === "admin-users" && isStaff && (
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                    <ShieldCheck className="w-6 h-6 text-[#8B5CF6]" />
+                    User Management
+                  </h2>
+                  <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                    <div className="flex gap-4 mb-4">
+                      <Input
+                        placeholder="Search users by email or username..."
+                        className="bg-[#111111] border-[#222222] text-white flex-1"
+                      />
+                      <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium">
+                        Search
+                      </button>
+                    </div>
+                    <p className="text-[#666666] text-sm">
+                      Search for users to view their profile, edit badges, or take moderation actions.
+                    </p>
+                  </div>
+                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                    <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Ban User</p>
+                        <p className="text-sm text-[#666666]">Permanently ban a user</p>
+                      </button>
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Edit Badges</p>
+                        <p className="text-sm text-[#666666]">Add or remove badges</p>
+                      </button>
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">View Reports</p>
+                        <p className="text-sm text-[#666666]">Review user reports</p>
+                      </button>
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Impersonate</p>
+                        <p className="text-sm text-[#666666]">Debug user issues</p>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Panel - Server Management */}
+              {activeTab === "admin-servers" && isStaff && (
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                    <Database className="w-6 h-6 text-[#8B5CF6]" />
+                    Server Management
+                  </h2>
+                  <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                    <div className="flex gap-4 mb-4">
+                      <Input
+                        placeholder="Search servers by name or ID..."
+                        className="bg-[#111111] border-[#222222] text-white flex-1"
+                      />
+                      <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium">
+                        Search
+                      </button>
+                    </div>
+                  </div>
+                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                    <h3 className="text-white font-semibold mb-3">Server Actions</h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Partner Server</p>
+                        <p className="text-sm text-[#666666]">Grant partner status</p>
+                      </button>
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Delete Server</p>
+                        <p className="text-sm text-[#666666]">Remove server permanently</p>
+                      </button>
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Toggle Discovery</p>
+                        <p className="text-sm text-[#666666]">Enable/disable discoverability</p>
+                      </button>
+                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                        <p className="text-white font-medium">Transfer Ownership</p>
+                        <p className="text-sm text-[#666666]">Change server owner</p>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Panel - Platform Settings */}
+              {activeTab === "admin-settings" && isStaff && (
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                    <Settings className="w-6 h-6 text-[#8B5CF6]" />
+                    Platform Settings
+                  </h2>
+                  <div className="space-y-4">
+                    <div className="bg-[#0a0a0a] rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-3">Maintenance Mode</h3>
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div>
+                          <p className="text-white">Enable Maintenance Mode</p>
+                          <p className="text-sm text-[#666666]">Restrict access to staff only</p>
+                        </div>
+                        <input type="checkbox" className="w-5 h-5 accent-[#8B5CF6]" />
+                      </label>
+                    </div>
+                    <div className="bg-[#0a0a0a] rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-3">Registration</h3>
+                      <label className="flex items-center justify-between cursor-pointer">
+                        <div>
+                          <p className="text-white">Allow New Registrations</p>
+                          <p className="text-sm text-[#666666]">Enable new user sign-ups</p>
+                        </div>
+                        <input type="checkbox" className="w-5 h-5 accent-[#8B5CF6]" defaultChecked />
+                      </label>
+                    </div>
+                    <div className="bg-[#0a0a0a] rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-3">Global Announcement</h3>
+                      <Textarea
+                        placeholder="Enter a global announcement to display to all users..."
+                        className="bg-[#111111] border-[#222222] text-white mb-3"
+                        rows={3}
+                      />
+                      <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium">
+                        Publish Announcement
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Panel - Activity Logs */}
+              {activeTab === "admin-logs" && isStaff && (
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                    <Activity className="w-6 h-6 text-[#8B5CF6]" />
+                    Activity Logs
+                  </h2>
+                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                    <div className="flex gap-2 mb-4">
+                      <button className="px-3 py-1.5 bg-[#8B5CF6] text-white rounded text-sm">All</button>
+                      <button className="px-3 py-1.5 bg-[#111111] text-white hover:bg-[#1a1a1a] rounded text-sm">Bans</button>
+                      <button className="px-3 py-1.5 bg-[#111111] text-white hover:bg-[#1a1a1a] rounded text-sm">Reports</button>
+                      <button className="px-3 py-1.5 bg-[#111111] text-white hover:bg-[#1a1a1a] rounded text-sm">Admin Actions</button>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="p-3 bg-[#111111] rounded-lg">
+                        <p className="text-white text-sm">No activity logs yet</p>
+                        <p className="text-[#666666] text-xs mt-1">Admin actions will appear here</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

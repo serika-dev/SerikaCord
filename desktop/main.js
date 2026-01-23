@@ -1,10 +1,16 @@
-const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, shell, Menu, Tray, nativeImage, ipcMain, Notification, dialog } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 
 // App URL - change this to your domain
 const APP_URL = 'https://waifu.ws';
+// Skip homepage and go directly to channels
+const APP_START_PATH = '/channels/me';
 const isDev = process.argv.includes('--dev');
+
+// Configure auto-updater
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
 
 let mainWindow = null;
 let tray = null;
@@ -48,12 +54,12 @@ function createWindow() {
     show: false, // Don't show until ready
   });
 
-  // Load the app
+  // Load the app - skip homepage, go directly to channels
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000');
+    mainWindow.loadURL(`http://localhost:3000${APP_START_PATH}`);
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadURL(APP_URL);
+    mainWindow.loadURL(`${APP_URL}${APP_START_PATH}`);
   }
 
   // Show window when ready
@@ -62,7 +68,7 @@ function createWindow() {
     
     // Check for updates (not in dev)
     if (!isDev) {
-      autoUpdater.checkForUpdatesAndNotify();
+      checkForUpdates();
     }
   });
 
@@ -255,20 +261,38 @@ function createTray() {
 }
 
 // Auto updater events
-autoUpdater.on('update-available', () => {
+autoUpdater.on('checking-for-update', () => {
+  console.log('Checking for updates...');
+});
+
+autoUpdater.on('update-available', (info) => {
+  console.log('Update available:', info.version);
   if (Notification.isSupported()) {
     new Notification({
       title: 'Update Available',
-      body: 'A new version of SerikaCord is available. Downloading...',
+      body: `Version ${info.version} is available. Downloading...`,
     }).show();
   }
 });
 
-autoUpdater.on('update-downloaded', () => {
+autoUpdater.on('update-not-available', () => {
+  console.log('No updates available');
+});
+
+autoUpdater.on('error', (err) => {
+  console.error('Auto-updater error:', err);
+});
+
+autoUpdater.on('download-progress', (progressObj) => {
+  console.log(`Download progress: ${progressObj.percent.toFixed(1)}%`);
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  console.log('Update downloaded:', info.version);
   if (Notification.isSupported()) {
     const notification = new Notification({
       title: 'Update Ready',
-      body: 'A new version has been downloaded. Restart to apply the update.',
+      body: `Version ${info.version} has been downloaded. Click to restart and install.`,
     });
     notification.on('click', () => {
       isQuitting = true;
@@ -276,7 +300,29 @@ autoUpdater.on('update-downloaded', () => {
     });
     notification.show();
   }
+  
+  // Also show a dialog
+  dialog.showMessageBox(mainWindow, {
+    type: 'info',
+    title: 'Update Ready',
+    message: `Version ${info.version} is ready to install`,
+    detail: 'A new version has been downloaded. Restart the application to apply the updates.',
+    buttons: ['Restart Now', 'Later'],
+    defaultId: 0,
+  }).then((result) => {
+    if (result.response === 0) {
+      isQuitting = true;
+      autoUpdater.quitAndInstall();
+    }
+  });
 });
+
+// Check for updates function
+function checkForUpdates() {
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error('Failed to check for updates:', err);
+  });
+}
 
 // App events
 app.whenReady().then(() => {

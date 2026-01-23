@@ -8,6 +8,7 @@ import mongoose from 'mongoose';
 
 // All available badges
 const ALL_BADGES = [
+  'serikacord_developer',
   'staff',
   'admin',
   'moderator',

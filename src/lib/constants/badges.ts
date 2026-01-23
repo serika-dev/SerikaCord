@@ -27,6 +27,14 @@ export interface Badge {
 
 export const BADGES: Record<string, Badge> = {
   // Staff Badges
+  SERIKACORD_DEVELOPER: {
+    id: 'serikacord_developer',
+    name: 'SerikaCord Developer',
+    description: 'Core developer of SerikaCord',
+    icon: Code,
+    color: '#e2b714',
+    priority: 150,
+  },
   STAFF: {
     id: 'staff',
     name: 'Serika Staff',

@@ -29,8 +29,12 @@
     "appId": "dev.serika.serikacord",
     "productName": "SerikaCord",
     "copyright": "Copyright © 2026 SerikaCord",
-    "generateUpdatesFilesForAllChannels": false,
-    "publish": null,
+    "publish": {
+      "provider": "github",
+      "owner": "serika-dev",
+      "repo": "SerikaCord",
+      "releaseType": "release"
+    },
     "directories": {
       "output": "dist",
       "buildResources": "resources"

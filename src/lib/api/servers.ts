@@ -96,24 +96,44 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await everyoneRole.save();
 
     // Create default channels
-    const generalCategory = new Channel({
+    const textCategory = new Channel({
       serverId: server._id,
       name: 'Text Channels',
       type: 'category',
       position: 0,
     });
 
-    await generalCategory.save();
+    await textCategory.save();
 
     const generalChannel = new Channel({
       serverId: server._id,
       name: 'general',
       type: 'text',
       position: 0,
-      parentId: generalCategory._id,
+      parentId: textCategory._id,
     });
 
     await generalChannel.save();
+
+    // Create voice category and channel
+    const voiceCategory = new Channel({
+      serverId: server._id,
+      name: 'Voice Channels',
+      type: 'category',
+      position: 1,
+    });
+
+    await voiceCategory.save();
+
+    const generalVoice = new Channel({
+      serverId: server._id,
+      name: 'General',
+      type: 'voice',
+      position: 0,
+      parentId: voiceCategory._id,
+    });
+
+    await generalVoice.save();
 
     // Set system channel
     server.systemChannelId = generalChannel._id;
@@ -132,7 +152,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       success: true,
       server: {
         ...server.toJSON(),
-        channels: [generalCategory, generalChannel],
+        channels: [textCategory, generalChannel, voiceCategory, generalVoice],
         roles: [everyoneRole],
       },
     };
@@ -140,6 +160,75 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     body: t.Object({
       name: t.String({ minLength: 2, maxLength: 100 }),
       icon: t.Optional(t.String()),
+    }),
+  })
+  // Create channel in server
+  .post('/:serverId/channels', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Check if owner or has manage channels permission
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'You do not have permission to create channels' };
+    }
+
+    const { name, type = 'text', parentId } = body;
+    const sanitizedName = sanitizeInput(name);
+
+    // If parentId provided, verify it's a valid category
+    if (parentId) {
+      const parentChannel = await Channel.findById(parentId);
+      if (!parentChannel || parentChannel.type !== 'category') {
+        set.status = 400;
+        return { error: 'Invalid parent category' };
+      }
+    }
+
+    // Get highest position in parent or server
+    const highestChannel = await Channel.findOne({
+      serverId: server._id,
+      parentId: parentId || null,
+    }).sort({ position: -1 });
+
+    const position = highestChannel ? highestChannel.position + 1 : 0;
+
+    const channel = new Channel({
+      serverId: server._id,
+      name: sanitizedName,
+      type,
+      position,
+      parentId: parentId || null,
+    });
+
+    await channel.save();
+
+    return {
+      success: true,
+      channel,
+    };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+    body: t.Object({
+      name: t.String({ minLength: 1, maxLength: 100 }),
+      type: t.Optional(t.Union([t.Literal('text'), t.Literal('voice'), t.Literal('announcement'), t.Literal('category')])),
+      parentId: t.Optional(t.String()),
     }),
   })
   // Get server details
