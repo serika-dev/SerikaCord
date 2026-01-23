@@ -1,6 +1,6 @@
 {
   "name": "serikacord-desktop",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "SerikaCord Desktop App",
   "main": "main.js",
   "author": "SerikaCord Team",
@@ -8,11 +8,11 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder",
-    "build:win": "electron-builder --win",
-    "build:mac": "electron-builder --mac",
-    "build:linux": "electron-builder --linux",
-    "build:all": "electron-builder -mwl"
+    "build": "electron-builder --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux --publish never",
+    "build:all": "electron-builder -mwl --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.1.7"
@@ -31,12 +31,10 @@
     },
     "files": [
       "main.js",
-      "preload.js",
-      "resources/**/*"
+      "preload.js"
     ],
     "mac": {
       "category": "public.app-category.social-networking",
-      "icon": "resources/icon.icns",
       "target": [
         {
           "target": "dmg",
@@ -51,11 +49,10 @@
       "gatekeeperAssess": false
     },
     "win": {
-      "icon": "resources/icon.ico",
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": ["x64"]
         },
         {
           "target": "portable",
@@ -64,12 +61,10 @@
       ]
     },
     "linux": {
-      "icon": "resources/icons",
       "category": "Network;Chat;InstantMessaging",
       "target": [
         "AppImage",
         "deb",
-        "rpm",
         "tar.gz"
       ],
       "maintainer": "SerikaCord Team"
@@ -77,9 +72,6 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "resources/icon.ico",
-      "uninstallerIcon": "resources/icon.ico",
-      "installerHeaderIcon": "resources/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
@@ -96,11 +88,6 @@
           "path": "/Applications"
         }
       ]
-    },
-    "publish": {
-      "provider": "github",
-      "owner": "serika-dev",
-      "repo": "SerikaCord"
     }
   }
 }
