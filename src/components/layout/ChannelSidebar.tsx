@@ -32,11 +32,16 @@ import {
   Clock,
   Users,
   X,
+  Edit2,
+  Trash2,
+  Copy,
+  Link as LinkIcon,
+  BellOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 
 interface DMChannel {
@@ -58,15 +63,91 @@ interface ChannelSidebarProps {
   onInvitePeople?: () => void;
   onServerSettings?: () => void;
   onCreateChannel?: () => void;
+  onCreateCategory?: () => void;
+  onLeaveServer?: () => void;
 }
 
 export function ChannelSidebar({
   onInvitePeople,
   onServerSettings,
   onCreateChannel,
+  onCreateCategory,
+  onLeaveServer,
 }: ChannelSidebarProps) {
-  const { currentServer, channels, currentChannel, setCurrentChannel } = useServer();
+  const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel } = useServer();
   const { user } = useAuth();
+  const router = useRouter();
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    channel: typeof channels[0];
+  } | null>(null);
+  const [editingChannel, setEditingChannel] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
+  const handleContextMenu = (e: React.MouseEvent, channel: typeof channels[0]) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, channel });
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClick = () => closeContextMenu();
+    if (contextMenu) {
+      window.addEventListener('click', handleClick);
+      return () => window.removeEventListener('click', handleClick);
+    }
+  }, [contextMenu]);
+
+  const handleEditChannel = () => {
+    if (contextMenu?.channel) {
+      setEditingChannel(contextMenu.channel.id);
+      setEditName(contextMenu.channel.name);
+      closeContextMenu();
+    }
+  };
+
+  const handleSaveEdit = async (channelId: string) => {
+    if (editName.trim()) {
+      try {
+        await updateChannel(channelId, { name: editName.trim() });
+      } catch (error) {
+        console.error("Failed to update channel:", error);
+      }
+    }
+    setEditingChannel(null);
+    setEditName("");
+  };
+
+  const handleDeleteChannel = async () => {
+    if (contextMenu?.channel && confirm(`Are you sure you want to delete #${contextMenu.channel.name}?`)) {
+      try {
+        await deleteChannel(contextMenu.channel.id);
+        closeContextMenu();
+      } catch (error) {
+        console.error("Failed to delete channel:", error);
+      }
+    }
+  };
+
+  const handleCopyChannelId = () => {
+    if (contextMenu?.channel) {
+      navigator.clipboard.writeText(contextMenu.channel.id);
+      closeContextMenu();
+    }
+  };
+
+  const handleCopyChannelLink = () => {
+    if (contextMenu?.channel && currentServer) {
+      const link = `${window.location.origin}/channels/${currentServer.id}/${contextMenu.channel.id}`;
+      navigator.clipboard.writeText(link);
+      closeContextMenu();
+    }
+  };
 
   const getChannelIcon = (type: string, isLocked?: boolean) => {
     if (isLocked) {
@@ -267,7 +348,10 @@ export function ChannelSidebar({
             <PlusCircle className="w-4 h-4 mr-2" />
             Create Channel
           </DropdownMenuItem>
-          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer">
+          <DropdownMenuItem 
+            onClick={onCreateCategory || onCreateChannel}
+            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+          >
             <Folder className="w-4 h-4 mr-2" />
             Create Category
           </DropdownMenuItem>
@@ -281,7 +365,14 @@ export function ChannelSidebar({
             Privacy Settings
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-[#222222]" />
-          <DropdownMenuItem className="text-red-500 focus:bg-red-500 focus:text-white cursor-pointer">
+          <DropdownMenuItem 
+            onClick={async () => {
+              if (currentServer && confirm(`Are you sure you want to leave ${currentServer.name}?`)) {
+                await leaveServer(currentServer.id);
+              }
+            }}
+            className="text-red-500 focus:bg-red-500 focus:text-white cursor-pointer"
+          >
             <LogOut className="w-4 h-4 mr-2" />
             Leave Server
           </DropdownMenuItem>
@@ -314,6 +405,7 @@ export function ChannelSidebar({
                 <button
                   key={channel.id}
                   onClick={() => setCurrentChannel(channel)}
+                  onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[#666666] hover:text-[#888888] hover:bg-[#111111] transition-all group",
                     currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
@@ -355,18 +447,36 @@ export function ChannelSidebar({
               </button>
             </div>
             {!collapsedCategories.has('text') && textChannels.map((channel) => (
-              <button
-                key={channel.id}
-                onClick={() => setCurrentChannel(channel)}
-                className={cn(
-                  "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[#666666] hover:text-[#888888] hover:bg-[#111111] transition-all group",
-                  currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
-                )}
-                style={{ width: "calc(100% - 16px)" }}
-              >
-                {getChannelIcon(channel.type)}
-                <span className="truncate text-sm">{channel.name}</span>
-              </button>
+              editingChannel === channel.id ? (
+                <div key={channel.id} className="w-full px-2 py-1 mx-2" style={{ width: "calc(100% - 16px)" }}>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onBlur={() => handleSaveEdit(channel.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveEdit(channel.id);
+                      if (e.key === 'Escape') { setEditingChannel(null); setEditName(""); }
+                    }}
+                    autoFocus
+                    className="w-full px-2 py-1 bg-[#1a1a1a] border border-[#8B5CF6] rounded text-white text-sm focus:outline-none"
+                  />
+                </div>
+              ) : (
+                <button
+                  key={channel.id}
+                  onClick={() => setCurrentChannel(channel)}
+                  onContextMenu={(e) => handleContextMenu(e, channel)}
+                  className={cn(
+                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[#666666] hover:text-[#888888] hover:bg-[#111111] transition-all group",
+                    currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
+                  )}
+                  style={{ width: "calc(100% - 16px)" }}
+                >
+                  {getChannelIcon(channel.type)}
+                  <span className="truncate text-sm">{channel.name}</span>
+                </button>
+              )
             ))}
           </div>
 
@@ -401,6 +511,7 @@ export function ChannelSidebar({
               <div key={channel.id} className="relative">
                 <button
                   onClick={() => setCurrentChannel(channel)}
+                  onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[#666666] hover:text-[#888888] hover:bg-[#111111] transition-all group",
                     currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
@@ -422,6 +533,61 @@ export function ChannelSidebar({
 
       {/* User Panel */}
       <UserPanel user={user} />
+
+      {/* Channel Context Menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 min-w-[180px] bg-[#111111] border border-[#222222] rounded-lg shadow-xl py-1.5 animate-in fade-in-0 zoom-in-95"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={handleEditChannel}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+          >
+            <Edit2 className="w-4 h-4" />
+            Edit Channel
+          </button>
+          <button
+            onClick={onInvitePeople}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+          >
+            <UserPlus className="w-4 h-4" />
+            Invite People
+          </button>
+          <div className="h-px bg-[#222222] my-1" />
+          <button
+            onClick={handleCopyChannelLink}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+          >
+            <LinkIcon className="w-4 h-4" />
+            Copy Link
+          </button>
+          <button
+            onClick={handleCopyChannelId}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+          >
+            <Copy className="w-4 h-4" />
+            Copy Channel ID
+          </button>
+          <div className="h-px bg-[#222222] my-1" />
+          <button
+            onClick={() => { closeContextMenu(); /* TODO: Mute channel */ }}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+          >
+            <BellOff className="w-4 h-4" />
+            Mute Channel
+          </button>
+          <div className="h-px bg-[#222222] my-1" />
+          <button
+            onClick={handleDeleteChannel}
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete Channel
+          </button>
+        </div>
+      )}
     </div>
   );
 }

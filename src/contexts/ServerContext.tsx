@@ -42,6 +42,9 @@ interface ServerContextType {
   fetchChannels: (serverId: string) => Promise<void>;
   createServer: (name: string, icon?: File) => Promise<Server>;
   joinServer: (inviteCode: string) => Promise<void>;
+  leaveServer: (serverId: string) => Promise<void>;
+  deleteChannel: (channelId: string) => Promise<void>;
+  updateChannel: (channelId: string, data: { name?: string; topic?: string }) => Promise<void>;
 }
 
 const ServerContext = createContext<ServerContextType | undefined>(undefined);
@@ -129,6 +132,58 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     await fetchServers();
   };
 
+  const leaveServer = async (serverId: string) => {
+    const response = await fetch(`/api/servers/${serverId}/leave`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Failed to leave server");
+    }
+
+    // Remove server from list and clear current server if it was the one we left
+    setServers((prev) => prev.filter((s) => s.id !== serverId));
+    if (currentServer?.id === serverId) {
+      setCurrentServer(null);
+      setCurrentChannel(null);
+    }
+  };
+
+  const deleteChannel = async (channelId: string) => {
+    const response = await fetch(`/api/channels/${channelId}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || "Failed to delete channel");
+    }
+
+    // Remove channel from list
+    setChannels((prev) => prev.filter((c) => c.id !== channelId));
+    if (currentChannel?.id === channelId) {
+      setCurrentChannel(null);
+    }
+  };
+
+  const updateChannel = async (channelId: string, data: { name?: string; topic?: string }) => {
+    const response = await fetch(`/api/channels/${channelId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const responseData = await response.json();
+      throw new Error(responseData.error || "Failed to update channel");
+    }
+
+    const updatedChannel = await response.json();
+    // Update channel in list
+    setChannels((prev) => prev.map((c) => c.id === channelId ? { ...c, ...updatedChannel.channel } : c));
+  };
+
   useEffect(() => {
     fetchServers();
   }, [fetchServers]);
@@ -156,6 +211,9 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         fetchChannels,
         createServer,
         joinServer,
+        leaveServer,
+        deleteChannel,
+        updateChannel,
       }}
     >
       {children}

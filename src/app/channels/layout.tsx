@@ -9,6 +9,8 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
 import { CreateChannelDialog } from "@/components/dialogs/CreateChannelDialog";
 import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
+import { InviteDialog } from "@/components/dialogs/InviteDialog";
+import { ServerSettingsDialog } from "@/components/dialogs/ServerSettingsDialog";
 import { 
   BottomNavigation, 
   MobileServerList, 
@@ -92,6 +94,8 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [showUserSettings, setShowUserSettings] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [showServerSettings, setShowServerSettings] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileView, setMobileView] = useState<"servers" | "messages" | "notifications" | "profile">("servers");
   const pathname = usePathname();
@@ -193,7 +197,11 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       {/* Combined Sidebars */}
       <div className="flex">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
-        <ChannelSidebar onCreateChannel={() => setShowCreateChannel(true)} />
+        <ChannelSidebar 
+          onCreateChannel={() => setShowCreateChannel(true)}
+          onInvitePeople={() => setShowInvite(true)}
+          onServerSettings={() => setShowServerSettings(true)}
+        />
       </div>
 
       {/* Main Content */}
@@ -211,6 +219,14 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       <UserSettingsDialog
         open={showUserSettings}
         onOpenChange={setShowUserSettings}
+      />
+      <InviteDialog
+        open={showInvite}
+        onOpenChange={setShowInvite}
+      />
+      <ServerSettingsDialog
+        open={showServerSettings}
+        onOpenChange={setShowServerSettings}
       />
     </div>
   );
