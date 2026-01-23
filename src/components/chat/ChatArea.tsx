@@ -90,6 +90,63 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     fetchMessages();
   }, [fetchMessages]);
 
+  // Real-time SSE connection
+  useEffect(() => {
+    if (!currentChannel) return;
+
+    const eventSource = new EventSource(`/api/channels/${currentChannel.id}/stream`, {
+      withCredentials: true,
+    });
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'message') {
+          setMessages((prev) => {
+            // Check if message already exists (avoid duplicates from optimistic updates)
+            const exists = prev.some((m) => m.id === data.message.id || m.id === data.message._id);
+            if (exists) return prev;
+            
+            // Transform message format if needed
+            const newMessage = {
+              id: data.message._id || data.message.id,
+              content: data.message.content,
+              authorId: data.message.authorId?._id || data.message.authorId,
+              author: data.message.authorId && typeof data.message.authorId === 'object' ? {
+                id: data.message.authorId._id,
+                username: data.message.authorId.username,
+                displayName: data.message.authorId.displayName,
+                avatar: data.message.authorId.avatar,
+              } : data.message.author,
+              channelId: data.message.channelId,
+              createdAt: data.message.createdAt,
+              updatedAt: data.message.updatedAt,
+              attachments: data.message.attachments,
+            };
+            return [...prev, newMessage];
+          });
+        } else if (data.type === 'delete') {
+          setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+        } else if (data.type === 'typing') {
+          // TODO: Show typing indicator
+          console.log(`${data.username} is typing...`);
+        }
+      } catch (error) {
+        console.error("Failed to parse SSE data:", error);
+      }
+    };
+
+    eventSource.onerror = () => {
+      console.error("SSE connection error, reconnecting...");
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [currentChannel]);
+
   useEffect(() => {
     // Scroll to bottom when messages change
     if (scrollRef.current) {
@@ -100,22 +157,28 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !currentChannel) return;
 
+    const messageContent = newMessage;
+    setNewMessage("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "44px";
+    }
+
     try {
       const response = await fetch(`/api/channels/${currentChannel.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: newMessage }),
+        body: JSON.stringify({ content: messageContent }),
       });
 
-      if (response.ok) {
-        const message = await response.json();
-        setMessages((prev) => [...prev, message]);
-        setNewMessage("");
-        if (textareaRef.current) {
-          textareaRef.current.style.height = "44px";
-        }
+      if (!response.ok) {
+        // Restore message on error
+        setNewMessage(messageContent);
+        console.error("Failed to send message");
       }
+      // Don't add message here - SSE will deliver it
     } catch (error) {
+      // Restore message on error
+      setNewMessage(messageContent);
       console.error("Failed to send message:", error);
     }
   };

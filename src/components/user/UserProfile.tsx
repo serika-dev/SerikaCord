@@ -2,6 +2,7 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { 
   X, 
   MessageCircle, 
@@ -12,7 +13,10 @@ import {
   VolumeX,
   Flag,
   Copy,
-  Check
+  Check,
+  Settings,
+  Edit3,
+  Sparkles
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -48,10 +52,12 @@ interface UserProfileProps {
     pronouns?: string;
     isStaff?: boolean;
     isPartnerOwner?: boolean;
+    isPremium?: boolean;
   };
   isOpen: boolean;
   onClose: () => void;
   variant?: 'popup' | 'modal';
+  isCurrentUser?: boolean;
 }
 
 const statusColors = {
@@ -68,13 +74,20 @@ const statusLabels = {
   offline: 'Offline',
 };
 
-export function UserProfile({ user, isOpen, onClose, variant = 'popup' }: UserProfileProps) {
+export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurrentUser = false }: UserProfileProps) {
   const [copiedId, setCopiedId] = useState(false);
+  const router = useRouter();
 
   const copyUserId = () => {
     navigator.clipboard.writeText(user.id);
     setCopiedId(true);
     setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  const openSettings = () => {
+    onClose();
+    // Dispatch custom event to open user settings
+    window.dispatchEvent(new CustomEvent('openUserSettings'));
   };
 
   const formatDate = (date?: Date) => {
@@ -97,7 +110,7 @@ export function UserProfile({ user, isOpen, onClose, variant = 'popup' }: UserPr
             transition={{ duration: 0.15 }}
             className="w-[340px] bg-[#232428] rounded-lg shadow-xl overflow-hidden border border-[#1e1f22]"
           >
-            <ProfileContent user={user} onClose={onClose} copyUserId={copyUserId} copiedId={copiedId} formatDate={formatDate} />
+            <ProfileContent user={user} onClose={onClose} copyUserId={copyUserId} copiedId={copiedId} formatDate={formatDate} isCurrentUser={isCurrentUser} openSettings={openSettings} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -131,7 +144,7 @@ export function UserProfile({ user, isOpen, onClose, variant = 'popup' }: UserPr
             >
               <X className="w-5 h-5" />
             </button>
-            <ProfileContent user={user} onClose={onClose} copyUserId={copyUserId} copiedId={copiedId} formatDate={formatDate} expanded />
+            <ProfileContent user={user} onClose={onClose} copyUserId={copyUserId} copiedId={copiedId} formatDate={formatDate} expanded isCurrentUser={isCurrentUser} openSettings={openSettings} />
           </motion.div>
         </>
       )}
@@ -146,9 +159,11 @@ interface ProfileContentProps {
   copiedId: boolean;
   formatDate: (date?: Date) => string;
   expanded?: boolean;
+  isCurrentUser?: boolean;
+  openSettings: () => void;
 }
 
-function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expanded }: ProfileContentProps) {
+function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expanded, isCurrentUser, openSettings }: ProfileContentProps) {
   return (
     <div className="relative">
       {/* Banner */}
@@ -195,53 +210,77 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
           </div>
 
           <div className="flex items-center gap-2 mb-2">
-            <Button
-              size="sm"
-              className="bg-[#5865F2] hover:bg-[#4752c4] text-white h-9 rounded-full px-4"
-            >
-              <MessageCircle className="w-4 h-4 mr-1.5" />
-              Message
-            </Button>
-            
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            {isCurrentUser ? (
+              <>
+                <Button
+                  size="sm"
+                  onClick={openSettings}
+                  className="bg-[#5865F2] hover:bg-[#4752c4] text-white h-9 rounded-full px-4"
+                >
+                  <Edit3 className="w-4 h-4 mr-1.5" />
+                  Edit Profile
+                </Button>
+                
                 <Button
                   size="sm"
                   variant="ghost"
+                  onClick={openSettings}
                   className="h-9 w-9 rounded-full bg-[#2b2d31] hover:bg-[#35373c] p-0"
                 >
-                  <MoreHorizontal className="w-4 h-4 text-[#b5bac1]" />
+                  <Settings className="w-4 h-4 text-[#b5bac1]" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="bg-[#111214] border-[#1e1f22] text-[#b5bac1]">
-                <DropdownMenuItem className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
-                  <UserPlus className="w-4 h-4 mr-2" />
-                  Add Friend
-                </DropdownMenuItem>
-                <DropdownMenuItem className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
-                  <Volume2 className="w-4 h-4 mr-2" />
-                  Call
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-[#2b2d31]" />
-                <DropdownMenuItem onClick={copyUserId} className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
-                  {copiedId ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
-                  {copiedId ? 'Copied!' : 'Copy User ID'}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-[#2b2d31]" />
-                <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
-                  <VolumeX className="w-4 h-4 mr-2" />
-                  Mute
-                </DropdownMenuItem>
-                <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
-                  <Ban className="w-4 h-4 mr-2" />
-                  Block
-                </DropdownMenuItem>
-                <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
-                  <Flag className="w-4 h-4 mr-2" />
-                  Report
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  className="bg-[#5865F2] hover:bg-[#4752c4] text-white h-9 rounded-full px-4"
+                >
+                  <MessageCircle className="w-4 h-4 mr-1.5" />
+                  Message
+                </Button>
+                
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-9 w-9 rounded-full bg-[#2b2d31] hover:bg-[#35373c] p-0"
+                    >
+                      <MoreHorizontal className="w-4 h-4 text-[#b5bac1]" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="bg-[#111214] border-[#1e1f22] text-[#b5bac1]">
+                    <DropdownMenuItem className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Add Friend
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
+                      <Volume2 className="w-4 h-4 mr-2" />
+                      Call
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-[#2b2d31]" />
+                    <DropdownMenuItem onClick={copyUserId} className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
+                      {copiedId ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
+                      {copiedId ? 'Copied!' : 'Copy User ID'}
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator className="bg-[#2b2d31]" />
+                    <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
+                      <VolumeX className="w-4 h-4 mr-2" />
+                      Mute
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
+                      <Ban className="w-4 h-4 mr-2" />
+                      Block
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
+                      <Flag className="w-4 h-4 mr-2" />
+                      Report
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -285,80 +324,134 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                 <TabsTrigger value="about" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
                   About Me
                 </TabsTrigger>
-                <TabsTrigger value="servers" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
-                  Mutual Servers
-                </TabsTrigger>
-                <TabsTrigger value="friends" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
-                  Mutual Friends
-                </TabsTrigger>
+                {!isCurrentUser && (
+                  <>
+                    <TabsTrigger value="servers" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
+                      Mutual Servers
+                    </TabsTrigger>
+                    <TabsTrigger value="friends" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
+                      Mutual Friends
+                    </TabsTrigger>
+                  </>
+                )}
               </TabsList>
               
               <TabsContent value="about" className="mt-4">
-                {user.bio ? (
-                  <p className="text-sm text-[#dbdee1] whitespace-pre-wrap">{user.bio}</p>
+                {isCurrentUser ? (
+                  <>
+                    {user.bio ? (
+                      <p className="text-sm text-[#dbdee1] whitespace-pre-wrap">{user.bio}</p>
+                    ) : (
+                      <div className="text-center py-4">
+                        <p className="text-sm text-[#6d6f78] mb-3">You haven't set a bio yet</p>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={openSettings}
+                          className="text-[#00A8FC] hover:text-[#00A8FC] hover:bg-[#00A8FC]/10"
+                        >
+                          <Edit3 className="w-4 h-4 mr-1.5" />
+                          Add Bio
+                        </Button>
+                      </div>
+                    )}
+                    
+                    <div className="mt-4 space-y-2">
+                      <div>
+                        <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">Member Since</h4>
+                        <p className="text-sm text-[#dbdee1]">{formatDate(user.createdAt)}</p>
+                      </div>
+                      {user.premiumSince ? (
+                        <div>
+                          <h4 className="text-xs font-bold uppercase text-[#F0B232] mb-1 flex items-center gap-1">
+                            ✨ Serika+ Since
+                          </h4>
+                          <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
+                        </div>
+                      ) : (
+                        <div className="mt-4 p-3 rounded-lg bg-gradient-to-r from-[#F0B232]/10 to-[#8B5CF6]/10 border border-[#F0B232]/20">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Sparkles className="w-4 h-4 text-[#F0B232]" />
+                            <span className="text-sm font-semibold text-[#F0B232]">Get Serika+</span>
+                          </div>
+                          <p className="text-xs text-[#b5bac1]">Unlock custom profiles, animated avatars, and more!</p>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 ) : (
-                  <p className="text-sm text-[#6d6f78] italic">No bio yet</p>
+                  <>
+                    {user.bio ? (
+                      <p className="text-sm text-[#dbdee1] whitespace-pre-wrap">{user.bio}</p>
+                    ) : (
+                      <p className="text-sm text-[#6d6f78] italic">No bio yet</p>
+                    )}
+                    
+                    <div className="mt-4 space-y-2">
+                      <div>
+                        <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">Member Since</h4>
+                        <p className="text-sm text-[#dbdee1]">{formatDate(user.createdAt)}</p>
+                      </div>
+                      {user.premiumSince && (
+                        <div>
+                          <h4 className="text-xs font-bold uppercase text-[#F0B232] mb-1 flex items-center gap-1">
+                            ✨ Serika+ Since
+                          </h4>
+                          <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
+                        </div>
+                      )}
+                    </div>
+                  </>
                 )}
-                
-                <div className="mt-4 space-y-2">
-                  <div>
-                    <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">Member Since</h4>
-                    <p className="text-sm text-[#dbdee1]">{formatDate(user.createdAt)}</p>
-                  </div>
-                  {user.premiumSince && (
-                    <div>
-                      <h4 className="text-xs font-bold uppercase text-[#F0B232] mb-1 flex items-center gap-1">
-                        ✨ Serika+ Since
-                      </h4>
-                      <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
-                    </div>
-                  )}
-                </div>
               </TabsContent>
               
-              <TabsContent value="servers" className="mt-4">
-                <ScrollArea className="h-[200px]">
-                  {user.mutualServers && user.mutualServers.length > 0 ? (
-                    <div className="space-y-2">
-                      {user.mutualServers.map((server) => (
-                        <div key={server.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#1e1f22] transition-colors cursor-pointer">
-                          <Avatar className="w-10 h-10">
-                            <AvatarImage src={server.icon} />
-                            <AvatarFallback className="bg-[#5865F2] text-white text-sm">
-                              {server.name.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm text-[#dbdee1] font-medium">{server.name}</span>
+              {!isCurrentUser && (
+                <>
+                  <TabsContent value="servers" className="mt-4">
+                    <ScrollArea className="h-[200px]">
+                      {user.mutualServers && user.mutualServers.length > 0 ? (
+                        <div className="space-y-2">
+                          {user.mutualServers.map((server) => (
+                            <div key={server.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#1e1f22] transition-colors cursor-pointer">
+                              <Avatar className="w-10 h-10">
+                                <AvatarImage src={server.icon} />
+                                <AvatarFallback className="bg-[#5865F2] text-white text-sm">
+                                  {server.name.charAt(0)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm text-[#dbdee1] font-medium">{server.name}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-[#6d6f78] italic text-center py-8">No mutual servers</p>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-              
-              <TabsContent value="friends" className="mt-4">
-                <ScrollArea className="h-[200px]">
-                  {user.mutualFriends && user.mutualFriends.length > 0 ? (
-                    <div className="space-y-2">
-                      {user.mutualFriends.map((friend) => (
-                        <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#1e1f22] transition-colors cursor-pointer">
-                          <Avatar className="w-10 h-10">
-                            <AvatarImage src={friend.avatar} />
-                            <AvatarFallback className="bg-[#5865F2] text-white text-sm">
-                              {friend.username.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm text-[#dbdee1] font-medium">@{friend.username}</span>
+                      ) : (
+                        <p className="text-sm text-[#6d6f78] italic text-center py-8">No mutual servers</p>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                  
+                  <TabsContent value="friends" className="mt-4">
+                    <ScrollArea className="h-[200px]">
+                      {user.mutualFriends && user.mutualFriends.length > 0 ? (
+                        <div className="space-y-2">
+                          {user.mutualFriends.map((friend) => (
+                            <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#1e1f22] transition-colors cursor-pointer">
+                              <Avatar className="w-10 h-10">
+                                <AvatarImage src={friend.avatar} />
+                                <AvatarFallback className="bg-[#5865F2] text-white text-sm">
+                                  {friend.username.charAt(0)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm text-[#dbdee1] font-medium">@{friend.username}</span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-[#6d6f78] italic text-center py-8">No mutual friends</p>
-                  )}
-                </ScrollArea>
-              </TabsContent>
+                      ) : (
+                        <p className="text-sm text-[#6d6f78] italic text-center py-8">No mutual friends</p>
+                      )}
+                    </ScrollArea>
+                  </TabsContent>
+                </>
+              )}
             </Tabs>
           ) : (
             <>

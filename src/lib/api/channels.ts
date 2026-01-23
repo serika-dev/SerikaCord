@@ -6,6 +6,24 @@ import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { Types } from 'mongoose';
 
+// Store active SSE connections for server channels
+const activeConnections = new Map<string, Set<ReadableStreamDefaultController>>();
+
+// Export for use in message publishing
+export function publishToChannel(channelId: string, data: object) {
+  const connections = activeConnections.get(channelId);
+  if (connections) {
+    const encodedData = `data: ${JSON.stringify(data)}\n\n`;
+    connections.forEach((controller) => {
+      try {
+        controller.enqueue(new TextEncoder().encode(encodedData));
+      } catch {
+        // Connection closed, will be cleaned up
+      }
+    });
+  }
+}
+
 // Helper function for auth
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
   const authHeader = headers.authorization ?? null;
@@ -397,6 +415,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }));
     }
 
+    // Send to SSE connections
+    publishToChannel(params.channelId, {
+      type: 'message',
+      message: message.toJSON(),
+    });
+
     return { message };
   }, {
     params: t.Object({
@@ -547,6 +571,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }));
     }
 
+    // Send to SSE connections
+    publishToChannel(params.channelId, {
+      type: 'delete',
+      messageId: params.messageId,
+    });
+
     return { success: true };
   }, {
     params: t.Object({
@@ -586,7 +616,83 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }));
     }
 
+    // Send to SSE connections
+    publishToChannel(params.channelId, {
+      type: 'typing',
+      userId: user._id,
+      username: user.username,
+    });
+
     return { success: true };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+    }),
+  })
+  // SSE stream for real-time messages
+  .get('/:channelId/stream', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.channelId)) {
+      set.status = 400;
+      return { error: 'Invalid channel ID' };
+    }
+
+    const { hasAccess, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const channelKey = params.channelId;
+    let controllerRef: ReadableStreamDefaultController | null = null;
+
+    // Create SSE stream
+    const stream = new ReadableStream({
+      start(controller) {
+        controllerRef = controller;
+        // Add to active connections
+        if (!activeConnections.has(channelKey)) {
+          activeConnections.set(channelKey, new Set());
+        }
+        activeConnections.get(channelKey)!.add(controller);
+
+        // Send initial ping
+        controller.enqueue(new TextEncoder().encode('data: {"type":"connected"}\n\n'));
+
+        // Keep-alive ping every 30 seconds
+        const pingInterval = setInterval(() => {
+          try {
+            controller.enqueue(new TextEncoder().encode('data: {"type":"ping"}\n\n'));
+          } catch {
+            clearInterval(pingInterval);
+            activeConnections.get(channelKey)?.delete(controller);
+          }
+        }, 30000);
+      },
+      cancel() {
+        // Connection closed - cleanup
+        if (controllerRef) {
+          activeConnections.get(channelKey)?.delete(controllerRef);
+        }
+      },
+    });
+
+    set.headers = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    };
+
+    return stream;
   }, {
     params: t.Object({
       channelId: t.String(),
