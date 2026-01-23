@@ -35,6 +35,7 @@
     ],
     "mac": {
       "category": "public.app-category.social-networking",
+      "icon": "resources/icon.png",
       "target": [
         {
           "target": "dmg",
@@ -49,6 +50,7 @@
       "gatekeeperAssess": false
     },
     "win": {
+      "icon": "resources/icon.ico",
       "target": [
         {
           "target": "nsis",
@@ -61,6 +63,7 @@
       ]
     },
     "linux": {
+      "icon": "resources/icon.png",
       "category": "Network;Chat;InstantMessaging",
       "target": [
         "AppImage",
