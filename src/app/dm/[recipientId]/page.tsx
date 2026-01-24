@@ -108,7 +108,8 @@ export default function DMConversationPage() {
       if (response.ok) {
         const data = await response.json();
         setMessages(data.messages || []);
-        scrollToBottom();
+        // Auto-scroll to bottom after loading messages
+        setTimeout(scrollToBottom, 200);
       }
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -136,13 +137,16 @@ export default function DMConversationPage() {
         const data = JSON.parse(event.data);
         if (data.type === "message") {
           setMessages((prev) => {
-            // Avoid duplicates
-            if (prev.some((m) => m.id === data.message.id)) {
+            // Avoid duplicates by checking if message ID already exists
+            const existingIds = new Set(prev.map(m => m.id));
+            if (existingIds.has(data.message.id)) {
               return prev;
             }
-            return [...prev, data.message];
+            const updated = [...prev, data.message];
+            // Auto-scroll to bottom after new message
+            setTimeout(scrollToBottom, 100);
+            return updated;
           });
-          scrollToBottom();
         }
       } catch (error) {
         console.error("SSE parse error:", error);
@@ -379,7 +383,7 @@ export default function DMConversationPage() {
               ) : (
                 <div className="space-y-4">
                   {messageGroups.map((group, groupIndex) => (
-                    <div key={groupIndex} className="group/message hover:bg-[#111111]/50 -mx-4 px-4 py-0.5 rounded">
+                    <div key={`group-${groupIndex}-${group.author.id}-${group.timestamp}`} className="group/message hover:bg-[#111111]/50 -mx-4 px-4 py-0.5 rounded">
                       <div className="flex gap-4">
                         <Avatar className="w-10 h-10 mt-0.5 flex-shrink-0">
                           <AvatarImage src={group.author.avatar} />
@@ -399,8 +403,8 @@ export default function DMConversationPage() {
                               {formatTime(group.timestamp)}
                             </span>
                           </div>
-                          {group.messages.map((message) => (
-                            <div key={message.id} className="text-[#dcddde] break-words">
+                          {group.messages.map((message, msgIndex) => (
+                            <div key={`${groupIndex}-${msgIndex}-${message.id}`} className="text-[#dcddde] break-words">
                               {message.content}
                             </div>
                           ))}
