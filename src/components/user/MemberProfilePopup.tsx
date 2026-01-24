@@ -108,17 +108,24 @@ export function MemberProfilePopup({
 
   const handleSendMessage = () => {
     setOpen(false);
-    // Navigate to DM
-    window.location.href = `/channels/@me/${member.id}`;
+    // Navigate to DM - use proper dm route
+    window.location.href = `/dm/${member.id}`;
   };
 
   const handleAddFriend = async () => {
     try {
-      await fetch(`/api/users/me/friends`, {
+      const response = await fetch(`/api/friends/request`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: member.id }),
       });
+      if (response.ok) {
+        // Show success feedback - could use toast
+        console.log("Friend request sent");
+      } else {
+        const data = await response.json();
+        console.error("Failed to send friend request:", data.error);
+      }
     } catch (error) {
       console.error("Failed to send friend request:", error);
     }
@@ -195,8 +202,8 @@ export function MemberProfilePopup({
             </div>
           </div>
 
-          {/* Action Buttons */}
-          {!isCurrentUser && (
+          {/* Action Buttons - hide for own profile */}
+          {!isCurrentUser && member.id && (
             <div className="flex justify-end gap-2 pt-2 mb-4">
               <button
                 onClick={handleSendMessage}

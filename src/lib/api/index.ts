@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
 import { connectDB } from '@/lib/db';
-import { authenticateRequest } from '@/lib/services/auth';
+import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { User, type IUser } from '@/lib/models';
 import { authRoutes } from './auth';
@@ -11,6 +11,8 @@ import { serverRoutes, inviteRoutes } from './servers';
 import { channelRoutes } from './channels';
 import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
+import { adminRoutes } from './admin';
+import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import type { Types } from 'mongoose';
 
 // Helper function for auth
@@ -139,49 +141,74 @@ const userRoutes = new Elysia({ prefix: '/users' })
     return servers;
   })
   .put('/me', async ({ headers, cookie, body, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
 
-    const { displayName, bio, customStatus, status, settings } = body;
+    try {
+      // Fetch the actual Mongoose document for the user (authUser might be from external API)
+      const userId = authUser._id || (authUser as unknown as { id: string }).id;
+      const user = await User.findById(userId);
+      
+      if (!user) {
+        set.status = 404;
+        return { error: 'User not found in local database' };
+      }
 
-    if (displayName !== undefined) user.displayName = displayName;
-    if (bio !== undefined) user.bio = bio;
-    if (customStatus !== undefined) user.customStatus = customStatus;
-    if (status !== undefined) user.status = status;
-    if (settings !== undefined) {
-      // Deep merge settings preserving existing values
-      const currentSettings = user.settings;
-      user.settings = {
-        theme: settings.theme ?? currentSettings.theme,
-        locale: settings.locale ?? currentSettings.locale,
-        notifications: {
-          desktop: settings.notifications?.desktop !== undefined 
-            ? settings.notifications.desktop 
-            : currentSettings.notifications.desktop,
-          sounds: settings.notifications?.sounds !== undefined 
-            ? settings.notifications.sounds 
-            : currentSettings.notifications.sounds,
-          mentions: settings.notifications?.mentions !== undefined 
-            ? settings.notifications.mentions 
-            : currentSettings.notifications.mentions,
-        },
-        privacy: {
-          directMessages: settings.privacy?.directMessages ?? currentSettings.privacy.directMessages,
-          friendRequests: settings.privacy?.friendRequests ?? currentSettings.privacy.friendRequests,
-        },
-      };
+      const { displayName, bio, pronouns, customStatus, status, settings } = body;
+
+      if (displayName !== undefined) user.displayName = displayName;
+      if (bio !== undefined) user.bio = bio;
+      if (pronouns !== undefined) user.pronouns = pronouns;
+      if (customStatus !== undefined) user.customStatus = customStatus;
+      if (status !== undefined) user.status = status;
+      if (settings !== undefined) {
+        // Deep merge settings preserving existing values
+        const currentSettings = user.settings || {
+          theme: 'dark',
+          locale: 'en-US',
+          notifications: { desktop: true, sounds: true, mentions: true },
+          privacy: { directMessages: 'everyone', friendRequests: 'everyone' },
+        };
+        user.settings = {
+          theme: settings.theme ?? currentSettings.theme,
+          locale: settings.locale ?? currentSettings.locale,
+          notifications: {
+            desktop: settings.notifications?.desktop !== undefined 
+              ? settings.notifications.desktop 
+              : currentSettings.notifications?.desktop ?? true,
+            sounds: settings.notifications?.sounds !== undefined 
+              ? settings.notifications.sounds 
+              : currentSettings.notifications?.sounds ?? true,
+            mentions: settings.notifications?.mentions !== undefined 
+              ? settings.notifications.mentions 
+              : currentSettings.notifications?.mentions ?? true,
+          },
+          privacy: {
+            directMessages: settings.privacy?.directMessages ?? currentSettings.privacy?.directMessages ?? 'everyone',
+            friendRequests: settings.privacy?.friendRequests ?? currentSettings.privacy?.friendRequests ?? 'everyone',
+          },
+        };
+      }
+
+      await user.save();
+      
+      // Invalidate user cache so fresh data is fetched
+      await invalidateUserCache(userId.toString());
+
+      return { success: true, user };
+    } catch (error) {
+      console.error('Error updating user:', error);
+      set.status = 500;
+      return { error: 'Failed to update user profile' };
     }
-
-    await user.save();
-
-    return { success: true, user };
   }, {
     body: t.Object({
       displayName: t.Optional(t.String({ maxLength: 32 })),
       bio: t.Optional(t.String({ maxLength: 190 })),
+      pronouns: t.Optional(t.String({ maxLength: 32 })),
       customStatus: t.Optional(t.String({ maxLength: 128 })),
       status: t.Optional(t.Union([
         t.Literal('online'),
@@ -303,8 +330,8 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Add friend by username
   .post('/add', async ({ headers, cookie, body, request, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
@@ -317,10 +344,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
 
     // Rate limit friend requests
     const ip = getClientIP(request);
-    const rateLimit = await checkRateLimit('friendRequest', `${user._id}:${ip}`);
+    const rateLimit = await checkRateLimit('friendRequest', `${authUser._id}:${ip}`);
     if (!rateLimit.success) {
       set.status = 429;
       return { error: 'Too many friend requests', retryAfter: rateLimit.retryAfter };
+    }
+
+    // Fetch actual Mongoose documents for both users
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     // Find user by username (case insensitive)
@@ -413,10 +447,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Accept friend request
   .post('/accept/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch actual Mongoose document
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     const targetUser = await User.findById(params.userId);
@@ -455,10 +496,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Cancel outgoing friend request
   .delete('/cancel/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch actual Mongoose document
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     const targetUser = await User.findById(params.userId);
@@ -485,10 +533,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Decline incoming friend request  
   .delete('/decline/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch actual Mongoose document
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     const targetUser = await User.findById(params.userId);
@@ -515,10 +570,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Block user
   .post('/block/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch actual Mongoose document
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     const targetUser = await User.findById(params.userId);
@@ -569,10 +631,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Unblock user
   .delete('/unblock/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch actual Mongoose document
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     const targetUser = await User.findById(params.userId);
@@ -592,10 +661,17 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
   })
   // Remove friend
   .delete('/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch actual Mongoose document
+    const user = await User.findById(authUser._id);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     const targetUser = await User.findById(params.userId);
@@ -625,6 +701,22 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
 
 // Main API app
 export const api = new Elysia({ prefix: '/api' })
+  .onError(({ code, error, set }) => {
+    console.error('API Error:', code, error);
+    
+    if (code === 'VALIDATION') {
+      set.status = 400;
+      return { error: 'Validation error', details: error.message };
+    }
+    
+    if (code === 'NOT_FOUND') {
+      set.status = 404;
+      return { error: 'Not found' };
+    }
+    
+    set.status = 500;
+    return { error: 'Internal server error' };
+  })
   .use(cors({
     origin: (request): boolean => {
       const origin = request.headers.get('origin');
@@ -653,11 +745,13 @@ export const api = new Elysia({ prefix: '/api' })
   .use(inviteRoutes)
   .use(channelRoutes)
   .use(dmRoutes)
-  .use(uploadRoutes);
+  .use(uploadRoutes)
+  .use(adminRoutes);
 
 // Initialize database connection
 export async function initializeAPI() {
   await connectDB();
+  await ensureSerikaBroadcastUser();
   console.log('✅ API initialized');
 }
 

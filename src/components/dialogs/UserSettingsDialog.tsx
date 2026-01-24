@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ImageCropper } from "@/components/ui/image-cropper";
 import {
   X,
   User,
@@ -40,6 +41,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getBadgesByPriority, type BadgeId } from "@/lib/constants/badges";
+import { toast } from "sonner";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -86,6 +88,78 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const [hasChanges, setHasChanges] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Avatar/Banner upload state
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropperImage, setCropperImage] = useState<string>("");
+  const [cropperType, setCropperType] = useState<"avatar" | "banner">("avatar");
+
+  // Admin state
+  const [adminUserSearch, setAdminUserSearch] = useState("");
+  const [adminServerSearch, setAdminServerSearch] = useState("");
+  const [adminUsers, setAdminUsers] = useState<Array<{
+    id: string;
+    username: string;
+    displayName?: string;
+    email?: string;
+    avatar?: string;
+    badges: string[];
+    isVerified: boolean;
+    isBanned: boolean;
+    isStaff: boolean;
+    createdAt: string;
+  }>>([]);
+  const [adminServers, setAdminServers] = useState<Array<{
+    id: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    memberCount: number;
+    owner: { username: string; displayName?: string };
+    isDiscoverable: boolean;
+    isPartner: boolean;
+    createdAt: string;
+  }>>([]);
+  const [adminLogs, setAdminLogs] = useState<Array<{
+    id: string;
+    admin: { username: string; displayName?: string; avatar?: string };
+    action: string;
+    targetType: string;
+    targetId: string;
+    details?: Record<string, unknown>;
+    reason?: string;
+    createdAt: string;
+  }>>([]);
+  const [adminStats, setAdminStats] = useState<{
+    users: number;
+    servers: number;
+    messages: number;
+    banned: number;
+    newUsersToday: number;
+  } | null>(null);
+  const [platformSettings, setPlatformSettings] = useState<{
+    maintenanceMode: boolean;
+    allowRegistration: boolean;
+    globalAnnouncement?: string;
+  } | null>(null);
+  const [selectedUser, setSelectedUser] = useState<{
+    id: string;
+    username: string;
+    displayName?: string;
+    email?: string;
+    avatar?: string;
+    badges: string[];
+    isBanned: boolean;
+    banReason?: string;
+    stats?: { servers: number; messages: number };
+  } | null>(null);
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
+  const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
+  const [announcementText, setAnnouncementText] = useState("");
+
   // Initialize form with user data
   useEffect(() => {
     if (user) {
@@ -130,6 +204,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({
           displayName,
           bio,
+          pronouns,
           customStatus,
           status,
         }),
@@ -140,15 +215,20 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         updateUser({
           displayName,
           bio,
+          pronouns,
           customStatus,
           status: status as "online" | "idle" | "dnd" | "offline",
         });
         setHasChanges(false);
+        toast.success("Profile saved!");
         // Refresh to get full updated data
         await refresh();
+      } else {
+        toast.error("Failed to save profile");
       }
     } catch (error) {
       console.error("Failed to save settings:", error);
+      toast.error("Failed to save profile");
     } finally {
       setIsSaving(false);
     }
@@ -157,7 +237,309 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const handleLogout = async () => {
     await logout();
     onOpenChange(false);
+    toast.success("Logged out");
   };
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image must be less than 8MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropperImage(reader.result as string);
+      setCropperType("avatar");
+      setCropperOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = "";
+    }
+  };
+
+  const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image must be less than 8MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropperImage(reader.result as string);
+      setCropperType("banner");
+      setCropperOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    if (bannerInputRef.current) {
+      bannerInputRef.current.value = "";
+    }
+  };
+
+  const handleCropComplete = async (croppedBlob: Blob) => {
+    const isAvatar = cropperType === "avatar";
+    const setUploading = isAvatar ? setIsUploadingAvatar : setIsUploadingBanner;
+    const endpoint = isAvatar ? "/api/upload/avatar" : "/api/upload/banner";
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", croppedBlob, `${cropperType}.png`);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (isAvatar) {
+          updateUser({ avatar: data.url });
+        } else {
+          updateUser({ banner: data.url });
+        }
+        toast.success(`${isAvatar ? "Avatar" : "Banner"} updated!`);
+        await refresh();
+      } else {
+        const data = await response.json();
+        toast.error(data.error || `Failed to upload ${cropperType}`);
+      }
+    } catch (error) {
+      toast.error(`Failed to upload ${cropperType}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Admin handlers
+  const searchAdminUsers = async () => {
+    if (!adminUserSearch.trim()) return;
+    setIsLoadingAdmin(true);
+    try {
+      const response = await fetch(`/api/admin/users/search?q=${encodeURIComponent(adminUserSearch)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAdminUsers(data.users);
+      } else {
+        toast.error("Failed to search users");
+      }
+    } catch (error) {
+      toast.error("Failed to search users");
+    } finally {
+      setIsLoadingAdmin(false);
+    }
+  };
+
+  const searchAdminServers = async () => {
+    if (!adminServerSearch.trim()) return;
+    setIsLoadingAdmin(true);
+    try {
+      const response = await fetch(`/api/admin/servers/search?q=${encodeURIComponent(adminServerSearch)}`);
+      if (response.ok) {
+        const data = await response.json();
+        setAdminServers(data.servers);
+      } else {
+        toast.error("Failed to search servers");
+      }
+    } catch (error) {
+      toast.error("Failed to search servers");
+    } finally {
+      setIsLoadingAdmin(false);
+    }
+  };
+
+  const fetchAdminStats = async () => {
+    try {
+      const response = await fetch("/api/admin/stats");
+      if (response.ok) {
+        const data = await response.json();
+        setAdminStats(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch admin stats:", error);
+    }
+  };
+
+  const fetchPlatformSettings = async () => {
+    try {
+      const response = await fetch("/api/admin/settings");
+      if (response.ok) {
+        const data = await response.json();
+        setPlatformSettings(data);
+        setAnnouncementText(data.globalAnnouncement || "");
+      }
+    } catch (error) {
+      console.error("Failed to fetch platform settings:", error);
+    }
+  };
+
+  const fetchAdminLogs = async (filter?: string) => {
+    setIsLoadingAdmin(true);
+    try {
+      const url = filter && filter !== "all" ? `/api/admin/logs?type=${filter}` : "/api/admin/logs";
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        setAdminLogs(data.logs);
+      }
+    } catch (error) {
+      console.error("Failed to fetch admin logs:", error);
+    } finally {
+      setIsLoadingAdmin(false);
+    }
+  };
+
+  const handleBanUser = async (userId: string, reason?: string) => {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/ban`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (response.ok) {
+        toast.success("User banned");
+        searchAdminUsers();
+      } else {
+        const data = await response.json();
+        toast.error(data.error || "Failed to ban user");
+      }
+    } catch (error) {
+      toast.error("Failed to ban user");
+    }
+  };
+
+  const handleUnbanUser = async (userId: string) => {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/unban`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        toast.success("User unbanned");
+        searchAdminUsers();
+      } else {
+        toast.error("Failed to unban user");
+      }
+    } catch (error) {
+      toast.error("Failed to unban user");
+    }
+  };
+
+  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean }) => {
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPlatformSettings(data);
+        toast.success("Settings updated");
+      } else {
+        toast.error("Failed to update settings");
+      }
+    } catch (error) {
+      toast.error("Failed to update settings");
+    }
+  };
+
+  const handlePublishAnnouncement = async () => {
+    if (!announcementText.trim()) return;
+    try {
+      const response = await fetch("/api/admin/broadcast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: announcementText }),
+      });
+      if (response.ok) {
+        toast.success("Announcement published");
+        fetchPlatformSettings();
+      } else {
+        toast.error("Failed to publish announcement");
+      }
+    } catch (error) {
+      toast.error("Failed to publish announcement");
+    }
+  };
+
+  const handleTogglePartner = async (serverId: string) => {
+    try {
+      const response = await fetch(`/api/admin/servers/${serverId}/partner`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        toast.success("Partner status toggled");
+        searchAdminServers();
+      } else {
+        toast.error("Failed to toggle partner status");
+      }
+    } catch (error) {
+      toast.error("Failed to toggle partner status");
+    }
+  };
+
+  const handleToggleDiscovery = async (serverId: string) => {
+    try {
+      const response = await fetch(`/api/admin/servers/${serverId}/discovery`, {
+        method: "POST",
+      });
+      if (response.ok) {
+        toast.success("Discovery status toggled");
+        searchAdminServers();
+      } else {
+        toast.error("Failed to toggle discovery status");
+      }
+    } catch (error) {
+      toast.error("Failed to toggle discovery status");
+    }
+  };
+
+  const handleDeleteServer = async (serverId: string, reason?: string) => {
+    if (!confirm("Are you sure you want to delete this server? This action cannot be undone.")) return;
+    try {
+      const response = await fetch(`/api/admin/servers/${serverId}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (response.ok) {
+        toast.success("Server deleted");
+        searchAdminServers();
+      } else {
+        toast.error("Failed to delete server");
+      }
+    } catch (error) {
+      toast.error("Failed to delete server");
+    }
+  };
+
+  // Load admin data when tabs are activated
+  useEffect(() => {
+    if (activeTab === "admin-settings" && !platformSettings) {
+      fetchPlatformSettings();
+      fetchAdminStats();
+    } else if (activeTab === "admin-logs" && adminLogs.length === 0) {
+      fetchAdminLogs();
+    }
+  }, [activeTab]);
 
   const renderBadges = () => {
     if (!user?.badges || user.badges.length === 0) return null;
@@ -404,6 +786,74 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           </div>
                         </div>
                       )}
+
+                      {/* Avatar & Banner Upload */}
+                      <div className="space-y-4 mb-6">
+                        <div className="flex gap-4">
+                          <div className="flex-1">
+                            <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                              Avatar
+                            </label>
+                            <div
+                              onClick={() => avatarInputRef.current?.click()}
+                              className="relative w-20 h-20 rounded-full bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#8B5CF6] cursor-pointer transition-colors group overflow-hidden"
+                            >
+                              {user?.avatar ? (
+                                <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[#666]">
+                                  <Camera className="w-6 h-6" />
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                {isUploadingAvatar ? (
+                                  <Loader2 className="w-6 h-6 animate-spin text-white" />
+                                ) : (
+                                  <Camera className="w-6 h-6 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            <input
+                              ref={avatarInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleAvatarSelect}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                              Banner
+                            </label>
+                            <div
+                              onClick={() => bannerInputRef.current?.click()}
+                              className="relative w-full h-20 rounded-lg bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#8B5CF6] cursor-pointer transition-colors group overflow-hidden"
+                            >
+                              {user?.banner ? (
+                                <img src={user.banner} alt="Banner" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[#666]">
+                                  <Image className="w-6 h-6" />
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                {isUploadingBanner ? (
+                                  <Loader2 className="w-6 h-6 animate-spin text-white" />
+                                ) : (
+                                  <Camera className="w-6 h-6 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            <input
+                              ref={bannerInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleBannerSelect}
+                            />
+                          </div>
+                        </div>
+                      </div>
 
                       <div className="space-y-4">
                         <div>
@@ -789,10 +1239,18 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
                     <div className="flex gap-4 mb-4">
                       <Input
+                        value={adminUserSearch}
+                        onChange={(e) => setAdminUserSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && searchAdminUsers()}
                         placeholder="Search users by email or username..."
                         className="bg-[#111111] border-[#222222] text-white flex-1"
                       />
-                      <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium">
+                      <button 
+                        onClick={searchAdminUsers}
+                        disabled={isLoadingAdmin}
+                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
+                      >
+                        {isLoadingAdmin && <Loader2 className="w-4 h-4 animate-spin" />}
                         Search
                       </button>
                     </div>
@@ -800,22 +1258,83 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       Search for users to view their profile, edit badges, or take moderation actions.
                     </p>
                   </div>
+                  
+                  {/* Search Results */}
+                  {adminUsers.length > 0 && (
+                    <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                      <h3 className="text-white font-semibold mb-3">Search Results</h3>
+                      <div className="space-y-2">
+                        {adminUsers.map((u) => (
+                          <div key={u.id} className="flex items-center justify-between p-3 bg-[#111111] rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="w-10 h-10">
+                                <AvatarImage src={u.avatar} />
+                                <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                  {u.displayName?.charAt(0) || u.username.charAt(0)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="text-white font-medium">{u.displayName || u.username}</p>
+                                <p className="text-sm text-[#666666]">@{u.username} • {u.email}</p>
+                              </div>
+                              {u.isBanned && (
+                                <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded">Banned</span>
+                              )}
+                              {u.isStaff && (
+                                <span className="px-2 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-xs rounded">Staff</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {u.isBanned ? (
+                                <button
+                                  onClick={() => handleUnbanUser(u.id)}
+                                  className="px-3 py-1.5 bg-green-500/20 text-green-400 hover:bg-green-500/30 rounded text-sm"
+                                >
+                                  Unban
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleBanUser(u.id, "Administrative action")}
+                                  className="px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-sm"
+                                >
+                                  Ban
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="bg-[#0a0a0a] rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Select a user from search to ban")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Ban User</p>
                         <p className="text-sm text-[#666666]">Permanently ban a user</p>
                       </button>
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Badge editing coming soon")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Edit Badges</p>
                         <p className="text-sm text-[#666666]">Add or remove badges</p>
                       </button>
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Reports system coming soon")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">View Reports</p>
                         <p className="text-sm text-[#666666]">Review user reports</p>
                       </button>
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Impersonation not implemented for security")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Impersonate</p>
                         <p className="text-sm text-[#666666]">Debug user issues</p>
                       </button>
@@ -834,30 +1353,104 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
                     <div className="flex gap-4 mb-4">
                       <Input
+                        value={adminServerSearch}
+                        onChange={(e) => setAdminServerSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && searchAdminServers()}
                         placeholder="Search servers by name or ID..."
                         className="bg-[#111111] border-[#222222] text-white flex-1"
                       />
-                      <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium">
+                      <button 
+                        onClick={searchAdminServers}
+                        disabled={isLoadingAdmin}
+                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
+                      >
+                        {isLoadingAdmin && <Loader2 className="w-4 h-4 animate-spin" />}
                         Search
                       </button>
                     </div>
                   </div>
+
+                  {/* Search Results */}
+                  {adminServers.length > 0 && (
+                    <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                      <h3 className="text-white font-semibold mb-3">Search Results</h3>
+                      <div className="space-y-2">
+                        {adminServers.map((s) => (
+                          <div key={s.id} className="flex items-center justify-between p-3 bg-[#111111] rounded-lg">
+                            <div className="flex items-center gap-3">
+                              <Avatar className="w-10 h-10">
+                                <AvatarImage src={s.icon} />
+                                <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                  {s.name.charAt(0)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <p className="text-white font-medium">{s.name}</p>
+                                <p className="text-sm text-[#666666]">
+                                  {s.memberCount} members • Owner: {s.owner?.displayName || s.owner?.username}
+                                </p>
+                              </div>
+                              {s.isPartner && (
+                                <span className="px-2 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-xs rounded">Partner</span>
+                              )}
+                              {s.isDiscoverable && (
+                                <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">Discoverable</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleTogglePartner(s.id)}
+                                className="px-3 py-1.5 bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30 rounded text-sm"
+                              >
+                                {s.isPartner ? "Remove Partner" : "Make Partner"}
+                              </button>
+                              <button
+                                onClick={() => handleToggleDiscovery(s.id)}
+                                className="px-3 py-1.5 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded text-sm"
+                              >
+                                {s.isDiscoverable ? "Hide" : "Show"}
+                              </button>
+                              <button
+                                onClick={() => handleDeleteServer(s.id)}
+                                className="px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-sm"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="bg-[#0a0a0a] rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-3">Server Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Search for a server first")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Partner Server</p>
                         <p className="text-sm text-[#666666]">Grant partner status</p>
                       </button>
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Search for a server first")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Delete Server</p>
                         <p className="text-sm text-[#666666]">Remove server permanently</p>
                       </button>
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Search for a server first")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Toggle Discovery</p>
                         <p className="text-sm text-[#666666]">Enable/disable discoverability</p>
                       </button>
-                      <button className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors">
+                      <button 
+                        onClick={() => toast.info("Transfer feature coming soon")}
+                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                      >
                         <p className="text-white font-medium">Transfer Ownership</p>
                         <p className="text-sm text-[#666666]">Change server owner</p>
                       </button>
@@ -873,6 +1466,29 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <Settings className="w-6 h-6 text-[#8B5CF6]" />
                     Platform Settings
                   </h2>
+
+                  {/* Stats Overview */}
+                  {adminStats && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                        <p className="text-2xl font-bold text-white">{adminStats.users.toLocaleString()}</p>
+                        <p className="text-sm text-[#666666]">Total Users</p>
+                      </div>
+                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                        <p className="text-2xl font-bold text-white">{adminStats.servers.toLocaleString()}</p>
+                        <p className="text-sm text-[#666666]">Total Servers</p>
+                      </div>
+                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                        <p className="text-2xl font-bold text-white">{adminStats.messages.toLocaleString()}</p>
+                        <p className="text-sm text-[#666666]">Total Messages</p>
+                      </div>
+                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                        <p className="text-2xl font-bold text-green-400">+{adminStats.newUsersToday}</p>
+                        <p className="text-sm text-[#666666]">New Today</p>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="space-y-4">
                     <div className="bg-[#0a0a0a] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Maintenance Mode</h3>
@@ -881,7 +1497,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white">Enable Maintenance Mode</p>
                           <p className="text-sm text-[#666666]">Restrict access to staff only</p>
                         </div>
-                        <input type="checkbox" className="w-5 h-5 accent-[#8B5CF6]" />
+                        <input 
+                          type="checkbox" 
+                          className="w-5 h-5 accent-[#8B5CF6]" 
+                          checked={platformSettings?.maintenanceMode || false}
+                          onChange={(e) => handleUpdatePlatformSettings({ maintenanceMode: e.target.checked })}
+                        />
                       </label>
                     </div>
                     <div className="bg-[#0a0a0a] rounded-lg p-4">
@@ -891,17 +1512,27 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white">Allow New Registrations</p>
                           <p className="text-sm text-[#666666]">Enable new user sign-ups</p>
                         </div>
-                        <input type="checkbox" className="w-5 h-5 accent-[#8B5CF6]" defaultChecked />
+                        <input 
+                          type="checkbox" 
+                          className="w-5 h-5 accent-[#8B5CF6]" 
+                          checked={platformSettings?.allowRegistration !== false}
+                          onChange={(e) => handleUpdatePlatformSettings({ allowRegistration: e.target.checked })}
+                        />
                       </label>
                     </div>
                     <div className="bg-[#0a0a0a] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Global Announcement</h3>
                       <Textarea
+                        value={announcementText}
+                        onChange={(e) => setAnnouncementText(e.target.value)}
                         placeholder="Enter a global announcement to display to all users..."
                         className="bg-[#111111] border-[#222222] text-white mb-3"
                         rows={3}
                       />
-                      <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium">
+                      <button 
+                        onClick={handlePublishAnnouncement}
+                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium"
+                      >
                         Publish Announcement
                       </button>
                     </div>
@@ -918,16 +1549,69 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </h2>
                   <div className="bg-[#0a0a0a] rounded-lg p-4">
                     <div className="flex gap-2 mb-4">
-                      <button className="px-3 py-1.5 bg-[#8B5CF6] text-white rounded text-sm">All</button>
-                      <button className="px-3 py-1.5 bg-[#111111] text-white hover:bg-[#1a1a1a] rounded text-sm">Bans</button>
-                      <button className="px-3 py-1.5 bg-[#111111] text-white hover:bg-[#1a1a1a] rounded text-sm">Reports</button>
-                      <button className="px-3 py-1.5 bg-[#111111] text-white hover:bg-[#1a1a1a] rounded text-sm">Admin Actions</button>
+                      <button 
+                        onClick={() => { setAdminLogFilter("all"); fetchAdminLogs("all"); }}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "all" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                      >
+                        All
+                      </button>
+                      <button 
+                        onClick={() => { setAdminLogFilter("bans"); fetchAdminLogs("bans"); }}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "bans" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                      >
+                        Bans
+                      </button>
+                      <button 
+                        onClick={() => { setAdminLogFilter("reports"); fetchAdminLogs("reports"); }}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "reports" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                      >
+                        Reports
+                      </button>
+                      <button 
+                        onClick={() => { setAdminLogFilter("admin"); fetchAdminLogs("admin"); }}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "admin" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                      >
+                        Admin Actions
+                      </button>
                     </div>
                     <div className="space-y-2">
-                      <div className="p-3 bg-[#111111] rounded-lg">
-                        <p className="text-white text-sm">No activity logs yet</p>
-                        <p className="text-[#666666] text-xs mt-1">Admin actions will appear here</p>
-                      </div>
+                      {isLoadingAdmin ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6]" />
+                        </div>
+                      ) : adminLogs.length === 0 ? (
+                        <div className="p-3 bg-[#111111] rounded-lg">
+                          <p className="text-white text-sm">No activity logs yet</p>
+                          <p className="text-[#666666] text-xs mt-1">Admin actions will appear here</p>
+                        </div>
+                      ) : (
+                        adminLogs.map((log) => (
+                          <div key={log.id} className="p-3 bg-[#111111] rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="w-6 h-6">
+                                  <AvatarImage src={log.admin?.avatar} />
+                                  <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                                    {log.admin?.displayName?.charAt(0) || log.admin?.username?.charAt(0) || "?"}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-white text-sm font-medium">
+                                  {log.admin?.displayName || log.admin?.username}
+                                </span>
+                                <span className="text-[#666666] text-sm">
+                                  {log.action.replace(/_/g, " ")}
+                                </span>
+                              </div>
+                              <span className="text-[#666666] text-xs">
+                                {new Date(log.createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                            {log.reason && (
+                              <p className="text-[#888888] text-sm mt-1">Reason: {log.reason}</p>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 </div>
@@ -980,6 +1664,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           )}
         </div>
       </div>
+
+      {/* Image Cropper */}
+      <ImageCropper
+        open={cropperOpen}
+        onOpenChange={setCropperOpen}
+        imageUrl={cropperImage}
+        aspectRatio={cropperType === "avatar" ? 1 : 3}
+        onCropComplete={handleCropComplete}
+        title={cropperType === "avatar" ? "Crop Avatar" : "Crop Banner"}
+        description={
+          cropperType === "avatar"
+            ? "Adjust the crop area to select the portion of the image for your avatar."
+            : "Adjust the crop area to select the portion of the image for your profile banner."
+        }
+        circular={cropperType === "avatar"}
+      />
     </div>
   );
 }

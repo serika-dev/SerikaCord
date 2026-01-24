@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,23 @@ export default function LoginPage() {
     email: "",
     password: "",
   });
+
+  // Auto-login on mount for development
+  useEffect(() => {
+    const autoLogin = async () => {
+      // Check if already logged in
+      const checkResponse = await fetch("/api/users/@me");
+      if (checkResponse.ok) {
+        router.push("/channels/me");
+        return;
+      }
+
+      // Auto login disabled for production
+      setIsLoading(false);
+    };
+
+    autoLogin();
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

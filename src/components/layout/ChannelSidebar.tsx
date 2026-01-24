@@ -43,6 +43,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
+import { toast } from "sonner";
 
 interface DMChannel {
   id: string;
@@ -115,8 +116,10 @@ export function ChannelSidebar({
     if (editName.trim()) {
       try {
         await updateChannel(channelId, { name: editName.trim() });
+        toast.success("Channel updated");
       } catch (error) {
         console.error("Failed to update channel:", error);
+        toast.error("Failed to update channel");
       }
     }
     setEditingChannel(null);
@@ -128,8 +131,10 @@ export function ChannelSidebar({
       try {
         await deleteChannel(contextMenu.channel.id);
         closeContextMenu();
+        toast.success("Channel deleted");
       } catch (error) {
         console.error("Failed to delete channel:", error);
+        toast.error("Failed to delete channel");
       }
     }
   };
@@ -138,6 +143,7 @@ export function ChannelSidebar({
     if (contextMenu?.channel) {
       navigator.clipboard.writeText(contextMenu.channel.id);
       closeContextMenu();
+      toast.success("Channel ID copied");
     }
   };
 
@@ -146,6 +152,7 @@ export function ChannelSidebar({
       const link = `${window.location.origin}/channels/${currentServer.id}/${contextMenu.channel.id}`;
       navigator.clipboard.writeText(link);
       closeContextMenu();
+      toast.success("Channel link copied");
     }
   };
 

@@ -195,7 +195,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
       {/* Combined Sidebars */}
-      <div className="flex">
+      <div className="flex flex-shrink-0">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
         <ChannelSidebar 
           onCreateChannel={() => setShowCreateChannel(true)}
@@ -205,7 +205,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 flex min-w-0">{children}</main>
+      <main className="flex-1 flex min-w-0 min-h-0 overflow-hidden">{children}</main>
 
       {/* Dialogs */}
       <CreateServerDialog

@@ -61,7 +61,15 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       const response = await fetch("/api/users/@me/servers");
       if (response.ok) {
         const data = await response.json();
-        setServers(data);
+        // Transform _id to id if needed
+        const transformedServers = (Array.isArray(data) ? data : []).map((s: any) => ({
+          id: s.id || s._id,
+          name: s.name,
+          icon: s.icon,
+          ownerId: s.ownerId || s.isOwner,
+          ...s,
+        }));
+        setServers(transformedServers);
       }
     } catch (error) {
       console.error("Failed to fetch servers:", error);
@@ -75,7 +83,19 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`/api/servers/${serverId}/channels`);
       if (response.ok) {
         const data = await response.json();
-        setChannels(data);
+        // Handle both array and wrapped response, transform _id to id if needed
+        const channelsArray = Array.isArray(data) ? data : (data.channels || []);
+        const transformedChannels = channelsArray.map((c: any) => ({
+          id: c.id || c._id,
+          name: c.name,
+          type: c.type,
+          serverId: c.serverId,
+          position: c.position,
+          parentId: c.parentId || null,
+          isNsfw: c.nsfw || c.isNsfw,
+          topic: c.topic,
+        }));
+        setChannels(transformedChannels);
       }
     } catch (error) {
       console.error("Failed to fetch channels:", error);

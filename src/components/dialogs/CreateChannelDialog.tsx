@@ -20,6 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Hash, Volume2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface CreateChannelDialogProps {
   open: boolean;
@@ -57,8 +58,10 @@ export function CreateChannelDialog({ open, onOpenChange }: CreateChannelDialogP
       await fetchChannels(currentServer.id);
       onOpenChange(false);
       resetForm();
+      toast.success("Channel created!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create channel");
+      toast.error(err instanceof Error ? err.message : "Failed to create channel");
     } finally {
       setIsLoading(false);
     }

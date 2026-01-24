@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ImageCropper } from "@/components/ui/image-cropper";
+import { toast } from "sonner";
 import {
   X,
   Settings,
@@ -112,12 +114,34 @@ interface ServerMember {
   status: string;
 }
 
+interface ServerEmoji {
+  _id: string;
+  name: string;
+  imageUrl: string;
+  animated: boolean;
+}
+
+interface ServerChannel {
+  id: string;
+  name: string;
+  type: string;
+}
+
 export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialogProps) {
-  const { currentServer, fetchChannels } = useServer();
+  const { currentServer, fetchChannels, fetchServers, channels } = useServer();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const iconInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingIcon, setIsUploadingIcon] = useState(false);
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+
+  // Image cropper state
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropperImage, setCropperImage] = useState<string>("");
+  const [cropperType, setCropperType] = useState<"icon" | "banner">("icon");
 
   // Server settings state
   const [serverName, setServerName] = useState("");
@@ -134,7 +158,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [invites, setInvites] = useState<Invite[]>([]);
   const [bans, setBans] = useState<BannedUser[]>([]);
   const [members, setMembers] = useState<ServerMember[]>([]);
+  const [emojis, setEmojis] = useState<ServerEmoji[]>([]);
+  const [textChannels, setTextChannels] = useState<ServerChannel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Emoji upload refs
+  const emojiInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingEmoji, setIsUploadingEmoji] = useState(false);
 
   // Initialize with server data
   useEffect(() => {
@@ -145,8 +175,26 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       setServerDescription(server.description || "");
       setServerIcon(server.icon || null);
       setServerBanner(server.banner || null);
+      setSystemChannel(server.systemChannelId || null);
+      setRulesChannel(server.rulesChannelId || null);
+      setAfkChannel(server.afkChannelId || null);
+      setAfkTimeout(server.afkTimeout || 300);
     }
   }, [currentServer]);
+
+  // Extract text channels from channels context
+  useEffect(() => {
+    if (channels) {
+      const textChs = channels
+        .filter((ch: any) => ch.type === "text")
+        .map((ch: any) => ({
+          id: ch.id || ch._id,
+          name: ch.name,
+          type: ch.type,
+        }));
+      setTextChannels(textChs);
+    }
+  }, [channels]);
 
   // Fetch data based on active tab
   useEffect(() => {
@@ -184,6 +232,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               setMembers(data.members || []);
             }
             break;
+          case "emoji":
+          case "stickers":
+            const emojisRes = await fetch(`/api/servers/${currentServer.id}/emojis`);
+            if (emojisRes.ok) {
+              const data = await emojisRes.json();
+              setEmojis(data.emojis || []);
+            }
+            break;
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
@@ -206,6 +262,102 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onOpenChange]);
 
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentServer) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    // Validate file size (8MB max)
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image must be less than 8MB");
+      return;
+    }
+
+    // Open cropper with the selected image
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropperImage(reader.result as string);
+      setCropperType("icon");
+      setCropperOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    // Clear input so the same file can be selected again
+    if (iconInputRef.current) {
+      iconInputRef.current.value = "";
+    }
+  };
+
+  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentServer) return;
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Image must be less than 8MB");
+      return;
+    }
+
+    // Open cropper with the selected image
+    const reader = new FileReader();
+    reader.onload = () => {
+      setCropperImage(reader.result as string);
+      setCropperType("banner");
+      setCropperOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    // Clear input
+    if (bannerInputRef.current) {
+      bannerInputRef.current.value = "";
+    }
+  };
+
+  const handleCropComplete = async (croppedBlob: Blob) => {
+    if (!currentServer) return;
+
+    const isIcon = cropperType === "icon";
+    const setUploading = isIcon ? setIsUploadingIcon : setIsUploadingBanner;
+    const setImage = isIcon ? setServerIcon : setServerBanner;
+    const endpoint = isIcon
+      ? `/api/upload/server/${currentServer.id}/icon`
+      : `/api/upload/server/${currentServer.id}/banner`;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file", croppedBlob, `${cropperType}.png`);
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setImage(data.url);
+        toast.success(`Server ${cropperType} updated!`);
+        await fetchServers();
+      } else {
+        const data = await response.json();
+        toast.error(data.error || `Failed to upload ${cropperType}`);
+      }
+    } catch (error) {
+      toast.error(`Failed to upload ${cropperType}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleSaveOverview = async () => {
     if (!currentServer) return;
     setIsSaving(true);
@@ -216,16 +368,160 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         body: JSON.stringify({
           name: serverName,
           description: serverDescription,
+          systemChannelId: systemChannel,
+          rulesChannelId: rulesChannel,
+          afkChannelId: afkChannel,
+          afkTimeout: afkTimeout,
         }),
       });
 
       if (response.ok) {
         setHasChanges(false);
+        toast.success("Server settings saved!");
+        await fetchServers();
+      } else {
+        toast.error("Failed to save settings");
       }
     } catch (error) {
       console.error("Failed to save settings:", error);
+      toast.error("Failed to save settings");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleCreateRole = async () => {
+    if (!currentServer) return;
+    try {
+      const response = await fetch(`/api/servers/${currentServer.id}/roles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "new role",
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRoles(prev => [...prev, {
+          id: data.role._id,
+          name: data.role.name,
+          color: data.role.color?.toString(16) || "99AAB5",
+          position: data.role.position,
+          permissions: [],
+        }]);
+        toast.success("Role created!");
+      } else {
+        toast.error("Failed to create role");
+      }
+    } catch (error) {
+      console.error("Failed to create role:", error);
+      toast.error("Failed to create role");
+    }
+  };
+
+  const handleDeleteRole = async (roleId: string) => {
+    if (!currentServer) return;
+    try {
+      const response = await fetch(`/api/servers/${currentServer.id}/roles/${roleId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setRoles(prev => prev.filter(r => r.id !== roleId));
+        toast.success("Role deleted");
+      } else {
+        const data = await response.json();
+        toast.error(data.error || "Failed to delete role");
+      }
+    } catch (error) {
+      console.error("Failed to delete role:", error);
+      toast.error("Failed to delete role");
+    }
+  };
+
+  const handleEmojiUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !currentServer) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+
+    // Validate file size (256KB max for emoji)
+    if (file.size > 256 * 1024) {
+      toast.error("Emoji must be less than 256KB");
+      return;
+    }
+
+    // Get emoji name from filename
+    const emojiName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_]/g, "_").substring(0, 32);
+    
+    setIsUploadingEmoji(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      // First upload the image
+      const uploadRes = await fetch(`/api/upload/emoji`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        throw new Error("Failed to upload emoji image");
+      }
+
+      const uploadData = await uploadRes.json();
+
+      // Then create the emoji
+      const response = await fetch(`/api/servers/${currentServer.id}/emojis`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: emojiName,
+          imageUrl: uploadData.url,
+          animated: file.type === "image/gif",
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setEmojis(prev => [...prev, data.emoji]);
+        toast.success("Emoji uploaded!");
+      } else {
+        const data = await response.json();
+        toast.error(data.error || "Failed to create emoji");
+      }
+    } catch (error) {
+      console.error("Failed to upload emoji:", error);
+      toast.error("Failed to upload emoji");
+    } finally {
+      setIsUploadingEmoji(false);
+      if (emojiInputRef.current) {
+        emojiInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleDeleteEmoji = async (emojiId: string) => {
+    if (!currentServer) return;
+    try {
+      const response = await fetch(`/api/servers/${currentServer.id}/emojis/${emojiId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok) {
+        setEmojis(prev => prev.filter(e => e._id !== emojiId));
+        toast.success("Emoji deleted");
+      } else {
+        toast.error("Failed to delete emoji");
+      }
+    } catch (error) {
+      console.error("Failed to delete emoji:", error);
+      toast.error("Failed to delete emoji");
     }
   };
 
@@ -244,9 +540,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (response.ok) {
         const data = await response.json();
         setInvites(prev => [data.invite, ...prev]);
+        toast.success("Invite created!");
+      } else {
+        toast.error("Failed to create invite");
       }
     } catch (error) {
       console.error("Failed to create invite:", error);
+      toast.error("Failed to create invite");
     }
   };
 
@@ -257,8 +557,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         method: "DELETE",
       });
       setInvites(prev => prev.filter(i => i.code !== code));
+      toast.success("Invite deleted");
     } catch (error) {
       console.error("Failed to delete invite:", error);
+      toast.error("Failed to delete invite");
     }
   };
 
@@ -269,8 +571,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         method: "DELETE",
       });
       setBans(prev => prev.filter(b => b.id !== userId));
+      toast.success("User unbanned");
     } catch (error) {
       console.error("Failed to unban user:", error);
+      toast.error("Failed to unban user");
     }
   };
 
@@ -287,6 +591,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
 
       if (response.ok) {
+        toast.success("Server deleted");
         onOpenChange(false);
         window.location.href = "/channels/me";
       }
@@ -297,6 +602,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard!");
   };
 
   if (!open || !currentServer) return null;
@@ -341,6 +647,22 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <p className="text-sm text-[#888888]">Customize your server's identity</p>
       </div>
 
+      {/* Hidden file inputs */}
+      <input
+        type="file"
+        ref={iconInputRef}
+        onChange={handleIconUpload}
+        accept="image/*"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={bannerInputRef}
+        onChange={handleBannerUpload}
+        accept="image/*"
+        className="hidden"
+      />
+
       {/* Server Icon & Banner */}
       <div className="flex gap-6">
         {/* Icon */}
@@ -352,8 +674,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 {serverName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <button className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl">
-              <Camera className="w-8 h-8 text-white" />
+            <button
+              onClick={() => iconInputRef.current?.click()}
+              disabled={isUploadingIcon}
+              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl disabled:cursor-not-allowed"
+            >
+              {isUploadingIcon ? (
+                <Loader2 className="w-8 h-8 text-white animate-spin" />
+              ) : (
+                <Camera className="w-8 h-8 text-white" />
+              )}
             </button>
           </div>
           <span className="text-xs text-[#666666]">Server Icon</span>
@@ -365,8 +695,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             {serverBanner && (
               <img src={serverBanner} alt="Banner" className="w-full h-full object-cover" />
             )}
-            <button className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity">
-              <Camera className="w-8 h-8 text-white" />
+            <button
+              onClick={() => bannerInputRef.current?.click()}
+              disabled={isUploadingBanner}
+              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+            >
+              {isUploadingBanner ? (
+                <Loader2 className="w-8 h-8 text-white animate-spin" />
+              ) : (
+                <Camera className="w-8 h-8 text-white" />
+              )}
             </button>
           </div>
           <span className="text-xs text-[#666666] mt-1 block">Server Banner</span>
@@ -410,11 +748,48 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <label className="block text-sm font-medium text-[#888888] mb-2">
           SYSTEM MESSAGES CHANNEL
         </label>
-        <select className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white">
+        <select
+          value={systemChannel || ""}
+          onChange={(e) => {
+            setSystemChannel(e.target.value || null);
+            setHasChanges(true);
+          }}
+          className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+        >
           <option value="">No system messages</option>
+          {textChannels.map((ch) => (
+            <option key={ch.id} value={ch.id}>
+              #{ch.name}
+            </option>
+          ))}
         </select>
         <p className="text-xs text-[#666666] mt-1">
           Where system messages like welcome messages are sent
+        </p>
+      </div>
+
+      {/* Rules Channel */}
+      <div>
+        <label className="block text-sm font-medium text-[#888888] mb-2">
+          RULES CHANNEL
+        </label>
+        <select
+          value={rulesChannel || ""}
+          onChange={(e) => {
+            setRulesChannel(e.target.value || null);
+            setHasChanges(true);
+          }}
+          className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+        >
+          <option value="">No rules channel</option>
+          {textChannels.map((ch) => (
+            <option key={ch.id} value={ch.id}>
+              #{ch.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-[#666666] mt-1">
+          Display your server rules in Community servers
         </p>
       </div>
 
@@ -459,7 +834,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <h2 className="text-xl font-bold text-white mb-1">Roles</h2>
           <p className="text-sm text-[#888888]">Manage server roles and permissions</p>
         </div>
-        <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2">
+        <button
+          onClick={handleCreateRole}
+          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2"
+        >
           <Plus className="w-4 h-4" />
           Create Role
         </button>
@@ -472,7 +850,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : (
         <div className="space-y-2">
           {/* Default @everyone role */}
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-[#111111] border border-[#222222]">
+          <div
+            key="everyone"
+            className="flex items-center gap-3 p-3 rounded-lg bg-[#111111] border border-[#222222]"
+          >
             <GripVertical className="w-4 h-4 text-[#666666]" />
             <div className="w-3 h-3 rounded-full bg-[#888888]" />
             <span className="flex-1 text-white">@everyone</span>
@@ -480,20 +861,29 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <ChevronRight className="w-4 h-4 text-[#666666]" />
           </div>
 
-          {roles.map((role) => (
+          {roles.filter(r => r.name !== "@everyone").map((role) => (
             <div
-              key={role.id}
-              className="flex items-center gap-3 p-3 rounded-lg bg-[#111111] border border-[#222222] hover:bg-[#1a1a1a] cursor-pointer transition-colors"
+              key={role.id || role.name}
+              className="flex items-center gap-3 p-3 rounded-lg bg-[#111111] border border-[#222222] hover:bg-[#1a1a1a] cursor-pointer transition-colors group"
             >
               <GripVertical className="w-4 h-4 text-[#666666]" />
               <div
                 className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: role.color || "#888888" }}
+                style={{ backgroundColor: role.color ? `#${role.color}` : "#888888" }}
               />
               <span className="flex-1 text-white">{role.name}</span>
               {role.memberCount !== undefined && (
                 <span className="text-xs text-[#666666]">{role.memberCount} members</span>
               )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteRole(role.id);
+                }}
+                className="p-1 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 rounded text-[#666666] hover:text-red-500 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
               <ChevronRight className="w-4 h-4 text-[#666666]" />
             </div>
           ))}
@@ -548,7 +938,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   </button>
                 </div>
                 <div className="flex items-center gap-4 mt-1 text-xs text-[#666666]">
-                  <span>#{invite.channel.name}</span>
+                  <span>#{invite.channel?.name || 'deleted-channel'}</span>
                   <span>{invite.uses} uses</span>
                   {invite.expiresAt && (
                     <span>Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
@@ -650,7 +1040,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               <Avatar className="w-10 h-10">
                 <AvatarImage src={member.avatar} />
                 <AvatarFallback className="bg-[#8B5CF6] text-white">
-                  {(member.displayName || member.username).charAt(0)}
+                  {(member.displayName || member.username || '?').charAt(0)}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
@@ -679,21 +1069,102 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-white mb-1">Server Emoji</h2>
-          <p className="text-sm text-[#888888]">Upload custom emoji for your server</p>
+          <p className="text-sm text-[#888888]">Upload custom emoji for your server ({emojis.length}/50)</p>
         </div>
-        <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2">
-          <Plus className="w-4 h-4" />
+        <button
+          onClick={() => emojiInputRef.current?.click()}
+          disabled={isUploadingEmoji}
+          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
+        >
+          {isUploadingEmoji ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Plus className="w-4 h-4" />
+          )}
           Upload Emoji
         </button>
       </div>
 
-      <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
-        <Smile className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-white mb-2">No custom emoji yet</h3>
-        <p className="text-[#888888] text-sm mb-4">Upload emoji to use in your server</p>
-        <button className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md">
-          Upload Emoji
+      {/* Hidden file input */}
+      <input
+        type="file"
+        ref={emojiInputRef}
+        onChange={handleEmojiUpload}
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        className="hidden"
+      />
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+        </div>
+      ) : emojis.length === 0 ? (
+        <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
+          <Smile className="w-12 h-12 text-[#666666] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-white mb-2">No custom emoji yet</h3>
+          <p className="text-[#888888] text-sm mb-4">Upload emoji to use in your server</p>
+          <button
+            onClick={() => emojiInputRef.current?.click()}
+            disabled={isUploadingEmoji}
+            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md disabled:opacity-50"
+          >
+            Upload Emoji
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+          {emojis.map((emoji) => (
+            <div
+              key={emoji._id}
+              className="relative group aspect-square bg-[#111111] border border-[#222222] rounded-lg p-2 flex items-center justify-center"
+            >
+              <img
+                src={emoji.imageUrl}
+                alt={`:${emoji.name}:`}
+                className="w-8 h-8 object-contain"
+              />
+              <button
+                onClick={() => handleDeleteEmoji(emoji._id)}
+                className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <X className="w-3 h-3 text-white" />
+              </button>
+              <span className="absolute bottom-0 left-0 right-0 text-xs text-center text-[#888888] truncate px-1">
+                :{emoji.name}:
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderStickers = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-white mb-1">Server Stickers</h2>
+          <p className="text-sm text-[#888888]">Upload custom stickers for your server (0/5)</p>
+        </div>
+        <button
+          disabled
+          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 opacity-50 cursor-not-allowed"
+        >
+          <Plus className="w-4 h-4" />
+          Upload Sticker
         </button>
+      </div>
+
+      <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
+        <Sticker className="w-12 h-12 text-[#666666] mx-auto mb-4" />
+        <h3 className="text-lg font-semibold text-white mb-2">Stickers Coming Soon</h3>
+        <p className="text-[#888888] text-sm mb-4">
+          Custom stickers are currently in development. Stay tuned!
+        </p>
+        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#111111] border border-[#222222]">
+          <div className="w-2 h-2 rounded-full bg-[#8B5CF6] animate-pulse" />
+          <span className="text-sm text-[#888888]">In Development</span>
+        </div>
       </div>
     </div>
   );
@@ -731,7 +1202,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           WIDGET CODE
         </label>
         <div className="p-3 rounded-md bg-[#111111] border border-[#222222] font-mono text-sm text-[#888888]">
-          {`<iframe src="https://serika.gg/widget/${currentServer.id}" width="350" height="500" />`}
+          {`<iframe src="https://serika.chat/widget/${currentServer.id}" width="350" height="500" />`}
         </div>
         <button className="mt-2 text-sm text-[#8B5CF6] hover:underline flex items-center gap-1">
           <Copy className="w-4 h-4" />
@@ -835,7 +1306,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       case "emoji":
         return renderEmoji();
       case "stickers":
-        return renderEmoji(); // Similar to emoji for now
+        return renderStickers();
       case "widget":
         return renderWidget();
       case "audit-log":
@@ -907,6 +1378,22 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
         </ScrollArea>
       </div>
+
+      {/* Image Cropper */}
+      <ImageCropper
+        open={cropperOpen}
+        onOpenChange={setCropperOpen}
+        imageUrl={cropperImage}
+        aspectRatio={cropperType === "icon" ? 1 : 2.5}
+        onCropComplete={handleCropComplete}
+        title={cropperType === "icon" ? "Crop Server Icon" : "Crop Server Banner"}
+        description={
+          cropperType === "icon"
+            ? "Adjust the crop area to select the portion of the image for your server icon."
+            : "Adjust the crop area to select the portion of the image for your server banner."
+        }
+        circular={cropperType === "icon"}
+      />
     </div>
   );
 }

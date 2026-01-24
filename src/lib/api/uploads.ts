@@ -3,7 +3,7 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { storage } from '@/lib/services/storage';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { config } from '@/lib/config';
-import { Server, ServerMember } from '@/lib/models';
+import { Server, ServerMember, User } from '@/lib/models';
 
 // Helper function for auth
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
@@ -28,10 +28,18 @@ function isValidFileType(type: string): boolean {
 export const uploadRoutes = new Elysia({ prefix: '/upload' })
   // Upload avatar
   .post('/avatar', async ({ headers, cookie, body, request, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch the actual Mongoose document
+    const userId = authUser._id || (authUser as unknown as { id: string }).id;
+    const user = await User.findById(userId);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     // Rate limit
@@ -97,10 +105,18 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
   })
   // Upload banner
   .post('/banner', async ({ headers, cookie, body, request, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    // Fetch the actual Mongoose document
+    const userId = authUser._id || (authUser as unknown as { id: string }).id;
+    const user = await User.findById(userId);
+    if (!user) {
+      set.status = 404;
+      return { error: 'User not found' };
     }
 
     // Rate limit
@@ -387,5 +403,61 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     body: t.Object({
       file: t.File(),
       channelId: t.Optional(t.String()),
+    }),
+  })
+  // Upload emoji
+  .post('/emoji', async ({ headers, cookie, body, request, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    // Rate limit
+    const ip = getClientIP(request);
+    const rateLimit = await checkRateLimit('upload', `${user._id}:${ip}`);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter };
+    }
+
+    const { file } = body;
+
+    if (!file) {
+      set.status = 400;
+      return { error: 'No file provided' };
+    }
+
+    // Validate file type (emoji can be PNG, GIF, JPEG, WebP)
+    if (!isValidImageType(file.type)) {
+      set.status = 400;
+      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+    }
+
+    // Validate file size (256KB max for emoji)
+    const MAX_EMOJI_SIZE = 256 * 1024;
+    if (file.size > MAX_EMOJI_SIZE) {
+      set.status = 400;
+      return { error: 'Emoji must be less than 256KB.' };
+    }
+
+    try {
+      const result = await storage.uploadFromFormData(file, 'emojis', {
+        userId: user._id.toString(),
+      });
+
+      return {
+        success: true,
+        url: result.url,
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upload emoji';
+      console.error('Emoji upload error:', error);
+      set.status = 500;
+      return { error: message };
+    }
+  }, {
+    body: t.Object({
+      file: t.File(),
     }),
   });

@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { Channel, Message, Server, ServerMember } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId } from '@/lib/security';
+import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage } from '@/lib/security';
 import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { Types } from 'mongoose';
@@ -264,7 +264,34 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     messages.reverse();
 
-    return { messages };
+    // Transform for frontend - return array directly and map _id to id
+    // Decrypt messages
+    const decryptedMessages = await Promise.all(messages.map(async (msg) => {
+      const author = msg.authorId as any;
+      const decryptedContent = await decryptFromStorage(msg.content);
+      return {
+        id: msg._id.toString(),
+        content: decryptedContent,
+        authorId: author?._id?.toString() || msg.authorId,
+        author: author ? {
+          id: author._id.toString(),
+          username: author.username,
+          displayName: author.displayName || author.username,
+          avatar: author.avatar,
+          status: author.status,
+        } : null,
+        channelId: msg.channelId.toString(),
+        serverId: msg.serverId?.toString(),
+        createdAt: msg.createdAt,
+        updatedAt: msg.updatedAt,
+        attachments: msg.attachments || [],
+        edited: msg.edited,
+        pinned: msg.pinned,
+        reactions: msg.reactions || [],
+      };
+    }));
+
+    return decryptedMessages;
   }, {
     params: t.Object({
       channelId: t.String(),
@@ -381,12 +408,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       mentionEveryone = true;
     }
 
+    // Encrypt content for storage
+    const encryptedContent = sanitizedContent ? await encryptForStorage(sanitizedContent) : '';
+
     // Create message
     const message = new Message({
       channelId: params.channelId,
       serverId: channel.serverId,
       authorId: user._id,
-      content: sanitizedContent,
+      content: encryptedContent,
       type: replyTo ? 'reply' : 'default',
       referencedMessageId: replyTo,
       attachments,
@@ -405,23 +435,46 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Populate author for response
     await message.populate('authorId', 'username displayName avatar status');
 
+    // Transform message for frontend (return original sanitized content, not encrypted)
+    const author = message.authorId as any;
+    const messageResponse = {
+      id: message._id.toString(),
+      content: sanitizedContent, // Return original content, not encrypted
+      authorId: author?._id?.toString() || message.authorId,
+      author: author ? {
+        id: author._id.toString(),
+        username: author.username,
+        displayName: author.displayName || author.username,
+        avatar: author.avatar,
+        status: author.status,
+      } : null,
+      channelId: message.channelId.toString(),
+      serverId: message.serverId?.toString(),
+      createdAt: message.createdAt,
+      updatedAt: message.updatedAt,
+      attachments: message.attachments || [],
+      edited: message.edited,
+      pinned: message.pinned,
+      reactions: message.reactions || [],
+    };
+
     // Publish message event
     const publisher = getPublisher();
     if (publisher) {
       await publisher.publish('message:create', JSON.stringify({
         channelId: params.channelId,
         serverId: channel.serverId,
-        message: message.toJSON(),
+        message: messageResponse,
       }));
     }
 
     // Send to SSE connections
     publishToChannel(params.channelId, {
       type: 'message',
-      message: message.toJSON(),
+      message: messageResponse,
     });
 
-    return { message };
+    return { message: messageResponse };
   }, {
     params: t.Object({
       channelId: t.String(),
@@ -477,6 +530,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const { content } = body;
 
+    let sanitizedEditContent = '';
     if (content) {
       const validation = validateMessageContent(content);
       if (!validation.valid) {
@@ -484,26 +538,28 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         return { error: validation.error };
       }
 
-      message.content = sanitizeInput(content);
+      sanitizedEditContent = sanitizeInput(content);
+      // Encrypt content for storage
+      message.content = await encryptForStorage(sanitizedEditContent);
       message.edited = true;
       message.editedTimestamp = new Date();
     }
 
     await message.save();
 
-    // Publish update event
+    // Publish update event with decrypted content for SSE
     const publisher = getPublisher();
     if (publisher) {
       await publisher.publish('message:update', JSON.stringify({
         channelId: params.channelId,
         serverId: channel.serverId,
         messageId: params.messageId,
-        content: message.content,
+        content: sanitizedEditContent, // Send decrypted for SSE
         editedTimestamp: message.editedTimestamp,
       }));
     }
 
-    return { success: true, message };
+    return { success: true, message: { ...message.toObject(), content: sanitizedEditContent } };
   }, {
     params: t.Object({
       channelId: t.String(),
@@ -584,6 +640,150 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       messageId: t.String(),
     }),
   })
+  // Add reaction to message
+  .put('/:channelId/messages/:messageId/reactions/:emoji/@me', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.channelId) || !isValidObjectId(params.messageId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const message = await Message.findOne({
+      _id: params.messageId,
+      channelId: params.channelId,
+      isDeleted: { $ne: true },
+    });
+
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+
+    // Decode the emoji (handles URL encoding like %F0%9F%91%8D for 👍)
+    const decodedEmoji = decodeURIComponent(params.emoji);
+    
+    // Find or create reaction
+    const existingReaction = message.reactions.find(
+      (r: { emoji: { name: string; id?: string } }) => r.emoji.name === decodedEmoji || r.emoji.id === decodedEmoji
+    );
+
+    if (existingReaction) {
+      // Check if user already reacted
+      if (!existingReaction.userIds.some((id: Types.ObjectId) => id.equals(user._id))) {
+        existingReaction.userIds.push(user._id);
+        existingReaction.count++;
+      }
+    } else {
+      // Add new reaction
+      message.reactions.push({
+        emoji: { name: decodedEmoji },
+        count: 1,
+        userIds: [user._id],
+      });
+    }
+
+    await message.save();
+
+    // Publish reaction event
+    publishToChannel(params.channelId, {
+      type: 'reaction_add',
+      messageId: params.messageId,
+      emoji: decodedEmoji,
+      userId: user._id,
+      count: existingReaction ? existingReaction.count : 1,
+    });
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+      messageId: t.String(),
+      emoji: t.String(),
+    }),
+  })
+  // Remove reaction from message
+  .delete('/:channelId/messages/:messageId/reactions/:emoji/@me', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.channelId) || !isValidObjectId(params.messageId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const message = await Message.findOne({
+      _id: params.messageId,
+      channelId: params.channelId,
+      isDeleted: { $ne: true },
+    });
+
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+
+    const decodedEmoji = decodeURIComponent(params.emoji);
+    const reactions = message.reactions as Array<{ emoji: { name: string; id?: string }; count: number; userIds: Types.ObjectId[] }>;
+    const reactionIndex = reactions.findIndex(
+      r => r.emoji.name === decodedEmoji || r.emoji.id === decodedEmoji
+    );
+
+    if (reactionIndex !== -1) {
+      const reaction = reactions[reactionIndex];
+      reaction.userIds = reaction.userIds.filter(id => !id.equals(user._id));
+      reaction.count = reaction.userIds.length;
+
+      if (reaction.count === 0) {
+        message.reactions.splice(reactionIndex, 1);
+      }
+
+      await message.save();
+    }
+
+    // Publish reaction removal event
+    publishToChannel(params.channelId, {
+      type: 'reaction_remove',
+      messageId: params.messageId,
+      emoji: decodedEmoji,
+      userId: user._id,
+    });
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+      messageId: t.String(),
+      emoji: t.String(),
+    }),
+  })
   // Typing indicator
   .post('/:channelId/typing', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -630,16 +830,34 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }),
   })
   // SSE stream for real-time messages
-  .get('/:channelId/stream', async ({ headers, cookie, params, set }) => {
+  .get('/:channelId/stream', async ({ headers, cookie, params }) => {
+    const sseHeaders = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    };
+
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
-      set.status = 401;
-      return { error: authError || 'Unauthorized' };
+      // Return error as SSE event
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
     }
 
     if (!isValidObjectId(params.channelId)) {
-      set.status = 400;
-      return { error: 'Invalid channel ID' };
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: 'Invalid channel ID' })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
     }
 
     const { hasAccess, error } = await checkChannelAccess(
@@ -648,8 +866,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     );
 
     if (!hasAccess) {
-      set.status = 403;
-      return { error: error || 'Access denied' };
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: error || 'Access denied' })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
     }
 
     const channelKey = params.channelId;
@@ -686,13 +909,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       },
     });
 
-    set.headers = {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    };
-
-    return stream;
+    return new Response(stream, { headers: sseHeaders });
   }, {
     params: t.Object({
       channelId: t.String(),

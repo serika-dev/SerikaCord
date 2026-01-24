@@ -348,7 +348,7 @@ export default function HomePage() {
               
               <div className="space-y-4 mb-8">
                 {[
-                  "Custom vanity invite URL (serika.dev/invite/yourname)",
+                  "Custom vanity invite URL (serika.cc/yourname)",
                   "Partner badge for server owner",
                   "Server featured in discovery",
                   "Priority support from our team",
@@ -387,7 +387,7 @@ export default function HomePage() {
                     <span className="text-xs font-medium text-[#8B5CF6]">Partnered</span>
                   </div>
                   <div className="mt-4 text-sm text-[#666666]">
-                    serika.dev/invite/<span className="text-white">yourserver</span>
+                    serika.cc/<span className="text-white">yourserver</span>
                   </div>
                 </div>
               </div>

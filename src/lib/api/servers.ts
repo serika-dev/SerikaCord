@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { Server, Channel, Role, ServerMember, Invite } from '@/lib/models';
+import { Server, Channel, Role, ServerMember, Invite, ServerEmoji } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId } from '@/lib/security';
 import { cache } from '@/lib/db';
@@ -297,12 +297,18 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to edit this server' };
     }
 
-    const { name, description, icon, banner } = body;
+    const { name, description, icon, banner, systemChannelId, rulesChannelId, afkChannelId, afkTimeout, verificationLevel, explicitContentFilter } = body;
 
     if (name !== undefined) server.name = sanitizeInput(name);
     if (description !== undefined) server.description = sanitizeInput(description);
     if (icon !== undefined) server.icon = icon;
     if (banner !== undefined) server.banner = banner;
+    if (systemChannelId !== undefined) server.systemChannelId = systemChannelId || undefined;
+    if (rulesChannelId !== undefined) server.rulesChannelId = rulesChannelId || undefined;
+    if (afkChannelId !== undefined) server.afkChannelId = afkChannelId || undefined;
+    if (afkTimeout !== undefined) server.afkTimeout = afkTimeout;
+    if (verificationLevel !== undefined) server.verificationLevel = verificationLevel;
+    if (explicitContentFilter !== undefined) server.explicitContentFilter = explicitContentFilter;
 
     await server.save();
 
@@ -319,6 +325,22 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       description: t.Optional(t.String({ maxLength: 1024 })),
       icon: t.Optional(t.Union([t.String(), t.Null()])),
       banner: t.Optional(t.Union([t.String(), t.Null()])),
+      systemChannelId: t.Optional(t.Union([t.String(), t.Null()])),
+      rulesChannelId: t.Optional(t.Union([t.String(), t.Null()])),
+      afkChannelId: t.Optional(t.Union([t.String(), t.Null()])),
+      afkTimeout: t.Optional(t.Number()),
+      verificationLevel: t.Optional(t.Union([
+        t.Literal('none'),
+        t.Literal('low'),
+        t.Literal('medium'),
+        t.Literal('high'),
+        t.Literal('very_high'),
+      ])),
+      explicitContentFilter: t.Optional(t.Union([
+        t.Literal('disabled'),
+        t.Literal('members_without_roles'),
+        t.Literal('all_members'),
+      ])),
     }),
   })
   // Delete server
@@ -527,7 +549,19 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const channels = await Channel.find({ serverId: params.serverId }).sort({ position: 1 });
-    return channels;
+    // Transform _id to id for frontend compatibility
+    return channels.map(ch => ({
+      id: ch._id.toString(),
+      name: ch.name,
+      type: ch.type,
+      serverId: ch.serverId?.toString(),
+      position: ch.position,
+      parentId: ch.parentId?.toString() || null,
+      topic: ch.topic,
+      nsfw: ch.nsfw,
+      rateLimitPerUser: ch.rateLimitPerUser,
+      lastMessageId: ch.lastMessageId?.toString() || null,
+    }));
   }, {
     params: t.Object({
       serverId: t.String(),
@@ -564,6 +598,365 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       serverId: t.String(),
     }),
   })
+  // Create server role
+  .post('/:serverId/roles', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Only owner can create roles for now
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'Only the server owner can create roles' };
+    }
+
+    // Get highest position
+    const highestRole = await Role.findOne({ serverId: params.serverId }).sort({ position: -1 });
+    const newPosition = (highestRole?.position || 0) + 1;
+
+    // Convert color string to number
+    let colorValue = 0x99AAB5; // Default gray
+    if (body.color) {
+      const colorStr = body.color.replace('#', '');
+      colorValue = parseInt(colorStr, 16) || 0x99AAB5;
+    }
+
+    const role = new Role({
+      serverId: params.serverId,
+      name: body.name || 'new role',
+      color: colorValue,
+      position: newPosition,
+      permissions: body.permissions || DEFAULT_PERMISSIONS.everyone,
+      hoist: body.hoist || false,
+      mentionable: body.mentionable || false,
+    });
+
+    await role.save();
+
+    return { role };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+    body: t.Object({
+      name: t.Optional(t.String({ maxLength: 100 })),
+      color: t.Optional(t.String()),
+      permissions: t.Optional(t.String()),
+      hoist: t.Optional(t.Boolean()),
+      mentionable: t.Optional(t.Boolean()),
+    }),
+  })
+  // Update server role
+  .patch('/:serverId/roles/:roleId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.roleId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'Only the server owner can edit roles' };
+    }
+
+    const role = await Role.findOne({ _id: params.roleId, serverId: params.serverId });
+    if (!role) {
+      set.status = 404;
+      return { error: 'Role not found' };
+    }
+
+    // Cannot edit @everyone name
+    if (role.isDefault && body.name && body.name !== '@everyone') {
+      set.status = 400;
+      return { error: 'Cannot rename the @everyone role' };
+    }
+
+    if (body.name !== undefined) role.name = body.name;
+    if (body.color !== undefined) role.color = body.color;
+    if (body.permissions !== undefined) role.permissions = body.permissions;
+    if (body.hoist !== undefined) role.hoist = body.hoist;
+    if (body.mentionable !== undefined) role.mentionable = body.mentionable;
+
+    await role.save();
+
+    return { role };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      roleId: t.String(),
+    }),
+    body: t.Object({
+      name: t.Optional(t.String({ maxLength: 100 })),
+      color: t.Optional(t.String()),
+      permissions: t.Optional(t.String()),
+      hoist: t.Optional(t.Boolean()),
+      mentionable: t.Optional(t.Boolean()),
+    }),
+  })
+  // Delete server role
+  .delete('/:serverId/roles/:roleId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.roleId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'Only the server owner can delete roles' };
+    }
+
+    const role = await Role.findOne({ _id: params.roleId, serverId: params.serverId });
+    if (!role) {
+      set.status = 404;
+      return { error: 'Role not found' };
+    }
+
+    if (role.isDefault) {
+      set.status = 400;
+      return { error: 'Cannot delete the @everyone role' };
+    }
+
+    // Remove role from all members
+    await ServerMember.updateMany(
+      { serverId: params.serverId },
+      { $pull: { roles: params.roleId } }
+    );
+
+    await role.deleteOne();
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      roleId: t.String(),
+    }),
+  })
+  // Get server widget data (public endpoint)
+  .get('/:serverId/widget', async ({ params, set }) => {
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Check if widget is enabled (for now, always enabled)
+    // You could add a server.widgetEnabled field later
+    
+    // Get online members
+    const members = await ServerMember.find({ serverId: params.serverId })
+      .populate('userId', 'username displayName avatar status')
+      .limit(50);
+    
+    // Get channels
+    const channels = await Channel.find({ serverId: params.serverId, type: { $in: ['text', 'voice'] } })
+      .select('name type')
+      .limit(10);
+    
+    // Get an active invite
+    const invite = await Invite.findOne({ 
+      serverId: params.serverId,
+      $or: [
+        { expiresAt: { $gt: new Date() } },
+        { expiresAt: null }
+      ]
+    }).sort({ createdAt: -1 });
+
+    const transformedMembers = members.map(m => {
+      const userData = m.userId as any;
+      return {
+        id: userData._id.toString(),
+        username: userData.username,
+        displayName: userData.displayName,
+        avatar: userData.avatar,
+        status: userData.status || 'offline',
+      };
+    });
+
+    const onlineCount = transformedMembers.filter(m => m.status !== 'offline').length;
+
+    return {
+      id: server._id.toString(),
+      name: server.name,
+      icon: server.icon,
+      memberCount: server.memberCount || members.length,
+      onlineCount,
+      inviteCode: invite?.code,
+      channels: channels.map(c => ({
+        id: c._id.toString(),
+        name: c.name,
+        type: c.type,
+      })),
+      members: transformedMembers,
+    };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Get server emojis
+  .get('/:serverId/emojis', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const membership = await ServerMember.findOne({
+      serverId: params.serverId,
+      userId: user._id,
+    });
+
+    if (!membership) {
+      set.status = 403;
+      return { error: 'You are not a member of this server' };
+    }
+
+    const emojis = await ServerEmoji.find({ serverId: params.serverId, available: true });
+    return { emojis };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Upload server emoji
+  .post('/:serverId/emojis', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    // Check permissions (owner or admin)
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'Only the server owner can upload emojis' };
+    }
+
+    // Check emoji limit (50 for non-premium, 100 for premium)
+    const emojiCount = await ServerEmoji.countDocuments({ serverId: params.serverId });
+    const maxEmojis = server.premiumTier >= 1 ? 100 : 50;
+    if (emojiCount >= maxEmojis) {
+      set.status = 400;
+      return { error: `You can only have ${maxEmojis} custom emojis` };
+    }
+
+    const emoji = new ServerEmoji({
+      serverId: params.serverId,
+      name: sanitizeInput(body.name),
+      imageUrl: body.imageUrl,
+      animated: body.animated || false,
+      uploadedBy: user._id,
+    });
+
+    await emoji.save();
+
+    return { emoji };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+    body: t.Object({
+      name: t.String({ minLength: 2, maxLength: 32 }),
+      imageUrl: t.String(),
+      animated: t.Optional(t.Boolean()),
+    }),
+  })
+  // Delete server emoji
+  .delete('/:serverId/emojis/:emojiId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.emojiId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!server.ownerId.equals(user._id)) {
+      set.status = 403;
+      return { error: 'Only the server owner can delete emojis' };
+    }
+
+    const emoji = await ServerEmoji.findOne({ _id: params.emojiId, serverId: params.serverId });
+    if (!emoji) {
+      set.status = 404;
+      return { error: 'Emoji not found' };
+    }
+
+    await emoji.deleteOne();
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      emojiId: t.String(),
+    }),
+  })
   // Get server invites
   .get('/:serverId/invites', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -591,9 +984,30 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const invites = await Invite.find({ serverId: params.serverId })
       .populate('inviterId', 'username displayName avatar')
+      .populate('channelId', 'name type')
       .sort({ createdAt: -1 });
 
-    return { invites };
+    // Transform invites to include channel data
+    const transformedInvites = invites.map(invite => ({
+      code: invite.code,
+      uses: invite.uses,
+      maxUses: invite.maxUses,
+      expiresAt: invite.expiresAt,
+      createdAt: invite.createdAt,
+      channel: invite.channelId ? {
+        id: (invite.channelId as any)._id?.toString() || invite.channelId.toString(),
+        name: (invite.channelId as any).name || 'unknown',
+        type: (invite.channelId as any).type || 'text',
+      } : null,
+      createdBy: invite.inviterId ? {
+        id: (invite.inviterId as any)._id?.toString() || invite.inviterId.toString(),
+        username: (invite.inviterId as any).username || 'Unknown',
+        displayName: (invite.inviterId as any).displayName,
+        avatar: (invite.inviterId as any).avatar,
+      } : null,
+    }));
+
+    return { invites: transformedInvites };
   }, {
     params: t.Object({
       serverId: t.String(),

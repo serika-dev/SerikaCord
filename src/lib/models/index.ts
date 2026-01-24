@@ -5,3 +5,6 @@ export { Message, type IMessage, type MessageType, type IAttachment, type IEmbed
 export { Role, type IRole } from './Role';
 export { ServerMember, type IServerMember } from './ServerMember';
 export { Invite, type IInvite } from './Invite';
+export { ServerEmoji, type IServerEmoji } from './ServerEmoji';
+export { AdminLog, type IAdminLog, type AdminActionType } from './AdminLog';
+export { PlatformSettings, getPlatformSettings, updatePlatformSettings, getEncryptionKey, type IPlatformSettings } from './PlatformSettings';

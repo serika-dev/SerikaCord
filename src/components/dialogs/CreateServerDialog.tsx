@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Users, ArrowRight, Hash, ImagePlus } from "lucide-react";
+import { toast } from "sonner";
 
 interface CreateServerDialogProps {
   open: boolean;
@@ -52,9 +53,11 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
       const server = await createServer(serverName, serverIcon || undefined);
       onOpenChange(false);
       resetForm();
+      toast.success("Server created!");
       router.push(`/channels/${server.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create server");
+      toast.error(err instanceof Error ? err.message : "Failed to create server");
     } finally {
       setIsLoading(false);
     }
@@ -70,8 +73,10 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
       await joinServer(inviteCode);
       onOpenChange(false);
       resetForm();
+      toast.success("Joined server!");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to join server");
+      toast.error(err instanceof Error ? err.message : "Failed to join server");
     } finally {
       setIsLoading(false);
     }

@@ -276,7 +276,7 @@ export async function authenticateRequest(
     if (!dbUser && verification.accountsUser) {
       const accountsUser = verification.accountsUser;
       
-      // Create or update user in local database
+      // Create user in local database - only set avatar/banner on initial creation
       dbUser = await User.findOneAndUpdate(
         { _id: userId },
         {
@@ -285,17 +285,32 @@ export async function authenticateRequest(
             username: accountsUser.username,
             email: accountsUser.email || `${accountsUser.username}@serika.dev`,
             status: 'online',
+            avatar: accountsUser.avatar,
+            banner: accountsUser.banner,
           },
           $set: {
             displayName: accountsUser.displayName || accountsUser.username,
-            avatar: accountsUser.avatar,
-            banner: accountsUser.banner,
             isPremium: accountsUser.isPremium || false,
             isVerified: accountsUser.isVerified || true,
           },
         },
         { upsert: true, new: true }
       );
+    } else if (dbUser && verification.accountsUser) {
+      // User exists locally - only update non-media fields from accounts API
+      const accountsUser = verification.accountsUser;
+      await User.updateOne(
+        { _id: userId },
+        {
+          $set: {
+            displayName: accountsUser.displayName || accountsUser.username,
+            isPremium: accountsUser.isPremium || false,
+            isVerified: accountsUser.isVerified || true,
+          },
+        }
+      );
+      // Refresh dbUser after update
+      dbUser = await User.findById(userId);
     }
     
     if (!dbUser) {

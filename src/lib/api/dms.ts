@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { Channel, Message, User } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId } from '@/lib/security';
+import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage } from '@/lib/security';
 import { cache, getPublisher } from '@/lib/db';
 import { Types } from 'mongoose';
 
@@ -128,36 +128,40 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       .limit(limit)
       .populate('authorId', 'username displayName avatar status customStatus isPremium');
 
+    // Decrypt messages
+    const decryptedMessages = await Promise.all(messages.reverse().map(async (msg) => {
+      const author = msg.authorId as unknown as {
+        _id: Types.ObjectId;
+        username: string;
+        displayName?: string;
+        avatar?: string;
+        status?: string;
+        customStatus?: string;
+        isPremium?: boolean;
+      };
+      const decryptedContent = await decryptFromStorage(msg.content);
+      return {
+        id: msg._id,
+        content: decryptedContent,
+        authorId: author._id,
+        author: {
+          id: author._id,
+          username: author.username,
+          displayName: author.displayName,
+          avatar: author.avatar,
+          status: author.status,
+          customStatus: author.customStatus,
+          isPremium: author.isPremium,
+        },
+        channelId: msg.channelId,
+        attachments: msg.attachments,
+        createdAt: msg.createdAt,
+        updatedAt: msg.updatedAt,
+      };
+    }));
+
     return {
-      messages: messages.reverse().map((msg) => {
-        const author = msg.authorId as unknown as {
-          _id: Types.ObjectId;
-          username: string;
-          displayName?: string;
-          avatar?: string;
-          status?: string;
-          customStatus?: string;
-          isPremium?: boolean;
-        };
-        return {
-          id: msg._id,
-          content: msg.content,
-          authorId: author._id,
-          author: {
-            id: author._id,
-            username: author.username,
-            displayName: author.displayName,
-            avatar: author.avatar,
-            status: author.status,
-            customStatus: author.customStatus,
-            isPremium: author.isPremium,
-          },
-          channelId: msg.channelId,
-          attachments: msg.attachments,
-          createdAt: msg.createdAt,
-          updatedAt: msg.updatedAt,
-        };
-      }),
+      messages: decryptedMessages,
       channelId: channel._id,
     };
   }, {
@@ -222,11 +226,14 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // Get or create DM channel
     const channel = await getOrCreateDMChannel(user._id.toString(), params.recipientId);
 
+    // Encrypt content for storage
+    const encryptedContent = await encryptForStorage(sanitizedContent);
+
     // Create message
     const message = new Message({
       channelId: channel._id,
       authorId: user._id,
-      content: sanitizedContent,
+      content: encryptedContent,
       type: 'default',
     });
     await message.save();
@@ -238,7 +245,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     const messageData = {
       id: message._id,
-      content: message.content,
+      content: sanitizedContent, // Return decrypted content
       authorId: user._id,
       author: {
         id: user._id,
@@ -290,16 +297,34 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }),
   })
   // SSE stream for real-time messages
-  .get('/:recipientId/stream', async ({ headers, cookie, params, set }) => {
+  .get('/:recipientId/stream', async ({ headers, cookie, params }) => {
+    const sseHeaders = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    };
+
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
-      set.status = 401;
-      return { error: authError || 'Unauthorized' };
+      // Return error as SSE event
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
     }
 
     if (!isValidObjectId(params.recipientId)) {
-      set.status = 400;
-      return { error: 'Invalid recipient ID' };
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: 'Invalid recipient ID' })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
     }
 
     // Get or create DM channel
@@ -335,13 +360,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       },
     });
 
-    set.headers = {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-    };
-
-    return stream;
+    return new Response(stream, { headers: sseHeaders });
   }, {
     params: t.Object({
       recipientId: t.String(),

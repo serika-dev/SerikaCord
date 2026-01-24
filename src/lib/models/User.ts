@@ -5,7 +5,8 @@ export type BadgeId =
   | 'partner' | 'serika_plus' | 'early_supporter'
   | 'verified_bot_developer' | 'bug_hunter' | 'bug_hunter_gold'
   | 'server_owner' | 'active_developer'
-  | 'hypesquad_bravery' | 'hypesquad_brilliance' | 'hypesquad_balance';
+  | 'hypesquad_bravery' | 'hypesquad_brilliance' | 'hypesquad_balance'
+  | 'serikacord_developer' | 'serikacord_contributor' | 'serikacord_tester';
 
 export interface IUserCustomization {
   profileColor?: string;          // Primary profile color (Serika+ only)
@@ -42,6 +43,7 @@ export interface IUser extends Document {
   avatar?: string;
   banner?: string;
   bio?: string;
+  pronouns?: string;
   status?: 'online' | 'idle' | 'dnd' | 'offline' | 'invisible';
   customStatus?: string;
   
@@ -177,6 +179,11 @@ const UserSchema = new Schema<IUser>({
     maxlength: 128,
     default: null,
   },
+  pronouns: {
+    type: String,
+    maxlength: 32,
+    default: null,
+  },
   badges: [{
     type: String,
     enum: [
@@ -185,6 +192,7 @@ const UserSchema = new Schema<IUser>({
       'verified_bot_developer', 'bug_hunter', 'bug_hunter_gold',
       'server_owner', 'active_developer',
       'hypesquad_bravery', 'hypesquad_brilliance', 'hypesquad_balance',
+      'serikacord_developer', 'serikacord_contributor', 'serikacord_tester',
     ],
   }],
   customization: {

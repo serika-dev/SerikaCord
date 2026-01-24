@@ -18,6 +18,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface InviteDialogProps {
   open: boolean;
@@ -103,14 +104,15 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   };
 
   const handleCopy = async () => {
-    const inviteUrl = `https://serika.gg/invite/${inviteCode}`;
+    const inviteUrl = `https://serika.cc/${inviteCode}`;
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
+    toast.success("Invite link copied!");
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleShare = async () => {
-    const inviteUrl = `https://serika.gg/invite/${inviteCode}`;
+    const inviteUrl = `https://serika.cc/${inviteCode}`;
     if (navigator.share) {
       try {
         await navigator.share({
@@ -118,6 +120,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
           text: `Come chat with us on SerikaCord!`,
           url: inviteUrl,
         });
+        toast.success("Shared!");
       } catch (error) {
         // User cancelled or share failed
       }
@@ -139,7 +142,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
 
   if (!open || !currentServer) return null;
 
-  const inviteUrl = `serika.gg/invite/${inviteCode}`;
+  const inviteUrl = `serika.cc/${inviteCode}`;
   const textChannels = channels.filter(c => c.type === "text");
 
   return (
