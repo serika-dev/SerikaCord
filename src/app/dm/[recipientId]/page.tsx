@@ -5,7 +5,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Phone,
   Video,
@@ -25,10 +24,12 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { Twemoji } from "@/components/ui/twemoji";
+import { MessageContent } from "@/components/chat/MessageContent";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
+import { GifPicker } from "@/components/chat/GifPicker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 
 interface User {
   id: string;
@@ -74,6 +75,8 @@ export default function DMConversationPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
 
   const handleEmojiSelect = (emoji: string) => {
     setNewMessage((prev) => prev + emoji);
@@ -152,6 +155,28 @@ export default function DMConversationPage() {
             if (existingIds.has(data.message.id)) {
               return prev;
             }
+            
+            // Skip if this is the user's own message (we use optimistic updates)
+            // The optimistic message will be replaced by the response handler
+            if (data.message.authorId === user?.id || data.message.author?.id === user?.id) {
+              // Check if we have a temp message with same content - it will be replaced by response
+              const hasTempMessage = prev.some(
+                m => m.id.startsWith('temp-') && 
+                     m.content === data.message.content &&
+                     m.authorId === user?.id
+              );
+              if (hasTempMessage) {
+                // Replace the temp message with the real one
+                return prev.map(m => 
+                  m.id.startsWith('temp-') && 
+                  m.content === data.message.content &&
+                  m.authorId === user?.id
+                    ? data.message
+                    : m
+                );
+              }
+            }
+            
             const updated = [...prev, data.message];
             // Auto-scroll to bottom after new message
             setTimeout(scrollToBottom, 100);
@@ -362,7 +387,7 @@ export default function DMConversationPage() {
         </div>
 
         {/* Messages area */}
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto min-h-0 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#1a1a1a] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#2b2d31]">
           <div className="flex flex-col min-h-full">
             {/* Welcome message */}
             <div className="flex-1" />
@@ -415,9 +440,11 @@ export default function DMConversationPage() {
                           </div>
                           {group.messages.map((message, msgIndex) => (
                             <div key={`${groupIndex}-${msgIndex}-${message.id}`}>
-                              <Twemoji className="text-[#dcddde] break-words">
-                                {message.content}
-                              </Twemoji>
+                              <MessageContent
+                                content={message.content}
+                                className="text-[#dcddde] break-words"
+                                onImageClick={(src, alt) => setLightboxImage({ src, alt })}
+                              />
                               <LinkEmbed content={message.content} />
                             </div>
                           ))}
@@ -430,7 +457,7 @@ export default function DMConversationPage() {
               <div ref={messagesEndRef} />
             </div>
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Message input */}
         <div className="p-4 pt-0">
@@ -452,9 +479,50 @@ export default function DMConversationPage() {
                 <button className="p-1.5 text-[#888888] hover:text-white transition-colors rounded hover:bg-[#1a1a1a]">
                   <Gift className="w-5 h-5" />
                 </button>
-                <button className="p-1.5 text-[#888888] hover:text-white transition-colors rounded hover:bg-[#1a1a1a]">
-                  <ImageIcon className="w-5 h-5" />
-                </button>
+                <Popover open={showGifPicker} onOpenChange={setShowGifPicker}>
+                  <PopoverTrigger asChild>
+                    <button className="p-1.5 text-[#888888] hover:text-white transition-colors rounded hover:bg-[#1a1a1a]">
+                      <ImageIcon className="w-5 h-5" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="top" align="end" className="w-auto p-0 border-none bg-transparent">
+                    <GifPicker
+                      onGifSelect={async (gif: { url: string }) => {
+                        setShowGifPicker(false);
+                        
+                        // Instantly send the GIF as a message
+                        const tempId = `temp-${Date.now()}`;
+                        const optimisticMessage: Message = {
+                          id: tempId,
+                          content: gif.url,
+                          authorId: user?.id || "",
+                          author: {
+                            id: user?.id || "",
+                            username: user?.username || "",
+                            displayName: user?.displayName || "",
+                            avatar: user?.avatar,
+                            status: user?.status || "online",
+                            isPremium: user?.isPremium,
+                          },
+                          channelId: recipientId,
+                          createdAt: new Date().toISOString(),
+                        };
+                        setMessages((prev) => [...prev, optimisticMessage]);
+                        
+                        try {
+                          await fetch(`/api/dms/${recipientId}/messages`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ content: gif.url }),
+                          });
+                        } catch (error) {
+                          // Remove optimistic message on error
+                          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+                        }
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
                 <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
                   <PopoverTrigger asChild>
                     <button className="p-1.5 text-[#888888] hover:text-white transition-colors rounded hover:bg-[#1a1a1a]">
@@ -579,6 +647,14 @@ export default function DMConversationPage() {
           </div>
         </div>
       )}
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        src={lightboxImage?.src || ""}
+        alt={lightboxImage?.alt}
+        isOpen={!!lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }

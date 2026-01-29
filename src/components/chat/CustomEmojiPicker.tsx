@@ -1,12 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Clock, Smile, Users } from "lucide-react";
+import { useState, useRef } from "react";
+import { Search, Clock, Star, Smile, Heart, Coffee, Gamepad2, Plane, Lightbulb, Flag, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import twemoji from "twemoji";
 
 interface CustomEmoji {
   id: string;
@@ -24,64 +22,139 @@ interface EmojiPickerProps {
   className?: string;
 }
 
-const EMOJI_CATEGORIES = {
-  "😀 Smileys & Emotion": [
-    "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊",
-    "😇", "🥰", "😍", "🤩", "😘", "😗", "😚", "😙", "😋", "😛", "😜", "🤪",
-    "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨", "😐", "😑", "😶", "😏",
-    "😒", "🙄", "😬", "🤥", "😌", "😔", "😪", "🤤", "😴", "😷", "🤒", "🤕",
-    "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "🤯", "🤠", "🥳", "😎", "🤓",
-    "🧐", "😕", "😟", "🙁", "😮", "😯", "😲", "😳", "🥺", "😦", "😧", "😨",
-    "😰", "😥", "😢", "😭", "😱", "😖", "😣", "😞", "😓", "😩", "😫", "🥱"
-  ],
-  "👋 People & Body": [
-    "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤏", "✌️", "🤞", "🤟", "🤘", "🤙",
-    "👈", "👉", "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜",
-    "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳", "💪", "🦾", "🦿",
-    "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🦷", "🦴", "👀", "👁️", "👅", "👄"
-  ],
-  "🐶 Animals & Nature": [
-    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮",
-    "🐷", "🐸", "🐵", "🐔", "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺",
-    "🐗", "🐴", "🦄", "🐝", "🐛", "🦋", "🐌", "🐞", "🐜", "🦟", "🦗", "🕷️",
-    "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀", "🐡",
-    "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍", "🦧"
-  ],
-  "🍔 Food & Drink": [
-    "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🍈", "🍒", "🍑",
-    "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶️", "🌽",
-    "🥕", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖", "🥨", "🧀", "🥚", "🍳", "🧈",
-    "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🦴", "🌭", "🍔", "🍟", "🍕", "🥪",
-    "🥙", "🧆", "🌮", "🌯", "🥗", "🥘", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱"
-  ],
-  "⚽ Activities": [
-    "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓",
-    "🏸", "🏒", "🏑", "🥍", "🏏", "🥅", "⛳", "🪁", "🏹", "🎣", "🤿", "🥊",
-    "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🪂", "🏋️",
-    "🤼", "🤸", "🤺", "⛹️", "🤾", "🏌️", "🏇", "🧘", "🏄", "🏊", "🤽", "🚣"
-  ],
-  "✈️ Travel & Places": [
-    "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🚚", "🚛",
-    "🚜", "🦯", "🦽", "🦼", "🛴", "🚲", "🛵", "🏍️", "🛺", "🚨", "🚔", "🚍",
-    "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋", "🚞", "🚝", "🚄", "🚅", "🚈",
-    "🚂", "🚆", "🚇", "🚊", "🚉", "✈️", "🛫", "🛬", "🛩️", "💺", "🛰️", "🚀"
-  ],
-  "💡 Objects": [
-    "⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🖲️", "🕹️", "🗜️", "💽",
-    "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥", "📽️", "🎞️", "📞", "☎️",
-    "📟", "📠", "📺", "📻", "🎙️", "🎚️", "🎛️", "🧭", "⏱️", "⏲️", "⏰", "🕰️",
-    "⌛", "⏳", "📡", "🔋", "🔌", "💡", "🔦", "🕯️", "🪔", "🧯", "🛢️", "💸"
-  ],
-  "❤️ Symbols": [
-    "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❣️", "💕",
-    "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️", "🕉️", "☸️",
-    "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊", "♋", "♌",
-    "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "🉑", "☢️", "☣️"
-  ],
-  "🏁 Flags": [
-    "🏁", "🚩", "🎌", "🏴", "🏳️", "🏳️‍🌈", "🏳️‍⚧️", "🏴‍☠️", "🇺🇳", "🇦🇫", "🇦🇽", "🇦🇱"
-  ]
+// All emoji categories with more comprehensive lists
+const EMOJI_DATA = {
+  smileys: {
+    icon: Smile,
+    label: "Smileys & Emotion",
+    emojis: [
+      "😀", "😃", "😄", "😁", "😆", "😅", "🤣", "😂", "🙂", "🙃", "😉", "😊",
+      "😇", "🥰", "😍", "🤩", "😘", "😗", "☺️", "😚", "😙", "🥲", "😋", "😛",
+      "😜", "🤪", "😝", "🤑", "🤗", "🤭", "🤫", "🤔", "🤐", "🤨", "😐", "😑",
+      "😶", "😶‍🌫️", "😏", "😒", "🙄", "😬", "😮‍💨", "🤥", "😌", "😔", "😪", "🤤",
+      "😴", "😷", "🤒", "🤕", "🤢", "🤮", "🤧", "🥵", "🥶", "🥴", "😵", "😵‍💫",
+      "🤯", "🤠", "🥳", "🥸", "😎", "🤓", "🧐", "😕", "😟", "🙁", "☹️", "😮",
+      "😯", "😲", "😳", "🥺", "😦", "😧", "😨", "😰", "😥", "😢", "😭", "😱",
+      "😖", "😣", "😞", "😓", "😩", "😫", "🥱", "😤", "😡", "😠", "🤬", "😈",
+      "👿", "💀", "☠️", "💩", "🤡", "👹", "👺", "👻", "👽", "👾", "🤖", "😺",
+      "😸", "😹", "😻", "😼", "😽", "🙀", "😿", "😾", "🙈", "🙉", "🙊"
+    ]
+  },
+  people: {
+    icon: Users,
+    label: "People & Body",
+    emojis: [
+      "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🤟", "🤘",
+      "🤙", "👈", "👉", "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛",
+      "🤜", "👏", "🙌", "👐", "🤲", "🤝", "🙏", "✍️", "💅", "🤳", "💪", "🦾",
+      "🦿", "🦵", "🦶", "👂", "🦻", "👃", "🧠", "🫀", "🫁", "🦷", "🦴", "👀",
+      "👁️", "👅", "👄", "👶", "🧒", "👦", "👧", "🧑", "👱", "👨", "🧔", "👩",
+      "🧓", "👴", "👵", "🙍", "🙎", "🙅", "🙆", "💁", "🙋", "🧏", "🙇", "🤦",
+      "🤷", "👮", "🕵️", "💂", "🥷", "👷", "🤴", "👸", "👳", "👲", "🧕", "🤵",
+      "👰", "🤰", "🫃", "🤱", "👼", "🎅", "🤶", "🦸", "🦹", "🧙", "🧚", "🧛"
+    ]
+  },
+  animals: {
+    icon: Heart,
+    label: "Animals & Nature",
+    emojis: [
+      "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐻‍❄️", "🐨", "🐯", "🦁",
+      "🐮", "🐷", "🐽", "🐸", "🐵", "🙈", "🙉", "🙊", "🐒", "🐔", "🐧", "🐦",
+      "🐤", "🐣", "🐥", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝",
+      "🪱", "🐛", "🦋", "🐌", "🐞", "🐜", "🪰", "🪲", "🪳", "🦟", "🦗", "🕷️",
+      "🕸️", "🦂", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦐", "🦞", "🦀",
+      "🐡", "🐠", "🐟", "🐬", "🐳", "🐋", "🦈", "🐊", "🐅", "🐆", "🦓", "🦍",
+      "🦧", "🦣", "🐘", "🦛", "🦏", "🐪", "🐫", "🦒", "🦘", "🦬", "🐃", "🐂",
+      "🐄", "🐎", "🐖", "🐏", "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🦮", "🐕‍🦺"
+    ]
+  },
+  food: {
+    icon: Coffee,
+    label: "Food & Drink",
+    emojis: [
+      "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒",
+      "🍑", "🥭", "🍍", "🥥", "🥝", "🍅", "🍆", "🥑", "🥦", "🥬", "🥒", "🌶️",
+      "🫑", "🌽", "🥕", "🫒", "🧄", "🧅", "🥔", "🍠", "🥐", "🥯", "🍞", "🥖",
+      "🥨", "🧀", "🥚", "🍳", "🧈", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🦴",
+      "🌭", "🍔", "🍟", "🍕", "🫓", "🥪", "🥙", "🧆", "🌮", "🌯", "🫔", "🥗",
+      "🥘", "🫕", "🥫", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤",
+      "🍙", "🍚", "🍘", "🍥", "🥠", "🥮", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧",
+      "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿", "🍩", "🍪", "🌰", "🥜"
+    ]
+  },
+  activities: {
+    icon: Gamepad2,
+    label: "Activities",
+    emojis: [
+      "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓",
+      "🏸", "🏒", "🏑", "🥍", "🏏", "🪃", "🥅", "⛳", "🪁", "🏹", "🎣", "🤿",
+      "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "⛸️", "🥌", "🎿", "⛷️", "🏂", "🪂",
+      "🏋️", "🤼", "🤸", "⛹️", "🤺", "🤾", "🏌️", "🏇", "🧘", "🏄", "🏊", "🤽",
+      "🚣", "🧗", "🚵", "🚴", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️",
+      "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨", "🎬", "🎤", "🎧", "🎼", "🎹",
+      "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🎲", "♟️", "🎯", "🎳",
+      "🎮", "🎰", "🧩"
+    ]
+  },
+  travel: {
+    icon: Plane,
+    label: "Travel & Places",
+    emojis: [
+      "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚",
+      "🚛", "🚜", "🦯", "🦽", "🦼", "🛴", "🚲", "🛵", "🏍️", "🛺", "🚨", "🚔",
+      "🚍", "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋", "🚞", "🚝", "🚄", "🚅",
+      "🚈", "🚂", "🚆", "🚇", "🚊", "🚉", "✈️", "🛫", "🛬", "🛩️", "💺", "🛰️",
+      "🚀", "🛸", "🚁", "🛶", "⛵", "🚤", "🛥️", "🛳️", "⛴️", "🚢", "⚓", "🪝",
+      "⛽", "🚧", "🚦", "🚥", "🛑", "🚏", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯",
+      "🏟️", "🎡", "🎢", "🎠", "⛲", "⛱️", "🏖️", "🏝️", "🏜️", "🌋", "⛰️", "🏔️",
+      "🗻", "🏕️", "⛺", "🛖", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏭", "🏢", "🏬"
+    ]
+  },
+  objects: {
+    icon: Lightbulb,
+    label: "Objects",
+    emojis: [
+      "⌚", "📱", "📲", "💻", "⌨️", "🖥️", "🖨️", "🖱️", "🖲️", "🕹️", "🗜️", "💽",
+      "💾", "💿", "📀", "📼", "📷", "📸", "📹", "🎥", "📽️", "🎞️", "📞", "☎️",
+      "📟", "📠", "📺", "📻", "🎙️", "🎚️", "🎛️", "🧭", "⏱️", "⏲️", "⏰", "🕰️",
+      "⌛", "⏳", "📡", "🔋", "🔌", "💡", "🔦", "🕯️", "🪔", "🧯", "🛢️", "💸",
+      "💵", "💴", "💶", "💷", "🪙", "💰", "💳", "💎", "⚖️", "🪜", "🧰", "🪛",
+      "🔧", "🔨", "⚒️", "🛠️", "⛏️", "🪚", "🔩", "⚙️", "🪤", "🧱", "⛓️", "🧲",
+      "🔫", "💣", "🧨", "🪓", "🔪", "🗡️", "⚔️", "🛡️", "🚬", "⚰️", "🪦", "⚱️",
+      "🏺", "🔮", "📿", "🧿", "💈", "⚗️", "🔭", "🔬", "🕳️", "🩹", "🩺", "💊"
+    ]
+  },
+  symbols: {
+    icon: Heart,
+    label: "Symbols",
+    emojis: [
+      "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍", "🤎", "💔", "❤️‍🔥", "❤️‍🩹",
+      "❣️", "💕", "💞", "💓", "💗", "💖", "💘", "💝", "💟", "☮️", "✝️", "☪️",
+      "🕉️", "☸️", "✡️", "🔯", "🕎", "☯️", "☦️", "🛐", "⛎", "♈", "♉", "♊",
+      "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓", "🆔", "⚛️", "🉑",
+      "☢️", "☣️", "📴", "📳", "🈶", "🈚", "🈸", "🈺", "🈷️", "✴️", "🆚", "💮",
+      "🉐", "㊙️", "㊗️", "🈴", "🈵", "🈹", "🈲", "🅰️", "🅱️", "🆎", "🆑", "🅾️",
+      "🆘", "❌", "⭕", "🛑", "⛔", "📛", "🚫", "💯", "💢", "♨️", "🚷", "🚯",
+      "🚳", "🚱", "🔞", "📵", "🚭", "❗", "❕", "❓", "❔", "‼️", "⁉️", "🔅"
+    ]
+  },
+  flags: {
+    icon: Flag,
+    label: "Flags",
+    emojis: [
+      "🏁", "🚩", "🎌", "🏴", "🏳️", "🏳️‍🌈", "🏳️‍⚧️", "🏴‍☠️", "🇦🇨", "🇦🇩", "🇦🇪", "🇦🇫",
+      "🇦🇬", "🇦🇮", "🇦🇱", "🇦🇲", "🇦🇴", "🇦🇶", "🇦🇷", "🇦🇸", "🇦🇹", "🇦🇺", "🇦🇼", "🇦🇽",
+      "🇦🇿", "🇧🇦", "🇧🇧", "🇧🇩", "🇧🇪", "🇧🇫", "🇧🇬", "🇧🇭", "🇧🇮", "🇧🇯", "🇧🇱", "🇧🇲",
+      "🇧🇳", "🇧🇴", "🇧🇶", "🇧🇷", "🇧🇸", "🇧🇹", "🇧🇻", "🇧🇼", "🇧🇾", "🇧🇿", "🇨🇦", "🇨🇨",
+      "🇨🇩", "🇨🇫", "🇨🇬", "🇨🇭", "🇨🇮", "🇨🇰", "🇨🇱", "🇨🇲", "🇨🇳", "🇨🇴", "🇨🇵", "🇨🇷",
+      "🇨🇺", "🇨🇻", "🇨🇼", "🇨🇽", "🇨🇾", "🇨🇿", "🇩🇪", "🇩🇬", "🇩🇯", "🇩🇰", "🇩🇲", "🇩🇴",
+      "🇩🇿", "🇪🇦", "🇪🇨", "🇪🇪", "🇪🇬", "🇪🇭", "🇪🇷", "🇪🇸", "🇪🇹", "🇪🇺", "🇫🇮", "🇫🇯",
+      "🇫🇰", "🇫🇲", "🇫🇴", "🇫🇷", "🇬🇦", "🇬🇧", "🇬🇩", "🇬🇪", "🇬🇫", "🇬🇬", "🇬🇭", "🇬🇮"
+    ]
+  }
 };
+
+type CategoryKey = keyof typeof EMOJI_DATA;
 
 export function CustomEmojiPicker({
   onEmojiSelect,
@@ -90,22 +163,26 @@ export function CustomEmojiPicker({
   className,
 }: EmojiPickerProps) {
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState(recentEmojis.length > 0 ? "recent" : "smileys");
+  const [activeCategory, setActiveCategory] = useState<CategoryKey | "recent" | "server">("smileys");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const filteredStandardEmojis = Object.entries(EMOJI_CATEGORIES).reduce((acc, [category, emojis]) => {
-    if (!search) {
-      acc[category] = emojis;
-      return acc;
-    }
-    const filtered = emojis.filter(emoji => {
-      const codePoint = emoji.codePointAt(0)?.toString(16);
-      return codePoint && twemoji.convert.toCodePoint(emoji).includes(search.toLowerCase());
+  // Filter emojis based on search
+  const getFilteredEmojis = () => {
+    if (!search.trim()) return null;
+    
+    const results: string[] = [];
+    
+    Object.values(EMOJI_DATA).forEach(({ emojis }) => {
+      emojis.forEach(emoji => {
+        if (results.length < 100) {
+          results.push(emoji);
+        }
+      });
     });
-    if (filtered.length > 0) {
-      acc[category] = filtered;
-    }
-    return acc;
-  }, {} as Record<string, string[]>);
+    
+    return results.slice(0, 50);
+  };
 
   const filteredServerEmojis = serverEmojis.filter(emoji =>
     emoji.name.toLowerCase().includes(search.toLowerCase())
@@ -115,10 +192,35 @@ export function CustomEmojiPicker({
     onEmojiSelect(emoji, isCustom, emojiData);
   };
 
+  const scrollToCategory = (category: string) => {
+    const element = categoryRefs.current[category];
+    if (element && scrollRef.current) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    setActiveCategory(category as CategoryKey | "recent" | "server");
+  };
+
+  const filteredEmojis = getFilteredEmojis();
+
+  // Category buttons for quick navigation
+  const categories: Array<{ key: CategoryKey | "recent" | "server"; icon: React.ElementType; label: string }> = [
+    ...(recentEmojis.length > 0 ? [{ key: "recent" as const, icon: Clock, label: "Recent" }] : []),
+    { key: "smileys", icon: EMOJI_DATA.smileys.icon, label: EMOJI_DATA.smileys.label },
+    { key: "people", icon: EMOJI_DATA.people.icon, label: EMOJI_DATA.people.label },
+    { key: "animals", icon: EMOJI_DATA.animals.icon, label: EMOJI_DATA.animals.label },
+    { key: "food", icon: EMOJI_DATA.food.icon, label: EMOJI_DATA.food.label },
+    { key: "activities", icon: EMOJI_DATA.activities.icon, label: EMOJI_DATA.activities.label },
+    { key: "travel", icon: EMOJI_DATA.travel.icon, label: EMOJI_DATA.travel.label },
+    { key: "objects", icon: EMOJI_DATA.objects.icon, label: EMOJI_DATA.objects.label },
+    { key: "symbols", icon: EMOJI_DATA.symbols.icon, label: EMOJI_DATA.symbols.label },
+    { key: "flags", icon: EMOJI_DATA.flags.icon, label: EMOJI_DATA.flags.label },
+    ...(serverEmojis.length > 0 ? [{ key: "server" as const, icon: Star, label: "Server" }] : []),
+  ];
+
   return (
-    <div className={cn("w-[352px] h-[435px] bg-[#111111] rounded-lg border border-[#222222] flex flex-col", className)}>
+    <div className={cn("w-[352px] h-[435px] bg-[#111111] rounded-lg border border-[#222222] flex flex-col overflow-hidden", className)}>
       {/* Search */}
-      <div className="p-3 border-b border-[#222222]">
+      <div className="p-3 border-b border-[#222222] flex-shrink-0">
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
           <Input
@@ -130,177 +232,126 @@ export function CustomEmojiPicker({
         </div>
       </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="w-full bg-transparent border-b border-[#222222] rounded-none p-0 h-auto">
-          {recentEmojis.length > 0 && (
-            <TabsTrigger
-              value="recent"
-              className="flex-1 data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-[#8B5CF6] rounded-none py-2"
-            >
-              <Clock className="w-4 h-4" />
-            </TabsTrigger>
-          )}
-          <TabsTrigger
-            value="smileys"
-            className="flex-1 data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-[#8B5CF6] rounded-none py-2"
+      {/* Category Navigation */}
+      <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[#222222] overflow-x-auto flex-shrink-0 scrollbar-hide">
+        {categories.map(({ key, icon: Icon, label }) => (
+          <button
+            key={key}
+            onClick={() => scrollToCategory(key)}
+            className={cn(
+              "p-1.5 rounded transition-colors flex-shrink-0",
+              activeCategory === key
+                ? "bg-[#8B5CF6]/20 text-[#8B5CF6]"
+                : "text-[#888888] hover:bg-[#222222] hover:text-white"
+            )}
+            title={label}
           >
-            😀
-          </TabsTrigger>
-          <TabsTrigger
-            value="people"
-            className="flex-1 data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-[#8B5CF6] rounded-none py-2"
-          >
-            👋
-          </TabsTrigger>
-          <TabsTrigger
-            value="animals"
-            className="flex-1 data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-[#8B5CF6] rounded-none py-2"
-          >
-            🐶
-          </TabsTrigger>
-          <TabsTrigger
-            value="food"
-            className="flex-1 data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-[#8B5CF6] rounded-none py-2"
-          >
-            🍔
-          </TabsTrigger>
-          {serverEmojis.length > 0 && (
-            <TabsTrigger
-              value="server"
-              className="flex-1 data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-[#8B5CF6] rounded-none py-2"
-            >
-              <Users className="w-4 h-4" />
-            </TabsTrigger>
-          )}
-        </TabsList>
+            <Icon className="w-4 h-4" />
+          </button>
+        ))}
+      </div>
 
-        <ScrollArea className="flex-1">
-          {/* Recent */}
-          {recentEmojis.length > 0 && (
-            <TabsContent value="recent" className="p-3 m-0">
-              <div className="grid grid-cols-9 gap-1">
-                {recentEmojis.slice(0, 27).map((emoji, idx) => (
+      {/* Emoji Grid */}
+      <ScrollArea className="flex-1 overflow-y-auto">
+        <div className="p-2 pb-4" ref={scrollRef}>
+          {/* Search Results */}
+          {filteredEmojis ? (
+            <div className="mb-4">
+              <h3 className="text-xs font-semibold text-[#888888] mb-2 px-1">Search Results</h3>
+              <div className="grid grid-cols-8 gap-0.5">
+                {filteredEmojis.map((emoji, idx) => (
                   <button
-                    key={idx}
+                    key={`search-${idx}`}
                     onClick={() => handleEmojiClick(emoji)}
-                    className="w-8 h-8 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
-                    dangerouslySetInnerHTML={{
-                      __html: twemoji.parse(emoji, { folder: "svg", ext: ".svg" })
-                    }}
-                  />
+                    className="w-9 h-9 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
+                  >
+                    {emoji}
+                  </button>
                 ))}
               </div>
-            </TabsContent>
+              {filteredEmojis.length === 0 && (
+                <p className="text-sm text-[#666666] text-center py-4">No emojis found</p>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Recent Emojis */}
+              {recentEmojis.length > 0 && (
+                <div 
+                  ref={(el) => { categoryRefs.current["recent"] = el; }}
+                  className="mb-4"
+                >
+                  <h3 className="text-xs font-semibold text-[#888888] mb-2 px-1">Recently Used</h3>
+                  <div className="grid grid-cols-8 gap-0.5">
+                    {recentEmojis.slice(0, 24).map((emoji, idx) => (
+                      <button
+                        key={`recent-${idx}`}
+                        onClick={() => handleEmojiClick(emoji)}
+                        className="w-9 h-9 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Server Emojis */}
+              {serverEmojis.length > 0 && (
+                <div 
+                  key="server-emojis"
+                  ref={(el) => { categoryRefs.current["server"] = el; }}
+                  className="mb-4"
+                >
+                  <h3 className="text-xs font-semibold text-[#888888] mb-2 px-1">Server Emojis</h3>
+                  <div className="grid grid-cols-8 gap-0.5">
+                    {(search ? filteredServerEmojis : serverEmojis).map((emoji) => (
+                      <button
+                        key={`server-emoji-${emoji.id}`}
+                        onClick={() => handleEmojiClick(`:${emoji.name}:`, true, emoji)}
+                        className="w-9 h-9 flex items-center justify-center hover:bg-[#222222] rounded transition-colors p-1.5"
+                        title={`:${emoji.name}:`}
+                      >
+                        <img
+                          src={emoji.url}
+                          alt={emoji.name}
+                          className={cn(
+                            "w-full h-full object-contain",
+                            emoji.animated && "animate-pulse"
+                          )}
+                          loading="lazy"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Standard Categories */}
+              {(Object.entries(EMOJI_DATA) as [CategoryKey, typeof EMOJI_DATA[CategoryKey]][]).map(([key, { label, emojis }]) => (
+                <div 
+                  key={key}
+                  ref={(el) => { categoryRefs.current[key] = el; }}
+                  className="mb-4"
+                >
+                  <h3 className="text-xs font-semibold text-[#888888] mb-2 px-1">{label}</h3>
+                  <div className="grid grid-cols-8 gap-0.5">
+                    {emojis.map((emoji, idx) => (
+                      <button
+                        key={`${key}-${idx}`}
+                        onClick={() => handleEmojiClick(emoji)}
+                        className="w-9 h-9 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </>
           )}
-
-          {/* Standard Emoji Categories */}
-          <TabsContent value="smileys" className="p-3 m-0">
-            {Object.entries(filteredStandardEmojis).slice(0, 1).map(([category, emojis]) => (
-              <div key={category} className="mb-4">
-                <h3 className="text-xs font-semibold text-[#888888] mb-2">{category}</h3>
-                <div className="grid grid-cols-9 gap-1">
-                  {emojis.map((emoji, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleEmojiClick(emoji)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
-                      dangerouslySetInnerHTML={{
-                        __html: twemoji.parse(emoji, { folder: "svg", ext: ".svg" })
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="people" className="p-3 m-0">
-            {Object.entries(filteredStandardEmojis).slice(1, 2).map(([category, emojis]) => (
-              <div key={category} className="mb-4">
-                <h3 className="text-xs font-semibold text-[#888888] mb-2">{category}</h3>
-                <div className="grid grid-cols-9 gap-1">
-                  {emojis.map((emoji, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleEmojiClick(emoji)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
-                      dangerouslySetInnerHTML={{
-                        __html: twemoji.parse(emoji, { folder: "svg", ext: ".svg" })
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="animals" className="p-3 m-0">
-            {Object.entries(filteredStandardEmojis).slice(2, 3).map(([category, emojis]) => (
-              <div key={category} className="mb-4">
-                <h3 className="text-xs font-semibold text-[#888888] mb-2">{category}</h3>
-                <div className="grid grid-cols-9 gap-1">
-                  {emojis.map((emoji, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleEmojiClick(emoji)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
-                      dangerouslySetInnerHTML={{
-                        __html: twemoji.parse(emoji, { folder: "svg", ext: ".svg" })
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="food" className="p-3 m-0">
-            {Object.entries(filteredStandardEmojis).slice(3, 4).map(([category, emojis]) => (
-              <div key={category} className="mb-4">
-                <h3 className="text-xs font-semibold text-[#888888] mb-2">{category}</h3>
-                <div className="grid grid-cols-9 gap-1">
-                  {emojis.map((emoji, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleEmojiClick(emoji)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#222222] rounded text-2xl transition-colors"
-                      dangerouslySetInnerHTML={{
-                        __html: twemoji.parse(emoji, { folder: "svg", ext: ".svg" })
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </TabsContent>
-
-          {/* Server Emojis */}
-          {serverEmojis.length > 0 && (
-            <TabsContent value="server" className="p-3 m-0">
-              <div className="mb-4">
-                <h3 className="text-xs font-semibold text-[#888888] mb-2">Server Emojis</h3>
-                <div className="grid grid-cols-9 gap-1">
-                  {filteredServerEmojis.map((emoji) => (
-                    <button
-                      key={emoji.id}
-                      onClick={() => handleEmojiClick(`:${emoji.name}:`, true, emoji)}
-                      className="w-8 h-8 flex items-center justify-center hover:bg-[#222222] rounded transition-colors p-1"
-                      title={`:${emoji.name}:`}
-                    >
-                      <img
-                        src={emoji.url}
-                        alt={emoji.name}
-                        className="w-full h-full object-contain"
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </TabsContent>
-          )}
-        </ScrollArea>
-      </Tabs>
+        </div>
+      </ScrollArea>
     </div>
   );
 }

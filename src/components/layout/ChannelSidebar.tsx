@@ -201,7 +201,20 @@ export function ChannelSidebar({
       const response = await fetch("/api/dms");
       if (response.ok) {
         const data = await response.json();
-        setDmChannels(data.channels || []);
+        const channels = data.channels || [];
+        
+        // Deduplicate channels by recipient ID to avoid showing the same user twice
+        const seenRecipients = new Set<string>();
+        const uniqueChannels = channels.filter((channel: DMChannel) => {
+          const recipientId = channel.recipients[0]?.id;
+          if (!recipientId || seenRecipients.has(recipientId)) {
+            return false;
+          }
+          seenRecipients.add(recipientId);
+          return true;
+        });
+        
+        setDmChannels(uniqueChannels);
       }
     } catch (error) {
       console.error("Failed to fetch DM channels:", error);

@@ -51,12 +51,15 @@ import {
   FileText,
   Loader2,
   Plus,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
-import { Twemoji } from "@/components/ui/twemoji";
+import { GifPicker } from "@/components/chat/GifPicker";
+import { MessageContent } from "@/components/chat/MessageContent";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
 
 interface Message {
   id: string;
@@ -141,6 +144,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // Typing indicator
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
+  // GIF picker
+  const [showGifPicker, setShowGifPicker] = useState(false);
+
+  // Image lightbox
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
+
   // Detect mobile
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -160,7 +169,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const response = await fetch(`/api/servers/${currentServer.id}/emojis`);
         if (response.ok) {
           const data = await response.json();
-          setServerEmojis(data.emojis || []);
+          // Map imageUrl to url for compatibility with emoji picker
+          const mappedEmojis = (data.emojis || []).map((emoji: { _id?: string; id?: string; name: string; imageUrl: string; serverId: string; animated?: boolean }) => ({
+            id: emoji._id || emoji.id,
+            name: emoji.name,
+            url: emoji.imageUrl,
+            serverId: emoji.serverId,
+            animated: emoji.animated,
+          }));
+          setServerEmojis(mappedEmojis);
         }
       } catch (error) {
         console.error("Failed to fetch server emojis:", error);
@@ -783,10 +800,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                           </div>
                         ) : (
                           <>
-                            <Twemoji className="text-[#888888] leading-relaxed">
-                              {message.content}
-                              {message.edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
-                            </Twemoji>
+                            <MessageContent
+                              content={message.content}
+                              serverEmojis={serverEmojis}
+                              className="text-[#888888] leading-relaxed"
+                              edited={message.edited}
+                              onImageClick={(src, alt) => setLightboxImage({ src, alt })}
+                            />
 
                             {/* Link Embeds */}
                             <LinkEmbed content={message.content} />
@@ -798,8 +818,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                   <img
                                     src={attachment.url}
                                     alt={attachment.filename}
-                                    className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90"
-                                    onClick={() => window.open(attachment.url, "_blank")}
+                                    className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90 transition-opacity"
+                                    onClick={() => setLightboxImage({ src: attachment.url, alt: attachment.filename })}
+                                  />
+                                ) : attachment.contentType.startsWith("video/") ? (
+                                  <video
+                                    src={attachment.url}
+                                    controls
+                                    className="max-w-md max-h-80 rounded-md"
                                   />
                                 ) : (
                                   <a
@@ -994,12 +1020,36 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             >
               <Gift className="w-6 h-6" />
             </button>
-            <button
-              onClick={() => toast.info("Stickers coming soon")}
-              className="hover:text-white transition-colors hidden sm:block"
-            >
-              <Sticker className="w-6 h-6" />
-            </button>
+            <Popover open={showGifPicker} onOpenChange={setShowGifPicker}>
+              <PopoverTrigger asChild>
+                <button className="hover:text-white transition-colors hidden sm:block">
+                  <ImageIcon className="w-6 h-6" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="end"
+                className="w-auto p-0 border-none bg-transparent shadow-xl"
+              >
+                <GifPicker
+                  onGifSelect={async (gif: { url: string }) => {
+                    setShowGifPicker(false);
+                    if (!currentChannel) return;
+                    
+                    // Instantly send the GIF as a message
+                    try {
+                      await fetch(`/api/channels/${currentChannel.id}/messages`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ content: gif.url }),
+                      });
+                    } catch (error) {
+                      toast.error("Failed to send GIF");
+                    }
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
             <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
               <PopoverTrigger asChild>
                 <button className="hover:text-white transition-colors">
@@ -1053,6 +1103,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        src={lightboxImage?.src || ""}
+        alt={lightboxImage?.alt}
+        isOpen={!!lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }
