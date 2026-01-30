@@ -48,6 +48,12 @@
 
 :root {
   --radius: 0.625rem;
+  /* Mobile layout variables */
+  --keyboard-height: 0px;
+  --bottom-nav-height: 60px;
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --mobile-content-pb: calc(var(--bottom-nav-height) + var(--safe-area-bottom));
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -119,6 +125,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -147,6 +154,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -157,6 +165,7 @@
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -168,6 +177,7 @@
     opacity: 0;
     transform: translateX(-8px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -179,6 +189,7 @@
     opacity: 0;
     transform: translateX(16px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -190,6 +201,7 @@
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -200,6 +212,7 @@
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
@@ -227,32 +240,59 @@
 }
 
 .animate-shimmer {
-  background: linear-gradient(
-    90deg,
-    #1a1a1a 25%,
-    #252525 50%,
-    #1a1a1a 75%
-  );
+  background: linear-gradient(90deg,
+      #1a1a1a 25%,
+      #252525 50%,
+      #1a1a1a 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
 /* Stagger children animations */
-.stagger-children > * {
+.stagger-children>* {
   animation: fadeInUp 0.2s ease-out forwards;
   opacity: 0;
 }
 
-.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
-.stagger-children > *:nth-child(2) { animation-delay: 30ms; }
-.stagger-children > *:nth-child(3) { animation-delay: 60ms; }
-.stagger-children > *:nth-child(4) { animation-delay: 90ms; }
-.stagger-children > *:nth-child(5) { animation-delay: 120ms; }
-.stagger-children > *:nth-child(6) { animation-delay: 150ms; }
-.stagger-children > *:nth-child(7) { animation-delay: 180ms; }
-.stagger-children > *:nth-child(8) { animation-delay: 210ms; }
-.stagger-children > *:nth-child(9) { animation-delay: 240ms; }
-.stagger-children > *:nth-child(10) { animation-delay: 270ms; }
+.stagger-children>*:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.stagger-children>*:nth-child(2) {
+  animation-delay: 30ms;
+}
+
+.stagger-children>*:nth-child(3) {
+  animation-delay: 60ms;
+}
+
+.stagger-children>*:nth-child(4) {
+  animation-delay: 90ms;
+}
+
+.stagger-children>*:nth-child(5) {
+  animation-delay: 120ms;
+}
+
+.stagger-children>*:nth-child(6) {
+  animation-delay: 150ms;
+}
+
+.stagger-children>*:nth-child(7) {
+  animation-delay: 180ms;
+}
+
+.stagger-children>*:nth-child(8) {
+  animation-delay: 210ms;
+}
+
+.stagger-children>*:nth-child(9) {
+  animation-delay: 240ms;
+}
+
+.stagger-children>*:nth-child(10) {
+  animation-delay: 270ms;
+}
 
 /* Smooth transitions for interactive elements */
 .transition-smooth {
@@ -306,4 +346,206 @@
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 0.15s;
+}
+
+/* ============================================
+   Mobile-Specific Styles
+   ============================================ */
+
+/* Safe area handling */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.safe-area-left {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+.safe-area-right {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Mobile content padding that accounts for bottom nav + safe area */
+.mobile-content-padded {
+  padding-bottom: var(--mobile-content-pb);
+}
+
+/* When keyboard is open on mobile, hide bottom nav and adjust layout */
+body.keyboard-open {
+  --mobile-content-pb: var(--safe-area-bottom);
+}
+
+body.keyboard-open .mobile-bottom-nav {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Mobile chat input - adjusts based on keyboard state */
+.mobile-chat-input {
+  position: fixed;
+  bottom: var(--mobile-content-pb);
+  left: 0;
+  right: 0;
+  transition: bottom 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.keyboard-open .mobile-chat-input {
+  bottom: var(--keyboard-height);
+}
+
+/* Bottom navigation styles */
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: calc(64px + var(--safe-area-bottom));
+  padding-bottom: var(--safe-area-bottom);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 50;
+}
+
+/* Mobile content area - make sure content doesn't hide behind nav */
+.mobile-content-area {
+  padding-bottom: calc(64px + var(--safe-area-bottom) + 8px);
+}
+
+/* Mobile scroll container - accounts for bottom nav */
+.mobile-scroll-container {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: var(--mobile-content-pb);
+}
+
+/* Touch feedback improvements */
+@media (hover: none) and (pointer: coarse) {
+
+  /* Increase touch targets on mobile */
+  .mobile-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Disable hover effects that look weird on touch */
+  .no-touch-hover:hover {
+    background-color: inherit;
+  }
+
+  /* Better active states for touch */
+  .mobile-active:active {
+    transform: scale(0.97);
+    opacity: 0.9;
+  }
+}
+
+/* Pull to refresh indicator */
+.pull-to-refresh-indicator {
+  position: fixed;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(-100%);
+  transition: transform 0.2s ease-out;
+  z-index: 100;
+}
+
+.pull-to-refresh-indicator.visible {
+  transform: translateX(-50%) translateY(env(safe-area-inset-top, 20px));
+}
+
+/* Mobile drawer overlay */
+.mobile-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  z-index: 60;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.mobile-drawer-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Mobile drawer panel */
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 85%;
+  max-width: 320px;
+  background: #0a0a0a;
+  z-index: 70;
+  transform: translateX(-100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mobile-drawer.open {
+  transform: translateX(0);
+}
+
+.mobile-drawer.right {
+  left: auto;
+  right: 0;
+  transform: translateX(100%);
+}
+
+.mobile-drawer.right.open {
+  transform: translateX(0);
+}
+
+/* Prevent body scroll when drawer is open */
+body.drawer-open {
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* Message input container for mobile */
+.mobile-message-input-container {
+  position: relative;
+  background: #0a0a0a;
+  border-top: 1px solid #1a1a1a;
+  padding: 8px 12px;
+  padding-bottom: calc(8px + var(--safe-area-bottom));
+}
+
+/* Landscape mode adjustments */
+@media (orientation: landscape) and (max-height: 500px) {
+  .mobile-bottom-nav {
+    height: 48px;
+    padding-bottom: 0;
+  }
+
+  :root {
+    --bottom-nav-height: 48px;
+  }
+}
+
+/* iOS-specific fixes */
+@supports (-webkit-touch-callout: none) {
+
+  /* Fix for iOS momentum scrolling */
+  .ios-scroll-fix {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Fix for iOS input zoom */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  textarea {
+    font-size: 16px !important;
+  }
 }

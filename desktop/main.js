@@ -65,7 +65,7 @@ function createWindow() {
   // Show window when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
-    
+
     // Check for updates (not in dev)
     if (!isDev) {
       checkForUpdates();
@@ -95,7 +95,7 @@ function createWindow() {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow.hide();
-      
+
       // Show notification on first minimize
       if (Notification.isSupported()) {
         new Notification({
@@ -210,9 +210,9 @@ function createMenu() {
 function createTray() {
   const iconPath = path.join(__dirname, 'resources', process.platform === 'win32' ? 'icon.ico' : 'icon.png');
   const icon = nativeImage.createFromPath(iconPath);
-  
+
   tray = new Tray(icon.resize({ width: 16, height: 16 }));
-  
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Open SerikaCord',
@@ -300,7 +300,7 @@ autoUpdater.on('update-downloaded', (info) => {
     });
     notification.show();
   }
-  
+
   // Also show a dialog
   dialog.showMessageBox(mainWindow, {
     type: 'info',
@@ -329,6 +329,80 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
+  // IPC Handlers for window controls
+  ipcMain.on('window-minimize', () => {
+    if (mainWindow) mainWindow.minimize();
+  });
+
+  ipcMain.on('window-maximize', () => {
+    if (mainWindow) {
+      if (mainWindow.isMaximized()) {
+        mainWindow.unmaximize();
+      } else {
+        mainWindow.maximize();
+      }
+    }
+  });
+
+  ipcMain.on('window-close', () => {
+    if (mainWindow) mainWindow.close();
+  });
+
+  ipcMain.handle('window-is-maximized', () => {
+    return mainWindow ? mainWindow.isMaximized() : false;
+  });
+
+  // IPC Handlers for notifications
+  ipcMain.handle('show-notification', (event, { title, body, ...options }) => {
+    if (Notification.isSupported()) {
+      const notification = new Notification({
+        title,
+        body,
+        icon: path.join(__dirname, 'resources', 'icon.png'),
+        ...options,
+      });
+      notification.show();
+
+      notification.on('click', () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      });
+
+      return true;
+    }
+    return false;
+  });
+
+  // IPC Handlers for badge (notification count)
+  ipcMain.on('set-badge', (event, count) => {
+    setBadgeCount(count);
+  });
+
+  ipcMain.on('clear-badge', () => {
+    setBadgeCount(0);
+  });
+
+  // IPC Handlers for system
+  ipcMain.on('open-external', (event, url) => {
+    shell.openExternal(url);
+  });
+
+  ipcMain.handle('get-version', () => {
+    return app.getVersion();
+  });
+
+  // IPC Handlers for updates
+  ipcMain.on('check-for-updates', () => {
+    autoUpdater.checkForUpdatesAndNotify();
+  });
+
+  ipcMain.on('install-update', () => {
+    isQuitting = true;
+    autoUpdater.quitAndInstall();
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -337,6 +411,49 @@ app.whenReady().then(() => {
     }
   });
 });
+
+// Badge count helper function
+let overlayIcon = null;
+
+function setBadgeCount(count) {
+  const countNumber = parseInt(count, 10) || 0;
+
+  // macOS: Use dock badge
+  if (process.platform === 'darwin') {
+    app.dock.setBadge(countNumber > 0 ? (countNumber > 99 ? '99+' : String(countNumber)) : '');
+  }
+
+  // Windows: Use overlay icon and taskbar flash
+  if (process.platform === 'win32' && mainWindow) {
+    if (countNumber > 0) {
+      // Create overlay icon with count
+      const iconPath = path.join(__dirname, 'resources', 'notification-badge.png');
+      try {
+        overlayIcon = nativeImage.createFromPath(iconPath);
+        mainWindow.setOverlayIcon(overlayIcon, `${countNumber} unread`);
+      } catch (e) {
+        // If custom icon not available, just flash
+        mainWindow.flashFrame(true);
+      }
+    } else {
+      mainWindow.setOverlayIcon(null, '');
+    }
+  }
+
+  // Linux: Use app badge count
+  if (process.platform === 'linux') {
+    app.setBadgeCount(countNumber);
+  }
+
+  // Update tray tooltip with count
+  if (tray) {
+    if (countNumber > 0) {
+      tray.setToolTip(`SerikaCord (${countNumber} unread)`);
+    } else {
+      tray.setToolTip('SerikaCord');
+    }
+  }
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

@@ -11,13 +11,14 @@ import { CreateChannelDialog } from "@/components/dialogs/CreateChannelDialog";
 import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
 import { InviteDialog } from "@/components/dialogs/InviteDialog";
 import { ServerSettingsDialog } from "@/components/dialogs/ServerSettingsDialog";
-import { 
-  BottomNavigation, 
-  MobileServerList, 
+import {
+  BottomNavigation,
+  MobileServerList,
   MobileServerView,
   MobileMessagesView,
   MobileNotificationsView,
   MobileProfileView,
+  MobileDrawer,
 } from "@/components/mobile";
 import { Loader2, MessageSquare, Menu, X } from "lucide-react";
 import Link from "next/link";
@@ -40,7 +41,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-8 h-8 text-white" />
           </div>
-          
+
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2">
               <Loader2 className="w-5 h-5 text-[#8B5CF6] animate-spin" />
@@ -60,14 +61,14 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-8 h-8 text-white" />
           </div>
-          
+
           <div>
             <h1 className="text-2xl font-bold text-white mb-2">Welcome to SerikaCord</h1>
             <p className="text-[#666666] max-w-md">
               Sign in to access your servers, chat with friends, and join communities.
             </p>
           </div>
-          
+
           <div className="flex gap-3">
             <Link
               href="/login"
@@ -97,6 +98,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showInvite, setShowInvite] = useState(false);
   const [showServerSettings, setShowServerSettings] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [mobileView, setMobileView] = useState<"servers" | "messages" | "notifications" | "profile">("servers");
   const pathname = usePathname();
   const { currentServer } = useServer();
@@ -117,7 +119,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
   // Track if we're on mobile
   const [isMobile, setIsMobile] = useState(false);
-  
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
@@ -147,16 +149,16 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
         {/* Mobile Server List - Only show in servers view when not in a channel */}
         {mobileView === "servers" && !isInChannel && (
-          <MobileServerList 
+          <MobileServerList
             onCreateServer={() => setShowCreateServer(true)}
           />
         )}
 
         {/* Mobile Content Area */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {isInChannel ? (
-            // When in a specific channel, render the chat
-            <main className="flex-1 flex flex-col min-w-0 pb-16">{children}</main>
+            // When in a specific channel, render the chat - ChatArea handles its own padding
+            <main className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">{children}</main>
           ) : mobileView === "servers" && currentServer ? (
             <MobileServerView />
           ) : mobileView === "messages" ? (
@@ -167,12 +169,22 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
             <MobileProfileView />
           ) : (
             // Show channel content or DMs when in servers view without a selected server
-            <main className="flex-1 flex min-w-0 pb-16">{children}</main>
+            <main className="flex-1 flex min-w-0 min-h-0 overflow-hidden">{children}</main>
           )}
         </div>
 
-        {/* Bottom Navigation */}
-        <BottomNavigation />
+        {/* Bottom Navigation - Hide when in a specific channel */}
+        {!isInChannel && <BottomNavigation />}
+
+        {/* Mobile Drawer */}
+        <MobileDrawer
+          isOpen={mobileDrawerOpen}
+          onClose={() => setMobileDrawerOpen(false)}
+          onCreateServer={() => {
+            setMobileDrawerOpen(false);
+            setShowCreateServer(true);
+          }}
+        />
 
         {/* Dialogs */}
         <CreateServerDialog
@@ -197,7 +209,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       {/* Combined Sidebars */}
       <div className="flex flex-shrink-0">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
-        <ChannelSidebar 
+        <ChannelSidebar
           onCreateChannel={() => setShowCreateChannel(true)}
           onInvitePeople={() => setShowInvite(true)}
           onServerSettings={() => setShowServerSettings(true)}

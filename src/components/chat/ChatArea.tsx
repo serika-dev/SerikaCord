@@ -5,6 +5,7 @@ import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { notifyNewMessage, clearBadge } from "@/lib/services/notificationService";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -264,6 +265,21 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               edited: data.message.edited,
               attachments: data.message.attachments || [],
             };
+
+            // Show notification if message is from another user and window not focused
+            if (author && author.id !== user?.id && !document.hasFocus()) {
+              notifyNewMessage(
+                currentChannel.id,
+                currentChannel.name,
+                author.displayName || author.username,
+                data.message.content?.slice(0, 100) || 'Sent an attachment',
+                {
+                  serverId: currentServer?.id,
+                  serverName: currentServer?.name,
+                }
+              );
+            }
+
             return [...prev, newMsg];
           });
         } else if (data.type === "edit") {
@@ -691,7 +707,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0a0a] min-w-0 min-h-0 overflow-hidden animate-fade-in">
+    <div className={cn(
+      "flex-1 flex flex-col bg-[#0a0a0a] min-w-0 min-h-0 overflow-hidden animate-fade-in",
+      isMobile && "mobile-content-padded"
+    )}>
       {/* Channel Header */}
       <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -1014,7 +1033,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       )}
 
       {/* Message Input */}
-      <div className="px-2 sm:px-4 pb-4 sm:pb-6 flex-shrink-0">
+      <div className={cn(
+        "px-2 sm:px-4 flex-shrink-0",
+        isMobile ? "pb-2 safe-area-bottom" : "pb-4 sm:pb-6"
+      )}>
         <div className="relative bg-[#111111] rounded-lg border border-[#1a1a1a]">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple accept="*/*" className="hidden" />
           <button
