@@ -7,6 +7,17 @@ interface LinkEmbedProps {
   content: string;
 }
 
+const FIRST_PARTY_DOMAINS = [
+  "serika.dev",
+  "serikacord.com",
+  "serika.chat",
+  "serika.cc",
+  "waifu.ws",
+  "gifs.serika.dev",
+  "accounts.serika.dev",
+  "cdn.ado.wtf",
+];
+
 function extractUrls(text: string): string[] {
   const urlRegex = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g;
   return text.match(urlRegex) || [];
@@ -33,6 +44,19 @@ function getUrlType(url: string): "youtube" | "twitter" | "generic" {
 
 function isImageUrl(url: string): boolean {
   return /\.(gif|jpg|jpeg|png|webp|svg|bmp)(\?.*)?$/i.test(url) || /^https?:\/\/gifs\.serika\.dev/i.test(url);
+}
+
+function isFirstPartyUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return FIRST_PARTY_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
+function shouldSkipOEmbed(url: string): boolean {
+  return isImageUrl(url) || isFirstPartyUrl(url);
 }
 
 function YouTubeEmbed({ videoId, url }: { videoId: string; url: string }) {
@@ -146,7 +170,10 @@ export function LinkEmbed({ content }: LinkEmbedProps) {
   const [preview, setPreview] = useState<{ title?: string; description?: string; thumbnail?: string; siteName?: string } | null>(null);
 
   useEffect(() => {
-    if (!url) return;
+    if (!url || shouldSkipOEmbed(url)) {
+      setPreview(null);
+      return;
+    }
 
     let active = true;
     setPreview(null);

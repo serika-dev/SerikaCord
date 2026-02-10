@@ -9,6 +9,30 @@ interface OEmbedResponse {
   type?: string;
 }
 
+const FIRST_PARTY_DOMAINS = [
+  'serika.dev',
+  'serikacord.com',
+  'serika.chat',
+  'serika.cc',
+  'waifu.ws',
+  'gifs.serika.dev',
+  'accounts.serika.dev',
+  'cdn.ado.wtf',
+];
+
+function isFirstPartyDomain(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return FIRST_PARTY_DOMAINS.some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
+function isDirectMediaUrl(url: string): boolean {
+  return /\.(gif|jpg|jpeg|png|webp|svg|bmp|mp4|webm)(\?.*)?$/i.test(url);
+}
+
 // Extract meta tags from HTML
 function extractMetaTags(html: string): OEmbedResponse {
   const data: OEmbedResponse = {};
@@ -96,6 +120,12 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
     if (isBlockedDomain(url)) {
       set.status = 403;
       return { error: 'Domain is blocked' };
+    }
+
+    // Skip first-party and direct-media URLs.
+    // Link previews for these should be handled directly by the client renderer.
+    if (isFirstPartyDomain(url) || isDirectMediaUrl(url)) {
+      return {};
     }
     
     try {

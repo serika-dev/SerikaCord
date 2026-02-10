@@ -33,6 +33,8 @@ const defaultSettings: ThemeSettings = {
 interface ThemeContextType {
   settings: ThemeSettings;
   updateSetting: <K extends keyof ThemeSettings>(key: K, value: ThemeSettings[K]) => void;
+  updateSettings: (patch: Partial<ThemeSettings>) => void;
+  applyUserSettingsPatch: (patch: Record<string, any>) => void;
   resetSettings: () => void;
 }
 
@@ -41,6 +43,27 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
+
+  const applyUserSettingsPatch = (patch: Record<string, any>) => {
+    const appearance = patch?.appearance || {};
+    const accessibility = patch?.accessibility || {};
+    const voiceVideo = patch?.voiceVideo || {};
+
+    setSettings((prev) => ({
+      ...prev,
+      theme: (appearance.themeStyle || prev.theme) as ThemeSettings["theme"],
+      accentColor: appearance.accentColor || prev.accentColor,
+      fontSize: typeof appearance.fontSize === "number" ? appearance.fontSize : prev.fontSize,
+      compactMode: typeof appearance.compactMode === "boolean" ? appearance.compactMode : prev.compactMode,
+      showTimestamps: typeof appearance.showTimestamps === "boolean" ? appearance.showTimestamps : prev.showTimestamps,
+      showRoleColors: typeof appearance.showRoleColors === "boolean" ? appearance.showRoleColors : prev.showRoleColors,
+      enableAnimations: typeof appearance.enableAnimations === "boolean" ? appearance.enableAnimations : prev.enableAnimations,
+      saturation: typeof appearance.saturation === "number" ? appearance.saturation : prev.saturation,
+      reducedMotion: typeof accessibility.reducedMotion === "boolean" ? accessibility.reducedMotion : prev.reducedMotion,
+      animatedEmojis: typeof voiceVideo.animatedEmojis === "boolean" ? voiceVideo.animatedEmojis : prev.animatedEmojis,
+      animatedAvatars: typeof voiceVideo.animatedAvatars === "boolean" ? voiceVideo.animatedAvatars : prev.animatedAvatars,
+    }));
+  };
 
   // Load settings from localStorage
   useEffect(() => {
@@ -56,6 +79,26 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setIsLoaded(true);
   }, []);
 
+  // Hydrate from server-side persisted settings when available.
+  useEffect(() => {
+    if (!isLoaded) return;
+    let active = true;
+
+    fetch("/api/users/me/settings")
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!active || !data?.settings) return;
+        applyUserSettingsPatch(data.settings);
+      })
+      .catch(() => {
+        // optional hydration; ignore when unauthenticated
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isLoaded]);
+
   // Save settings to localStorage and apply CSS variables
   useEffect(() => {
     if (!isLoaded) return;
@@ -64,9 +107,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     // Apply CSS variables
     const root = document.documentElement;
+    root.classList.remove("theme-dark", "theme-midnight", "theme-light");
+    root.classList.add(`theme-${settings.theme}`);
+    if (settings.theme === "light") {
+      root.classList.remove("dark");
+      root.style.colorScheme = "light";
+    } else {
+      root.classList.add("dark");
+      root.style.colorScheme = "dark";
+    }
     
     // Accent color
     root.style.setProperty("--accent-color", settings.accentColor);
+    root.style.setProperty("--app-accent", settings.accentColor);
     
     // Convert hex to HSL for Tailwind
     const hexToHsl = (hex: string) => {
@@ -135,13 +188,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setSettings(prev => ({ ...prev, [key]: value }));
   };
 
+  const updateSettings = (patch: Partial<ThemeSettings>) => {
+    setSettings((prev) => ({ ...prev, ...patch }));
+  };
+
   const resetSettings = () => {
     setSettings(defaultSettings);
     localStorage.removeItem("serika-theme-settings");
   };
 
   return (
-    <ThemeContext.Provider value={{ settings, updateSetting, resetSettings }}>
+    <ThemeContext.Provider value={{ settings, updateSetting, updateSettings, applyUserSettingsPatch, resetSettings }}>
       {children}
     </ThemeContext.Provider>
   );

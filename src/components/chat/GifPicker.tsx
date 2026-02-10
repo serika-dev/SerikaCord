@@ -40,6 +40,9 @@ interface GifPickerProps {
 }
 
 const SERIKA_GIFS_API = "https://gifs.serika.dev/api";
+const GIF_PAGE_SIZE = 20;
+const COLLECTION_PAGE_SIZE = 20;
+const TAG_PAGE_SIZE = 10;
 
 type ViewMode = "home" | "trending" | "category" | "search";
 type HomeTab = "tags" | "collections";
@@ -55,6 +58,10 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
   const [homeTab, setHomeTab] = useState<HomeTab>("tags");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [collectionsPage, setCollectionsPage] = useState(1);
+  const [collectionsTotalPages, setCollectionsTotalPages] = useState(1);
+  const [tagsPage, setTagsPage] = useState(1);
+  const [tagsTotalPages, setTagsTotalPages] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState<{ type: "tag" | "collection"; item: Tag | Collection } | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -76,6 +83,13 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     }));
   };
 
+  const resolveTotalPages = (apiTotalPages: unknown, page: number, resultCount: number, pageSize: number) => {
+    if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
+      return apiTotalPages;
+    }
+    return resultCount >= pageSize ? page + 1 : page;
+  };
+
   // Fetch trending GIFs
   const fetchTrending = useCallback(async (page = 1, append = false) => {
     if (page === 1) setIsLoading(true);
@@ -83,7 +97,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?sort=trending&limit=20&page=${page}`,
+        `${SERIKA_GIFS_API}/gifs?sort=trending&limit=${GIF_PAGE_SIZE}&page=${page}`,
         { headers }
       );
       
@@ -97,7 +111,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
           setGifs(formattedGifs);
         }
         
-        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalPages(resolveTotalPages(data.pagination?.totalPages, page, formattedGifs.length, GIF_PAGE_SIZE));
         setCurrentPage(page);
       }
     } catch (error) {
@@ -109,27 +123,44 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
   }, [apiKey]);
 
   // Fetch collections
-  const fetchCollections = useCallback(async () => {
+  const fetchCollections = useCallback(async (page = 1, append = false) => {
+    if (append) setIsLoadingMore(true);
     try {
-      const response = await fetch(`${SERIKA_GIFS_API}/collections?limit=20`, { headers });
+      const response = await fetch(`${SERIKA_GIFS_API}/collections?limit=${COLLECTION_PAGE_SIZE}&page=${page}`, { headers });
       
       if (response.ok) {
         const data = await response.json();
-        setCollections(data.collections || []);
+        const nextCollections = data.collections || [];
+        if (append) {
+          setCollections((prev) => {
+            const seen = new Set(prev.map((item) => item.id));
+            const uniqueNew = nextCollections.filter((item: Collection) => !seen.has(item.id));
+            return [...prev, ...uniqueNew];
+          });
+        } else {
+          setCollections(nextCollections);
+        }
+        setCollectionsTotalPages(
+          resolveTotalPages(data.pagination?.totalPages, page, nextCollections.length, COLLECTION_PAGE_SIZE)
+        );
+        setCollectionsPage(page);
       }
     } catch (error) {
       console.error("Failed to fetch collections:", error);
+    } finally {
+      if (append) setIsLoadingMore(false);
     }
   }, [apiKey]);
 
   // Fetch tags with preview images
-  const fetchTags = useCallback(async () => {
+  const fetchTags = useCallback(async (page = 1, append = false) => {
+    if (append) setIsLoadingMore(true);
     try {
-      const response = await fetch(`${SERIKA_GIFS_API}/tags?limit=10`, { headers });
+      const response = await fetch(`${SERIKA_GIFS_API}/tags?limit=${TAG_PAGE_SIZE}&page=${page}`, { headers });
       
       if (response.ok) {
         const data = await response.json();
-        const tagsData = (data.tags || []).slice(0, 10);
+        const tagsData = data.tags || [];
         
         // Fetch preview image for each tag
         const tagsWithPreviews = await Promise.all(
@@ -154,10 +185,22 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
           })
         );
         
-        setTags(tagsWithPreviews);
+        if (append) {
+          setTags((prev) => {
+            const seen = new Set(prev.map((item) => item.id));
+            const uniqueNew = tagsWithPreviews.filter((item) => !seen.has(item.id));
+            return [...prev, ...uniqueNew];
+          });
+        } else {
+          setTags(tagsWithPreviews);
+        }
+        setTagsTotalPages(resolveTotalPages(data.pagination?.totalPages, page, tagsWithPreviews.length, TAG_PAGE_SIZE));
+        setTagsPage(page);
       }
     } catch (error) {
       console.error("Failed to fetch tags:", error);
+    } finally {
+      if (append) setIsLoadingMore(false);
     }
   }, [apiKey]);
 
@@ -168,7 +211,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?tag=${encodeURIComponent(tagSlug)}&limit=20&page=${page}`,
+        `${SERIKA_GIFS_API}/gifs?tag=${encodeURIComponent(tagSlug)}&limit=${GIF_PAGE_SIZE}&page=${page}`,
         { headers }
       );
       
@@ -182,7 +225,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
           setGifs(formattedGifs);
         }
         
-        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalPages(resolveTotalPages(data.pagination?.totalPages, page, formattedGifs.length, GIF_PAGE_SIZE));
         setCurrentPage(page);
       }
     } catch (error) {
@@ -200,7 +243,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/collections/${collectionId}/gifs?limit=20&page=${page}`,
+        `${SERIKA_GIFS_API}/gifs?collection=${encodeURIComponent(collectionId)}&limit=${GIF_PAGE_SIZE}&page=${page}`,
         { headers }
       );
       
@@ -214,7 +257,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
           setGifs(formattedGifs);
         }
         
-        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalPages(resolveTotalPages(data.pagination?.totalPages, page, formattedGifs.length, GIF_PAGE_SIZE));
         setCurrentPage(page);
       }
     } catch (error) {
@@ -239,7 +282,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?search=${encodeURIComponent(query)}&limit=20&page=${page}`,
+        `${SERIKA_GIFS_API}/gifs?search=${encodeURIComponent(query)}&limit=${GIF_PAGE_SIZE}&page=${page}`,
         { headers }
       );
       
@@ -253,7 +296,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
           setGifs(formattedGifs);
         }
         
-        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalPages(resolveTotalPages(data.pagination?.totalPages, page, formattedGifs.length, GIF_PAGE_SIZE));
         setCurrentPage(page);
       }
     } catch (error) {
@@ -266,8 +309,8 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
 
   // Initial load
   useEffect(() => {
-    fetchTags();
-    fetchCollections();
+    fetchTags(1, false);
+    fetchCollections(1, false);
   }, [fetchTags, fetchCollections]);
 
   // Handle search input change with debounce
@@ -290,10 +333,22 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
 
   // Load more when scrolling
   const loadMore = useCallback(() => {
-    if (isLoadingMore || currentPage >= totalPages) return;
-    
+    if (isLoadingMore) return;
+
+    if (viewMode === "home") {
+      if (homeTab === "tags") {
+        if (tagsPage >= tagsTotalPages) return;
+        fetchTags(tagsPage + 1, true);
+      } else {
+        if (collectionsPage >= collectionsTotalPages) return;
+        fetchCollections(collectionsPage + 1, true);
+      }
+      return;
+    }
+
+    if (currentPage >= totalPages) return;
+
     const nextPage = currentPage + 1;
-    
     switch (viewMode) {
       case "trending":
         fetchTrending(nextPage, true);
@@ -309,7 +364,25 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
         }
         break;
     }
-  }, [viewMode, currentPage, totalPages, isLoadingMore, search, selectedCategory, fetchTrending, searchGifs, fetchByTag, fetchCollectionGifs]);
+  }, [
+    viewMode,
+    homeTab,
+    currentPage,
+    totalPages,
+    tagsPage,
+    tagsTotalPages,
+    collectionsPage,
+    collectionsTotalPages,
+    isLoadingMore,
+    search,
+    selectedCategory,
+    fetchTags,
+    fetchCollections,
+    fetchTrending,
+    searchGifs,
+    fetchByTag,
+    fetchCollectionGifs,
+  ]);
 
   // Intersection observer for infinite scroll
   useEffect(() => {
@@ -319,7 +392,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && !isLoading && !isLoadingMore && viewMode !== "home") {
+        if (entries[0].isIntersecting && !isLoading && !isLoadingMore) {
           loadMore();
         }
       },
@@ -336,6 +409,10 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
       }
     };
   }, [loadMore, isLoading, isLoadingMore, viewMode]);
+
+  const canLoadMore = viewMode === "home"
+    ? (homeTab === "tags" ? tagsPage < tagsTotalPages : collectionsPage < collectionsTotalPages)
+    : currentPage < totalPages;
 
   // Navigation handlers
   const goToTrending = () => {
@@ -505,7 +582,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
             ) : (
               // Tag tiles with preview images
               <>
-                {tags.slice(0, 10).map((tag) => (
+                {tags.map((tag) => (
                   <button
                     key={tag.id}
                     onClick={() => goToCategory("tag", tag)}
@@ -533,6 +610,14 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
                   </button>
                 ))}
               </>
+            )}
+
+            {canLoadMore && (
+              <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
+                {isLoadingMore && (
+                  <Loader2 className="w-5 h-5 text-[#5865f2] animate-spin" />
+                )}
+              </div>
             )}
           </div>
         ) : gifs.length === 0 && !isLoading ? (
@@ -570,7 +655,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
             </div>
             
             {/* Load more trigger */}
-            {currentPage < totalPages && (
+            {canLoadMore && (
               <div ref={loadMoreRef} className="flex justify-center py-4">
                 {isLoadingMore && (
                   <Loader2 className="w-5 h-5 text-[#5865f2] animate-spin" />
