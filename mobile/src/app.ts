@@ -8,7 +8,6 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { Toast } from '@capacitor/toast';
 import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { PushNotifications } from '@capacitor/push-notifications';
 
 // Helper to set user status
 const setUserStatus = async (status: 'online' | 'idle' | 'offline') => {
@@ -28,7 +27,7 @@ const setUserStatus = async (status: 'online' | 'idle' | 'offline') => {
 const initApp = async () => {
   // Hide splash screen after app loads
   await SplashScreen.hide();
-  
+
   // Configure status bar
   if (Capacitor.isNativePlatform()) {
     await StatusBar.setStyle({ style: Style.Dark });
@@ -40,34 +39,36 @@ const initApp = async () => {
   
   // Request push notification permissions
   if (Capacitor.isNativePlatform()) {
-    const permStatus = await PushNotifications.checkPermissions();
-    if (permStatus.receive === 'prompt') {
-      await PushNotifications.requestPermissions();
+    // Request notification permissions
+    const permStatus = await LocalNotifications.checkPermissions();
+    if (permStatus.display === 'prompt' || permStatus.display === 'prompt-with-rationale') {
+      await LocalNotifications.requestPermissions();
     }
-    
-    // Register for push notifications
-    await PushNotifications.register();
-    
-    // Handle push notification received while app is open
-    PushNotifications.addListener('pushNotificationReceived', notification => {
-      console.log('Push notification received:', notification);
-      // Show local notification
-      LocalNotifications.schedule({
-        notifications: [{
-          title: notification.title || 'SerikaCord',
-          body: notification.body || '',
-          id: Date.now(),
-        }]
-      });
+
+    // Handle notification tap - navigate to the relevant channel
+    LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
+      console.log('Notification tapped:', notification);
+      const extra = notification.notification.extra || {};
+
+      // Navigate based on notification data
+      if (extra.channelId && extra.serverId) {
+        window.location.href = `/channels/${extra.serverId}/${extra.channelId}`;
+      } else if (extra.channelId && extra.isDM) {
+        window.location.href = `/channels/@me/${extra.channelId}`;
+      } else if (extra.type === 'friend-request') {
+        window.location.href = '/channels/me';
+      } else if (extra.type === 'mention') {
+        window.location.href = `/channels/${extra.serverId}/${extra.channelId}`;
+      }
     });
-    
-    // Handle push notification action
-    PushNotifications.addListener('pushNotificationActionPerformed', action => {
-      console.log('Push notification action:', action);
-      // Navigate to relevant page based on notification data
+
+    // Handle notification received while app is in foreground
+    LocalNotifications.addListener('localNotificationReceived', (notification) => {
+      console.log('Notification received in foreground:', notification);
+      // Optionally show in-app notification banner
     });
   }
-  
+
   // Handle app URL open (deep links)
   App.addListener('appUrlOpen', async ({ url }) => {
     console.log('App opened with URL:', url);
@@ -77,7 +78,7 @@ const initApp = async () => {
       window.location.href = path;
     }
   });
-  
+
   // Handle back button on Android
   App.addListener('backButton', ({ canGoBack }) => {
     if (canGoBack) {
@@ -114,7 +115,7 @@ const initApp = async () => {
       document.body.style.setProperty('--keyboard-height', `${info.keyboardHeight}px`);
       document.body.classList.add('keyboard-open');
     });
-    
+
     Keyboard.addListener('keyboardWillHide', () => {
       document.body.style.setProperty('--keyboard-height', '0px');
       document.body.classList.remove('keyboard-open');

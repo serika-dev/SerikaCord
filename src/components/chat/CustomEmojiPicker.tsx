@@ -107,6 +107,8 @@ const CustomEmojiButton = memo(function CustomEmojiButton({
   );
 });
 
+type CategoryKey = keyof typeof EMOJI_DATA;
+
 export function CustomEmojiPicker({
   onEmojiSelect,
   serverEmojis = [],
@@ -223,6 +225,31 @@ export function CustomEmojiPicker({
       sectionRefs.current.delete(id);
     }
   }, []);
+
+  const scrollToCategory = (category: string) => {
+    const element = categoryRefs.current[category];
+    if (element && scrollRef.current) {
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    setActiveCategory(category as CategoryKey | "recent" | "server");
+  };
+
+  const filteredEmojis = getFilteredEmojis();
+
+  // Category buttons for quick navigation
+  const categories: Array<{ key: CategoryKey | "recent" | "server"; icon: React.ElementType; label: string }> = [
+    ...(recentEmojis.length > 0 ? [{ key: "recent" as const, icon: Clock, label: "Recent" }] : []),
+    { key: "smileys", icon: EMOJI_DATA.smileys.icon, label: EMOJI_DATA.smileys.label },
+    { key: "people", icon: EMOJI_DATA.people.icon, label: EMOJI_DATA.people.label },
+    { key: "animals", icon: EMOJI_DATA.animals.icon, label: EMOJI_DATA.animals.label },
+    { key: "food", icon: EMOJI_DATA.food.icon, label: EMOJI_DATA.food.label },
+    { key: "activities", icon: EMOJI_DATA.activities.icon, label: EMOJI_DATA.activities.label },
+    { key: "travel", icon: EMOJI_DATA.travel.icon, label: EMOJI_DATA.travel.label },
+    { key: "objects", icon: EMOJI_DATA.objects.icon, label: EMOJI_DATA.objects.label },
+    { key: "symbols", icon: EMOJI_DATA.symbols.icon, label: EMOJI_DATA.symbols.label },
+    { key: "flags", icon: EMOJI_DATA.flags.icon, label: EMOJI_DATA.flags.label },
+    ...(serverEmojis.length > 0 ? [{ key: "server" as const, icon: Star, label: "Server" }] : []),
+  ];
 
   return (
     <div className={cn("w-[440px] bg-[#1a1a2e] rounded-lg border border-[#2a2a40] flex flex-col shadow-2xl overflow-hidden", className)}>

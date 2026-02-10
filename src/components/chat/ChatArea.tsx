@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { notifyNewMessage, clearBadge } from "@/lib/services/notificationService";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,12 +52,16 @@ import {
   FileText,
   Loader2,
   Plus,
+  ImageIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
-import { Twemoji } from "@/components/ui/twemoji";
+import { GifPicker } from "@/components/chat/GifPicker";
+import { MessageContent } from "@/components/chat/MessageContent";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { Skeleton, MessageSkeleton, ChatAreaSkeleton } from "@/components/ui/skeleton";
 
 interface Message {
   id: string;
@@ -111,7 +116,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -148,6 +153,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // Typing indicator
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
 
+  // GIF picker
+  const [showGifPicker, setShowGifPicker] = useState(false);
+
+  // Image lightbox
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
+
   // Detect mobile
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -167,7 +178,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const response = await fetch(`/api/servers/${currentServer.id}/emojis`);
         if (response.ok) {
           const data = await response.json();
-          setServerEmojis(data.emojis || []);
+          // Map imageUrl to url for compatibility with emoji picker
+          const mappedEmojis = (data.emojis || []).map((emoji: { _id?: string; id?: string; name: string; imageUrl: string; serverId: string; animated?: boolean }) => ({
+            id: emoji._id || emoji.id,
+            name: emoji.name,
+            url: emoji.imageUrl,
+            serverId: emoji.serverId,
+            animated: emoji.animated,
+          }));
+          setServerEmojis(mappedEmojis);
         }
       } catch (error) {
         console.error("Failed to fetch server emojis:", error);
@@ -232,11 +251,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               data.message.author ||
               (data.message.authorId && typeof data.message.authorId === "object"
                 ? {
-                    id: data.message.authorId._id || data.message.authorId.id,
-                    username: data.message.authorId.username,
-                    displayName: data.message.authorId.displayName || data.message.authorId.username,
-                    avatar: data.message.authorId.avatar,
-                  }
+                  id: data.message.authorId._id || data.message.authorId.id,
+                  username: data.message.authorId.username,
+                  displayName: data.message.authorId.displayName || data.message.authorId.username,
+                  avatar: data.message.authorId.avatar,
+                }
                 : null);
 
             const newMsg: Message = {
@@ -253,6 +272,21 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               edited: data.message.edited,
               attachments: data.message.attachments || [],
             };
+
+            // Show notification if message is from another user and window not focused
+            if (author && author.id !== user?.id && !document.hasFocus()) {
+              notifyNewMessage(
+                currentChannel.id,
+                currentChannel.name,
+                author.displayName || author.username,
+                data.message.content?.slice(0, 100) || 'Sent an attachment',
+                {
+                  serverId: currentServer?.id,
+                  serverName: currentServer?.name,
+                }
+              );
+            }
+
             return [...prev, newMsg];
           });
         } else if (data.type === "edit") {
@@ -316,12 +350,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     };
   }, [connectSSE]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (virtuosoRef.current && messages.length > 0) {
+      // Use setTimeout to ensure the DOM is updated before scrolling
+      setTimeout(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: messages.length - 1,
+          behavior: "smooth",
+          align: "end",
+        });
+      }, 50);
     }
-  }, [messages]);
+  }, [messages.length]);
 
   // File upload handling
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -515,7 +556,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const handleAddReaction = async (messageId: string, emoji: string) => {
     if (!currentChannel) return;
-    
+
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
@@ -528,10 +569,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         setMessages((prev) =>
           prev.map((msg) => {
             if (msg.id !== messageId) return msg;
-            
+
             const reactions = msg.reactions || [];
             const existingReaction = reactions.find((r) => r.emoji.name === emoji);
-            
+
             if (existingReaction) {
               // Check if user already reacted
               if (!existingReaction.userIds.includes(user?.id || "")) {
@@ -562,7 +603,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const handleRemoveReaction = async (messageId: string, emoji: string) => {
     if (!currentChannel) return;
-    
+
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
@@ -575,7 +616,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         setMessages((prev) =>
           prev.map((msg) => {
             if (msg.id !== messageId) return msg;
-            
+
             const reactions = msg.reactions || [];
             return {
               ...msg,
@@ -583,10 +624,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 .map((r) =>
                   r.emoji.name === emoji
                     ? {
-                        ...r,
-                        count: r.count - 1,
-                        userIds: r.userIds.filter((id) => id !== user?.id),
-                      }
+                      ...r,
+                      count: r.count - 1,
+                      userIds: r.userIds.filter((id) => id !== user?.id),
+                    }
                     : r
                 )
                 .filter((r) => r.count > 0),
@@ -635,26 +676,28 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  // Group messages by author and time proximity
-  const groupedMessages = messages.reduce((groups, message, index) => {
-    const prevMessage = messages[index - 1];
-    const isGrouped =
-      prevMessage &&
-      prevMessage.authorId === message.authorId &&
-      new Date(message.createdAt).getTime() - new Date(prevMessage.createdAt).getTime() < 5 * 60 * 1000;
+  // Group messages by author and time proximity - memoized for performance
+  const groupedMessages = useMemo(() => {
+    return messages.reduce((groups, message, index) => {
+      const prevMessage = messages[index - 1];
+      const isGrouped =
+        prevMessage &&
+        prevMessage.authorId === message.authorId &&
+        new Date(message.createdAt).getTime() - new Date(prevMessage.createdAt).getTime() < 5 * 60 * 1000;
 
-    if (isGrouped) {
-      groups[groups.length - 1].messages.push(message);
-    } else {
-      groups.push({ author: message.author, messages: [message] });
-    }
+      if (isGrouped) {
+        groups[groups.length - 1].messages.push(message);
+      } else {
+        groups.push({ author: message.author, messages: [message] });
+      }
 
-    return groups;
-  }, [] as Array<{ author: Message["author"]; messages: Message[] }>);
+      return groups;
+    }, [] as Array<{ author: Message["author"]; messages: Message[] }>);
+  }, [messages]);
 
   if (!currentChannel) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] text-[#666666]">
+      <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] text-[#666666] animate-fade-in">
         <div className="w-40 h-40 mb-4 rounded-full bg-[#111111] flex items-center justify-center">
           <Hash className="w-20 h-20 text-[#8B5CF6]" />
         </div>
@@ -671,14 +714,17 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0a0a] min-w-0 min-h-0 overflow-hidden">
+    <div className={cn(
+      "flex-1 flex flex-col bg-[#0a0a0a] min-w-0 min-h-0 overflow-hidden animate-fade-in",
+      isMobile && "mobile-content-padded"
+    )}>
       {/* Channel Header */}
       <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && (
             <button
               onClick={() => router.push(`/channels/${currentServer?.id}`)}
-              className="p-2 -ml-1 rounded-lg hover:bg-[#1a1a1a] transition-colors"
+              className="p-2 -ml-1 rounded-lg hover:bg-[#1a1a1a] transition-all duration-150"
             >
               <ChevronLeft className="w-5 h-5 text-[#888888]" />
             </button>
@@ -687,15 +733,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <span className="font-semibold text-white truncate text-sm sm:text-base">{currentChannel.name}</span>
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-[#888888]">
-          <button className="hover:text-white transition-colors hidden sm:block" onClick={() => toast.info("Notifications coming soon")}>
+          <button className="hover:text-white transition-all duration-150 hidden sm:block" onClick={() => toast.info("Notifications coming soon")}>
             <Bell className="w-5 h-5" />
           </button>
-          <button className="hover:text-white transition-colors hidden sm:block" onClick={() => toast.info("Pinned messages coming soon")}>
+          <button className="hover:text-white transition-all duration-150 hidden sm:block" onClick={() => toast.info("Pinned messages coming soon")}>
             <Pin className="w-5 h-5" />
           </button>
           <button
             onClick={onToggleMembers}
-            className={cn("hover:text-white transition-colors", showMembers && "text-white")}
+            className={cn("hover:text-white transition-all duration-150", showMembers && "text-white")}
           >
             <Users className="w-5 h-5" />
           </button>
@@ -704,42 +750,52 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             <input
               type="text"
               placeholder="Search"
-              className="w-32 h-6 px-2 rounded bg-[#111111] text-sm text-white placeholder:text-[#666666] focus:outline-none focus:w-48 transition-all"
+              className="w-32 h-6 px-2 rounded bg-[#111111] text-sm text-white placeholder:text-[#666666] focus:outline-none focus:w-48 transition-all duration-200"
               onFocus={() => toast.info("Search coming soon")}
             />
             <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
           </div>
-          <button className="hover:text-white transition-colors hidden sm:block" onClick={() => toast.info("Inbox coming soon")}>
+          <button className="hover:text-white transition-all duration-150 hidden sm:block" onClick={() => toast.info("Inbox coming soon")}>
             <Inbox className="w-5 h-5" />
           </button>
-          <button className="hover:text-white transition-colors hidden sm:block" onClick={() => toast.info("Help coming soon")}>
+          <button className="hover:text-white transition-all duration-150 hidden sm:block" onClick={() => toast.info("Help coming soon")}>
             <HelpCircle className="w-5 h-5" />
           </button>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <ScrollArea className="flex-1 min-h-0" ref={scrollRef}>
-        <div className="flex flex-col py-4">
-          {/* Channel Welcome */}
-          <div className="px-4 pb-4 mb-4 border-b border-[#1a1a1a]">
-            <div className="w-16 h-16 mb-2 rounded-full bg-[#111111] flex items-center justify-center">
-              <Hash className="w-10 h-10 text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Welcome to #{currentChannel.name}!</h1>
-            <p className="text-[#666666]">This is the start of the #{currentChannel.name} channel.</p>
+      {/* Messages Area - Virtualized for performance */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {isLoading ? (
+          <div className="flex flex-col py-4 px-4">
+            <MessageSkeleton count={5} />
           </div>
-
-          {/* Messages */}
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-8 h-8 border-2 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : groupedMessages.length === 0 ? (
-            <div className="text-center text-[#666666] py-8">No messages yet. Be the first to say something!</div>
-          ) : (
-            groupedMessages.map((group, groupIndex) => (
-              <div key={groupIndex} className="group px-4 py-0.5 hover:bg-[#111111] message-hover">
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            className="h-full scrollbar-thin"
+            data={groupedMessages}
+            followOutput="smooth"
+            initialTopMostItemIndex={groupedMessages.length > 0 ? groupedMessages.length - 1 : 0}
+            components={{
+              Header: () => (
+                <>
+                  {/* Channel Welcome */}
+                  <div className="px-4 pb-4 mb-4 border-b border-[#1a1a1a] animate-fade-in-up">
+                    <div className="w-16 h-16 mb-2 rounded-full bg-[#111111] flex items-center justify-center">
+                      <Hash className="w-10 h-10 text-white" />
+                    </div>
+                    <h1 className="text-3xl font-bold text-white mb-2">Welcome to #{currentChannel.name}!</h1>
+                    <p className="text-[#666666]">This is the start of the #{currentChannel.name} channel.</p>
+                  </div>
+                  {groupedMessages.length === 0 && (
+                    <div className="text-center text-[#666666] py-8 animate-fade-in">No messages yet. Be the first to say something!</div>
+                  )}
+                </>
+              ),
+            }}
+            itemContent={(index, group) => (
+              <div key={index} className="group px-4 py-0.5 hover:bg-[#111111] message-hover">
                 <div className="flex gap-4">
                   <div className="w-10 flex-shrink-0">
                     <Avatar className="w-10 h-10 mt-0.5">
@@ -805,8 +861,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                   <img
                                     src={attachment.url}
                                     alt={attachment.filename}
-                                    className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90"
-                                    onClick={() => window.open(attachment.url, "_blank")}
+                                    className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90 transition-opacity"
+                                    onClick={() => setLightboxImage({ src: attachment.url, alt: attachment.filename })}
+                                    loading="lazy"
+                                  />
+                                ) : attachment.contentType.startsWith("video/") ? (
+                                  <video
+                                    src={attachment.url}
+                                    controls
+                                    className="max-w-md max-h-80 rounded-md"
                                   />
                                 ) : (
                                   <a
@@ -858,7 +921,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                             {/* Message Actions */}
                             <div className="absolute -top-3 right-0 opacity-0 group-hover/message:opacity-100 transition-opacity z-10">
                               <div className="flex items-center bg-[#1a1a1a] border border-[#2a2a2a] rounded-md shadow-lg">
-                                <Popover 
+                                <Popover
                                   open={reactionPickerMessage === message.id}
                                   onOpenChange={(open) => setReactionPickerMessage(open ? message.id : null)}
                                 >
@@ -934,10 +997,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                   </div>
                 </div>
               </div>
-            ))
-          )}
-        </div>
-      </ScrollArea>
+            )}
+          />
+        )}
+      </div>
 
       {/* Typing Indicator */}
       {typingUsers.length > 0 && (
@@ -974,7 +1037,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       )}
 
       {/* Message Input */}
-      <div className="px-2 sm:px-4 pb-4 sm:pb-6 flex-shrink-0">
+      <div className={cn(
+        "px-2 sm:px-4 flex-shrink-0",
+        isMobile ? "pb-2 safe-area-bottom" : "pb-4 sm:pb-6"
+      )}>
         <div className="relative bg-[#111111] rounded-lg border border-[#1a1a1a]">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple accept="*/*" className="hidden" />
           <button
@@ -1001,12 +1067,36 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             >
               <Gift className="w-6 h-6" />
             </button>
-            <button
-              onClick={() => toast.info("Stickers coming soon")}
-              className="hover:text-white transition-colors hidden sm:block"
-            >
-              <Sticker className="w-6 h-6" />
-            </button>
+            <Popover open={showGifPicker} onOpenChange={setShowGifPicker}>
+              <PopoverTrigger asChild>
+                <button className="hover:text-white transition-colors hidden sm:block">
+                  <ImageIcon className="w-6 h-6" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent
+                side="top"
+                align="end"
+                className="w-auto p-0 border-none bg-transparent shadow-xl"
+              >
+                <GifPicker
+                  onGifSelect={async (gif: { url: string }) => {
+                    setShowGifPicker(false);
+                    if (!currentChannel) return;
+
+                    // Instantly send the GIF as a message
+                    try {
+                      await fetch(`/api/channels/${currentChannel.id}/messages`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ content: gif.url }),
+                      });
+                    } catch (error) {
+                      toast.error("Failed to send GIF");
+                    }
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
             <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
               <PopoverTrigger asChild>
                 <button className="hover:text-white transition-colors">
@@ -1060,6 +1150,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        src={lightboxImage?.src || ""}
+        alt={lightboxImage?.alt}
+        isOpen={!!lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }

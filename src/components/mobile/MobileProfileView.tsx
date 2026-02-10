@@ -4,13 +4,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Settings, 
-  User, 
-  Shield, 
-  Bell, 
-  Palette, 
-  HelpCircle, 
+import {
+  Settings,
+  User,
+  Shield,
+  Bell,
+  Palette,
+  HelpCircle,
   LogOut,
   ChevronRight,
   Sparkles,
@@ -77,9 +77,9 @@ export function MobileProfileView() {
     {
       title: "Premium",
       items: [
-        { 
-          icon: Sparkles, 
-          label: "SerikaCord Premium", 
+        {
+          icon: Sparkles,
+          label: "SerikaCord Premium",
           href: "/channels/settings/premium",
           badge: user?.isPremium ? "Active" : "Upgrade",
         },
@@ -96,19 +96,19 @@ export function MobileProfileView() {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-[#000000]">
+    <div className="flex flex-col h-full bg-[#0a0a0a]">
       {/* Header */}
-      <div className="px-5 pt-8 pb-4 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-sm sticky top-0 z-10 safe-area-top">
-        <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-white tracking-tight">You</h1>
-          <button 
+      <header className="flex-shrink-0 px-4 pt-3 pb-2 safe-area-top">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-2xl font-bold text-white">You</h1>
+          <button
             onClick={() => router.push("/channels/settings")}
-            className="p-2.5 rounded-full bg-[#1a1a1a] text-white hover:bg-[#252525] transition-all active:scale-95"
+            className="flex items-center justify-center w-10 h-10 rounded-full bg-[#1a1a1a] text-white active:scale-95 active:bg-[#252525] transition-all touch-manipulation"
           >
             <Settings className="w-5 h-5" />
           </button>
         </div>
-      </div>
+      </header>
 
       <ScrollArea className="flex-1">
         <div className="pb-24">
@@ -117,7 +117,7 @@ export function MobileProfileView() {
             <div className="relative rounded-3xl overflow-hidden bg-[#111111] border border-white/5">
               {/* Banner */}
               {user?.banner ? (
-                <div 
+                <div
                   className="h-28 bg-cover bg-center"
                   style={{ backgroundImage: `url(${user.banner})` }}
                 />
@@ -145,8 +145,8 @@ export function MobileProfileView() {
 
                 {/* Edit Profile Button */}
                 <div className="flex justify-end mb-4">
-                  <button 
-                    onClick={() => router.push("/channels/settings/profile")}
+                  <button
+                    onClick={() => router.push("/channels/settings/account")}
                     className="px-4 py-2 rounded-xl bg-[#1a1a1a] hover:bg-[#252525] text-white text-sm font-semibold transition-all active:scale-95 border border-white/5"
                   >
                     Edit Profile
@@ -170,7 +170,7 @@ export function MobileProfileView() {
                 </div>
 
                 {/* Status Selector */}
-                <button 
+                <button
                   onClick={() => router.push("/channels/settings/status")}
                   className="w-full mt-5 flex items-center gap-3 p-3.5 rounded-2xl bg-[#0a0a0a] hover:bg-[#1a1a1a] border border-white/5 transition-colors active:scale-95"
                 >
@@ -217,8 +217,8 @@ export function MobileProfileView() {
                         {item.badge && (
                           <span className={cn(
                             "px-2.5 py-1 rounded-full text-xs font-bold",
-                            item.badge === "Active" 
-                              ? "bg-[#8B5CF6]/20 text-[#8B5CF6]" 
+                            item.badge === "Active"
+                              ? "bg-[#8B5CF6]/20 text-[#8B5CF6]"
                               : "bg-[#F59E0B]/20 text-[#F59E0B]"
                           )}>
                             {item.badge}

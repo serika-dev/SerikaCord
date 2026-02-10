@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Phone,
   Video,
@@ -25,10 +25,13 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { Twemoji } from "@/components/ui/twemoji";
+import { MessageContent } from "@/components/chat/MessageContent";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
+import { GifPicker } from "@/components/chat/GifPicker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { Skeleton, ChatAreaSkeleton, UserProfileSkeleton, MessageSkeleton } from "@/components/ui/skeleton";
 
 interface User {
   id: string;
@@ -71,20 +74,29 @@ export default function DMConversationPage() {
   const router = useRouter();
   const recipientId = params.recipientId as string;
   const { user, isLoading: authLoading } = useAuth();
+  const { clearContext } = useServer();
   const [recipient, setRecipient] = useState<User | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [recipientLoading, setRecipientLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [showUserProfile, setShowUserProfile] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
 
-  const handleEmojiSelect = (emoji: string) => {
+  // Clear server context when entering DM
+  useEffect(() => {
+    clearContext();
+  }, [clearContext]);
+
+  const handleEmojiSelect = useCallback((emoji: string) => {
     setNewMessage((prev) => prev + emoji);
     setShowEmojiPicker(false);
-  };
+  }, []);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -94,13 +106,14 @@ export default function DMConversationPage() {
   }, [user, authLoading, router]);
 
   // Scroll to bottom of messages
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  }, []);
 
   // Fetch recipient info
   useEffect(() => {
     const fetchRecipient = async () => {
+      setRecipientLoading(true);
       try {
         const response = await fetch(`/api/users/${recipientId}`);
         if (response.ok) {
@@ -109,6 +122,8 @@ export default function DMConversationPage() {
         }
       } catch (error) {
         console.error("Failed to fetch recipient:", error);
+      } finally {
+        setRecipientLoading(false);
       }
     };
 
@@ -158,6 +173,28 @@ export default function DMConversationPage() {
             if (existingIds.has(data.message.id)) {
               return prev;
             }
+            
+            // Skip if this is the user's own message (we use optimistic updates)
+            // The optimistic message will be replaced by the response handler
+            if (data.message.authorId === user?.id || data.message.author?.id === user?.id) {
+              // Check if we have a temp message with same content - it will be replaced by response
+              const hasTempMessage = prev.some(
+                m => m.id.startsWith('temp-') && 
+                     m.content === data.message.content &&
+                     m.authorId === user?.id
+              );
+              if (hasTempMessage) {
+                // Replace the temp message with the real one
+                return prev.map(m => 
+                  m.id.startsWith('temp-') && 
+                  m.content === data.message.content &&
+                  m.authorId === user?.id
+                    ? data.message
+                    : m
+                );
+              }
+            }
+            
             const updated = [...prev, data.message];
             // Auto-scroll to bottom after new message
             setTimeout(scrollToBottom, 100);
@@ -283,7 +320,8 @@ export default function DMConversationPage() {
     return groups;
   };
 
-  const messageGroups = groupMessages(messages);
+  // Memoize message groups for better performance
+  const messageGroups = useMemo(() => groupMessages(messages), [messages]);
 
   // Show loading while checking auth
   if (authLoading) {
@@ -299,7 +337,7 @@ export default function DMConversationPage() {
   }
 
   return (
-    <div className="flex-1 flex bg-[#0a0a0a]">
+    <div className="flex-1 flex bg-[#0a0a0a] animate-fade-in">
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
@@ -357,7 +395,7 @@ export default function DMConversationPage() {
             <div className="relative hidden sm:block">
               <Input
                 placeholder="Search"
-                className="h-7 w-32 bg-[#111111] border-none text-white placeholder:text-[#555555] text-sm rounded focus-visible:ring-0"
+                className="h-7 w-32 bg-[#111111] border-none text-white placeholder:text-[#555555] text-sm rounded focus-visible:ring-0 transition-all duration-150 focus:w-40"
               />
               <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555555]" />
             </div>
@@ -368,41 +406,52 @@ export default function DMConversationPage() {
         </div>
 
         {/* Messages area */}
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin">
           <div className="flex flex-col min-h-full">
             {/* Welcome message */}
             <div className="flex-1" />
             <div className="px-4 py-6">
-              <div className="flex flex-col items-start gap-2 mb-6">
-                <Avatar className="w-20 h-20">
-                  <AvatarImage src={recipient?.avatar} />
-                  <AvatarFallback className="bg-[#8B5CF6] text-white text-2xl">
-                    {(recipient?.displayName || recipient?.username || "?").charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <h2 className="text-2xl font-bold text-white">
-                  {recipient?.displayName || recipient?.username}
-                </h2>
-                <p className="text-[#888888]">
-                  This is the beginning of your direct message history with{" "}
-                  <span className="font-semibold text-white">
-                    {recipient?.displayName || recipient?.username}
-                  </span>
-                </p>
+              <div className="flex flex-col items-start gap-2 mb-6 animate-fade-in-up">
+                {recipientLoading ? (
+                  <>
+                    <Skeleton className="w-20 h-20 rounded-full" variant="circular" />
+                    <Skeleton className="h-7 w-40" />
+                    <Skeleton className="h-5 w-72" />
+                  </>
+                ) : (
+                  <>
+                    <Avatar className="w-20 h-20">
+                      <AvatarImage src={recipient?.avatar} />
+                      <AvatarFallback className="bg-[#8B5CF6] text-white text-2xl">
+                        {(recipient?.displayName || recipient?.username || "?").charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <h2 className="text-2xl font-bold text-white">
+                      {recipient?.displayName || recipient?.username}
+                    </h2>
+                    <p className="text-[#888888]">
+                      This is the beginning of your direct message history with{" "}
+                      <span className="font-semibold text-white">
+                        {recipient?.displayName || recipient?.username}
+                      </span>
+                    </p>
+                  </>
+                )}
               </div>
 
               {/* Messages */}
               {isLoading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
-                </div>
+                <MessageSkeleton count={4} />
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-4 animate-fade-in">
                   {messageGroups.map((group, groupIndex) => (
-                    <div key={`group-${groupIndex}-${group.author.id}-${group.timestamp}`} className="group/message hover:bg-[#111111]/50 -mx-4 px-4 py-0.5 rounded">
+                    <div 
+                      key={`group-${groupIndex}-${group.author.id}-${group.timestamp}`} 
+                      className="group/message hover:bg-[#111111]/50 -mx-4 px-4 py-0.5 rounded transition-colors duration-100"
+                    >
                       <div className="flex gap-4">
                         <Avatar className="w-10 h-10 mt-0.5 flex-shrink-0">
-                          <AvatarImage src={group.author.avatar} />
+                          <AvatarImage src={group.author.avatar} loading="lazy" />
                           <AvatarFallback className="bg-[#8B5CF6] text-white">
                             {(group.author.displayName || group.author.username).charAt(0).toUpperCase()}
                           </AvatarFallback>
@@ -436,7 +485,7 @@ export default function DMConversationPage() {
               <div ref={messagesEndRef} />
             </div>
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Message input */}
         <div className="p-3 sm:p-4 pt-0 safe-area-bottom">
@@ -468,6 +517,50 @@ export default function DMConversationPage() {
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="top" align="end" className="w-auto p-0 border-none bg-transparent">
+                    <GifPicker
+                      onGifSelect={async (gif: { url: string }) => {
+                        setShowGifPicker(false);
+                        
+                        // Instantly send the GIF as a message
+                        const tempId = `temp-${Date.now()}`;
+                        const optimisticMessage: Message = {
+                          id: tempId,
+                          content: gif.url,
+                          authorId: user?.id || "",
+                          author: {
+                            id: user?.id || "",
+                            username: user?.username || "",
+                            displayName: user?.displayName || "",
+                            avatar: user?.avatar,
+                            status: user?.status || "online",
+                            isPremium: user?.isPremium,
+                          },
+                          channelId: recipientId,
+                          createdAt: new Date().toISOString(),
+                        };
+                        setMessages((prev) => [...prev, optimisticMessage]);
+                        
+                        try {
+                          await fetch(`/api/dms/${recipientId}/messages`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ content: gif.url }),
+                          });
+                        } catch (error) {
+                          // Remove optimistic message on error
+                          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+                        }
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                  <PopoverTrigger asChild>
+                    <button className="p-1.5 text-[#888888] hover:text-white transition-all duration-150 rounded hover:bg-[#1a1a1a]">
+                      <Smile className="w-5 h-5" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="top" align="end" className="w-auto p-0 border-none bg-transparent animate-scale-in">
                     <CustomEmojiPicker onEmojiSelect={handleEmojiSelect} />
                   </PopoverContent>
                 </Popover>
@@ -494,60 +587,64 @@ export default function DMConversationPage() {
       </div>
 
       {/* User profile sidebar */}
-      {showUserProfile && recipient && (
-        <div className="w-[340px] bg-[#0a0a0a] border-l border-[#1a1a1a] hidden lg:flex flex-col">
-          {/* Banner/Header */}
-          <div className="h-[120px] bg-[#8B5CF6] relative">
-            {recipient.isPremium && (
-              <div className="absolute top-2 right-2 px-2 py-1 bg-black/40 rounded-full flex items-center gap-1">
-                <Crown className="w-3 h-3 text-[#8B5CF6]" />
-                <span className="text-xs text-white font-medium">Serika+</span>
-              </div>
-            )}
-          </div>
-
-          {/* Avatar */}
-          <div className="px-4 relative">
-            <div className="absolute -top-16">
-              <div className="relative">
-                <Avatar className="w-24 h-24 border-[6px] border-[#0a0a0a]">
-                  <AvatarImage src={recipient.avatar} />
-                  <AvatarFallback className="bg-[#8B5CF6] text-white text-2xl">
-                    {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div
-                  className="absolute bottom-1 right-1 w-6 h-6 rounded-full border-4 border-[#0a0a0a]"
-                  style={{ backgroundColor: statusColors[recipient.status] }}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* User info */}
-          <div className="pt-12 px-4">
-            <div className="bg-[#111111] rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-1">
-                <h3 className="text-xl font-bold text-white">
-                  {recipient.displayName || recipient.username}
-                </h3>
+      {showUserProfile && (
+        <div className="w-[340px] bg-[#0a0a0a] border-l border-[#1a1a1a] hidden lg:flex flex-col animate-slide-in-right">
+          {recipientLoading ? (
+            <UserProfileSkeleton />
+          ) : recipient ? (
+            <>
+              {/* Banner/Header */}
+              <div className="h-[120px] bg-[#8B5CF6] relative">
                 {recipient.isPremium && (
-                  <Crown className="w-5 h-5 text-[#8B5CF6]" />
+                  <div className="absolute top-2 right-2 px-2 py-1 bg-black/40 rounded-full flex items-center gap-1">
+                    <Crown className="w-3 h-3 text-[#8B5CF6]" />
+                    <span className="text-xs text-white font-medium">Serika+</span>
+                  </div>
                 )}
               </div>
-              <p className="text-sm text-[#888888]">{recipient.username}</p>
-              
-              {recipient.customStatus && (
-                <p className="text-sm text-[#888888] mt-2">
-                  {recipient.customStatus}
-                </p>
-              )}
 
-              <div className="h-px bg-[#222222] my-4" />
+              {/* Avatar */}
+              <div className="px-4 relative">
+                <div className="absolute -top-16">
+                  <div className="relative">
+                    <Avatar className="w-24 h-24 border-[6px] border-[#0a0a0a]">
+                      <AvatarImage src={recipient.avatar} />
+                      <AvatarFallback className="bg-[#8B5CF6] text-white text-2xl">
+                        {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div
+                      className="absolute bottom-1 right-1 w-6 h-6 rounded-full border-4 border-[#0a0a0a] transition-colors duration-200"
+                      style={{ backgroundColor: statusColors[recipient.status] }}
+                    />
+                  </div>
+                </div>
+              </div>
 
-              {recipient.bio && (
-                <>
-                  <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
+              {/* User info */}
+              <div className="pt-12 px-4">
+                <div className="bg-[#111111] rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-xl font-bold text-white">
+                      {recipient.displayName || recipient.username}
+                    </h3>
+                    {recipient.isPremium && (
+                      <Crown className="w-5 h-5 text-[#8B5CF6]" />
+                    )}
+                  </div>
+                  <p className="text-sm text-[#888888]">{recipient.username}</p>
+                  
+                  {recipient.customStatus && (
+                    <p className="text-sm text-[#888888] mt-2">
+                      {recipient.customStatus}
+                    </p>
+                  )}
+
+                  <div className="h-px bg-[#222222] my-4" />
+
+                  {recipient.bio && (
+                    <>
+                      <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
                     About Me
                   </h4>
                   <p className="text-sm text-[#dcddde]">{recipient.bio}</p>
@@ -578,13 +675,23 @@ export default function DMConversationPage() {
               </h4>
               <textarea
                 placeholder="Click to add a note"
-                className="w-full bg-transparent text-sm text-[#dcddde] placeholder:text-[#555555] resize-none focus:outline-none"
+                className="w-full bg-transparent text-sm text-[#dcddde] placeholder:text-[#555555] resize-none focus:outline-none transition-colors duration-150"
                 rows={2}
               />
             </div>
           </div>
+            </>
+          ) : null}
         </div>
       )}
+
+      {/* Image Lightbox */}
+      <ImageLightbox
+        src={lightboxImage?.src || ""}
+        alt={lightboxImage?.alt}
+        isOpen={!!lightboxImage}
+        onClose={() => setLightboxImage(null)}
+      />
     </div>
   );
 }

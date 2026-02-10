@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition } from "react";
 
 interface Server {
   id: string;
@@ -36,8 +36,10 @@ interface ServerContextType {
   channels: Channel[];
   currentChannel: Channel | null;
   isLoading: boolean;
+  isTransitioning: boolean;
   setCurrentServer: (server: Server | null) => void;
   setCurrentChannel: (channel: Channel | null) => void;
+  clearContext: () => void;
   fetchServers: () => Promise<void>;
   fetchChannels: (serverId: string) => Promise<void>;
   createServer: (name: string, icon?: File) => Promise<Server>;
@@ -51,10 +53,39 @@ const ServerContext = createContext<ServerContextType | undefined>(undefined);
 
 export function ServerProvider({ children }: { children: ReactNode }) {
   const [servers, setServers] = useState<Server[]>([]);
-  const [currentServer, setCurrentServer] = useState<Server | null>(null);
+  const [currentServer, setCurrentServerState] = useState<Server | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isTransitioning, startTransition] = useTransition();
+  const channelCacheRef = useRef<Map<string, Channel[]>>(new Map());
+
+  // Clear all context (used when switching to DMs)
+  const clearContext = useCallback(() => {
+    startTransition(() => {
+      setCurrentServerState(null);
+      setChannels([]);
+      setCurrentChannel(null);
+    });
+  }, []);
+
+  // Set current server with transition
+  const setCurrentServer = useCallback((server: Server | null) => {
+    startTransition(() => {
+      if (!server) {
+        setCurrentServerState(null);
+        setChannels([]);
+        setCurrentChannel(null);
+      } else {
+        setCurrentServerState(server);
+        // Load cached channels immediately if available
+        const cachedChannels = channelCacheRef.current.get(server.id);
+        if (cachedChannels) {
+          setChannels(cachedChannels);
+        }
+      }
+    });
+  }, []);
 
   const fetchServers = useCallback(async () => {
     try {
@@ -95,6 +126,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
           isNsfw: c.nsfw || c.isNsfw,
           topic: c.topic,
         }));
+        // Cache channels for faster switching
+        channelCacheRef.current.set(serverId, transformedChannels);
         setChannels(transformedChannels);
       }
     } catch (error) {
@@ -202,6 +235,16 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     const updatedChannel = await response.json();
     // Update channel in list
     setChannels((prev) => prev.map((c) => c.id === channelId ? { ...c, ...updatedChannel.channel } : c));
+    // Update cache too
+    if (currentServer) {
+      const cached = channelCacheRef.current.get(currentServer.id);
+      if (cached) {
+        channelCacheRef.current.set(
+          currentServer.id,
+          cached.map((c) => c.id === channelId ? { ...c, ...updatedChannel.channel } : c)
+        );
+      }
+    }
   };
 
   useEffect(() => {
@@ -211,22 +254,24 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (currentServer) {
       fetchChannels(currentServer.id);
-    } else {
-      setChannels([]);
-      setCurrentChannel(null);
     }
   }, [currentServer, fetchChannels]);
+
+  // Use currentServerState for the provider
+  const currentServerValue = currentServer;
 
   return (
     <ServerContext.Provider
       value={{
         servers,
-        currentServer,
+        currentServer: currentServerValue,
         channels,
         currentChannel,
         isLoading,
+        isTransitioning,
         setCurrentServer,
         setCurrentChannel,
+        clearContext,
         fetchServers,
         fetchChannels,
         createServer,

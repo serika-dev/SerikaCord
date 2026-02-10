@@ -4,12 +4,12 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Bell, 
-  MessageSquare, 
-  UserPlus, 
-  Heart, 
-  AtSign, 
+import {
+  Bell,
+  MessageSquare,
+  UserPlus,
+  Heart,
+  AtSign,
   Settings,
   Check,
   X,
@@ -113,28 +113,28 @@ export function MobileNotificationsView() {
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
   return (
-    <div className="flex flex-col h-full bg-[#000000]">
+    <div className="flex flex-col h-full bg-[#0a0a0a]">
       {/* Header */}
-      <div className="px-5 pt-8 pb-4 bg-gradient-to-b from-black/80 to-transparent backdrop-blur-sm sticky top-0 z-10 safe-area-top">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-3xl font-bold text-white tracking-tight">Notifications</h1>
-          <button 
+      <header className="flex-shrink-0 px-4 pt-3 pb-2 safe-area-top">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-2xl font-bold text-white">Notifications</h1>
+          <button
             onClick={() => router.push("/channels/settings/notifications")}
-            className="p-2.5 rounded-full bg-[#1a1a1a] text-white hover:bg-[#252525] transition-all active:scale-95"
+            className="flex items-center justify-center w-10 h-10 rounded-full bg-[#1a1a1a] text-white active:scale-95 active:bg-[#252525] transition-all touch-manipulation"
           >
             <Settings className="w-5 h-5" />
           </button>
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
           <button
             onClick={() => setFilter("all")}
             className={cn(
-              "px-5 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap active:scale-95",
-              filter === "all" 
-                ? "bg-[#8B5CF6] text-white shadow-lg shadow-purple-500/20" 
-                : "bg-[#1a1a1a] text-neutral-400 hover:text-white"
+              "px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap active:scale-95 touch-manipulation",
+              filter === "all"
+                ? "bg-[#8B5CF6] text-white"
+                : "bg-[#1a1a1a] text-neutral-400"
             )}
           >
             All
@@ -142,10 +142,10 @@ export function MobileNotificationsView() {
           <button
             onClick={() => setFilter("mentions")}
             className={cn(
-              "px-5 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap active:scale-95",
-              filter === "mentions" 
-                ? "bg-[#8B5CF6] text-white shadow-lg shadow-purple-500/20" 
-                : "bg-[#1a1a1a] text-neutral-400 hover:text-white"
+              "px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap active:scale-95 touch-manipulation",
+              filter === "mentions"
+                ? "bg-[#8B5CF6] text-white"
+                : "bg-[#1a1a1a] text-neutral-400"
             )}
           >
             Mentions
@@ -153,10 +153,10 @@ export function MobileNotificationsView() {
           <button
             onClick={() => setFilter("unread")}
             className={cn(
-              "px-5 py-2 rounded-full text-sm font-bold transition-all whitespace-nowrap flex items-center gap-2 active:scale-95",
-              filter === "unread" 
-                ? "bg-[#8B5CF6] text-white shadow-lg shadow-purple-500/20" 
-                : "bg-[#1a1a1a] text-neutral-400 hover:text-white"
+              "px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap flex items-center gap-1.5 active:scale-95 touch-manipulation",
+              filter === "unread"
+                ? "bg-[#8B5CF6] text-white"
+                : "bg-[#1a1a1a] text-neutral-400"
             )}
           >
             Unread
@@ -167,7 +167,7 @@ export function MobileNotificationsView() {
             )}
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Mark All Read Button */}
       {unreadCount > 0 && (
@@ -198,8 +198,8 @@ export function MobileNotificationsView() {
                 {filter === "all" ? "No notifications" : `No ${filter} notifications`}
               </h3>
               <p className="text-neutral-500 text-base">
-                {filter === "all" 
-                  ? "When you receive notifications, they'll appear here" 
+                {filter === "all"
+                  ? "When you receive notifications, they'll appear here"
                   : `You don't have any ${filter} notifications`}
               </p>
             </div>
@@ -225,7 +225,7 @@ export function MobileNotificationsView() {
                       {getNotificationIcon(notification.type)}
                     </div>
                   </div>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-3">
                       <span className={cn(
@@ -239,8 +239,8 @@ export function MobileNotificationsView() {
                       </span>
                     </div>
                     <p className={cn(
-                        "text-[15px] leading-snug mt-1 line-clamp-2",
-                        notification.isRead ? "text-neutral-500" : "text-neutral-300"
+                      "text-[15px] leading-snug mt-1 line-clamp-2",
+                      notification.isRead ? "text-neutral-500" : "text-neutral-300"
                     )}>
                       {notification.description}
                     </p>
@@ -248,20 +248,20 @@ export function MobileNotificationsView() {
                     {/* Friend Request Actions */}
                     {notification.type === "friend_request" && !notification.isRead && (
                       <div className="flex items-center gap-3 mt-3">
-                        <button 
+                        <button
                           className="flex items-center justify-center px-4 py-2 rounded-lg bg-[#23A559] hover:bg-[#1A7D41] text-white transition-all active:scale-95 font-bold text-xs"
                           onClick={(e) => {
-                             e.stopPropagation();
-                             // Add accept logic
+                            e.stopPropagation();
+                            // Add accept logic
                           }}
                         >
                           <Check className="w-4 h-4 mr-1" /> Accept
                         </button>
-                        <button 
+                        <button
                           className="flex items-center justify-center px-4 py-2 rounded-lg bg-[#ED4245] hover:bg-[#C03537] text-white transition-all active:scale-95 font-bold text-xs"
                           onClick={(e) => {
-                             e.stopPropagation();
-                             // Add deny logic
+                            e.stopPropagation();
+                            // Add deny logic
                           }}
                         >
                           <X className="w-4 h-4 mr-1" /> Decline

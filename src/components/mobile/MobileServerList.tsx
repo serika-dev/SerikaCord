@@ -82,7 +82,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
                 {hasUnread && !isActive && (
                   <div className="absolute left-[-12px] top-1/2 -translate-y-1/2 w-1 h-2 bg-white rounded-r-full" />
                 )}
-                
+
                 {/* Active Indicator */}
                 {isActive && (
                   <div className="absolute left-[-12px] top-1/2 -translate-y-1/2 w-1 h-10 bg-white rounded-r-full" />
@@ -109,7 +109,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
                       {server.name.charAt(0).toUpperCase()}
                     </div>
                   )}
-                  
+
                   {/* Notification Badge */}
                   {unreadCount > 0 && (
                     <span className="absolute bottom-0 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[#ED4245] text-white text-[10px] font-bold rounded-full border-[3px] border-[#000000]">

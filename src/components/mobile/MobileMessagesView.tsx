@@ -42,10 +42,12 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     const d = new Date(date);
     const now = new Date();
     const diff = now.getTime() - d.getTime();
-    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor(diff / (1000 * 60));
+    const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
-    if (hours < 1) return "now";
+    if (minutes < 1) return "Now";
+    if (minutes < 60) return `${minutes}m`;
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
     return d.toLocaleDateString();
@@ -135,10 +137,10 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   };
 
   const statusColors: Record<string, string> = {
-    online: "#8B5CF6",
-    idle: "#A78BFA",
-    dnd: "#EF4444",
-    offline: "#555555",
+    online: "#22c55e",
+    idle: "#eab308",
+    dnd: "#ef4444",
+    offline: "#6b7280",
   };
 
   const handleMessageClick = (message: Message) => {
@@ -286,7 +288,19 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             ))}
           </div>
         </div>
-      )}
+
+        {/* Search Bar */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+          <input
+            type="text"
+            placeholder="Search messages"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full h-10 pl-10 pr-4 rounded-xl bg-[#1a1a1a] text-white text-sm placeholder:text-neutral-500 border border-white/[0.06] focus:border-[#8B5CF6]/50 focus:outline-none transition-colors"
+          />
+        </div>
+      </header>
 
       {/* Messages List */}
       <div 
@@ -299,7 +313,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         <div className="px-3 pb-28 pt-2">
           {isLoading ? (
             <div className="flex items-center justify-center py-20">
-              <div className="w-10 h-10 border-4 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
+              <div className="w-8 h-8 border-3 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
             </div>
           ) : filteredMessages.length === 0 && searchQuery ? (
             <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
@@ -338,32 +352,34 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     "hover:bg-[#1a1a1a]/60 active:bg-[#1a1a1a] active:scale-[0.98]"
                   )}
                 >
+                  {/* Avatar with status */}
                   <div className="relative flex-shrink-0">
                     {message.type === "group" && message.avatars ? (
-                      <div className="w-14 h-14 rounded-full bg-[#1a1a1a] relative">
-                        <Avatar className="w-8 h-8 absolute top-0 left-0 border-2 border-[#0a0a0a]">
+                      <div className="w-12 h-12 rounded-full bg-[#1a1a1a] relative">
+                        <Avatar className="w-7 h-7 absolute top-0 left-0 ring-2 ring-[#0a0a0a]">
                           <AvatarImage src={message.avatars[0]} />
-                          <AvatarFallback className="bg-[#8B5CF6] text-xs">
+                          <AvatarFallback className="bg-[#8B5CF6] text-[10px]">
                             {message.name.charAt(0)}
                           </AvatarFallback>
                         </Avatar>
                         {message.avatars[1] && (
-                          <Avatar className="w-8 h-8 absolute bottom-0 right-0 border-2 border-[#0a0a0a]">
+                          <Avatar className="w-7 h-7 absolute bottom-0 right-0 ring-2 ring-[#0a0a0a]">
                             <AvatarImage src={message.avatars[1]} />
-                            <AvatarFallback className="bg-[#6366F1] text-xs">+</AvatarFallback>
+                            <AvatarFallback className="bg-[#6366F1] text-[10px]">+</AvatarFallback>
                           </Avatar>
                         )}
                       </div>
                     ) : (
-                      <Avatar className="w-14 h-14 border border-white/5">
+                      <Avatar className="w-12 h-12">
                         <AvatarImage src={message.avatar} />
-                        <AvatarFallback className="bg-[#8B5CF6] text-white text-lg font-bold">
+                        <AvatarFallback className="bg-gradient-to-br from-[#8B5CF6] to-[#6366F1] text-white text-base font-semibold">
                           {message.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                     )}
+                    {/* Status indicator */}
                     <div
-                      className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-[3px] border-[#000000]"
+                      className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full ring-[3px] ring-[#0a0a0a]"
                       style={{ backgroundColor: statusColors[message.status || "offline"] }}
                     />
                   </div>
@@ -373,7 +389,10 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                       <span className="text-[17px] font-semibold text-white truncate leading-tight">
                         {message.name}
                       </span>
-                      <span className="text-xs font-medium text-neutral-500 flex-shrink-0">
+                      <span className={cn(
+                        "text-xs flex-shrink-0",
+                        message.unreadCount && message.unreadCount > 0 ? "text-[#8B5CF6] font-medium" : "text-neutral-500"
+                      )}>
                         {message.timestamp}
                       </span>
                     </div>
@@ -382,6 +401,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     </p>
                   </div>
 
+                  {/* Unread badge */}
                   {message.unreadCount && message.unreadCount > 0 && (
                     <span className="min-w-[22px] h-[22px] px-1.5 flex items-center justify-center bg-[#ED4245] text-white text-xs font-bold rounded-full shadow-lg">
                       {message.unreadCount > 99 ? "99+" : message.unreadCount}

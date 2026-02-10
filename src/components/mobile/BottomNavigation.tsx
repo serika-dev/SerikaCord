@@ -19,38 +19,38 @@ interface BottomNavigationProps {
   messageCount?: number;
 }
 
-export function BottomNavigation({ 
-  notificationCount = 0, 
-  messageCount = 0 
+export function BottomNavigation({
+  notificationCount = 0,
+  messageCount = 0
 }: BottomNavigationProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { setCurrentServer, setCurrentChannel } = useServer();
 
   const navItems: NavItem[] = [
-    { 
-      icon: Home, 
-      label: "Servers", 
+    {
+      icon: Home,
+      label: "Servers",
       href: "/channels/me",
       clearServer: true,
     },
-    { 
-      icon: MessageSquare, 
-      label: "Messages", 
+    {
+      icon: MessageSquare,
+      label: "Messages",
       href: "/channels/messages",
       badge: messageCount,
       clearServer: true,
     },
-    { 
-      icon: Bell, 
-      label: "Notifications", 
+    {
+      icon: Bell,
+      label: "Notifications",
       href: "/channels/notifications",
       badge: notificationCount,
       clearServer: true,
     },
-    { 
-      icon: User, 
-      label: "You", 
+    {
+      icon: User,
+      label: "You",
       href: "/channels/profile",
       clearServer: true,
     },

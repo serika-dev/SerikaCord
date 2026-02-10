@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { cn } from "@/lib/utils";
+import { Skeleton, MemberSidebarSkeleton } from "@/components/ui/skeleton";
 
 interface Member {
   id: string;
@@ -66,51 +67,53 @@ export function MemberSidebar() {
 
   if (!currentServer) return null;
 
+  if (isLoading) {
+    return <MemberSidebarSkeleton />;
+  }
+
   return (
-    <div className="w-60 h-full bg-[#0a0a0a] border-l border-[#1a1a1a] flex-shrink-0">
-      <ScrollArea className="h-full">
+    <div className="w-60 h-full bg-[#0a0a0a] border-l border-[#1a1a1a] flex-shrink-0 animate-slide-in-right">
+      <ScrollArea className="h-full scrollbar-thin">
         <div className="py-4">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : (
-            <>
-              {/* Online Members */}
-              {onlineMembers.length > 0 && (
-                <div className="mb-4">
-                  <div className="px-4 mb-2">
-                    <span className="text-xs font-semibold uppercase text-[#666666]">
-                      Online — {onlineMembers.length}
-                    </span>
-                  </div>
+          <>
+            {/* Online Members */}
+            {onlineMembers.length > 0 && (
+              <div className="mb-4">
+                <div className="px-4 mb-2">
+                  <span className="text-xs font-semibold uppercase text-[#666666]">
+                    Online — {onlineMembers.length}
+                  </span>
+                </div>
+                <div className="stagger-children">
                   {onlineMembers.map((member, index) => (
                     <MemberItem key={member.id || `online-${index}`} member={member} serverId={currentServer.id} />
                   ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Offline Members */}
-              {offlineMembers.length > 0 && (
-                <div>
-                  <div className="px-4 mb-2">
-                    <span className="text-xs font-semibold uppercase text-[#666666]">
-                      Offline — {offlineMembers.length}
-                    </span>
-                  </div>
+            {/* Offline Members */}
+            {offlineMembers.length > 0 && (
+              <div>
+                <div className="px-4 mb-2">
+                  <span className="text-xs font-semibold uppercase text-[#666666]">
+                    Offline — {offlineMembers.length}
+                  </span>
+                </div>
+                <div className="stagger-children">
                   {offlineMembers.map((member, index) => (
                     <MemberItem key={member.id || `offline-${index}`} member={member} serverId={currentServer.id} />
                   ))}
                 </div>
-              )}
+              </div>
+            )}
 
-              {members.length === 0 && (
-                <div className="text-center text-[#666666] text-sm py-8">
-                  No members found
-                </div>
-              )}
-            </>
-          )}
+            {members.length === 0 && (
+              <div className="text-center text-[#666666] text-sm py-8 animate-fade-in">
+                No members found
+              </div>
+            )}
+          </>
         </div>
       </ScrollArea>
     </div>
@@ -134,21 +137,21 @@ function MemberItem({ member, serverId }: MemberItemProps) {
     >
       <button
         className={cn(
-          "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-3 hover:bg-[#111111] transition-all group",
+          "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-3 hover:bg-[#111111] transition-all duration-150 group",
           isOffline && "opacity-50"
         )}
         style={{ width: "calc(100% - 16px)" }}
       >
         <div className="relative flex-shrink-0">
           <Avatar className="w-8 h-8">
-            <AvatarImage src={member.avatar} alt={member.displayName || member.username} />
+            <AvatarImage src={member.avatar} alt={member.displayName || member.username} loading="lazy" />
             <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
               {(member.displayName || member.username || "?").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
           <div
             className={cn(
-              "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-[2.5px] border-[#0a0a0a]",
+              "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-[2.5px] border-[#0a0a0a] transition-colors duration-200",
               member.status === "online" && "bg-[#8B5CF6]",
               member.status === "idle" && "bg-[#A78BFA]",
               member.status === "dnd" && "bg-red-500",

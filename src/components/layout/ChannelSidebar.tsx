@@ -39,11 +39,12 @@ import {
   BellOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, memo, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { toast } from "sonner";
+import { Skeleton, DMSidebarSkeleton, ChannelSidebarSkeleton } from "@/components/ui/skeleton";
 
 interface DMChannel {
   id: string;
@@ -172,15 +173,10 @@ export function ChannelSidebar({
     }
   };
 
-  // Group channels by type
-  const textChannels = channels.filter(c => c.type === "text");
-  const voiceChannels = channels.filter(c => c.type === "voice");
-  const announcementChannels = channels.filter(c => c.type === "announcement");
-  const categoryChannels = channels.filter(c => c.type === "category");
-  
   // State for collapsed categories
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
+  const [dmLoading, setDmLoading] = useState(false);
   const pathname = usePathname();
   
   const toggleCategory = (categoryId: string) => {
@@ -201,15 +197,31 @@ export function ChannelSidebar({
       const response = await fetch("/api/dms");
       if (response.ok) {
         const data = await response.json();
-        setDmChannels(data.channels || []);
+        const channels = data.channels || [];
+        
+        // Deduplicate channels by recipient ID to avoid showing the same user twice
+        const seenRecipients = new Set<string>();
+        const uniqueChannels = channels.filter((channel: DMChannel) => {
+          const recipientId = channel.recipients[0]?.id;
+          if (!recipientId || seenRecipients.has(recipientId)) {
+            return false;
+          }
+          seenRecipients.add(recipientId);
+          return true;
+        });
+        
+        setDmChannels(uniqueChannels);
+        setDmLoading(false);
       }
     } catch (error) {
       console.error("Failed to fetch DM channels:", error);
+      setDmLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!currentServer) {
+      setDmLoading(true);
       fetchDMChannels();
     }
   }, [currentServer, fetchDMChannels]);
@@ -221,9 +233,17 @@ export function ChannelSidebar({
     offline: "#555555",
   };
 
+  // Memoize grouped channels for performance
+  const groupedChannels = useMemo(() => ({
+    text: channels.filter(c => c.type === "text"),
+    voice: channels.filter(c => c.type === "voice"),
+    announcement: channels.filter(c => c.type === "announcement"),
+    category: channels.filter(c => c.type === "category"),
+  }), [channels]);
+
   if (!currentServer) {
     return (
-      <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a]">
+      <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a] animate-fade-in">
         {/* DM Header */}
         <div className="h-12 px-4 flex items-center border-b border-[#1a1a1a]">
           <button className="w-full h-7 px-2 rounded bg-[#111111] text-[#666666] text-sm text-left hover:bg-[#1a1a1a] transition-colors">
@@ -236,7 +256,7 @@ export function ChannelSidebar({
           <Link 
             href="/channels/me"
             className={cn(
-              "flex items-center gap-3 px-2 py-2 rounded-md transition-colors",
+              "flex items-center gap-3 px-2 py-2 rounded-md transition-all duration-150",
               pathname === "/channels/me"
                 ? "bg-[#8B5CF6]/10 text-white"
                 : "text-[#888888] hover:bg-[#111111] hover:text-white"
@@ -248,7 +268,7 @@ export function ChannelSidebar({
         </div>
 
         {/* DM List */}
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 scrollbar-thin">
           <div className="px-2 py-2">
             <div className="px-2 mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-[#666666]">
@@ -259,8 +279,17 @@ export function ChannelSidebar({
               </button>
             </div>
             
-            {dmChannels.length > 0 ? (
-              <div className="space-y-0.5">
+            {dmLoading ? (
+              <div className="space-y-1">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-2 py-1.5">
+                    <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" variant="circular" />
+                    <Skeleton className="h-4 flex-1" />
+                  </div>
+                ))}
+              </div>
+            ) : dmChannels.length > 0 ? (
+              <div className="space-y-0.5 stagger-children">
                 {dmChannels.map((channel) => {
                   const recipient = channel.recipients[0];
                   if (!recipient) return null;
@@ -271,7 +300,7 @@ export function ChannelSidebar({
                       key={channel.id}
                       href={`/dm/${recipient.id}`}
                       className={cn(
-                        "group flex items-center gap-3 px-2 py-1.5 rounded-md transition-colors",
+                        "group flex items-center gap-3 px-2 py-1.5 rounded-md transition-all duration-150",
                         isActive
                           ? "bg-[#8B5CF6]/10 text-white"
                           : "text-[#888888] hover:bg-[#111111] hover:text-white"
@@ -279,13 +308,13 @@ export function ChannelSidebar({
                     >
                       <div className="relative flex-shrink-0">
                         <Avatar className="w-8 h-8">
-                          <AvatarImage src={recipient.avatar} />
+                          <AvatarImage src={recipient.avatar} loading="lazy" />
                           <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
                             {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div
-                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0a0a0a]"
+                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0a0a0a] transition-colors duration-200"
                           style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
                         />
                       </div>
@@ -293,7 +322,7 @@ export function ChannelSidebar({
                         {recipient.displayName || recipient.username}
                       </span>
                       <button 
-                        className="p-1 opacity-0 group-hover:opacity-100 hover:text-white transition-opacity"
+                        className="p-1 opacity-0 group-hover:opacity-100 hover:text-white transition-all duration-150"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -307,7 +336,7 @@ export function ChannelSidebar({
                 })}
               </div>
             ) : (
-              <div className="text-center text-[#666666] text-sm py-8">
+              <div className="text-center text-[#666666] text-sm py-8 animate-fade-in">
                 No direct messages yet
               </div>
             )}
@@ -320,22 +349,27 @@ export function ChannelSidebar({
     );
   }
 
+  // Show skeleton while channels are loading for new server
+  if (channels.length === 0 && currentServer) {
+    return <ChannelSidebarSkeleton />;
+  }
+
   return (
-    <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a]">
+    <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a] animate-fade-in">
       {/* Server Header */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="h-12 px-4 flex items-center justify-between border-b border-[#1a1a1a] hover:bg-[#111111] transition-colors">
+          <button className="h-12 px-4 flex items-center justify-between border-b border-[#1a1a1a] hover:bg-[#111111] transition-all duration-150">
             <span className="font-semibold text-white truncate">
               {currentServer.name}
             </span>
-            <ChevronDown className="w-5 h-5 text-white" />
+            <ChevronDown className="w-5 h-5 text-white transition-transform duration-200" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56 bg-[#111111] border border-[#222222] text-[#888888]">
+        <DropdownMenuContent className="w-56 bg-[#111111] border border-[#222222] text-[#888888] animate-scale-in">
           <DropdownMenuItem
             onClick={onInvitePeople}
-            className="text-[#8B5CF6] focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="text-[#8B5CF6] focus:bg-[#8B5CF6] focus:text-white cursor-pointer transition-colors duration-100"
           >
             <UserPlus className="w-4 h-4 mr-2" />
             Invite People
@@ -343,31 +377,31 @@ export function ChannelSidebar({
           <DropdownMenuSeparator className="bg-[#222222]" />
           <DropdownMenuItem
             onClick={onServerSettings}
-            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer transition-colors duration-100"
           >
             <Settings className="w-4 h-4 mr-2" />
             Server Settings
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={onCreateChannel}
-            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer transition-colors duration-100"
           >
             <PlusCircle className="w-4 h-4 mr-2" />
             Create Channel
           </DropdownMenuItem>
           <DropdownMenuItem 
             onClick={onCreateCategory || onCreateChannel}
-            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer transition-colors duration-100"
           >
             <Folder className="w-4 h-4 mr-2" />
             Create Category
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-[#222222]" />
-          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer">
+          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer transition-colors duration-100">
             <Bell className="w-4 h-4 mr-2" />
             Notification Settings
           </DropdownMenuItem>
-          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer">
+          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer transition-colors duration-100">
             <Shield className="w-4 h-4 mr-2" />
             Privacy Settings
           </DropdownMenuItem>
@@ -387,10 +421,10 @@ export function ChannelSidebar({
       </DropdownMenu>
 
       {/* Channel List */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 scrollbar-thin">
         <div className="py-3">
           {/* Announcement Channels (if any) */}
-          {announcementChannels.length > 0 && (
+          {groupedChannels.announcement.length > 0 && (
             <div className="mb-2">
               <div className="px-2 mb-1">
                 <button 
@@ -408,7 +442,7 @@ export function ChannelSidebar({
                   </span>
                 </button>
               </div>
-              {!collapsedCategories.has('announcements') && announcementChannels.map((channel) => (
+              {!collapsedCategories.has('announcements') && groupedChannels.announcement.map((channel) => (
                 <button
                   key={channel.id}
                   onClick={() => setCurrentChannel(channel)}
@@ -453,7 +487,7 @@ export function ChannelSidebar({
                 />
               </button>
             </div>
-            {!collapsedCategories.has('text') && textChannels.map((channel) => (
+            {!collapsedCategories.has('text') && groupedChannels.text.map((channel) => (
               editingChannel === channel.id ? (
                 <div key={channel.id} className="w-full px-2 py-1 mx-2" style={{ width: "calc(100% - 16px)" }}>
                   <input
@@ -514,7 +548,7 @@ export function ChannelSidebar({
                 />
               </button>
             </div>
-            {!collapsedCategories.has('voice') && voiceChannels.map((channel) => (
+            {!collapsedCategories.has('voice') && groupedChannels.voice.map((channel) => (
               <div key={channel.id} className="relative">
                 <button
                   onClick={() => setCurrentChannel(channel)}
