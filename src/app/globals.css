@@ -143,6 +143,42 @@
   --app-elev-1: 0 8px 30px rgba(0, 0, 0, 0.25);
 }
 
+.theme-midnight {
+  --app-bg: #01040b;
+  --app-surface: #060b16;
+  --app-surface-alt: #0b1423;
+  --app-border: #1a2740;
+  --app-text: #d6e1f5;
+  --app-muted: #90a0bf;
+  --app-muted-2: #6f7f99;
+  --app-elev-1: 0 10px 34px rgba(0, 0, 0, 0.32);
+}
+
+.theme-light {
+  --app-bg: #f4f7fc;
+  --app-surface: #ffffff;
+  --app-surface-alt: #edf2fb;
+  --app-border: #d6dfef;
+  --app-text: #1a2638;
+  --app-muted: #596986;
+  --app-muted-2: #7b89a3;
+  --app-elev-1: 0 8px 22px rgba(23, 35, 58, 0.08);
+}
+
+html.theme-light body {
+  background:
+    radial-gradient(1000px circle at 10% -20%, color-mix(in srgb, var(--app-accent) 18%, transparent), transparent 52%),
+    radial-gradient(900px circle at 95% 5%, rgba(46, 181, 203, 0.09), transparent 48%),
+    var(--app-bg);
+}
+
+html.theme-midnight body {
+  background:
+    radial-gradient(1200px circle at 10% -20%, color-mix(in srgb, var(--app-accent) 20%, transparent), transparent 50%),
+    radial-gradient(900px circle at 95% 5%, rgba(46, 181, 203, 0.07), transparent 45%),
+    var(--app-bg);
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -155,6 +191,12 @@
       radial-gradient(900px circle at 95% 5%, rgba(46, 181, 203, 0.08), transparent 45%),
       var(--app-bg);
     color: var(--app-text);
+  }
+
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"] {
+    accent-color: var(--app-accent);
   }
 }
 

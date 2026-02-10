@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -77,6 +78,7 @@ const statusOptions = [
 
 export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
+  const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
@@ -227,6 +229,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
       if (response.ok) {
         setUserSettings((prev) => ({ ...(prev || {}), ...patch }));
+        applyUserSettingsPatch(patch);
         toast.success("Settings saved");
       } else {
         const data = await response.json();
@@ -240,10 +243,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
+  const saveAppearancePatch = (appearancePatch: Record<string, any>) => {
+    const mergedAppearance = { ...(userSettings?.appearance || {}), ...appearancePatch };
+    setUserSettings((prev) => ({ ...(prev || {}), appearance: mergedAppearance }));
+    applyUserSettingsPatch({ appearance: mergedAppearance });
+    void saveSettingsPatch({ appearance: mergedAppearance }, "appearance");
+  };
+
   useEffect(() => {
     if (!open) return;
     fetchUserSettings();
   }, [open]);
+
+  useEffect(() => {
+    if (!userSettings) return;
+    applyUserSettingsPatch(userSettings);
+  }, [userSettings, applyUserSettingsPatch]);
 
   // Track changes
   useEffect(() => {
@@ -1147,8 +1162,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <div>
                         <label className="block text-sm text-[#888888] mb-2">Theme style</label>
                         <select
-                          value={userSettings.appearance?.themeStyle || "dark"}
-                          onChange={(e) => saveSettingsPatch({ appearance: { ...(userSettings.appearance || {}), themeStyle: e.target.value } }, "appearance")}
+                          value={userSettings.appearance?.themeStyle || themeSettings.theme || "dark"}
+                          onChange={(e) => saveAppearancePatch({ themeStyle: e.target.value })}
                           className="w-full bg-[#111111] border border-[#222222] rounded-md px-3 py-2 text-white"
                         >
                           <option value="dark">Dark</option>
@@ -1160,8 +1175,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <span className="text-white">Compact mode</span>
                         <input
                           type="checkbox"
-                          checked={Boolean(userSettings.appearance?.compactMode)}
-                          onChange={(e) => saveSettingsPatch({ appearance: { ...(userSettings.appearance || {}), compactMode: e.target.checked } }, "appearance")}
+                          checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)}
+                          onChange={(e) => saveAppearancePatch({ compactMode: e.target.checked })}
                           className="w-4 h-4 accent-[#8B5CF6]"
                         />
                       </div>
@@ -1172,41 +1187,35 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="bg-[#0a0a0a] rounded-lg p-5">
                     <h3 className="text-base font-bold text-white mb-4">Theme</h3>
                     <div className="grid grid-cols-3 gap-3">
-                      <button className="group p-3 bg-[#111111] border-2 border-[#8B5CF6] rounded-xl text-left transition-all hover:scale-[1.02]">
-                        <div className="aspect-video bg-[#0a0a0a] rounded-lg mb-3 overflow-hidden relative">
-                          <div className="absolute inset-0 flex">
-                            <div className="w-3 bg-[#111111]" />
-                            <div className="w-6 bg-[#0f0f0f]" />
-                            <div className="flex-1 bg-[#0a0a0a]" />
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-white font-medium text-sm">Dark</span>
-                          <Check className="w-4 h-4 text-[#8B5CF6]" />
-                        </div>
-                      </button>
-                      <button className="group p-3 bg-[#111111] border border-[#222222] rounded-xl text-left opacity-50 cursor-not-allowed">
-                        <div className="aspect-video bg-[#1a1a1a] rounded-lg mb-3 overflow-hidden relative">
-                          <div className="absolute inset-0 flex">
-                            <div className="w-3 bg-[#2a2a2a]" />
-                            <div className="w-6 bg-[#222222]" />
-                            <div className="flex-1 bg-[#1a1a1a]" />
-                          </div>
-                        </div>
-                        <span className="text-[#888888] font-medium text-sm">Midnight</span>
-                        <p className="text-xs text-[#555555]">Soon</p>
-                      </button>
-                      <button className="group p-3 bg-[#111111] border border-[#222222] rounded-xl text-left opacity-50 cursor-not-allowed">
-                        <div className="aspect-video bg-[#ffffff] rounded-lg mb-3 overflow-hidden relative">
-                          <div className="absolute inset-0 flex">
-                            <div className="w-3 bg-[#e5e5e5]" />
-                            <div className="w-6 bg-[#f0f0f0]" />
-                            <div className="flex-1 bg-[#ffffff]" />
-                          </div>
-                        </div>
-                        <span className="text-[#888888] font-medium text-sm">Light</span>
-                        <p className="text-xs text-[#555555]">Soon</p>
-                      </button>
+                      {[
+                        { id: "dark", label: "Dark", stripA: "#111111", stripB: "#0f0f0f", body: "#0a0a0a" },
+                        { id: "midnight", label: "Midnight", stripA: "#0b1020", stripB: "#101728", body: "#050913" },
+                        { id: "light", label: "Light", stripA: "#e5e5e5", stripB: "#f0f0f0", body: "#ffffff" },
+                      ].map((themeOption) => {
+                        const selected = (userSettings?.appearance?.themeStyle || themeSettings.theme || "dark") === themeOption.id;
+                        return (
+                          <button
+                            key={themeOption.id}
+                            onClick={() => saveAppearancePatch({ themeStyle: themeOption.id })}
+                            className={cn(
+                              "group p-3 bg-[#111111] rounded-xl text-left transition-all hover:scale-[1.02]",
+                              selected ? "border-2 border-[var(--app-accent)]" : "border border-[#222222]"
+                            )}
+                          >
+                            <div className="aspect-video rounded-lg mb-3 overflow-hidden relative" style={{ backgroundColor: themeOption.body }}>
+                              <div className="absolute inset-0 flex">
+                                <div className="w-3" style={{ backgroundColor: themeOption.stripA }} />
+                                <div className="w-6" style={{ backgroundColor: themeOption.stripB }} />
+                                <div className="flex-1" style={{ backgroundColor: themeOption.body }} />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-white font-medium text-sm">{themeOption.label}</span>
+                              {selected && <Check className="w-4 h-4 text-[var(--app-accent)]" />}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1227,14 +1236,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       ].map((c) => (
                         <button
                           key={c.color}
+                          onClick={() => saveAppearancePatch({ accentColor: c.color })}
                           className={cn(
                             "w-10 h-10 rounded-full transition-all hover:scale-110 relative",
-                            c.color === '#8B5CF6' && "ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0a]"
+                            c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase() &&
+                              "ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0a]"
                           )}
                           style={{ backgroundColor: c.color }}
                           title={c.name}
                         >
-                          {c.color === '#8B5CF6' && (
+                          {c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase() && (
                             <Check className="w-5 h-5 text-white absolute inset-0 m-auto" />
                           )}
                         </button>
@@ -1252,12 +1263,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         type="range" 
                         min="12" 
                         max="20" 
-                        defaultValue="14"
+                        value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
+                        onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) })}
                         className="flex-1 accent-[#8B5CF6] h-1 bg-[#222222] rounded-full appearance-none cursor-pointer"
                       />
                       <span className="text-xs text-[#888888]">20px</span>
                     </div>
-                    <p className="text-sm text-[#dcddde] mt-3">Preview: This is how your chat will look.</p>
+                    <p className="text-sm text-[#dcddde] mt-3">
+                      Preview ({userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}px): This is how your chat will look.
+                    </p>
                   </div>
 
                   {/* Message Display */}
@@ -1270,7 +1284,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[#888888]">Display messages in a compact format</p>
                         </div>
                         <div className="relative">
-                          <input type="checkbox" className="sr-only peer" />
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={Boolean(userSettings?.appearance?.compactMode ?? themeSettings.compactMode)}
+                            onChange={(e) => saveAppearancePatch({ compactMode: e.target.checked })}
+                          />
                           <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1281,7 +1300,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[#888888]">Display message timestamps</p>
                         </div>
                         <div className="relative">
-                          <input type="checkbox" className="sr-only peer" defaultChecked />
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={Boolean(themeSettings.showTimestamps)}
+                            onChange={(e) => updateSettings({ showTimestamps: e.target.checked })}
+                          />
                           <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1292,7 +1316,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[#888888]">Color usernames by their highest role</p>
                         </div>
                         <div className="relative">
-                          <input type="checkbox" className="sr-only peer" defaultChecked />
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)}
+                            onChange={(e) => saveAppearancePatch({ showRoleColors: e.target.checked })}
+                          />
                           <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1310,7 +1339,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[#888888]">Show smooth transitions and animations</p>
                         </div>
                         <div className="relative">
-                          <input type="checkbox" className="sr-only peer" defaultChecked />
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)}
+                            onChange={(e) => saveAppearancePatch({ enableAnimations: e.target.checked })}
+                          />
                           <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1321,7 +1355,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[#888888]">Play animated emojis automatically</p>
                         </div>
                         <div className="relative">
-                          <input type="checkbox" className="sr-only peer" defaultChecked />
+                          <input
+                            type="checkbox"
+                            className="sr-only peer"
+                            checked={Boolean(userSettings?.textImages?.gifAutoplay ?? themeSettings.animatedEmojis)}
+                            onChange={(e) => {
+                              setUserSettings((prev) => ({
+                                ...(prev || {}),
+                                textImages: { ...(prev?.textImages || {}), gifAutoplay: e.target.checked },
+                              }));
+                              updateSettings({ animatedEmojis: e.target.checked });
+                              void saveSettingsPatch(
+                                { textImages: { ...(userSettings?.textImages || {}), gifAutoplay: e.target.checked } },
+                                "text-images"
+                              );
+                            }}
+                          />
                           <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>

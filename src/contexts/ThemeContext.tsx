@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 
 export interface ThemeSettings {
   theme: "dark" | "midnight" | "light";
@@ -44,10 +44,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  const applyUserSettingsPatch = (patch: Record<string, any>) => {
+  const applyUserSettingsPatch = useCallback((patch: Record<string, any>) => {
     const appearance = patch?.appearance || {};
     const accessibility = patch?.accessibility || {};
     const voiceVideo = patch?.voiceVideo || {};
+    const textImages = patch?.textImages || {};
 
     setSettings((prev) => ({
       ...prev,
@@ -60,10 +61,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       enableAnimations: typeof appearance.enableAnimations === "boolean" ? appearance.enableAnimations : prev.enableAnimations,
       saturation: typeof appearance.saturation === "number" ? appearance.saturation : prev.saturation,
       reducedMotion: typeof accessibility.reducedMotion === "boolean" ? accessibility.reducedMotion : prev.reducedMotion,
-      animatedEmojis: typeof voiceVideo.animatedEmojis === "boolean" ? voiceVideo.animatedEmojis : prev.animatedEmojis,
+      animatedEmojis:
+        typeof textImages.gifAutoplay === "boolean"
+          ? textImages.gifAutoplay
+          : typeof voiceVideo.animatedEmojis === "boolean"
+            ? voiceVideo.animatedEmojis
+            : prev.animatedEmojis,
       animatedAvatars: typeof voiceVideo.animatedAvatars === "boolean" ? voiceVideo.animatedAvatars : prev.animatedAvatars,
     }));
-  };
+  }, []);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -97,7 +103,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [isLoaded]);
+  }, [applyUserSettingsPatch, isLoaded]);
 
   // Save settings to localStorage and apply CSS variables
   useEffect(() => {

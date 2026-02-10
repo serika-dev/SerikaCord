@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useTheme } from "@/contexts/ThemeContext";
 import { toast } from "sonner";
 
 const sectionTitles: Record<string, string> = {
@@ -29,6 +30,7 @@ export default function MobileSettingsSectionPage() {
   const params = useParams();
   const router = useRouter();
   const { user, updateUser } = useAuth();
+  const { applyUserSettingsPatch } = useTheme();
   const section = (params.section as string) || "privacy";
 
   const [settings, setSettings] = useState<SettingsObject | null>(null);
@@ -54,6 +56,7 @@ export default function MobileSettingsSectionPage() {
       if (settingsRes.ok) {
         const data = await settingsRes.json();
         setSettings(data.settings || {});
+        applyUserSettingsPatch(data.settings || {});
       }
       if (appsRes.ok) {
         const data = await appsRes.json();
@@ -94,6 +97,7 @@ export default function MobileSettingsSectionPage() {
       }
 
       setSettings((prev) => ({ ...(prev || {}), ...patch }));
+      applyUserSettingsPatch(patch);
       toast.success("Settings saved");
     } catch (error) {
       console.error("Failed to save settings:", error);
