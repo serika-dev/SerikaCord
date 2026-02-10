@@ -6,7 +6,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Twemoji } from "@/components/ui/twemoji";
+import { MessageContent } from "@/components/chat/MessageContent";
+import { MessageSkeleton } from "@/components/ui/skeleton";
 import {
   Phone,
   Video,
@@ -22,8 +23,6 @@ import {
   Crown,
   Loader2,
   ArrowLeft,
-  Wifi,
-  WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -75,8 +74,6 @@ export default function DMConversationPage() {
   const [isSending, setIsSending] = useState(false);
   const [showUserProfile, setShowUserProfile] = useState(true);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isReconnecting, setIsReconnecting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -182,17 +179,12 @@ export default function DMConversationPage() {
 
       eventSource.onopen = () => {
         reconnectAttemptsRef.current = 0;
-        setIsConnected(true);
-        setIsReconnecting(false);
       };
 
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "connected" || data.type === "ping") {
-            setIsConnected(true);
-            return;
-          }
+          if (data.type === "connected" || data.type === "ping") return;
           if (data.type === "message") {
             setMessages((prev) => {
               if (prev.some((m) => m.id === data.message.id)) {
@@ -212,8 +204,6 @@ export default function DMConversationPage() {
       };
 
       eventSource.onerror = () => {
-        setIsConnected(false);
-        setIsReconnecting(true);
         eventSource.close();
 
         const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
@@ -397,17 +387,6 @@ export default function DMConversationPage() {
               {recipient?.isPremium && (
                 <Crown className="w-4 h-4 text-[#8B5CF6]" />
               )}
-              <span
-                className={cn(
-                  "ml-1 hidden md:inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
-                  isConnected
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                )}
-              >
-                {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-                {isReconnecting ? "Reconnecting..." : isConnected ? "Live" : "Offline"}
-              </span>
             </div>
           </div>
 
@@ -469,9 +448,7 @@ export default function DMConversationPage() {
 
               {/* Messages */}
               {isLoading ? (
-                <div className="flex items-center justify-center py-10">
-                  <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
-                </div>
+                <MessageSkeleton count={4} />
               ) : (
                 <div className="space-y-4">
                   {messageGroups.map((group, groupIndex) => (
@@ -496,9 +473,12 @@ export default function DMConversationPage() {
                             </span>
                           </div>
                           {group.messages.map((message) => (
-                            <Twemoji key={message.id} className="text-[var(--app-text)] break-words" customEmojis={message.customEmojis}>
-                              {message.content}
-                            </Twemoji>
+                            <MessageContent
+                              key={message.id}
+                              content={message.content}
+                              serverEmojis={message.customEmojis}
+                              className="text-[var(--app-text)] break-words"
+                            />
                           ))}
                         </div>
                       </div>

@@ -21,7 +21,6 @@ import {
   Crown,
   Loader2,
   ArrowLeft,
-  MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -31,8 +30,7 @@ import { GifPicker } from "@/components/chat/GifPicker";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
-import { Skeleton, ChatAreaSkeleton, UserProfileSkeleton, MessageSkeleton } from "@/components/ui/skeleton";
-import { Twemoji } from "@/components/ui/twemoji";
+import { Skeleton, UserProfileSkeleton, MessageSkeleton } from "@/components/ui/skeleton";
 
 interface User {
   id: string;
@@ -83,11 +81,16 @@ export default function DMConversationPage() {
   const [recipientLoading, setRecipientLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [showUserProfile, setShowUserProfile] = useState(true);
+  const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const lastTypingSentAtRef = useRef(0);
 
   // Clear server context when entering DM
   useEffect(() => {
@@ -98,6 +101,44 @@ export default function DMConversationPage() {
     setNewMessage((prev) => prev + emoji);
     setShowEmojiPicker(false);
   }, []);
+
+  const addTypingUser = useCallback(
+    (username: string) => {
+      if (!username || username === user?.username) return;
+      setTypingUsers((prev) => (prev.includes(username) ? prev : [...prev, username]));
+
+      if (typingTimeoutsRef.current[username]) {
+        clearTimeout(typingTimeoutsRef.current[username]);
+      }
+
+      typingTimeoutsRef.current[username] = setTimeout(() => {
+        setTypingUsers((prev) => prev.filter((u) => u !== username));
+        delete typingTimeoutsRef.current[username];
+      }, 3500);
+    },
+    [user?.username]
+  );
+
+  const sendTypingStatus = useCallback(
+    async (content?: string) => {
+      const draft = content ?? newMessage;
+      if (!draft.trim()) return;
+
+      const now = Date.now();
+      if (now - lastTypingSentAtRef.current < 2000) return;
+      lastTypingSentAtRef.current = now;
+
+      try {
+        await fetch(`/api/dms/${recipientId}/typing`, {
+          method: "POST",
+          keepalive: true,
+        });
+      } catch {
+        // Best-effort only.
+      }
+    },
+    [newMessage, recipientId]
+  );
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -160,62 +201,81 @@ export default function DMConversationPage() {
   useEffect(() => {
     if (!recipientId || !user) return;
 
-    // Connect to SSE endpoint for real-time messages
-    const eventSource = new EventSource(`/api/dms/${recipientId}/stream`);
-    eventSourceRef.current = eventSource;
-
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "message") {
-          setMessages((prev) => {
-            // Avoid duplicates by checking if message ID already exists
-            const existingIds = new Set(prev.map(m => m.id));
-            if (existingIds.has(data.message.id)) {
-              return prev;
-            }
-            
-            // Skip if this is the user's own message (we use optimistic updates)
-            // The optimistic message will be replaced by the response handler
-            if (data.message.authorId === user?.id || data.message.author?.id === user?.id) {
-              // Check if we have a temp message with same content - it will be replaced by response
-              const hasTempMessage = prev.some(
-                m => m.id.startsWith('temp-') && 
-                     m.content === data.message.content &&
-                     m.authorId === user?.id
-              );
-              if (hasTempMessage) {
-                // Replace the temp message with the real one
-                return prev.map(m => 
-                  m.id.startsWith('temp-') && 
-                  m.content === data.message.content &&
-                  m.authorId === user?.id
-                    ? data.message
-                    : m
-                );
-              }
-            }
-            
-            const updated = [...prev, data.message];
-            // Auto-scroll to bottom after new message
-            setTimeout(scrollToBottom, 100);
-            return updated;
-          });
-        }
-      } catch (error) {
-        console.error("SSE parse error:", error);
+    const connectSSE = () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
+
+      const eventSource = new EventSource(`/api/dms/${recipientId}/stream`);
+      eventSourceRef.current = eventSource;
+
+      eventSource.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "connected" || data.type === "ping") return;
+          if (data.type === "typing") {
+            addTypingUser(data.username);
+            return;
+          }
+          if (data.type === "message") {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === data.message.id)) {
+                return prev;
+              }
+
+              const ownMessage = data.message.authorId === user?.id || data.message.author?.id === user?.id;
+              if (ownMessage) {
+                const ownTempIndex = prev.findIndex(
+                  (m) =>
+                    m.id.startsWith("temp-") &&
+                    m.authorId === user?.id &&
+                    m.content === data.message.content
+                );
+                if (ownTempIndex !== -1) {
+                  return prev.map((m, index) => (index === ownTempIndex ? data.message : m));
+                }
+              }
+
+              return [...prev, data.message];
+            });
+            setTimeout(scrollToBottom, 100);
+          }
+        } catch (error) {
+          console.error("SSE parse error:", error);
+        }
+      };
+
+      eventSource.onerror = () => {
+        eventSource.close();
+
+        const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+        reconnectAttemptsRef.current += 1;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectSSE();
+        }, backoffMs);
+      };
     };
 
-    eventSource.onerror = () => {
-      console.error("SSE connection error");
-      eventSource.close();
-    };
+    connectSSE();
 
     return () => {
-      eventSource.close();
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      Object.values(typingTimeoutsRef.current).forEach((timeout) => clearTimeout(timeout));
+      typingTimeoutsRef.current = {};
     };
-  }, [recipientId, user]);
+  }, [addTypingUser, recipientId, scrollToBottom, user]);
 
   // Send message
   const sendMessage = async () => {
@@ -224,6 +284,7 @@ export default function DMConversationPage() {
     setIsSending(true);
     const messageContent = newMessage.trim();
     setNewMessage("");
+    lastTypingSentAtRef.current = 0;
 
     // Optimistic update
     const tempId = `temp-${Date.now()}`;
@@ -280,6 +341,13 @@ export default function DMConversationPage() {
     }
   };
 
+  const handleMessageInputChange = (value: string) => {
+    setNewMessage(value);
+    if (value.trim()) {
+      void sendTypingStatus(value);
+    }
+  };
+
   // Format timestamp
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
@@ -323,6 +391,14 @@ export default function DMConversationPage() {
 
   // Memoize message groups for better performance
   const messageGroups = useMemo(() => groupMessages(messages), [messages]);
+  const typingStatusText =
+    typingUsers.length === 0
+      ? ""
+      : typingUsers.length === 1
+        ? `${typingUsers[0]} is typing...`
+        : typingUsers.length === 2
+          ? `${typingUsers[0]} and ${typingUsers[1]} are typing...`
+          : `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} others are typing...`;
 
   // Show loading while checking auth
   if (authLoading) {
@@ -471,9 +547,12 @@ export default function DMConversationPage() {
                           </div>
                           {group.messages.map((message, msgIndex) => (
                             <div key={`${groupIndex}-${msgIndex}-${message.id}`}>
-                              <Twemoji className="text-[#dcddde] break-words" customEmojis={message.customEmojis}>
-                                {message.content}
-                              </Twemoji>
+                              <MessageContent
+                                content={message.content}
+                                serverEmojis={message.customEmojis}
+                                className="text-[#dcddde] break-words"
+                                onImageClick={(src, alt) => setLightboxImage({ src, alt })}
+                              />
                               <LinkEmbed content={message.content} />
                             </div>
                           ))}
@@ -488,6 +567,19 @@ export default function DMConversationPage() {
           </div>
         </div>
 
+        {typingStatusText && (
+          <div className="px-4 pb-1 text-sm text-[#888888]">
+            <span className="inline-flex items-center gap-2">
+              <span className="flex gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] animate-bounce [animation-delay:0ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] animate-bounce [animation-delay:120ms]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[#8B5CF6] animate-bounce [animation-delay:240ms]" />
+              </span>
+              {typingStatusText}
+            </span>
+          </div>
+        )}
+
         {/* Message input */}
         <div className="p-3 sm:p-4 pt-0 safe-area-bottom">
           <div className="relative bg-[#111111] rounded-xl sm:rounded-lg">
@@ -498,7 +590,7 @@ export default function DMConversationPage() {
               
               <input
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={(e) => handleMessageInputChange(e.target.value)}
                 onKeyDown={handleKeyPress}
                 placeholder={`Message @${recipient?.displayName || recipient?.username || "..."}`}
                 className="flex-1 bg-transparent text-white placeholder:text-[#666666] px-2 sm:px-3 py-2 sm:py-1 focus:outline-none text-base"
@@ -508,47 +600,51 @@ export default function DMConversationPage() {
                 <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95 hidden sm:block">
                   <Gift className="w-5 h-5" />
                 </button>
-                <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
-                  <ImageIcon className="w-5 h-5" />
-                </button>
-                <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+                <Popover open={showGifPicker} onOpenChange={setShowGifPicker}>
                   <PopoverTrigger asChild>
                     <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
-                      <Smile className="w-5 h-5" />
+                      <ImageIcon className="w-5 h-5" />
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="top" align="end" className="w-auto p-0 border-none bg-transparent">
                     <GifPicker
                       onGifSelect={async (gif: { url: string }) => {
                         setShowGifPicker(false);
-                        
-                        // Instantly send the GIF as a message
+                        if (!user) return;
+
                         const tempId = `temp-${Date.now()}`;
                         const optimisticMessage: Message = {
                           id: tempId,
                           content: gif.url,
-                          authorId: user?.id || "",
+                          authorId: user.id,
                           author: {
-                            id: user?.id || "",
-                            username: user?.username || "",
-                            displayName: user?.displayName || "",
-                            avatar: user?.avatar,
-                            status: user?.status || "online",
-                            isPremium: user?.isPremium,
+                            id: user.id,
+                            username: user.username,
+                            displayName: user.displayName,
+                            avatar: user.avatar,
+                            status: user.status || "online",
+                            isPremium: user.isPremium,
                           },
                           channelId: recipientId,
                           createdAt: new Date().toISOString(),
                         };
                         setMessages((prev) => [...prev, optimisticMessage]);
-                        
+                        setTimeout(scrollToBottom, 100);
+
                         try {
-                          await fetch(`/api/dms/${recipientId}/messages`, {
+                          const response = await fetch(`/api/dms/${recipientId}/messages`, {
                             method: "POST",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ content: gif.url }),
                           });
-                        } catch (error) {
-                          // Remove optimistic message on error
+
+                          if (response.ok) {
+                            const data = await response.json();
+                            setMessages((prev) => prev.map((m) => (m.id === tempId ? data : m)));
+                          } else {
+                            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+                          }
+                        } catch {
                           setMessages((prev) => prev.filter((m) => m.id !== tempId));
                         }
                       }}
@@ -557,7 +653,7 @@ export default function DMConversationPage() {
                 </Popover>
                 <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
                   <PopoverTrigger asChild>
-                    <button className="p-1.5 text-[#888888] hover:text-white transition-all duration-150 rounded hover:bg-[#1a1a1a]">
+                    <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
                       <Smile className="w-5 h-5" />
                     </button>
                   </PopoverTrigger>

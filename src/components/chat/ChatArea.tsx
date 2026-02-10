@@ -51,14 +51,13 @@ import {
   FileText,
   Loader2,
   Plus,
-  Wifi,
-  WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
-import { Twemoji } from "@/components/ui/twemoji";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { MessageContent } from "@/components/chat/MessageContent";
+import { MessageSkeleton } from "@/components/ui/skeleton";
 
 interface Message {
   id: string;
@@ -113,8 +112,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isReconnecting, setIsReconnecting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -308,17 +305,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
     eventSource.onopen = () => {
       reconnectAttempts.current = 0;
-      setIsConnected(true);
-      setIsReconnecting(false);
     };
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === "connected" || data.type === "ping") {
-          setIsConnected(true);
-          return;
-        }
+        if (data.type === "connected" || data.type === "ping") return;
 
         if (data.type === "message") {
           setMessages((prev) => {
@@ -357,6 +349,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               reactions: data.message.reactions || [],
               customEmojis: data.message.customEmojis || [],
             };
+            const incomingAuthorId = newMsg.authorId || newMsg.author?.id;
+            const ownTempIndex = prev.findIndex(
+              (msg) =>
+                msg.id.startsWith("temp-") &&
+                msg.authorId === user?.id &&
+                incomingAuthorId === user?.id &&
+                msg.content === newMsg.content
+            );
+
+            if (ownTempIndex !== -1) {
+              return prev.map((msg, index) => (index === ownTempIndex ? newMsg : msg));
+            }
+
             return [...prev, newMsg];
           });
           return;
@@ -397,8 +402,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     };
 
     eventSource.onerror = () => {
-      setIsConnected(false);
-      setIsReconnecting(true);
       eventSource.close();
 
       // Reconnect with exponential backoff
@@ -417,11 +420,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     };
 
     eventSourceRef.current = eventSource;
-  }, [addTypingUser, applyReactionEvent, currentChannel]);
+  }, [addTypingUser, applyReactionEvent, currentChannel, user?.id]);
 
   useEffect(() => {
-    setIsConnected(false);
-    setIsReconnecting(false);
     connectSSE();
 
     return () => {
@@ -517,6 +518,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       textareaRef.current.style.height = "44px";
     }
 
+    let tempId: string | null = null;
+
     try {
       let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
 
@@ -528,6 +531,27 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         setAttachmentPreviews([]);
       }
 
+      tempId = `temp-${Date.now()}`;
+      const optimisticMessage: Message = {
+        id: tempId,
+        content: messageContent,
+        authorId: user?.id || "unknown",
+        author: {
+          id: user?.id || "unknown",
+          username: user?.username || "unknown",
+          displayName: user?.displayName || user?.username || "Unknown",
+          avatar: user?.avatar,
+        },
+        channelId: currentChannel.id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        attachments: uploadedAttachments,
+        reactions: [],
+        customEmojis: [],
+      };
+
+      setMessages((prev) => [...prev, optimisticMessage]);
+
       const response = await fetch(`/api/channels/${currentChannel.id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -537,11 +561,42 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         }),
       });
 
-      if (!response.ok) {
+      if (response.ok) {
+        const payload = await response.json().catch(() => null);
+        const message = payload?.message || payload;
+        if (message && (message.id || message._id)) {
+          const messageId = message.id || message._id;
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === tempId
+                ? {
+                    ...msg,
+                    id: messageId,
+                    content: message.content ?? msg.content,
+                    authorId:
+                      typeof message.authorId === "object"
+                        ? message.authorId._id || message.authorId.id || msg.authorId
+                        : message.authorId || msg.authorId,
+                    author: message.author || msg.author,
+                    createdAt: message.createdAt || msg.createdAt,
+                    updatedAt: message.updatedAt || msg.updatedAt,
+                    attachments: message.attachments || msg.attachments,
+                    reactions: message.reactions || msg.reactions,
+                    customEmojis: message.customEmojis || msg.customEmojis,
+                  }
+                : msg
+            )
+          );
+        }
+      } else {
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
         setNewMessage(messageContent);
         toast.error("Failed to send message");
       }
     } catch {
+      if (tempId) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
+      }
       setNewMessage(messageContent);
       toast.error("Failed to send message");
     } finally {
@@ -823,17 +878,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           )}
           <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           <span className="font-semibold text-white truncate text-sm sm:text-base">{currentChannel.name}</span>
-          <span
-            className={cn(
-              "ml-1 hidden md:inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
-              isConnected
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                : "border-amber-500/30 bg-amber-500/10 text-amber-200"
-            )}
-          >
-            {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-            {isReconnecting ? "Reconnecting..." : isConnected ? "Live" : "Offline"}
-          </span>
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
           <button
@@ -887,9 +931,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
           {/* Messages */}
           {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-8 h-8 border-2 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
-            </div>
+            <MessageSkeleton count={5} />
           ) : groupedMessages.length === 0 ? (
             <div className="text-center text-[#666666] py-8">No messages yet. Be the first to say something!</div>
           ) : (
@@ -948,10 +990,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                           </div>
                         ) : (
                           <>
-                            <Twemoji className="text-[var(--app-text)] leading-relaxed" customEmojis={message.customEmojis}>
-                              {message.content}
-                              {message.edited && <span className="text-xs text-[var(--app-muted-2)] ml-1">(edited)</span>}
-                            </Twemoji>
+                            <MessageContent
+                              content={message.content}
+                              serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                              edited={message.edited}
+                              className="text-[var(--app-text)] leading-relaxed break-words"
+                            />
 
                             {/* Link Embeds */}
                             <LinkEmbed content={message.content} />
