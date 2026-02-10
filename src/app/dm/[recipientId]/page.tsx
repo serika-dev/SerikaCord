@@ -31,6 +31,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Skeleton, UserProfileSkeleton, MessageSkeleton } from "@/components/ui/skeleton";
+import { buildGalleryFromMessages, findGalleryIndex } from "@/lib/chat/media";
 
 interface User {
   id: string;
@@ -86,11 +87,12 @@ export default function DMConversationPage() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
-  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const lastTypingSentAtRef = useRef(0);
+  const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
 
   // Clear server context when entering DM
   useEffect(() => {
@@ -391,6 +393,32 @@ export default function DMConversationPage() {
 
   // Memoize message groups for better performance
   const messageGroups = useMemo(() => groupMessages(messages), [messages]);
+
+  const openMediaViewer = useCallback(
+    (src: string, alt?: string, messageId?: string) => {
+      const mediaIndex = findGalleryIndex(mediaGallery, { src, messageId });
+      if (mediaIndex >= 0) {
+        setLightboxIndex(mediaIndex);
+        return;
+      }
+      if (typeof window !== "undefined") {
+        window.open(src, "_blank", "noopener,noreferrer");
+      }
+    },
+    [mediaGallery]
+  );
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    if (!mediaGallery.length) {
+      setLightboxIndex(null);
+      return;
+    }
+    if (lightboxIndex >= mediaGallery.length) {
+      setLightboxIndex(mediaGallery.length - 1);
+    }
+  }, [lightboxIndex, mediaGallery.length]);
+
   const typingStatusText =
     typingUsers.length === 0
       ? ""
@@ -414,9 +442,9 @@ export default function DMConversationPage() {
   }
 
   return (
-    <div className="flex-1 flex bg-[#0a0a0a] animate-fade-in">
+    <div className="chat-shell flex-1 flex bg-[#0a0a0a] animate-fade-in">
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Header */}
         <div className="h-14 sm:h-12 min-h-[56px] sm:min-h-12 px-3 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] bg-[#0a0a0a] safe-area-top">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
@@ -483,7 +511,7 @@ export default function DMConversationPage() {
         </div>
 
         {/* Messages area */}
-        <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin">
+        <div className="chat-scroller flex-1 overflow-y-auto min-h-0 scrollbar-thin">
           <div className="flex flex-col min-h-full">
             {/* Welcome message */}
             <div className="flex-1" />
@@ -520,11 +548,11 @@ export default function DMConversationPage() {
               {isLoading ? (
                 <MessageSkeleton count={4} />
               ) : (
-                <div className="space-y-4 animate-fade-in">
+                <div className="space-y-[var(--chat-row-gap)] animate-fade-in">
                   {messageGroups.map((group, groupIndex) => (
                     <div 
                       key={`group-${groupIndex}-${group.author.id}-${group.timestamp}`} 
-                      className="group/message hover:bg-[#111111]/50 -mx-4 px-4 py-0.5 rounded transition-colors duration-100"
+                      className="chat-message-row -mx-4 group/message hover:bg-[#111111]/50 py-0.5 rounded transition-colors duration-100"
                     >
                       <div className="flex gap-4">
                         <Avatar className="w-10 h-10 mt-0.5 flex-shrink-0">
@@ -550,8 +578,8 @@ export default function DMConversationPage() {
                               <MessageContent
                                 content={message.content}
                                 serverEmojis={message.customEmojis}
-                                className="text-[#dcddde] break-words"
-                                onImageClick={(src, alt) => setLightboxImage({ src, alt })}
+                                className="chat-message-body text-[#dcddde]"
+                                onMediaClick={({ src, alt }) => openMediaViewer(src, alt, message.id)}
                               />
                               <LinkEmbed content={message.content} />
                             </div>
@@ -784,10 +812,11 @@ export default function DMConversationPage() {
 
       {/* Image Lightbox */}
       <ImageLightbox
-        src={lightboxImage?.src || ""}
-        alt={lightboxImage?.alt}
-        isOpen={!!lightboxImage}
-        onClose={() => setLightboxImage(null)}
+        items={mediaGallery}
+        currentIndex={lightboxIndex ?? 0}
+        isOpen={lightboxIndex !== null}
+        onNavigate={setLightboxIndex}
+        onClose={() => setLightboxIndex(null)}
       />
     </div>
   );

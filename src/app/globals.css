@@ -96,6 +96,11 @@
   --app-muted-2: #6b7387;
   --app-accent: #7c8cff;
   --app-elev-1: 0 8px 30px rgba(0, 0, 0, 0.25);
+  --chat-gutter: clamp(0.75rem, 1.2vw, 1rem);
+  --chat-row-gap: clamp(0.5rem, 0.9vw, 0.875rem);
+  --chat-media-max-inline: clamp(280px, 58vw, 760px);
+  --chat-line-height: 1.48;
+  --chat-font-size-fluid: clamp(0.92rem, 0.86rem + 0.2vw, 1rem);
 
   /* Semantic theme tokens */
   --bg-app: var(--app-bg);
@@ -263,6 +268,41 @@ html.theme-midnight body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0)) var(--app-surface);
   border: 1px solid var(--app-border);
   box-shadow: var(--app-elev-1);
+}
+
+.chat-shell {
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-scroller {
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-message-row {
+  min-width: 0;
+  max-width: 100%;
+  padding-inline: var(--chat-gutter);
+}
+
+.chat-message-body {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--chat-font-size-fluid);
+  line-height: var(--chat-line-height);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-media {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, var(--chat-media-max-inline));
+  max-height: min(62vh, 34rem);
+  object-fit: contain;
+  border-radius: 0.5rem;
 }
 
 /* Twemoji styling */

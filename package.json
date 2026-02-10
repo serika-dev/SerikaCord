@@ -14,7 +14,8 @@
     "mobile:ios": "cd mobile && bun run ios",
     "mobile:android": "cd mobile && bun run android",
     "mobile:sync": "cd mobile && bun run cap:sync",
-    "check:theme": "bash scripts/check-theme-hardcoded.sh"
+    "check:theme": "bash scripts/check-theme-hardcoded.sh",
+    "check:chat-media": "bash scripts/check-chat-media-hardcoded.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.986.0",

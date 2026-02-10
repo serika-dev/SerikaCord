@@ -3,6 +3,7 @@
 import { useEffect, useRef, useMemo } from "react";
 import twemoji from "twemoji";
 import { cn } from "@/lib/utils";
+import { isImageLikeUrl } from "@/lib/chat/media";
 
 interface CustomEmoji {
   id: string;
@@ -19,14 +20,8 @@ interface MessageContentProps {
   serverEmojis?: CustomEmoji[];
   className?: string;
   edited?: boolean;
+  onMediaClick?: (media: { src: string; alt?: string }) => void;
   onImageClick?: (src: string, alt?: string) => void;
-}
-
-// Check if a URL is an image/GIF
-function isImageUrl(url: string): boolean {
-  const imageExtensions = /\.(gif|jpg|jpeg|png|webp|svg|bmp)(\?.*)?$/i;
-  const imageHosts = /^https?:\/\/(gifs\.serika\.dev|cdn\.ado\.wtf|i\.imgur\.com|media\.tenor\.com|media\.giphy\.com|cdn\.discordapp\.com)/i;
-  return imageExtensions.test(url) || imageHosts.test(url);
 }
 
 // Check if a string is only a URL (possibly with whitespace)
@@ -49,12 +44,23 @@ function isOnlyEmoji(text: string, customEmojiCount: number): boolean {
   return emojiRegex.test(stripped) && totalEmojis > 0 && totalEmojis <= 6;
 }
 
-export function MessageContent({ content, serverEmojis = [], className, edited, onImageClick }: MessageContentProps) {
+export function MessageContent({
+  content,
+  serverEmojis = [],
+  className,
+  edited,
+  onMediaClick,
+  onImageClick,
+}: MessageContentProps) {
   const textRef = useRef<HTMLSpanElement>(null);
+  const handleMediaClick = (src: string, alt?: string) => {
+    onMediaClick?.({ src, alt });
+    onImageClick?.(src, alt);
+  };
 
   // Check if the entire message is just an image URL
   const imageOnlyUrl = useMemo(() => {
-    if (isOnlyUrl(content) && isImageUrl(content.trim())) {
+    if (isOnlyUrl(content) && isImageLikeUrl(content.trim())) {
       return content.trim();
     }
     return null;
@@ -92,7 +98,7 @@ export function MessageContent({ content, serverEmojis = [], className, edited, 
     // Process each segment
     for (const segment of segments) {
       if (segment.type === "url") {
-        if (isImageUrl(segment.content)) {
+        if (isImageLikeUrl(segment.content)) {
           parts.push({ type: "image", content: segment.content, url: segment.content });
         } else {
           parts.push({ type: "link", content: segment.content, url: segment.content });
@@ -165,8 +171,8 @@ export function MessageContent({ content, serverEmojis = [], className, edited, 
         <img
           src={imageOnlyUrl}
           alt="Image"
-          className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => onImageClick?.(imageOnlyUrl, "Image")}
+          className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
+          onClick={() => handleMediaClick(imageOnlyUrl, "Image")}
           loading="lazy"
         />
         {edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
@@ -205,8 +211,8 @@ export function MessageContent({ content, serverEmojis = [], className, edited, 
               <img
                 src={part.url}
                 alt="Image"
-                className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => onImageClick?.(part.url!, "Image")}
+                className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => handleMediaClick(part.url!, "Image")}
                 loading="lazy"
               />
             </span>
@@ -219,7 +225,7 @@ export function MessageContent({ content, serverEmojis = [], className, edited, 
               href={part.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[#00AFF4] hover:underline"
+              className="text-[var(--app-accent)] hover:underline break-all"
             >
               {part.content}
             </a>

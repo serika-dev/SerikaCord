@@ -58,6 +58,8 @@ import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { MessageSkeleton } from "@/components/ui/skeleton";
+import { ImageLightbox } from "@/components/ui/image-lightbox";
+import { buildGalleryFromMessages, findGalleryIndex } from "@/lib/chat/media";
 
 interface Message {
   id: string;
@@ -178,6 +180,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Message[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Detect mobile
   useEffect(() => {
@@ -615,12 +618,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return uploadedAttachments;
   };
 
-  const handleSendMessage = async () => {
-    if ((!newMessage.trim() && attachments.length === 0) || !currentChannel) return;
+  const handleSendMessage = async (contentOverride?: string) => {
+    if (isSending || !currentChannel) return;
 
-    const messageContent = newMessage;
+    const isOverrideSend = typeof contentOverride === "string";
+    const messageContent = isOverrideSend ? contentOverride : newMessage;
+    const pendingAttachments = isOverrideSend ? [] : attachments;
+
+    if (!messageContent.trim() && pendingAttachments.length === 0) return;
+
     const replyReference = replyToMessage;
-    setNewMessage("");
+    if (!isOverrideSend) {
+      setNewMessage("");
+    }
     lastTypingSentAtRef.current = 0;
     setIsSending(true);
 
@@ -633,7 +643,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     try {
       let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
 
-      if (attachments.length > 0) {
+      if (pendingAttachments.length > 0) {
         setIsUploading(true);
         uploadedAttachments = await uploadAttachments();
         setIsUploading(false);
@@ -714,14 +724,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         }
       } else {
         setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
-        setNewMessage(messageContent);
+        if (!isOverrideSend) {
+          setNewMessage(messageContent);
+        }
         toast.error("Failed to send message");
       }
     } catch {
       if (tempId) {
         setMessages((prev) => prev.filter((msg) => msg.id !== tempId));
       }
-      setNewMessage(messageContent);
+      if (!isOverrideSend) {
+        setNewMessage(messageContent);
+      }
       toast.error("Failed to send message");
     } finally {
       setIsSending(false);
@@ -853,13 +867,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   };
 
   const handleGifSelect = (gifUrl: string) => {
-    setNewMessage((prev) => {
-      const separator = prev.trim().length > 0 ? " " : "";
-      return `${prev}${separator}${gifUrl}`;
-    });
     setShowEmojiPicker(false);
     setComposerPickerTab("emoji");
-    textareaRef.current?.focus();
+    void handleSendMessage(gifUrl);
   };
 
   const handleStickerSelect = (stickerUrl: string) => {
@@ -1022,6 +1032,33 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} others are typing...`;
   }, [typingUsers]);
 
+  const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
+
+  const openMediaViewer = useCallback(
+    (src: string, alt?: string, messageId?: string) => {
+      const mediaIndex = findGalleryIndex(mediaGallery, { src, messageId });
+      if (mediaIndex >= 0) {
+        setLightboxIndex(mediaIndex);
+        return;
+      }
+      if (typeof window !== "undefined") {
+        window.open(src, "_blank", "noopener,noreferrer");
+      }
+    },
+    [mediaGallery]
+  );
+
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    if (!mediaGallery.length) {
+      setLightboxIndex(null);
+      return;
+    }
+    if (lightboxIndex >= mediaGallery.length) {
+      setLightboxIndex(mediaGallery.length - 1);
+    }
+  }, [lightboxIndex, mediaGallery.length]);
+
   const inboxItems = useMemo(() => {
     const username = user?.username?.toLowerCase() || "";
     const mentionNeedle = username ? `@${username}` : "";
@@ -1053,7 +1090,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-[var(--app-bg)] min-w-0 min-h-0 overflow-hidden">
+    <div className="chat-shell flex-1 flex flex-col bg-[var(--app-bg)] min-w-0 min-h-0 overflow-hidden">
       {/* Channel Header */}
       <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -1164,7 +1201,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       )}
 
       {/* Messages Area */}
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="chat-scroller flex-1 min-h-0">
         <div className="flex flex-col py-4">
           {/* Channel Welcome */}
           <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
@@ -1184,7 +1221,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             groupedMessages.map((group, groupIndex) => (
               <div
                 key={groupIndex}
-                className="group px-4 py-0.5 hover:bg-[var(--app-surface-alt)]/80 message-hover transition-colors"
+                className="chat-message-row group py-0.5 hover:bg-[var(--app-surface-alt)]/80 message-hover transition-colors"
               >
                 <div className="flex gap-4">
                   <div className="w-10 flex-shrink-0">
@@ -1257,7 +1294,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                               content={message.content}
                               serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
                               edited={message.edited}
-                              className="text-[var(--app-text)] leading-relaxed break-words"
+                              className="chat-message-body text-[var(--app-text)]"
+                              onMediaClick={({ src, alt }) => openMediaViewer(src, alt, message.id)}
                             />
 
                             {message.pinned && (
@@ -1277,8 +1315,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                   <img
                                     src={attachment.url}
                                     alt={attachment.filename}
-                                    className="max-w-md max-h-80 rounded-md cursor-pointer hover:opacity-90"
-                                    onClick={() => window.open(attachment.url, "_blank")}
+                                    className="chat-media cursor-pointer hover:opacity-90"
+                                    onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
                                   />
                                 ) : (
                                   <a
@@ -1552,7 +1590,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             </Popover>
             {(newMessage.trim() || attachments.length > 0) && (
               <button
-                onClick={handleSendMessage}
+                onClick={() => {
+                  void handleSendMessage();
+                }}
                 disabled={isSending || isUploading}
                 className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-50"
               >
@@ -1566,6 +1606,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           </div>
         </div>
       </div>
+
+      <ImageLightbox
+        items={mediaGallery}
+        currentIndex={lightboxIndex ?? 0}
+        isOpen={lightboxIndex !== null}
+        onNavigate={setLightboxIndex}
+        onClose={() => setLightboxIndex(null)}
+      />
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirmMessage} onOpenChange={() => setDeleteConfirmMessage(null)}>
