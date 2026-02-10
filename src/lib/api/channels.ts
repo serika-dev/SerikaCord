@@ -276,17 +276,61 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       .sort({ createdAt: -1 })
       .limit(limit)
       .populate('authorId', 'username displayName avatar status')
+      .populate({
+        path: 'referencedMessageId',
+        select: '_id content authorId createdAt',
+        populate: {
+          path: 'authorId',
+          select: 'username displayName avatar',
+        },
+      })
       .lean();
 
     messages.reverse();
 
     // Transform for frontend - return array directly and map _id to id
     // Decrypt messages
-    const decryptedMessages = await Promise.all(messages.map(async (msg) => {
+    const decryptedMessages = await Promise.all(messages.map(async (msg: any) => {
       const author = msg.authorId as PopulatedAuthor | Types.ObjectId | string | null;
       const populatedAuthor =
         author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
       const decryptedContent = await decryptFromStorage(msg.content);
+      const referencedRaw = msg.referencedMessageId as any;
+      let referencedMessage:
+        | {
+            id: string;
+            content: string;
+            author?: {
+              id: string;
+              username: string;
+              displayName: string;
+              avatar?: string;
+            };
+            createdAt?: Date;
+          }
+        | undefined;
+
+      if (referencedRaw && typeof referencedRaw === 'object' && referencedRaw._id) {
+        const referencedAuthor = referencedRaw.authorId as PopulatedAuthor | Types.ObjectId | string | null;
+        const populatedReferencedAuthor =
+          referencedAuthor && typeof referencedAuthor === 'object' && '_id' in referencedAuthor
+            ? referencedAuthor as PopulatedAuthor
+            : null;
+        referencedMessage = {
+          id: referencedRaw._id.toString(),
+          content: referencedRaw.content ? await decryptFromStorage(referencedRaw.content) : '',
+          author: populatedReferencedAuthor
+            ? {
+                id: populatedReferencedAuthor._id.toString(),
+                username: populatedReferencedAuthor.username,
+                displayName: populatedReferencedAuthor.displayName || populatedReferencedAuthor.username,
+                avatar: populatedReferencedAuthor.avatar,
+              }
+            : undefined,
+          createdAt: referencedRaw.createdAt,
+        };
+      }
+
       return {
         id: msg._id.toString(),
         content: decryptedContent,
@@ -304,6 +348,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         updatedAt: msg.updatedAt,
         attachments: msg.attachments || [],
         edited: msg.edited,
+        type: msg.type,
+        referencedMessageId:
+          typeof msg.referencedMessageId === 'object' && msg.referencedMessageId?._id
+            ? msg.referencedMessageId._id.toString()
+            : msg.referencedMessageId?.toString?.(),
+        referencedMessage,
         pinned: msg.pinned,
         reactions: msg.reactions || [],
       };
@@ -319,6 +369,84 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       before: t.Optional(t.String()),
       after: t.Optional(t.String()),
       around: t.Optional(t.String()),
+    }),
+  })
+  // Search messages in channel (decrypt + filter)
+  .get('/:channelId/messages/search', async ({ headers, cookie, params, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess) {
+      set.status = 403;
+      return { error };
+    }
+
+    const rawQuery = (query.q || '').trim();
+    if (rawQuery.length < 2) {
+      return { messages: [] };
+    }
+
+    const resultLimit = Math.min(parseInt(query.limit || '20', 10), 50);
+    const searchLimit = Math.min(parseInt(query.searchLimit || '400', 10), 1000);
+
+    const candidates = await Message.find({
+      channelId: params.channelId,
+      isDeleted: false,
+    })
+      .sort({ createdAt: -1 })
+      .limit(searchLimit)
+      .populate('authorId', 'username displayName avatar status')
+      .lean();
+
+    const lowered = rawQuery.toLowerCase();
+    const results: Array<Record<string, unknown>> = [];
+
+    for (const msg of candidates as any[]) {
+      const decrypted = await decryptFromStorage(msg.content || '');
+      if (!decrypted.toLowerCase().includes(lowered)) continue;
+
+      const author = msg.authorId as PopulatedAuthor | Types.ObjectId | string | null;
+      const populatedAuthor =
+        author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+
+      results.push({
+        id: msg._id.toString(),
+        content: decrypted,
+        authorId: populatedAuthor?._id?.toString() || msg.authorId,
+        author: populatedAuthor
+          ? {
+              id: populatedAuthor._id.toString(),
+              username: populatedAuthor.username,
+              displayName: populatedAuthor.displayName || populatedAuthor.username,
+              avatar: populatedAuthor.avatar,
+            }
+          : null,
+        channelId: msg.channelId.toString(),
+        createdAt: msg.createdAt,
+        updatedAt: msg.updatedAt,
+        pinned: msg.pinned,
+      });
+
+      if (results.length >= resultLimit) break;
+    }
+
+    return { messages: results };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+    }),
+    query: t.Object({
+      q: t.String({ minLength: 1 }),
+      limit: t.Optional(t.String()),
+      searchLimit: t.Optional(t.String()),
     }),
   })
   // Send message
@@ -475,6 +603,46 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const author = message.authorId as PopulatedAuthor | Types.ObjectId | string | null;
     const populatedAuthor =
       author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+    let referencedMessage:
+      | {
+          id: string;
+          content: string;
+          author?: {
+            id: string;
+            username: string;
+            displayName: string;
+            avatar?: string;
+          };
+          createdAt?: Date;
+        }
+      | undefined;
+
+    if (message.referencedMessageId) {
+      const reference = await Message.findById(message.referencedMessageId)
+        .populate('authorId', 'username displayName avatar')
+        .lean();
+      if (reference) {
+        const referenceAuthor = reference.authorId as PopulatedAuthor | Types.ObjectId | string | null;
+        const populatedReferenceAuthor =
+          referenceAuthor && typeof referenceAuthor === 'object' && '_id' in referenceAuthor
+            ? referenceAuthor as PopulatedAuthor
+            : null;
+        referencedMessage = {
+          id: reference._id.toString(),
+          content: reference.content ? await decryptFromStorage(reference.content) : '',
+          author: populatedReferenceAuthor
+            ? {
+                id: populatedReferenceAuthor._id.toString(),
+                username: populatedReferenceAuthor.username,
+                displayName: populatedReferenceAuthor.displayName || populatedReferenceAuthor.username,
+                avatar: populatedReferenceAuthor.avatar,
+              }
+            : undefined,
+          createdAt: reference.createdAt,
+        };
+      }
+    }
+
     const messageResponse = {
       id: message._id.toString(),
       content: sanitizedContent, // Return original content, not encrypted
@@ -492,6 +660,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       updatedAt: message.updatedAt,
       attachments: message.attachments || [],
       edited: message.edited,
+      type: message.type,
+      referencedMessageId: message.referencedMessageId?.toString(),
+      referencedMessage,
       pinned: message.pinned,
       reactions: message.reactions || [],
       customEmojis: customEmojis.length > 0 ? customEmojis : undefined, // Include parsed emoji data
@@ -530,6 +701,183 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         width: t.Optional(t.Number()),
         height: t.Optional(t.Number()),
       }))),
+    }),
+  })
+  // Get pinned messages for channel
+  .get('/:channelId/pins', async ({ headers, cookie, params, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess) {
+      set.status = 403;
+      return { error };
+    }
+
+    const limit = Math.min(parseInt(query.limit || '50', 10), 100);
+    const pinnedMessages = await Message.find({
+      channelId: params.channelId,
+      pinned: true,
+      isDeleted: false,
+    })
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .populate('authorId', 'username displayName avatar status')
+      .lean();
+
+    const messages = await Promise.all(
+      (pinnedMessages as any[]).map(async (msg) => {
+        const author = msg.authorId as PopulatedAuthor | Types.ObjectId | string | null;
+        const populatedAuthor =
+          author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+        return {
+          id: msg._id.toString(),
+          content: msg.content ? await decryptFromStorage(msg.content) : '',
+          authorId: populatedAuthor?._id?.toString() || msg.authorId,
+          author: populatedAuthor
+            ? {
+                id: populatedAuthor._id.toString(),
+                username: populatedAuthor.username,
+                displayName: populatedAuthor.displayName || populatedAuthor.username,
+                avatar: populatedAuthor.avatar,
+                status: populatedAuthor.status,
+              }
+            : null,
+          channelId: msg.channelId.toString(),
+          createdAt: msg.createdAt,
+          updatedAt: msg.updatedAt,
+          pinned: true,
+          attachments: msg.attachments || [],
+        };
+      })
+    );
+
+    return { messages };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+    }),
+    query: t.Object({
+      limit: t.Optional(t.String()),
+    }),
+  })
+  // Pin a message
+  .put('/:channelId/messages/:messageId/pin', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const message = await Message.findOne({
+      _id: params.messageId,
+      channelId: params.channelId,
+      isDeleted: false,
+    });
+
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+
+    message.pinned = true;
+    await message.save();
+
+    publishToChannel(params.channelId, {
+      type: 'pin_update',
+      messageId: params.messageId,
+      pinned: true,
+      updatedBy: user._id.toString(),
+    });
+
+    const publisher = getPublisher();
+    if (publisher) {
+      await publisher.publish('message:update', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+        messageId: params.messageId,
+        pinned: true,
+      }));
+    }
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+      messageId: t.String(),
+    }),
+  })
+  // Unpin a message
+  .delete('/:channelId/messages/:messageId/pin', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(
+      user._id.toString(),
+      params.channelId
+    );
+
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const message = await Message.findOne({
+      _id: params.messageId,
+      channelId: params.channelId,
+      isDeleted: false,
+    });
+
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+
+    message.pinned = false;
+    await message.save();
+
+    publishToChannel(params.channelId, {
+      type: 'pin_update',
+      messageId: params.messageId,
+      pinned: false,
+      updatedBy: user._id.toString(),
+    });
+
+    const publisher = getPublisher();
+    if (publisher) {
+      await publisher.publish('message:update', JSON.stringify({
+        channelId: params.channelId,
+        serverId: channel.serverId,
+        messageId: params.messageId,
+        pinned: false,
+      }));
+    }
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+      messageId: t.String(),
     }),
   })
   // Edit message

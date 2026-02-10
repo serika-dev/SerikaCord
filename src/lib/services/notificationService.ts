@@ -359,6 +359,7 @@ export async function notifyNewMessage(
         serverId?: string;
         serverName?: string;
         isDM?: boolean;
+        recipientId?: string;
     } = {}
 ): Promise<void> {
     // Increment badge
@@ -380,11 +381,16 @@ export async function notifyNewMessage(
             channelId,
             serverId: options.serverId,
             isDM: options.isDM,
+            recipientId: options.recipientId,
         },
         onClick: () => {
             // Navigate to the channel
             if (options.isDM) {
-                window.location.href = `/channels/@me/${channelId}`;
+                if (options.recipientId) {
+                    window.location.href = `/dm/${options.recipientId}`;
+                } else {
+                    window.location.href = '/channels/messages';
+                }
             } else if (options.serverId) {
                 window.location.href = `/channels/${options.serverId}/${channelId}`;
             }
@@ -469,7 +475,11 @@ export async function initNotificationService(): Promise<void> {
                 if (data.channelId && data.serverId) {
                     window.location.href = `/channels/${data.serverId}/${data.channelId}`;
                 } else if (data.channelId && data.isDM) {
-                    window.location.href = `/channels/@me/${data.channelId}`;
+                    if (data.recipientId) {
+                        window.location.href = `/dm/${data.recipientId}`;
+                    } else {
+                        window.location.href = '/channels/messages';
+                    }
                 } else if (data.type === 'friend-request') {
                     window.location.href = '/channels/me';
                 }

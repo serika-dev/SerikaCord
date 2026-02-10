@@ -161,6 +161,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     banReason?: string;
     stats?: { servers: number; messages: number };
   } | null>(null);
+  const [selectedServer, setSelectedServer] = useState<{
+    id: string;
+    name: string;
+    owner?: { username: string; displayName?: string };
+    isDiscoverable: boolean;
+    isPartner: boolean;
+  } | null>(null);
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
   const [announcementText, setAnnouncementText] = useState("");
@@ -405,6 +412,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       if (response.ok) {
         const data = await response.json();
         setAdminUsers(data.users);
+        setSelectedUser((prev) => {
+          if (!prev) return null;
+          return data.users.find((u: any) => u.id === prev.id) || null;
+        });
       } else {
         toast.error("Failed to search users");
       }
@@ -423,6 +434,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       if (response.ok) {
         const data = await response.json();
         setAdminServers(data.servers);
+        setSelectedServer((prev) => {
+          if (!prev) return null;
+          return data.servers.find((s: any) => s.id === prev.id) || null;
+        });
       } else {
         toast.error("Failed to search servers");
       }
@@ -595,6 +610,67 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       }
     } catch (error) {
       toast.error("Failed to delete server");
+    }
+  };
+
+  const handleUpdateBadges = async () => {
+    if (!selectedUser) {
+      toast.info("Select a user first");
+      return;
+    }
+    const initialBadges = (selectedUser.badges || []).join(", ");
+    const input = prompt("Enter comma-separated badges", initialBadges);
+    if (input === null) return;
+
+    const badges = input
+      .split(",")
+      .map((badge) => badge.trim())
+      .filter(Boolean);
+
+    try {
+      const response = await fetch(`/api/admin/users/${selectedUser.id}/badges`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ badges }),
+      });
+      if (response.ok) {
+        toast.success("Badges updated");
+        void searchAdminUsers();
+      } else {
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to update badges");
+      }
+    } catch {
+      toast.error("Failed to update badges");
+    }
+  };
+
+  const handleTransferOwnership = async () => {
+    if (!selectedServer) {
+      toast.info("Select a server first");
+      return;
+    }
+
+    const newOwnerId = prompt("Enter the new owner user ID");
+    if (!newOwnerId) return;
+
+    const reason = prompt("Reason for transfer (optional)") || undefined;
+
+    try {
+      const response = await fetch(`/api/admin/servers/${selectedServer.id}/transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newOwnerId, reason }),
+      });
+      if (response.ok) {
+        toast.success("Ownership transferred");
+        void searchAdminServers();
+      } else {
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to transfer ownership");
+      }
+    } catch {
+      toast.error("Failed to transfer ownership");
     }
   };
 
@@ -1598,7 +1674,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <h3 className="text-white font-semibold mb-3">Search Results</h3>
                       <div className="space-y-2">
                         {adminUsers.map((u) => (
-                          <div key={u.id} className="flex items-center justify-between p-3 bg-[#111111] rounded-lg">
+                          <div
+                            key={u.id}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-lg border",
+                              selectedUser?.id === u.id
+                                ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/40"
+                                : "bg-[#111111] border-transparent"
+                            )}
+                          >
                             <div className="flex items-center gap-3">
                               <Avatar className="w-10 h-10">
                                 <AvatarImage src={u.avatar} />
@@ -1618,6 +1702,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               )}
                             </div>
                             <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setSelectedUser(u)}
+                                className={cn(
+                                  "px-3 py-1.5 rounded text-sm",
+                                  selectedUser?.id === u.id
+                                    ? "bg-[#8B5CF6] text-white"
+                                    : "bg-[#222222] text-[#cccccc] hover:bg-[#2a2a2a]"
+                                )}
+                              >
+                                {selectedUser?.id === u.id ? "Selected" : "Select"}
+                              </button>
                               {u.isBanned ? (
                                 <button
                                   onClick={() => handleUnbanUser(u.id)}
@@ -1644,32 +1739,48 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <button 
-                        onClick={() => toast.info("Select a user from search to ban")}
+                        onClick={() => {
+                          if (!selectedUser) {
+                            toast.info("Select a user first");
+                            return;
+                          }
+                          void handleBanUser(selectedUser.id, "Administrative action");
+                        }}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Ban User</p>
                         <p className="text-sm text-[#666666]">Permanently ban a user</p>
                       </button>
                       <button 
-                        onClick={() => toast.info("Badge editing coming soon")}
+                        onClick={handleUpdateBadges}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Edit Badges</p>
                         <p className="text-sm text-[#666666]">Add or remove badges</p>
                       </button>
                       <button 
-                        onClick={() => toast.info("Reports system coming soon")}
+                        onClick={() => {
+                          setActiveTab("admin-logs");
+                          setAdminLogFilter("reports");
+                          void fetchAdminLogs("reports");
+                        }}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">View Reports</p>
-                        <p className="text-sm text-[#666666]">Review user reports</p>
+                        <p className="text-sm text-[#666666]">Open filtered admin activity logs</p>
                       </button>
                       <button 
-                        onClick={() => toast.info("Impersonation not implemented for security")}
+                        onClick={() => {
+                          if (!selectedUser) {
+                            toast.info("Select a user first");
+                            return;
+                          }
+                          window.location.href = `/dm/${selectedUser.id}`;
+                        }}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
-                        <p className="text-white font-medium">Impersonate</p>
-                        <p className="text-sm text-[#666666]">Debug user issues</p>
+                        <p className="text-white font-medium">Open DM Debug</p>
+                        <p className="text-sm text-[#666666]">Jump to a direct message with selected user</p>
                       </button>
                     </div>
                   </div>
@@ -1709,7 +1820,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <h3 className="text-white font-semibold mb-3">Search Results</h3>
                       <div className="space-y-2">
                         {adminServers.map((s) => (
-                          <div key={s.id} className="flex items-center justify-between p-3 bg-[#111111] rounded-lg">
+                          <div
+                            key={s.id}
+                            className={cn(
+                              "flex items-center justify-between p-3 rounded-lg border",
+                              selectedServer?.id === s.id
+                                ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/40"
+                                : "bg-[#111111] border-transparent"
+                            )}
+                          >
                             <div className="flex items-center gap-3">
                               <Avatar className="w-10 h-10">
                                 <AvatarImage src={s.icon} />
@@ -1731,6 +1850,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               )}
                             </div>
                             <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setSelectedServer(s)}
+                                className={cn(
+                                  "px-3 py-1.5 rounded text-sm",
+                                  selectedServer?.id === s.id
+                                    ? "bg-[#8B5CF6] text-white"
+                                    : "bg-[#222222] text-[#cccccc] hover:bg-[#2a2a2a]"
+                                )}
+                              >
+                                {selectedServer?.id === s.id ? "Selected" : "Select"}
+                              </button>
                               <button
                                 onClick={() => handleTogglePartner(s.id)}
                                 className="px-3 py-1.5 bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30 rounded text-sm"
@@ -1760,28 +1890,46 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <h3 className="text-white font-semibold mb-3">Server Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <button 
-                        onClick={() => toast.info("Search for a server first")}
+                        onClick={() => {
+                          if (!selectedServer) {
+                            toast.info("Select a server first");
+                            return;
+                          }
+                          void handleTogglePartner(selectedServer.id);
+                        }}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Partner Server</p>
                         <p className="text-sm text-[#666666]">Grant partner status</p>
                       </button>
                       <button 
-                        onClick={() => toast.info("Search for a server first")}
+                        onClick={() => {
+                          if (!selectedServer) {
+                            toast.info("Select a server first");
+                            return;
+                          }
+                          void handleDeleteServer(selectedServer.id);
+                        }}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Delete Server</p>
                         <p className="text-sm text-[#666666]">Remove server permanently</p>
                       </button>
                       <button 
-                        onClick={() => toast.info("Search for a server first")}
+                        onClick={() => {
+                          if (!selectedServer) {
+                            toast.info("Select a server first");
+                            return;
+                          }
+                          void handleToggleDiscovery(selectedServer.id);
+                        }}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Toggle Discovery</p>
                         <p className="text-sm text-[#666666]">Enable/disable discoverability</p>
                       </button>
                       <button 
-                        onClick={() => toast.info("Transfer feature coming soon")}
+                        onClick={handleTransferOwnership}
                         className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Transfer Ownership</p>

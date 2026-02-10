@@ -18,8 +18,18 @@ interface CustomEmoji {
   animated?: boolean;
 }
 
+interface StickerItem {
+  id: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  imageUrl: string;
+}
+
 interface EmojiPickerProps {
   onEmojiSelect: (emoji: string, isCustom?: boolean, emojiData?: CustomEmoji) => void;
+  onGifSelect?: (gifUrl: string) => void;
+  onStickerSelect?: (stickerUrl: string, sticker?: StickerItem) => void;
   serverEmojis?: CustomEmoji[];
   recentEmojis?: string[];
   favoriteEmojis?: string[];
@@ -27,6 +37,8 @@ interface EmojiPickerProps {
   className?: string;
   allowServerEmojisInDMs?: boolean;
   availableServerEmojis?: CustomEmoji[]; // All server emojis the user has access to
+  serverId?: string;
+  initialTab?: TabType;
 }
 
 // Category icons using Lucide React icons
@@ -59,12 +71,10 @@ function getEmojiUrl(emoji: string): string {
 // Memoized emoji button component - only re-renders when emoji changes
 const EmojiButton = memo(function EmojiButton({ 
   emoji, 
-  onClick,
-  keyId
+  onClick
 }: { 
   emoji: string; 
   onClick: () => void;
-  keyId: string;
 }) {
   return (
     <button
@@ -109,6 +119,8 @@ const CustomEmojiButton = memo(function CustomEmojiButton({
 
 export function CustomEmojiPicker({
   onEmojiSelect,
+  onGifSelect,
+  onStickerSelect,
   serverEmojis = [],
   recentEmojis = [],
   favoriteEmojis = [],
@@ -116,12 +128,23 @@ export function CustomEmojiPicker({
   className,
   allowServerEmojisInDMs = false,
   availableServerEmojis = [],
+  serverId,
+  initialTab = "emoji",
 }: EmojiPickerProps) {
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<TabType>("emoji");
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [gifSearch, setGifSearch] = useState("");
+  const [gifResults, setGifResults] = useState<Array<{ id: string; title: string; url: string; previewUrl: string }>>([]);
+  const [isLoadingGifs, setIsLoadingGifs] = useState(false);
+  const [stickers, setStickers] = useState<StickerItem[]>([]);
+  const [isLoadingStickers, setIsLoadingStickers] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [activeSection, setActiveSection] = useState("smileys");
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   // Combined emojis for DMs - use all server emojis user has access to
   const allCustomEmojis = useMemo(() => {
@@ -215,6 +238,74 @@ export function CustomEmojiPicker({
     }
   }, [handleScroll]);
 
+  useEffect(() => {
+    if (activeTab !== "gifs") return;
+    let active = true;
+    const run = async () => {
+      setIsLoadingGifs(true);
+      try {
+        const response = await fetch(`/api/gifs/search?q=${encodeURIComponent(gifSearch)}&limit=24`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (active) {
+          setGifResults(data.gifs || []);
+        }
+      } catch {
+        if (active) {
+          setGifResults([]);
+        }
+      } finally {
+        if (active) {
+          setIsLoadingGifs(false);
+        }
+      }
+    };
+
+    const timer = setTimeout(run, 200);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [activeTab, gifSearch]);
+
+  useEffect(() => {
+    if (activeTab !== "stickers" || !serverId) {
+      setStickers([]);
+      return;
+    }
+
+    let active = true;
+    const run = async () => {
+      setIsLoadingStickers(true);
+      try {
+        const response = await fetch(`/api/servers/${serverId}/stickers`);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!active) return;
+        setStickers((data.stickers || []).map((sticker: any) => ({
+          id: sticker.id || sticker._id,
+          name: sticker.name,
+          description: sticker.description,
+          tags: sticker.tags || [],
+          imageUrl: sticker.imageUrl || sticker.url,
+        })));
+      } catch {
+        if (active) {
+          setStickers([]);
+        }
+      } finally {
+        if (active) {
+          setIsLoadingStickers(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, serverId]);
+
   // Register section ref
   const setSectionRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
     if (el) {
@@ -268,24 +359,100 @@ export function CustomEmojiPicker({
 
       {/* Content based on tab */}
       {activeTab === "gifs" ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[400px]">
-          <div className="w-16 h-16 rounded-2xl bg-[#2a2a40] flex items-center justify-center mb-4">
-            <ImageIcon className="w-8 h-8 text-[#8888aa]" />
+        <div className="flex-1 min-h-[400px] flex flex-col">
+          <div className="p-3 border-b border-[#2a2a40]">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8888aa]" />
+              <Input
+                value={gifSearch}
+                onChange={(e) => setGifSearch(e.target.value)}
+                placeholder="Search GIFs..."
+                className="pl-10 pr-10 bg-[#0f0f1a] border-[#2a2a40] text-white placeholder:text-[#8888aa] h-10 rounded-lg focus-visible:ring-1 focus-visible:ring-[#8B5CF6]"
+              />
+              {gifSearch && (
+                <button
+                  onClick={() => setGifSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8888aa] hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">GIFs Coming Soon</h3>
-          <p className="text-[#8888aa] text-sm max-w-[250px]">
-            Search and share animated GIFs with your friends. Stay tuned!
-          </p>
+          <div className="p-3 h-[340px] overflow-y-auto">
+            {isLoadingGifs ? (
+              <div className="grid grid-cols-3 gap-2">
+                {Array.from({ length: 9 }).map((_, idx) => (
+                  <div key={idx} className="h-24 rounded-md bg-[#2a2a40] animate-pulse" />
+                ))}
+              </div>
+            ) : gifResults.length > 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {gifResults.map((gif) => (
+                  <button
+                    key={gif.id}
+                    onClick={() => onGifSelect?.(gif.url)}
+                    className="group relative rounded-md overflow-hidden border border-[#2a2a40] hover:border-[#8B5CF6] transition-colors"
+                    title={gif.title}
+                  >
+                    <img
+                      src={gif.previewUrl || gif.url}
+                      alt={gif.title}
+                      className="w-full h-24 object-cover group-hover:scale-105 transition-transform"
+                      loading="lazy"
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <ImageIcon className="w-8 h-8 text-[#8888aa] mb-3" />
+                <p className="text-[#8888aa] text-sm">No GIF results</p>
+              </div>
+            )}
+          </div>
         </div>
       ) : activeTab === "stickers" ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center min-h-[400px]">
-          <div className="w-16 h-16 rounded-2xl bg-[#2a2a40] flex items-center justify-center mb-4">
-            <Sticker className="w-8 h-8 text-[#8888aa]" />
+        <div className="flex-1 min-h-[400px] flex flex-col">
+          <div className="p-3 border-b border-[#2a2a40]">
+            <p className="text-xs uppercase tracking-wider text-[#8888aa]">
+              {serverId ? "Server Stickers" : "Stickers"}
+            </p>
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">Stickers Coming Soon</h3>
-          <p className="text-[#8888aa] text-sm max-w-[250px]">
-            Express yourself with fun stickers. This feature is in development!
-          </p>
+          <div className="p-3 h-[340px] overflow-y-auto">
+            {isLoadingStickers ? (
+              <div className="grid grid-cols-4 gap-2">
+                {Array.from({ length: 8 }).map((_, idx) => (
+                  <div key={idx} className="h-20 rounded-md bg-[#2a2a40] animate-pulse" />
+                ))}
+              </div>
+            ) : stickers.length > 0 ? (
+              <div className="grid grid-cols-4 gap-2">
+                {stickers.map((sticker) => (
+                  <button
+                    key={sticker.id}
+                    onClick={() => onStickerSelect?.(sticker.imageUrl, sticker)}
+                    className="group rounded-md border border-[#2a2a40] hover:border-[#8B5CF6] transition-colors p-1"
+                    title={sticker.name}
+                  >
+                    <img
+                      src={sticker.imageUrl}
+                      alt={sticker.name}
+                      className="w-full h-16 object-contain group-hover:scale-105 transition-transform"
+                      loading="lazy"
+                    />
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <Sticker className="w-8 h-8 text-[#8888aa] mb-3" />
+                <p className="text-[#8888aa] text-sm">
+                  {serverId ? "No stickers uploaded yet" : "Open a server channel to use stickers"}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <>
@@ -352,7 +519,6 @@ export function CustomEmojiPicker({
                       {filteredRecent.slice(0, 24).map((emoji, idx) => (
                         <EmojiButton
                           key={`recent-${idx}`}
-                          keyId={`recent-${idx}`}
                           emoji={emoji}
                           onClick={() => handleEmojiClick(emoji)}
                         />
@@ -372,7 +538,6 @@ export function CustomEmojiPicker({
                       {filteredFavorites.map((emoji, idx) => (
                         <EmojiButton
                           key={`fav-${idx}`}
-                          keyId={`fav-${idx}`}
                           emoji={emoji}
                           onClick={() => handleEmojiClick(emoji)}
                         />
@@ -409,7 +574,6 @@ export function CustomEmojiPicker({
                       {category.emojis.map((emoji, idx) => (
                         <EmojiButton
                           key={`${category.id}-${idx}`}
-                          keyId={`${category.id}-${idx}`}
                           emoji={emoji}
                           onClick={() => handleEmojiClick(emoji)}
                         />

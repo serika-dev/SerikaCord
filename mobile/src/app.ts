@@ -54,7 +54,11 @@ const initApp = async () => {
       if (extra.channelId && extra.serverId) {
         window.location.href = `/channels/${extra.serverId}/${extra.channelId}`;
       } else if (extra.channelId && extra.isDM) {
-        window.location.href = `/channels/@me/${extra.channelId}`;
+        if (extra.recipientId) {
+          window.location.href = `/dm/${extra.recipientId}`;
+        } else {
+          window.location.href = '/channels/messages';
+        }
       } else if (extra.type === 'friend-request') {
         window.location.href = '/channels/me';
       } else if (extra.type === 'mention') {

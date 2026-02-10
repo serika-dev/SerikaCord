@@ -15,6 +15,7 @@ import { adminRoutes } from './admin';
 import { oembedRoutes } from './oembed';
 import { experimentRoutes, instanceRoutes } from './experiments';
 import { voiceRoutes } from './voice';
+import { gifRoutes } from './gifs';
 import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { Types } from 'mongoose';
 
@@ -1093,6 +1094,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(channelRoutes)
   .use(dmRoutes)
   .use(voiceRoutes)
+  .use(gifRoutes)
   .use(uploadRoutes)
   .use(adminRoutes)
   .use(oembedRoutes)

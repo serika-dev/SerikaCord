@@ -62,6 +62,7 @@ import { MessageSkeleton } from "@/components/ui/skeleton";
 interface Message {
   id: string;
   content: string;
+  type?: "default" | "reply" | "system";
   authorId: string;
   author: {
     id: string;
@@ -73,6 +74,19 @@ interface Message {
   createdAt: string;
   updatedAt: string;
   edited?: boolean;
+  pinned?: boolean;
+  referencedMessageId?: string;
+  referencedMessage?: {
+    id: string;
+    content: string;
+    author?: {
+      id: string;
+      username: string;
+      displayName: string;
+      avatar?: string;
+    };
+    createdAt?: string;
+  };
   attachments?: Array<{
     id: string;
     url: string;
@@ -135,6 +149,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   // Emoji picker
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [composerPickerTab, setComposerPickerTab] = useState<"emoji" | "gifs" | "stickers">("emoji");
 
   // Reaction picker
   const [reactionPickerMessage, setReactionPickerMessage] = useState<string | null>(null);
@@ -150,6 +165,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   // Typing indicator
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+
+  // Header utilities
+  const [isChannelMuted, setIsChannelMuted] = useState(false);
+  const [showPins, setShowPins] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+  const [isLoadingPins, setIsLoadingPins] = useState(false);
+  const [showInbox, setShowInbox] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<Message[]>([]);
 
   // Detect mobile
   useEffect(() => {
@@ -211,6 +239,60 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   useEffect(() => {
     fetchMessages();
   }, [fetchMessages]);
+
+  const fetchPinnedMessages = useCallback(async () => {
+    if (!currentChannel) return;
+    setIsLoadingPins(true);
+    try {
+      const response = await fetch(`/api/channels/${currentChannel.id}/pins?limit=50`);
+      if (!response.ok) return;
+      const data = await response.json();
+      setPinnedMessages(data.messages || []);
+    } catch {
+      // best-effort UI
+    } finally {
+      setIsLoadingPins(false);
+    }
+  }, [currentChannel]);
+
+  const runMessageSearch = useCallback(async (query: string) => {
+    if (!currentChannel || query.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+
+    setIsSearching(true);
+    try {
+      const response = await fetch(
+        `/api/channels/${currentChannel.id}/messages/search?q=${encodeURIComponent(query)}&limit=20`
+      );
+      if (!response.ok) return;
+      const data = await response.json();
+      setSearchResults(data.messages || []);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, [currentChannel]);
+
+  useEffect(() => {
+    if (!currentChannel) return;
+    const key = `channel-muted:${currentChannel.id}`;
+    setIsChannelMuted(localStorage.getItem(key) === "1");
+    setReplyToMessage(null);
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowSearchResults(false);
+    void fetchPinnedMessages();
+  }, [currentChannel, fetchPinnedMessages]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void runMessageSearch(searchQuery);
+    }, 220);
+    return () => clearTimeout(timer);
+  }, [searchQuery, runMessageSearch]);
 
   const addTypingUser = useCallback(
     (username: string) => {
@@ -339,6 +421,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             const newMsg: Message = {
               id: msgId,
               content: data.message.content,
+              type: data.message.type,
               authorId:
                 typeof data.message.authorId === "object"
                   ? data.message.authorId._id || data.message.authorId.id
@@ -352,6 +435,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               createdAt: data.message.createdAt,
               updatedAt: data.message.updatedAt,
               edited: data.message.edited,
+              pinned: data.message.pinned,
+              referencedMessageId: data.message.referencedMessageId,
+              referencedMessage: data.message.referencedMessage,
               attachments: data.message.attachments || [],
               reactions: data.message.reactions || [],
               customEmojis: data.message.customEmojis || [],
@@ -378,7 +464,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === data.messageId
-                ? { ...m, content: data.content, edited: true, updatedAt: new Date().toISOString() }
+                ? {
+                    ...m,
+                    content: data.content ?? m.content,
+                    pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
+                    edited: data.content !== undefined ? true : m.edited,
+                    updatedAt: new Date().toISOString(),
+                  }
                 : m
             )
           );
@@ -402,6 +494,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
         if (data.type === "typing") {
           addTypingUser(data.username);
+          return;
+        }
+
+        if (data.type === "pin_update") {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === data.messageId ? { ...m, pinned: Boolean(data.pinned) } : m
+            )
+          );
+          void fetchPinnedMessages();
         }
       } catch (error) {
         console.error("Failed to parse SSE data:", error);
@@ -427,7 +529,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     };
 
     eventSourceRef.current = eventSource;
-  }, [addTypingUser, applyReactionEvent, currentChannel, user?.id]);
+  }, [addTypingUser, applyReactionEvent, currentChannel, fetchPinnedMessages, user?.id]);
 
   useEffect(() => {
     connectSSE();
@@ -517,6 +619,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     if ((!newMessage.trim() && attachments.length === 0) || !currentChannel) return;
 
     const messageContent = newMessage;
+    const replyReference = replyToMessage;
     setNewMessage("");
     lastTypingSentAtRef.current = 0;
     setIsSending(true);
@@ -542,6 +645,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       const optimisticMessage: Message = {
         id: tempId,
         content: messageContent,
+        type: replyReference ? "reply" : "default",
         authorId: user?.id || "unknown",
         author: {
           id: user?.id || "unknown",
@@ -552,6 +656,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         channelId: currentChannel.id,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        referencedMessageId: replyReference?.id,
+        referencedMessage: replyReference
+          ? {
+              id: replyReference.id,
+              content: replyReference.content,
+              author: replyReference.author,
+              createdAt: replyReference.createdAt,
+            }
+          : undefined,
         attachments: uploadedAttachments,
         reactions: [],
         customEmojis: [],
@@ -564,6 +677,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: messageContent,
+          replyTo: replyReference?.id,
           attachments: uploadedAttachments,
         }),
       });
@@ -580,6 +694,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                     ...msg,
                     id: messageId,
                     content: message.content ?? msg.content,
+                    type: message.type ?? msg.type,
                     authorId:
                       typeof message.authorId === "object"
                         ? message.authorId._id || message.authorId.id || msg.authorId
@@ -587,6 +702,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                     author: message.author || msg.author,
                     createdAt: message.createdAt || msg.createdAt,
                     updatedAt: message.updatedAt || msg.updatedAt,
+                    referencedMessageId: message.referencedMessageId || msg.referencedMessageId,
+                    referencedMessage: message.referencedMessage || msg.referencedMessage,
                     attachments: message.attachments || msg.attachments,
                     reactions: message.reactions || msg.reactions,
                     customEmojis: message.customEmojis || msg.customEmojis,
@@ -608,6 +725,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       toast.error("Failed to send message");
     } finally {
       setIsSending(false);
+      setReplyToMessage(null);
     }
   };
 
@@ -662,6 +780,38 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     toast.success("Copied to clipboard");
   };
 
+  const toggleChannelNotifications = () => {
+    if (!currentChannel) return;
+    const next = !isChannelMuted;
+    setIsChannelMuted(next);
+    localStorage.setItem(`channel-muted:${currentChannel.id}`, next ? "1" : "0");
+    toast.success(next ? "Channel notifications muted" : "Channel notifications enabled");
+  };
+
+  const handlePinToggle = async (message: Message) => {
+    if (!currentChannel) return;
+
+    try {
+      const endpoint = `/api/channels/${currentChannel.id}/messages/${message.id}/pin`;
+      const response = await fetch(endpoint, {
+        method: message.pinned ? "DELETE" : "PUT",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to update pin");
+        return;
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? { ...m, pinned: !message.pinned } : m))
+      );
+      void fetchPinnedMessages();
+      toast.success(message.pinned ? "Message unpinned" : "Message pinned");
+    } catch {
+      toast.error("Failed to update pin");
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -699,6 +849,26 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       return next;
     });
     setShowEmojiPicker(false);
+    textareaRef.current?.focus();
+  };
+
+  const handleGifSelect = (gifUrl: string) => {
+    setNewMessage((prev) => {
+      const separator = prev.trim().length > 0 ? " " : "";
+      return `${prev}${separator}${gifUrl}`;
+    });
+    setShowEmojiPicker(false);
+    setComposerPickerTab("emoji");
+    textareaRef.current?.focus();
+  };
+
+  const handleStickerSelect = (stickerUrl: string) => {
+    setNewMessage((prev) => {
+      const separator = prev.trim().length > 0 ? " " : "";
+      return `${prev}${separator}${stickerUrl}`;
+    });
+    setShowEmojiPicker(false);
+    setComposerPickerTab("emoji");
     textareaRef.current?.focus();
   };
 
@@ -852,6 +1022,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} others are typing...`;
   }, [typingUsers]);
 
+  const inboxItems = useMemo(() => {
+    const username = user?.username?.toLowerCase() || "";
+    const mentionNeedle = username ? `@${username}` : "";
+    return messages
+      .filter((message) => {
+        if (!mentionNeedle) return false;
+        return message.content.toLowerCase().includes(mentionNeedle);
+      })
+      .slice(-20)
+      .reverse();
+  }, [messages, user?.username]);
+
   if (!currentChannel) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] text-[#666666]">
@@ -889,13 +1071,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         <div className="flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
           <button
             className="hover:text-white transition-colors hidden sm:block"
-            onClick={() => toast.info("Notifications coming soon")}
+            onClick={toggleChannelNotifications}
+            title={isChannelMuted ? "Enable notifications" : "Mute notifications"}
           >
-            <Bell className="w-5 h-5" />
+            <Bell className={cn("w-5 h-5", isChannelMuted && "text-red-400")} />
           </button>
           <button
             className="hover:text-white transition-colors hidden sm:block"
-            onClick={() => toast.info("Pinned messages coming soon")}
+            onClick={() => {
+              setShowPins(true);
+              void fetchPinnedMessages();
+            }}
+            title="View pinned messages"
           >
             <Pin className="w-5 h-5" />
           </button>
@@ -910,19 +1097,71 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             <input
               type="text"
               placeholder="Search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="w-32 h-6 px-2 rounded bg-[var(--app-surface-alt)] text-sm text-white placeholder:text-[var(--app-muted)] focus:outline-none focus:w-48 transition-all"
-              onFocus={() => toast.info("Search coming soon")}
+              onFocus={() => setShowSearchResults(true)}
             />
             <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--app-muted)]" />
           </div>
-          <button className="hover:text-white transition-colors hidden sm:block" onClick={() => toast.info("Inbox coming soon")}>
+          <button
+            className="hover:text-white transition-colors hidden sm:block"
+            onClick={() => setShowInbox(true)}
+            title="Open inbox"
+          >
             <Inbox className="w-5 h-5" />
           </button>
-          <button className="hover:text-white transition-colors hidden sm:block" onClick={() => toast.info("Help coming soon")}>
+          <button
+            className="hover:text-white transition-colors hidden sm:block"
+            onClick={() => setShowHelp(true)}
+            title="Open help"
+          >
             <HelpCircle className="w-5 h-5" />
           </button>
         </div>
       </div>
+
+      {showSearchResults && (
+        <div className="px-4 py-2 border-b border-[var(--app-border)] bg-[var(--app-surface)]/95">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs uppercase tracking-wider text-[var(--app-muted)]">Search Results</p>
+            <button
+              onClick={() => setShowSearchResults(false)}
+              className="text-xs text-[var(--app-muted)] hover:text-white transition-colors"
+            >
+              Close
+            </button>
+          </div>
+          {searchQuery.trim().length < 2 ? (
+            <p className="text-sm text-[var(--app-muted)]">Type at least 2 characters to search this channel.</p>
+          ) : isSearching ? (
+            <div className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Searching...
+            </div>
+          ) : searchResults.length === 0 ? (
+            <p className="text-sm text-[var(--app-muted)]">No matching messages.</p>
+          ) : (
+            <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+              {searchResults.map((result) => (
+                <button
+                  key={`search-${result.id}`}
+                  onClick={() => {
+                    document.getElementById(`message-${result.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    setShowSearchResults(false);
+                  }}
+                  className="w-full text-left p-2 rounded-md bg-[var(--app-surface-alt)] hover:brightness-110 transition"
+                >
+                  <p className="text-xs text-[var(--app-muted)] mb-0.5">
+                    {result.author?.displayName || result.author?.username || "Unknown"} • {formatTimestamp(result.createdAt)}
+                  </p>
+                  <p className="text-sm text-white line-clamp-2">{result.content || "(attachment)"}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Messages Area */}
       <ScrollArea className="flex-1 min-h-0">
@@ -966,7 +1205,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                     </div>
 
                     {group.messages.map((message) => (
-                      <div key={message.id} className="group/message relative">
+                      <div key={message.id} id={`message-${message.id}`} className="group/message relative">
                         {editingMessage?.id === message.id ? (
                           <div className="bg-[#1a1a1a] rounded-md p-2 mb-1">
                             <Textarea
@@ -997,12 +1236,36 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                           </div>
                         ) : (
                           <>
+                            {message.referencedMessage && (
+                              <button
+                                onClick={() =>
+                                  document
+                                    .getElementById(`message-${message.referencedMessage?.id}`)
+                                    ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                                }
+                                className="mb-1 text-xs text-[var(--app-muted)] hover:text-white transition-colors flex items-center gap-1 max-w-full"
+                              >
+                                <Reply className="w-3.5 h-3.5" />
+                                <span className="truncate">
+                                  Replying to {message.referencedMessage.author?.displayName || message.referencedMessage.author?.username || "message"}:{" "}
+                                  {message.referencedMessage.content || "(attachment)"}
+                                </span>
+                              </button>
+                            )}
+
                             <MessageContent
                               content={message.content}
                               serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
                               edited={message.edited}
                               className="text-[var(--app-text)] leading-relaxed break-words"
                             />
+
+                            {message.pinned && (
+                              <div className="mt-1 text-[11px] text-[var(--app-muted)] inline-flex items-center gap-1">
+                                <Pin className="w-3 h-3" />
+                                Pinned message
+                              </div>
+                            )}
 
                             {/* Link Embeds */}
                             <LinkEmbed content={message.content} />
@@ -1087,7 +1350,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                   </PopoverContent>
                                 </Popover>
                                 <button
-                                  onClick={() => toast.info("Reply coming soon")}
+                                  onClick={() => setReplyToMessage(message)}
                                   className="p-1.5 hover:bg-black/20 transition-colors"
                                   title="Reply"
                                 >
@@ -1109,6 +1372,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                     >
                                       <Copy className="w-4 h-4 mr-2" />
                                       Copy Text
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() => handlePinToggle(message)}
+                                      className="hover:bg-[#1a1a1a] cursor-pointer"
+                                    >
+                                      <Pin className="w-4 h-4 mr-2" />
+                                      {message.pinned ? "Unpin Message" : "Pin Message"}
                                     </DropdownMenuItem>
                                     {message.authorId === user?.id && (
                                       <>
@@ -1191,6 +1461,23 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
       {/* Message Input */}
       <div className="px-2 sm:px-4 pb-4 sm:pb-6 flex-shrink-0">
+        {replyToMessage && (
+          <div className="mb-2 px-3 py-2 bg-[var(--app-surface)] border border-[var(--app-border)] rounded-lg flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-[var(--app-muted)] mb-0.5">
+                Replying to {replyToMessage.author?.displayName || replyToMessage.author?.username || "message"}
+              </p>
+              <p className="text-sm text-white truncate">{replyToMessage.content || "(attachment)"}</p>
+            </div>
+            <button
+              onClick={() => setReplyToMessage(null)}
+              className="text-[var(--app-muted)] hover:text-white transition-colors"
+              title="Cancel reply"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
         <div className="relative bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] shadow-[var(--app-elev-1)]">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple accept="*/*" className="hidden" />
           <button
@@ -1212,20 +1499,39 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           />
           <div className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
             <button
-              onClick={() => toast.info("Gifts coming soon")}
+              onClick={() => {
+                setComposerPickerTab("gifs");
+                setShowEmojiPicker(true);
+              }}
               className="hover:text-white transition-colors hidden sm:block"
+              title="Open GIF picker"
             >
               <Gift className="w-6 h-6" />
             </button>
             <button
-              onClick={() => toast.info("Stickers coming soon")}
+              onClick={() => {
+                setComposerPickerTab("stickers");
+                setShowEmojiPicker(true);
+              }}
               className="hover:text-white transition-colors hidden sm:block"
+              title="Open sticker picker"
             >
               <Sticker className="w-6 h-6" />
             </button>
-            <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
+            <Popover
+              open={showEmojiPicker}
+              onOpenChange={(open) => {
+                setShowEmojiPicker(open);
+                if (!open) {
+                  setComposerPickerTab("emoji");
+                }
+              }}
+            >
               <PopoverTrigger asChild>
-                <button className="hover:text-white transition-colors">
+                <button
+                  className="hover:text-white transition-colors"
+                  onClick={() => setComposerPickerTab("emoji")}
+                >
                   <Smile className="w-5 sm:w-6 h-5 sm:h-6" />
                 </button>
               </PopoverTrigger>
@@ -1234,7 +1540,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 align="end"
                 className="w-auto p-0 border-none bg-transparent shadow-xl"
               >
-                <CustomEmojiPicker onEmojiSelect={handleEmojiSelect} serverEmojis={serverEmojis} />
+                <CustomEmojiPicker
+                  onEmojiSelect={handleEmojiSelect}
+                  onGifSelect={handleGifSelect}
+                  onStickerSelect={handleStickerSelect}
+                  initialTab={composerPickerTab}
+                  serverId={currentServer?.id}
+                  serverEmojis={serverEmojis}
+                />
               </PopoverContent>
             </Popover>
             {(newMessage.trim() || attachments.length > 0) && (
@@ -1274,6 +1587,101 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               Delete
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPins} onOpenChange={setShowPins}>
+        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Pinned Messages</DialogTitle>
+            <DialogDescription className="text-[#888888]">
+              Quick access to important messages in #{currentChannel?.name}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
+            {isLoadingPins ? (
+              <div className="text-sm text-[#888888] flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading pinned messages...
+              </div>
+            ) : pinnedMessages.length === 0 ? (
+              <div className="text-sm text-[#888888]">No pinned messages yet.</div>
+            ) : (
+              pinnedMessages.map((message) => (
+                <button
+                  key={`pin-${message.id}`}
+                  onClick={() => {
+                    document.getElementById(`message-${message.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    setShowPins(false);
+                  }}
+                  className="w-full text-left p-3 rounded-md bg-[#111111] hover:bg-[#171717] transition"
+                >
+                  <p className="text-xs text-[#888888] mb-1">
+                    {message.author?.displayName || message.author?.username || "Unknown"} • {formatTimestamp(message.createdAt)}
+                  </p>
+                  <p className="text-sm text-white line-clamp-3">{message.content || "(attachment)"}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showInbox} onOpenChange={setShowInbox}>
+        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Inbox</DialogTitle>
+            <DialogDescription className="text-[#888888]">
+              Recent mentions in this channel.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
+            {inboxItems.length === 0 ? (
+              <p className="text-sm text-[#888888]">No recent mentions.</p>
+            ) : (
+              inboxItems.map((item) => (
+                <button
+                  key={`inbox-${item.id}`}
+                  onClick={() => {
+                    document.getElementById(`message-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    setShowInbox(false);
+                  }}
+                  className="w-full text-left p-3 rounded-md bg-[#111111] hover:bg-[#171717] transition"
+                >
+                  <p className="text-xs text-[#888888] mb-1">
+                    {item.author?.displayName || item.author?.username || "Unknown"} • {formatTimestamp(item.createdAt)}
+                  </p>
+                  <p className="text-sm text-white line-clamp-2">{item.content}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showHelp} onOpenChange={setShowHelp}>
+        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Channel Help</DialogTitle>
+            <DialogDescription className="text-[#888888]">
+              Useful shortcuts and docs.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-[#cccccc]">
+            <p>
+              Press <span className="px-1.5 py-0.5 rounded bg-[#111111] border border-[#2a2a2a]">Enter</span> to send and{" "}
+              <span className="px-1.5 py-0.5 rounded bg-[#111111] border border-[#2a2a2a]">Shift + Enter</span> for a new line.
+            </p>
+            <p>Use the pin icon to keep important messages accessible to everyone in the channel.</p>
+            <a
+              href="https://serikacord.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-[#8B5CF6] hover:underline"
+            >
+              Open SerikaCord docs
+            </a>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
