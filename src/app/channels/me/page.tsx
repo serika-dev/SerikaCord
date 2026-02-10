@@ -307,15 +307,15 @@ export default function DirectMessagesPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0a0a]">
+    <div className="flex-1 flex flex-col bg-[var(--bg-app)]">
       {/* Header */}
-      <div className="h-12 min-h-12 px-4 flex items-center gap-4 border-b border-[#1a1a1a] bg-[#0a0a0a]">
-        <div className="flex items-center gap-2 text-white">
+      <div className="h-12 min-h-12 px-4 flex items-center gap-4 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+        <div className="flex items-center gap-2 text-[var(--text-primary)]">
           <Users className="w-6 h-6 text-[#555555]" />
           <span className="font-semibold">Friends</span>
         </div>
 
-        <div className="w-px h-6 bg-[#222222]" />
+        <div className="w-px h-6 bg-[var(--border-subtle)]" />
 
         {/* Tabs */}
         <div className="flex items-center gap-1">
@@ -326,13 +326,13 @@ export default function DirectMessagesPage() {
               className={cn(
                 "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                 activeTab === tab.id
-                  ? "bg-[#8B5CF6]/10 text-[#8B5CF6]"
-                  : "text-[#888888] hover:bg-[#111111] hover:text-white"
+                  ? "bg-[var(--bg-active)] text-[var(--app-accent)]"
+                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
               )}
             >
               {tab.label}
               {tab.count > 0 && (
-                <span className="ml-1.5 text-xs bg-[#222222] px-1.5 py-0.5 rounded-full text-[#888888]">
+                <span className="ml-1.5 text-xs bg-[var(--border-subtle)] px-1.5 py-0.5 rounded-full text-[var(--text-secondary)]">
                   {tab.count}
                 </span>
               )}
@@ -354,7 +354,7 @@ export default function DirectMessagesPage() {
 
         {/* Right side actions */}
         <div className="ml-auto flex items-center gap-2">
-          <button className="p-2 text-[#666666] hover:text-white transition-colors rounded-md hover:bg-[#111111]">
+          <button className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]">
             <Inbox className="w-5 h-5" />
           </button>
         </div>
@@ -366,10 +366,10 @@ export default function DirectMessagesPage() {
         <div className="flex-1 flex flex-col min-w-0">
           {activeTab === "add" ? (
             <div className="p-6">
-              <h2 className="text-lg font-semibold text-white uppercase tracking-wide mb-2">
+              <h2 className="text-lg font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-2">
                 Add Friend
               </h2>
-              <p className="text-[#888888] text-sm mb-4">
+              <p className="text-[var(--text-secondary)] text-sm mb-4">
                 You can add friends with their SerikaCord username.
               </p>
               
@@ -383,10 +383,10 @@ export default function DirectMessagesPage() {
                   onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
                   placeholder="Enter a username"
                   className={cn(
-                    "h-14 bg-[#111111] border-2 text-white placeholder:text-[#555555] pr-32 text-base rounded-lg focus-visible:ring-0",
+                    "h-14 bg-[var(--bg-card)] border-2 text-[var(--text-primary)] placeholder:text-[#555555] pr-32 text-base rounded-lg focus-visible:ring-0",
                     addFriendStatus.type === "success" && "border-green-500/50",
                     addFriendStatus.type === "error" && "border-red-500/50",
-                    !addFriendStatus.type && "border-[#222222] focus:border-[#8B5CF6]"
+                    !addFriendStatus.type && "border-[var(--border-subtle)] focus:border-[#8B5CF6]"
                   )}
                 />
                 <button
@@ -414,9 +414,9 @@ export default function DirectMessagesPage() {
               )}
 
               {/* Instructions */}
-              <div className="mt-8 p-4 rounded-lg bg-[#111111] border border-[#222222] max-w-xl">
-                <h3 className="text-sm font-semibold text-white mb-2">How to add friends</h3>
-                <ul className="text-sm text-[#888888] space-y-2">
+              <div className="mt-8 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] max-w-xl">
+                <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-2">How to add friends</h3>
+                <ul className="text-sm text-[var(--text-secondary)] space-y-2">
                   <li className="flex items-start gap-2">
                     <span className="text-[#8B5CF6]">1.</span>
                     Ask your friend for their username
@@ -439,20 +439,20 @@ export default function DirectMessagesPage() {
                   {/* Incoming requests */}
                   {friendsData.pending.incoming.length > 0 && (
                     <>
-                      <p className="text-xs font-semibold uppercase text-[#666666] mb-2 px-2">
+                      <p className="text-xs font-semibold uppercase text-[var(--text-muted)] mb-2 px-2">
                         Incoming — {friendsData.pending.incoming.length}
                       </p>
                       <div className="space-y-0.5 mb-6">
                         {friendsData.pending.incoming.map((request) => (
                           <div
                             key={request.id}
-                            className="group flex items-center justify-between p-3 rounded-lg hover:bg-[#111111] transition-colors"
+                            className="group flex items-center justify-between p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <div className="relative">
                                 <Avatar className="w-10 h-10">
                                   <AvatarImage src={request.avatar} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                  <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
                                     {(request.displayName || request.username).charAt(0).toUpperCase()}
                                   </AvatarFallback>
                                 </Avatar>
@@ -460,14 +460,14 @@ export default function DirectMessagesPage() {
                               
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <p className="font-medium text-white text-sm">
+                                  <p className="font-medium text-[var(--text-primary)] text-sm">
                                     {request.displayName || request.username}
                                   </p>
                                   {request.isPremium && (
                                     <Crown className="w-3.5 h-3.5 text-[#8B5CF6]" />
                                   )}
                                 </div>
-                                <p className="text-xs text-[#666666]">
+                                <p className="text-xs text-[var(--text-muted)]">
                                   Incoming Friend Request
                                 </p>
                               </div>
@@ -477,7 +477,7 @@ export default function DirectMessagesPage() {
                               <button
                                 onClick={() => handleAcceptRequest(request.id)}
                                 disabled={actionLoading === request.id}
-                                className="p-2 bg-[#111111] rounded-full hover:bg-green-500/20 text-[#888888] hover:text-green-500 transition-colors disabled:opacity-50"
+                                className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-green-500/20 text-[var(--text-secondary)] hover:text-green-500 transition-colors disabled:opacity-50"
                               >
                                 {actionLoading === request.id ? (
                                   <Loader2 className="w-5 h-5 animate-spin" />
@@ -488,7 +488,7 @@ export default function DirectMessagesPage() {
                               <button
                                 onClick={() => handleDeclineRequest(request.id)}
                                 disabled={actionLoading === request.id}
-                                className="p-2 bg-[#111111] rounded-full hover:bg-red-500/20 text-[#888888] hover:text-red-500 transition-colors disabled:opacity-50"
+                                className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-red-500/20 text-[var(--text-secondary)] hover:text-red-500 transition-colors disabled:opacity-50"
                               >
                                 <X className="w-5 h-5" />
                               </button>
@@ -502,20 +502,20 @@ export default function DirectMessagesPage() {
                   {/* Outgoing requests */}
                   {friendsData.pending.outgoing.length > 0 && (
                     <>
-                      <p className="text-xs font-semibold uppercase text-[#666666] mb-2 px-2">
+                      <p className="text-xs font-semibold uppercase text-[var(--text-muted)] mb-2 px-2">
                         Outgoing — {friendsData.pending.outgoing.length}
                       </p>
                       <div className="space-y-0.5">
                         {friendsData.pending.outgoing.map((request) => (
                           <div
                             key={request.id}
-                            className="group flex items-center justify-between p-3 rounded-lg hover:bg-[#111111] transition-colors"
+                            className="group flex items-center justify-between p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <div className="relative">
                                 <Avatar className="w-10 h-10">
                                   <AvatarImage src={request.avatar} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                  <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
                                     {(request.displayName || request.username).charAt(0).toUpperCase()}
                                   </AvatarFallback>
                                 </Avatar>
@@ -523,14 +523,14 @@ export default function DirectMessagesPage() {
                               
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <p className="font-medium text-white text-sm">
+                                  <p className="font-medium text-[var(--text-primary)] text-sm">
                                     {request.displayName || request.username}
                                   </p>
                                   {request.isPremium && (
                                     <Crown className="w-3.5 h-3.5 text-[#8B5CF6]" />
                                   )}
                                 </div>
-                                <p className="text-xs text-[#666666]">
+                                <p className="text-xs text-[var(--text-muted)]">
                                   Outgoing Friend Request
                                 </p>
                               </div>
@@ -539,7 +539,7 @@ export default function DirectMessagesPage() {
                             <button
                               onClick={() => handleCancelRequest(request.id)}
                               disabled={actionLoading === request.id}
-                              className="px-3 py-1.5 text-sm bg-[#111111] rounded-md hover:bg-red-500/20 text-[#888888] hover:text-red-500 transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 text-sm bg-[var(--bg-card)] rounded-md hover:bg-red-500/20 text-[var(--text-secondary)] hover:text-red-500 transition-colors disabled:opacity-50"
                             >
                               {actionLoading === request.id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -569,35 +569,35 @@ export default function DirectMessagesPage() {
                 <div className="p-4">
                   {friendsData.blocked.length > 0 ? (
                     <>
-                      <p className="text-xs font-semibold uppercase text-[#666666] mb-2 px-2">
+                      <p className="text-xs font-semibold uppercase text-[var(--text-muted)] mb-2 px-2">
                         Blocked Users — {friendsData.blocked.length}
                       </p>
                       <div className="space-y-0.5">
                         {friendsData.blocked.map((blockedUser) => (
                           <div
                             key={blockedUser.id}
-                            className="group flex items-center justify-between p-3 rounded-lg hover:bg-[#111111] transition-colors"
+                            className="group flex items-center justify-between p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <Avatar className="w-10 h-10">
                                 <AvatarImage src={blockedUser.avatar} />
-                                <AvatarFallback className="bg-[#333333] text-white">
+                                <AvatarFallback className="bg-[var(--bg-sidebar-elevated)] text-[var(--text-primary)]">
                                   {(blockedUser.displayName || blockedUser.username).charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               
                               <div>
-                                <p className="font-medium text-white text-sm">
+                                <p className="font-medium text-[var(--text-primary)] text-sm">
                                   {blockedUser.displayName || blockedUser.username}
                                 </p>
-                                <p className="text-xs text-[#666666]">Blocked</p>
+                                <p className="text-xs text-[var(--text-muted)]">Blocked</p>
                               </div>
                             </div>
 
                             <button
                               onClick={() => handleUnblockUser(blockedUser.id)}
                               disabled={actionLoading === blockedUser.id}
-                              className="px-3 py-1.5 text-sm bg-[#111111] rounded-md hover:bg-[#222222] text-[#888888] hover:text-white transition-colors disabled:opacity-50"
+                              className="px-3 py-1.5 text-sm bg-[var(--bg-card)] rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
                             >
                               {actionLoading === blockedUser.id ? (
                                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -628,7 +628,7 @@ export default function DirectMessagesPage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search"
-                    className="h-9 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] pl-9 rounded-md focus:border-[#8B5CF6] focus-visible:ring-0"
+                    className="h-9 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[#555555] pl-9 rounded-md focus:border-[#8B5CF6] focus-visible:ring-0"
                   />
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555555]" />
                 </div>
@@ -637,7 +637,7 @@ export default function DirectMessagesPage() {
               {/* Friends list */}
               <ScrollArea className="flex-1">
                 <div className="p-4">
-                  <p className="text-xs font-semibold uppercase text-[#666666] mb-2 px-2">
+                  <p className="text-xs font-semibold uppercase text-[var(--text-muted)] mb-2 px-2">
                     {activeTab === "online" ? "Online" : "All Friends"} — {filteredFriends.length}
                   </p>
                   
@@ -650,32 +650,32 @@ export default function DirectMessagesPage() {
                       {filteredFriends.map((friend) => (
                         <div
                           key={friend.id}
-                          className="group flex items-center justify-between p-2 rounded-lg hover:bg-[#111111] cursor-pointer transition-colors"
+                          className="group flex items-center justify-between p-2 rounded-lg hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"
                         >
                           <div className="flex items-center gap-3" onClick={() => startDM(friend.id)}>
                             <div className="relative">
                               <Avatar className="w-10 h-10">
                                 <AvatarImage src={friend.avatar} />
-                                <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
                                   {(friend.displayName || friend.username).charAt(0).toUpperCase()}
                                 </AvatarFallback>
                               </Avatar>
                               <div 
-                                className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-[#0a0a0a]"
+                                className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-[var(--bg-app)]"
                                 style={{ backgroundColor: statusColors[friend.status] }}
                               />
                             </div>
                             
                             <div>
                               <div className="flex items-center gap-2">
-                                <p className="font-medium text-white text-sm">
+                                <p className="font-medium text-[var(--text-primary)] text-sm">
                                   {friend.displayName || friend.username}
                                 </p>
                                 {friend.isPremium && (
                                   <Crown className="w-3.5 h-3.5 text-[#8B5CF6]" />
                                 )}
                               </div>
-                              <p className="text-xs text-[#666666]">
+                              <p className="text-xs text-[var(--text-muted)]">
                                 {friend.customStatus || statusLabels[friend.status]}
                               </p>
                             </div>
@@ -684,41 +684,41 @@ export default function DirectMessagesPage() {
                           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button 
                               onClick={() => startDM(friend.id)}
-                              className="p-2 bg-[#1a1a1a] rounded-full hover:bg-[#222222] transition-colors"
+                              className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors"
                             >
-                              <MessageCircle className="w-5 h-5 text-[#888888]" />
+                              <MessageCircle className="w-5 h-5 text-[var(--text-secondary)]" />
                             </button>
-                            <button className="p-2 bg-[#1a1a1a] rounded-full hover:bg-[#222222] transition-colors">
-                              <Phone className="w-5 h-5 text-[#888888]" />
+                            <button className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors">
+                              <Phone className="w-5 h-5 text-[var(--text-secondary)]" />
                             </button>
-                            <button className="p-2 bg-[#1a1a1a] rounded-full hover:bg-[#222222] transition-colors">
-                              <Video className="w-5 h-5 text-[#888888]" />
+                            <button className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors">
+                              <Video className="w-5 h-5 text-[var(--text-secondary)]" />
                             </button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <button className="p-2 bg-[#1a1a1a] rounded-full hover:bg-[#222222] transition-colors">
-                                  <MoreVertical className="w-5 h-5 text-[#888888]" />
+                                <button className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors">
+                                  <MoreVertical className="w-5 h-5 text-[var(--text-secondary)]" />
                                 </button>
                               </DropdownMenuTrigger>
-                              <DropdownMenuContent className="bg-[#111111] border-[#222222]">
+                              <DropdownMenuContent className="bg-[var(--bg-card)] border-[var(--border-subtle)]">
                                 <DropdownMenuItem 
                                   onClick={() => startDM(friend.id)}
-                                  className="text-[#888888] focus:text-white focus:bg-[#8B5CF6]"
+                                  className="text-[var(--text-secondary)] focus:text-[var(--text-on-accent)] focus:bg-[#8B5CF6]"
                                 >
                                   <MessageCircle className="w-4 h-4 mr-2" />
                                   Message
                                 </DropdownMenuItem>
-                                <DropdownMenuSeparator className="bg-[#222222]" />
+                                <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
                                 <DropdownMenuItem 
                                   onClick={() => handleRemoveFriend(friend.id)}
-                                  className="text-red-400 focus:text-white focus:bg-red-500"
+                                  className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
                                 >
                                   <UserX className="w-4 h-4 mr-2" />
                                   Remove Friend
                                 </DropdownMenuItem>
                                 <DropdownMenuItem 
                                   onClick={() => handleBlockUser(friend.id)}
-                                  className="text-red-400 focus:text-white focus:bg-red-500"
+                                  className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
                                 >
                                   <Shield className="w-4 h-4 mr-2" />
                                   Block
@@ -745,36 +745,36 @@ export default function DirectMessagesPage() {
         </div>
 
         {/* Active Now sidebar */}
-        <div className="w-[360px] bg-[#0a0a0a] border-l border-[#1a1a1a] hidden lg:flex flex-col">
+        <div className="w-[360px] bg-[var(--bg-app)] border-l border-[var(--border-subtle)] hidden lg:flex flex-col">
           <div className="p-4">
-            <h3 className="text-xl font-bold text-white mb-4">Active Now</h3>
+            <h3 className="text-xl font-bold text-[var(--text-primary)] mb-4">Active Now</h3>
             
             {onlineFriends.length > 0 ? (
               <div className="space-y-2">
                 {onlineFriends.slice(0, 5).map((friend) => (
                   <div
                     key={friend.id}
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#111111] cursor-pointer transition-colors"
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"
                     onClick={() => startDM(friend.id)}
                   >
                     <div className="relative">
                       <Avatar className="w-9 h-9">
                         <AvatarImage src={friend.avatar} />
-                        <AvatarFallback className="bg-[#8B5CF6] text-white text-sm">
+                        <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)] text-sm">
                           {(friend.displayName || friend.username).charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div 
-                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0a0a0a]"
+                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-app)]"
                         style={{ backgroundColor: statusColors[friend.status] }}
                       />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">
+                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">
                         {friend.displayName || friend.username}
                       </p>
                       {friend.customStatus && (
-                        <p className="text-xs text-[#666666] truncate">
+                        <p className="text-xs text-[var(--text-muted)] truncate">
                           {friend.customStatus}
                         </p>
                       )}
@@ -784,10 +784,10 @@ export default function DirectMessagesPage() {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-center">
-                <p className="text-sm font-semibold text-white mb-1">
+                <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
                   It&apos;s quiet for now...
                 </p>
-                <p className="text-sm text-[#666666] max-w-[200px]">
+                <p className="text-sm text-[var(--text-muted)] max-w-[200px]">
                   When a friend starts an activity—like playing a game or hanging out on voice—we&apos;ll show it here!
                 </p>
               </div>
@@ -800,9 +800,9 @@ export default function DirectMessagesPage() {
               <div className="p-4 rounded-lg bg-gradient-to-br from-[#8B5CF6]/20 to-[#6D28D9]/20 border border-[#8B5CF6]/30">
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles className="w-5 h-5 text-[#8B5CF6]" />
-                  <span className="font-semibold text-white">Serika+</span>
+                  <span className="font-semibold text-[var(--text-primary)]">Serika+</span>
                 </div>
-                <p className="text-sm text-[#888888] mb-3">
+                <p className="text-sm text-[var(--text-secondary)] mb-3">
                   Get bigger uploads, custom profiles, animated avatars, and more!
                 </p>
                 <button className="w-full py-2.5 px-4 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-medium rounded-lg transition-colors">
@@ -818,9 +818,9 @@ export default function DirectMessagesPage() {
               <div className="p-4 rounded-lg bg-gradient-to-br from-[#8B5CF6]/10 to-[#6D28D9]/10 border border-[#8B5CF6]/20">
                 <div className="flex items-center gap-2 mb-2">
                   <Crown className="w-5 h-5 text-[#8B5CF6]" />
-                  <span className="font-semibold text-white">Serika+ Active</span>
+                  <span className="font-semibold text-[var(--text-primary)]">Serika+ Active</span>
                 </div>
-                <p className="text-sm text-[#888888]">
+                <p className="text-sm text-[var(--text-secondary)]">
                   Thank you for supporting SerikaCord! You have access to all premium features.
                 </p>
               </div>
@@ -841,10 +841,10 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
           {icon}
         </div>
       </div>
-      <h3 className="text-lg font-medium text-white mb-2">
+      <h3 className="text-lg font-medium text-[var(--text-primary)] mb-2">
         {title}
       </h3>
-      <p className="text-sm text-[#666666] max-w-xs">
+      <p className="text-sm text-[var(--text-muted)] max-w-xs">
         {description}
       </p>
     </div>

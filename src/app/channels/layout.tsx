@@ -13,7 +13,7 @@ import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 
 const dialogFallback = () => <div className="hidden" />;
-const mobileFallback = () => <div className="flex-1 bg-[#0a0a0a]" />;
+const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
 
 const CreateServerDialog = dynamic(
   () => import("@/components/dialogs/CreateServerDialog").then((m) => m.CreateServerDialog),
@@ -69,7 +69,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="h-screen bg-[#000000] flex flex-col items-center justify-center">
+      <div className="h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6">
           <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-8 h-8 text-white" />
@@ -78,9 +78,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2">
               <Loader2 className="w-5 h-5 text-[#8B5CF6] animate-spin" />
-              <span className="text-lg font-medium text-white">Loading SerikaCord...</span>
+              <span className="text-lg font-medium text-[var(--text-primary)]">Loading SerikaCord...</span>
             </div>
-            <p className="text-sm text-[#666666]">Preparing your experience</p>
+            <p className="text-sm text-[var(--text-muted)]">Preparing your experience</p>
           </div>
         </div>
       </div>
@@ -89,15 +89,15 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <div className="h-screen bg-[#000000] flex flex-col items-center justify-center">
+      <div className="h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6 text-center px-4">
           <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-8 h-8 text-white" />
           </div>
           
           <div>
-            <h1 className="text-2xl font-bold text-white mb-2">Welcome to SerikaCord</h1>
-            <p className="text-[#666666] max-w-md">
+            <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Welcome to SerikaCord</h1>
+            <p className="text-[var(--text-secondary)] max-w-md">
               Sign in to access your servers, chat with friends, and join communities.
             </p>
           </div>
@@ -111,7 +111,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
             </Link>
             <Link
               href="/register"
-              className="px-6 py-3 bg-[#111111] hover:bg-[#1a1a1a] border border-[#222222] text-white font-medium rounded-md transition-colors"
+              className="px-6 py-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)] font-medium rounded-md transition-colors"
             >
               Create Account
             </Link>
@@ -166,7 +166,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
+      <div className="flex h-screen bg-[var(--bg-app)] overflow-hidden">
         {/* Mobile Server List - Only show in servers view when not in a channel */}
         {mobileView === "servers" && !isInChannel && !isSettingsRoute && (
           <MobileServerList 
@@ -250,7 +250,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
   // Desktop Layout
   return (
-    <div className="flex h-screen bg-[#0a0a0a] overflow-hidden">
+    <div className="flex h-screen bg-[var(--bg-app)] overflow-hidden">
       {/* Combined Sidebars */}
       <div className="flex flex-shrink-0">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />

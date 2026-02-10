@@ -20,13 +20,13 @@ const links = [
 
 export default function MobileSettingsIndexPage() {
   return (
-    <div className="min-h-full bg-[#000000] p-4 space-y-2">
-      <h1 className="text-xl font-bold text-white mb-3">Settings</h1>
+    <div className="min-h-full bg-[var(--bg-app)] p-4 space-y-2">
+      <h1 className="text-xl font-bold text-[var(--text-primary)] mb-3">Settings</h1>
       {links.map((link) => (
         <Link
           key={link.href}
           href={link.href}
-          className="block rounded-xl border border-[#222222] bg-[#111111] p-4 text-white hover:bg-[#1a1a1a] transition-colors"
+          className="block rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
         >
           {link.label}
         </Link>

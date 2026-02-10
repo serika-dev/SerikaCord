@@ -136,24 +136,24 @@ function VoiceChannelView({ channelId, channelName }: { channelId: string; chann
   }, [isJoined, roomId]);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0a0a] min-w-0 min-h-0 overflow-hidden">
-      <div className="h-12 px-4 flex items-center justify-between border-b border-[#1a1a1a] bg-[#111111]">
+    <div className="flex-1 flex flex-col bg-[var(--bg-app)] min-w-0 min-h-0 overflow-hidden">
+      <div className="h-12 px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-card)]">
         <div className="flex items-center gap-2 min-w-0">
           <Volume2 className="w-5 h-5 text-[#8B5CF6]" />
-          <span className="font-semibold text-white truncate">{channelName}</span>
+          <span className="font-semibold text-[var(--text-primary)] truncate">{channelName}</span>
         </div>
-        <div className="text-xs text-[#888888]">
+        <div className="text-xs text-[var(--text-secondary)]">
           {participants.length} {participants.length === 1 ? "participant" : "participants"}
         </div>
       </div>
 
-      <div className="p-4 border-b border-[#1a1a1a] bg-[#0f0f0f]">
+      <div className="p-4 border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)]">
         <div className="flex flex-wrap items-center gap-2">
           {!isJoined ? (
             <Button
               onClick={joinVoice}
               disabled={isJoining}
-              className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
+            className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
             >
               {isJoining ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
               Join Voice
@@ -172,7 +172,7 @@ function VoiceChannelView({ channelId, channelName }: { channelId: string; chann
               setAudioEnabled(next);
               void updateJoinState(next, videoEnabled);
             }}
-            className="border-[#2a2a2a] bg-[#111111] hover:bg-[#1a1a1a] text-white"
+            className="border-[var(--border-subtle)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
           >
             {audioEnabled ? <Mic className="w-4 h-4 mr-2" /> : <MicOff className="w-4 h-4 mr-2 text-red-400" />}
             {audioEnabled ? "Mic On" : "Mic Off"}
@@ -184,7 +184,7 @@ function VoiceChannelView({ channelId, channelName }: { channelId: string; chann
               setVideoEnabled(next);
               void updateJoinState(audioEnabled, next);
             }}
-            className="border-[#2a2a2a] bg-[#111111] hover:bg-[#1a1a1a] text-white"
+            className="border-[var(--border-subtle)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)]"
           >
             {videoEnabled ? <Video className="w-4 h-4 mr-2" /> : <VideoOff className="w-4 h-4 mr-2 text-red-400" />}
             {videoEnabled ? "Camera On" : "Camera Off"}
@@ -195,8 +195,8 @@ function VoiceChannelView({ channelId, channelName }: { channelId: string; chann
 
       <div className="flex-1 overflow-y-auto p-4">
         {participants.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center text-[#888888]">
-            <Users className="w-10 h-10 mb-3 text-[#666666]" />
+          <div className="h-full flex flex-col items-center justify-center text-center text-[var(--text-secondary)]">
+            <Users className="w-10 h-10 mb-3 text-[var(--text-muted)]" />
             <p>No one is connected yet.</p>
           </div>
         ) : (
@@ -204,22 +204,22 @@ function VoiceChannelView({ channelId, channelName }: { channelId: string; chann
             {participants.map((participant) => (
               <div
                 key={participant.userId}
-                className="flex items-center justify-between p-3 rounded-lg bg-[#111111] border border-[#1a1a1a]"
+                className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <Avatar className="w-9 h-9">
-                    <AvatarFallback className="bg-[#8B5CF6] text-white">
+                    <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                       {participant.username.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0">
-                    <p className="text-sm text-white truncate">{participant.username}</p>
-                    <p className="text-xs text-[#666666]">
+                    <p className="text-sm text-[var(--text-primary)] truncate">{participant.username}</p>
+                    <p className="text-xs text-[var(--text-muted)]">
                       Joined {new Date(participant.joinedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-[#888888]">
+                <div className="flex items-center gap-2 text-[var(--text-secondary)]">
                   {participant.audio ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4 text-red-400" />}
                   {participant.video ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4 text-red-400" />}
                 </div>

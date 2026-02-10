@@ -38,12 +38,38 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const themeBootstrapScript = `
+    (function () {
+      try {
+        var root = document.documentElement;
+        root.classList.remove("theme-light", "theme-dark", "theme-midnight");
+        var theme = "dark";
+        var stored = localStorage.getItem("serika-theme-settings");
+        if (stored) {
+          var parsed = JSON.parse(stored);
+          if (parsed && (parsed.theme === "light" || parsed.theme === "dark" || parsed.theme === "midnight")) {
+            theme = parsed.theme;
+          }
+        } else {
+          var fallbackTheme = localStorage.getItem("theme");
+          if (fallbackTheme === "light" || fallbackTheme === "dark" || fallbackTheme === "midnight") {
+            theme = fallbackTheme;
+          }
+        }
+        root.classList.add("theme-" + theme);
+        root.classList.toggle("dark", theme !== "light");
+        root.style.colorScheme = theme === "light" ? "light" : "dark";
+      } catch {}
+    })();
+  `;
+
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
       </head>
       <body
         className={`${inter.variable} font-sans antialiased`}
@@ -51,13 +77,13 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <Toaster 
-            theme="dark" 
+            theme="system"
             position="bottom-right"
             toastOptions={{
               style: {
-                background: '#1a1a1a',
-                border: '1px solid #2a2a2a',
-                color: '#fff',
+                background: 'var(--app-surface)',
+                border: '1px solid var(--app-border)',
+                color: 'var(--app-text)',
               },
             }}
           />

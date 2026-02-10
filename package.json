@@ -12,7 +12,8 @@
     "desktop:build": "cd desktop && npm run build",
     "mobile:ios": "cd mobile && npm run ios",
     "mobile:android": "cd mobile && npm run android",
-    "mobile:sync": "cd mobile && npm run cap:sync"
+    "mobile:sync": "cd mobile && npm run cap:sync",
+    "check:theme": "bash scripts/check-theme-hardcoded.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.972.0",

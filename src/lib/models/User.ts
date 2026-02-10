@@ -81,7 +81,8 @@ export interface IUser extends Document {
     theme: 'dark' | 'light' | 'system';
     locale: string;
     appearance: {
-      themeStyle: 'dark' | 'midnight' | 'light';
+      theme: 'dark' | 'midnight' | 'light';
+      themeStyle?: 'dark' | 'midnight' | 'light';
       accentColor: string;
       fontSize: number;
       compactMode: boolean;
@@ -372,6 +373,11 @@ const UserSchema = new Schema<IUser>({
       },
     },
     appearance: {
+      theme: {
+        type: String,
+        enum: ['dark', 'midnight', 'light'],
+        default: 'dark',
+      },
       themeStyle: {
         type: String,
         enum: ['dark', 'midnight', 'light'],

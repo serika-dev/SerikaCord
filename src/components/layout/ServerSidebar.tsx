@@ -50,21 +50,21 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
             <button
               onClick={handleHomeClick}
               className={cn(
-                "relative flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--app-surface-alt)] transition-all duration-200 hover:rounded-[16px] hover:bg-[#8B5CF6] group",
-                !currentServer && "rounded-[16px] bg-[#8B5CF6]"
+                "relative flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] transition-all duration-200 hover:rounded-[16px] hover:bg-[var(--app-accent)] group",
+                !currentServer && "rounded-[16px] bg-[var(--app-accent)]"
               )}
             >
-              <MessageSquare className="w-7 h-7 text-[var(--app-muted)] group-hover:text-white transition-colors" />
+              <MessageSquare className="w-7 h-7 text-[var(--text-secondary)] group-hover:text-[var(--text-on-accent)] transition-colors" />
               {/* Pill indicator */}
               <div
                 className={cn(
-                  "absolute left-0 w-1 bg-white rounded-r-full transition-all duration-200",
+                  "absolute left-0 w-1 bg-[var(--text-primary)] rounded-r-full transition-all duration-200",
                   !currentServer ? "h-10" : "h-0 group-hover:h-5"
                 )}
               />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right" className="bg-[var(--app-surface)] text-white border border-[var(--app-border)]">
+          <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
             Direct Messages
           </TooltipContent>
         </Tooltip>
@@ -80,32 +80,32 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                   <button
                     onClick={() => handleServerClick(server)}
                     className={cn(
-                      "relative flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--app-surface-alt)] transition-all duration-200 hover:rounded-[16px] group overflow-hidden",
+                      "relative flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] transition-all duration-200 hover:rounded-[16px] group overflow-hidden",
                       currentServer?.id === server.id && "rounded-[16px]"
                     )}
                   >
                     {server.icon ? (
                       <Avatar className="w-12 h-12 rounded-none">
                         <AvatarImage src={server.icon} alt={server.name} />
-                        <AvatarFallback className="rounded-none bg-[#8B5CF6] text-white">
+                        <AvatarFallback className="rounded-none bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                           {server.name.charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                     ) : (
-                      <span className="text-lg font-semibold text-white">
+                      <span className="text-lg font-semibold text-[var(--text-primary)]">
                         {server.name.charAt(0).toUpperCase()}
                       </span>
                     )}
                     {/* Pill indicator */}
                     <div
                       className={cn(
-                        "absolute left-0 w-1 bg-white rounded-r-full transition-all duration-200",
+                        "absolute left-0 w-1 bg-[var(--text-primary)] rounded-r-full transition-all duration-200",
                         currentServer?.id === server.id ? "h-10" : "h-0 group-hover:h-5"
                       )}
                     />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="right" className="bg-[var(--app-surface)] text-white border border-[var(--app-border)]">
+                <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
                   {server.name}
                 </TooltipContent>
               </Tooltip>
@@ -120,12 +120,12 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
           <TooltipTrigger asChild>
             <button
               onClick={onCreateServer}
-              className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--app-surface-alt)] transition-all duration-200 hover:rounded-[16px] hover:bg-[#8B5CF6] group"
+              className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] transition-all duration-200 hover:rounded-[16px] hover:bg-[var(--app-accent)] group"
             >
-              <Plus className="w-6 h-6 text-[#8B5CF6] group-hover:text-white transition-colors" />
+              <Plus className="w-6 h-6 text-[var(--app-accent)] group-hover:text-[var(--text-on-accent)] transition-colors" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right" className="bg-[var(--app-surface)] text-white border border-[var(--app-border)]">
+          <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
             Add a Server
           </TooltipContent>
         </Tooltip>
@@ -135,12 +135,12 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
           <TooltipTrigger asChild>
             <button 
               onClick={() => router.push("/channels/explore")}
-              className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--app-surface-alt)] transition-all duration-200 hover:rounded-[16px] hover:bg-[#8B5CF6] group"
+              className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] transition-all duration-200 hover:rounded-[16px] hover:bg-[var(--app-accent)] group"
             >
-              <Compass className="w-6 h-6 text-[#8B5CF6] group-hover:text-white transition-colors" />
+              <Compass className="w-6 h-6 text-[var(--app-accent)] group-hover:text-[var(--text-on-accent)] transition-colors" />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="right" className="bg-[var(--app-surface)] text-white border border-[var(--app-border)]">
+          <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
             Explore Discoverable Servers
           </TooltipContent>
         </Tooltip>
@@ -151,12 +151,12 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
             <TooltipTrigger asChild>
               <button 
                 onClick={() => router.push("/download")}
-                className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--app-surface-alt)] transition-all duration-200 hover:rounded-[16px] hover:bg-[#8B5CF6] group"
+                className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] transition-all duration-200 hover:rounded-[16px] hover:bg-[var(--app-accent)] group"
               >
-                <Download className="w-6 h-6 text-[#8B5CF6] group-hover:text-white transition-colors" />
+                <Download className="w-6 h-6 text-[var(--app-accent)] group-hover:text-[var(--text-on-accent)] transition-colors" />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right" className="bg-[var(--app-surface)] text-white border border-[var(--app-border)]">
+            <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
               Download Apps
             </TooltipContent>
           </Tooltip>

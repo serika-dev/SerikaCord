@@ -30,6 +30,13 @@ const defaultSettings: ThemeSettings = {
   saturation: 100,
 };
 
+function coerceTheme(theme: unknown): ThemeSettings["theme"] {
+  if (theme === "light" || theme === "dark" || theme === "midnight") {
+    return theme;
+  }
+  return "dark";
+}
+
 interface ThemeContextType {
   settings: ThemeSettings;
   updateSetting: <K extends keyof ThemeSettings>(key: K, value: ThemeSettings[K]) => void;
@@ -52,7 +59,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     setSettings((prev) => ({
       ...prev,
-      theme: (appearance.themeStyle || prev.theme) as ThemeSettings["theme"],
+      theme: coerceTheme(appearance.theme ?? appearance.themeStyle ?? prev.theme),
       accentColor: appearance.accentColor || prev.accentColor,
       fontSize: typeof appearance.fontSize === "number" ? appearance.fontSize : prev.fontSize,
       compactMode: typeof appearance.compactMode === "boolean" ? appearance.compactMode : prev.compactMode,
@@ -73,14 +80,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Load settings from localStorage
   useEffect(() => {
+    const fallbackTheme = localStorage.getItem("theme");
     const stored = localStorage.getItem("serika-theme-settings");
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
-        setSettings({ ...defaultSettings, ...parsed });
+        setSettings({
+          ...defaultSettings,
+          ...parsed,
+          theme: coerceTheme(parsed?.theme ?? fallbackTheme),
+        });
       } catch (e) {
         console.error("Failed to parse theme settings:", e);
+        setSettings((prev) => ({ ...prev, theme: coerceTheme(fallbackTheme) }));
       }
+    } else if (fallbackTheme) {
+      setSettings((prev) => ({ ...prev, theme: coerceTheme(fallbackTheme) }));
     }
     setIsLoaded(true);
   }, []);
@@ -115,17 +130,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     root.classList.remove("theme-dark", "theme-midnight", "theme-light");
     root.classList.add(`theme-${settings.theme}`);
-    if (settings.theme === "light") {
-      root.classList.remove("dark");
-      root.style.colorScheme = "light";
-    } else {
-      root.classList.add("dark");
-      root.style.colorScheme = "dark";
-    }
+    root.classList.toggle("dark", settings.theme !== "light");
+    root.style.colorScheme = settings.theme === "light" ? "light" : "dark";
     
     // Accent color
     root.style.setProperty("--accent-color", settings.accentColor);
     root.style.setProperty("--app-accent", settings.accentColor);
+    root.style.setProperty("--accent", settings.accentColor);
+    root.style.setProperty("--accent-hover", settings.accentColor);
     
     // Convert hex to HSL for Tailwind
     const hexToHsl = (hex: string) => {
@@ -153,6 +165,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--primary", hexToHsl(settings.accentColor));
     root.style.setProperty("--accent", hexToHsl(settings.accentColor));
     root.style.setProperty("--ring", hexToHsl(settings.accentColor));
+    localStorage.setItem("theme", settings.theme);
 
     // Font size
     root.style.setProperty("--chat-font-size", `${settings.fontSize}px`);

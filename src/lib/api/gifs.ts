@@ -11,6 +11,11 @@ type GifItem = {
 };
 
 const SERIKA_GIFS_API = process.env.SERIKA_GIFS_API || 'https://gifs.serika.dev/api';
+const SERIKA_GIFS_API_KEY =
+  process.env.SERIKA_GIFS_API_KEY ||
+  process.env.SERIKA_GIFS ||
+  process.env.SERIKA_GIFS_KEY ||
+  '';
 
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
   const authHeader = headers.authorization ?? null;
@@ -27,10 +32,7 @@ async function searchSerikaGifs(query: string, limit: number): Promise<GifItem[]
     ? `${SERIKA_GIFS_API}/gifs?search=${encodeURIComponent(query)}&limit=${limit}&page=1`
     : `${SERIKA_GIFS_API}/gifs?sort=trending&limit=${limit}&page=1`;
 
-  const headers: HeadersInit = {};
-  if (process.env.SERIKA_GIFS_API_KEY) {
-    headers['X-API-Key'] = process.env.SERIKA_GIFS_API_KEY;
-  }
+  const headers = getSerikaGifAuthHeaders();
 
   const res = await fetch(endpoint, { headers });
   if (!res.ok) {
@@ -70,7 +72,112 @@ async function searchSerikaGifs(query: string, limit: number): Promise<GifItem[]
   return gifs;
 }
 
+function getSerikaGifAuthHeaders(): HeadersInit {
+  if (!SERIKA_GIFS_API_KEY) return {};
+  return {
+    'X-API-Key': SERIKA_GIFS_API_KEY,
+    Authorization: `Bearer ${SERIKA_GIFS_API_KEY}`,
+  };
+}
+
+function serikaUrl(path: string, params?: Record<string, string | undefined>) {
+  const base = SERIKA_GIFS_API.endsWith('/') ? SERIKA_GIFS_API.slice(0, -1) : SERIKA_GIFS_API;
+  const url = new URL(`${base}${path}`);
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, value);
+    }
+  }
+  return url.toString();
+}
+
+async function proxySerikaJson(
+  path: string,
+  params: Record<string, string | undefined>,
+  set: { status?: number | string }
+) {
+  const upstream = await fetch(serikaUrl(path, params), {
+    headers: getSerikaGifAuthHeaders(),
+  });
+
+  if (!upstream.ok) {
+    set.status = upstream.status;
+    let upstreamBody: unknown = null;
+    try {
+      upstreamBody = await upstream.json();
+    } catch {
+      // ignore parse errors
+    }
+    return {
+      error: upstream.status === 429 ? 'GIF API rate limit exceeded' : 'GIF API request failed',
+      upstreamStatus: upstream.status,
+      upstreamBody,
+    };
+  }
+
+  return upstream.json();
+}
+
 export const gifRoutes = new Elysia({ prefix: '/gifs' })
+  .get('/gifs', async ({ headers, cookie, query, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+
+    return proxySerikaJson('/gifs', {
+      search: query.search,
+      sort: query.sort,
+      tag: query.tag,
+      collection: query.collection,
+      limit: query.limit,
+      page: query.page,
+    }, set);
+  }, {
+    query: t.Object({
+      search: t.Optional(t.String()),
+      sort: t.Optional(t.String()),
+      tag: t.Optional(t.String()),
+      collection: t.Optional(t.String()),
+      limit: t.Optional(t.String()),
+      page: t.Optional(t.String()),
+    }),
+  })
+  .get('/collections', async ({ headers, cookie, query, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+
+    return proxySerikaJson('/collections', {
+      limit: query.limit,
+      page: query.page,
+    }, set);
+  }, {
+    query: t.Object({
+      limit: t.Optional(t.String()),
+      page: t.Optional(t.String()),
+    }),
+  })
+  .get('/tags', async ({ headers, cookie, query, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+
+    return proxySerikaJson('/tags', {
+      limit: query.limit,
+      page: query.page,
+    }, set);
+  }, {
+    query: t.Object({
+      limit: t.Optional(t.String()),
+      page: t.Optional(t.String()),
+    }),
+  })
   .get('/search', async ({ headers, cookie, query, set }) => {
     const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {

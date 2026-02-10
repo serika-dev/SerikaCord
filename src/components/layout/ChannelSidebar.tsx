@@ -156,17 +156,17 @@ export function ChannelSidebar({
 
   const getChannelIcon = (type: string, isLocked?: boolean) => {
     if (isLocked) {
-      return <Lock className="w-5 h-5 text-[#555555] flex-shrink-0" />;
+      return <Lock className="w-5 h-5 text-[var(--text-muted)] flex-shrink-0" />;
     }
     switch (type) {
       case "voice":
-        return <Volume2 className="w-5 h-5 text-[#555555] flex-shrink-0" />;
+        return <Volume2 className="w-5 h-5 text-[var(--text-muted)] flex-shrink-0" />;
       case "announcement":
-        return <Megaphone className="w-5 h-5 text-[#555555] flex-shrink-0" />;
+        return <Megaphone className="w-5 h-5 text-[var(--text-muted)] flex-shrink-0" />;
       case "category":
-        return <Folder className="w-5 h-5 text-[#555555] flex-shrink-0" />;
+        return <Folder className="w-5 h-5 text-[var(--text-muted)] flex-shrink-0" />;
       default:
-        return <Hash className="w-5 h-5 text-[#555555] flex-shrink-0" />;
+        return <Hash className="w-5 h-5 text-[var(--text-muted)] flex-shrink-0" />;
     }
   };
 
@@ -223,10 +223,10 @@ export function ChannelSidebar({
 
   if (!currentServer) {
     return (
-      <div className="flex flex-col w-60 h-full bg-[var(--app-bg)] border-r border-[var(--app-border)]">
+      <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
         {/* DM Header */}
-        <div className="h-12 px-4 flex items-center border-b border-[var(--app-border)]">
-          <button className="w-full h-7 px-2 rounded bg-[var(--app-surface)] text-[var(--app-muted-2)] text-sm text-left hover:bg-[#1a1a1a] transition-colors">
+        <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)]">
+          <button className="w-full h-7 px-2 rounded bg-[var(--bg-sidebar-elevated)] text-[var(--text-muted)] text-sm text-left hover:bg-[var(--bg-sidebar-elevated)] transition-colors">
             Find or start a conversation
           </button>
         </div>
@@ -238,8 +238,8 @@ export function ChannelSidebar({
             className={cn(
               "flex items-center gap-3 px-2 py-2 rounded-md transition-colors",
               pathname === "/channels/me"
-                ? "bg-[#8B5CF6]/10 text-white"
-                : "text-[var(--app-muted)] hover:bg-[var(--app-surface)] hover:text-white"
+                ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
+                : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
             )}
           >
             <Users className="w-5 h-5" />
@@ -251,10 +251,10 @@ export function ChannelSidebar({
         <ScrollArea className="flex-1">
           <div className="px-2 py-2">
             <div className="px-2 mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase text-[var(--app-muted-2)]">
+              <span className="text-xs font-semibold uppercase text-[var(--text-muted)]">
                 Direct Messages
               </span>
-              <button className="text-[var(--app-muted)] hover:text-white transition-colors">
+              <button className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
                 <PlusCircle className="w-4 h-4" />
               </button>
             </div>
@@ -273,19 +273,19 @@ export function ChannelSidebar({
                       className={cn(
                         "group flex items-center gap-3 px-2 py-1.5 rounded-md transition-colors",
                         isActive
-                          ? "bg-[#8B5CF6]/10 text-white"
-                          : "text-[var(--app-muted)] hover:bg-[var(--app-surface)] hover:text-white"
+                          ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
                       )}
                     >
                       <div className="relative flex-shrink-0">
                         <Avatar className="w-8 h-8">
                           <AvatarImage src={recipient.avatar} />
-                          <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                          <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-xs">
                             {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         <div
-                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0a0a0a]"
+                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-sidebar)]"
                           style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
                         />
                       </div>
@@ -293,7 +293,7 @@ export function ChannelSidebar({
                         {recipient.displayName || recipient.username}
                       </span>
                       <button 
-                        className="p-1 opacity-0 group-hover:opacity-100 hover:text-white transition-opacity"
+                        className="p-1 opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-opacity"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -307,7 +307,7 @@ export function ChannelSidebar({
                 })}
               </div>
             ) : (
-              <div className="text-center text-[var(--app-muted-2)] text-sm py-8">
+              <div className="text-center text-[var(--text-muted)] text-sm py-8">
                 No direct messages yet
               </div>
             )}
@@ -321,64 +321,64 @@ export function ChannelSidebar({
   }
 
   return (
-    <div className="flex flex-col w-60 h-full bg-[var(--app-bg)] border-r border-[var(--app-border)]">
+    <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
       {/* Server Header */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="h-12 px-4 flex items-center justify-between border-b border-[var(--app-border)] hover:bg-[var(--app-surface)] transition-colors">
-            <span className="font-semibold text-white truncate">
+          <button className="h-12 px-4 flex items-center justify-between border-b border-[var(--border-subtle)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors">
+            <span className="font-semibold text-[var(--text-primary)] truncate">
               {currentServer.name}
             </span>
-            <ChevronDown className="w-5 h-5 text-white" />
+            <ChevronDown className="w-5 h-5 text-[var(--text-primary)]" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-56 bg-[var(--app-surface)] border border-[#222222] text-[var(--app-muted)]">
+        <DropdownMenuContent className="w-56 bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
           <DropdownMenuItem
             onClick={onInvitePeople}
-            className="text-[#8B5CF6] focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="text-[var(--app-accent)] focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <UserPlus className="w-4 h-4 mr-2" />
             Invite People
           </DropdownMenuItem>
-          <DropdownMenuSeparator className="bg-[#222222]" />
+          <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
           <DropdownMenuItem
             onClick={onServerSettings}
-            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <Settings className="w-4 h-4 mr-2" />
             Server Settings
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={onCreateChannel}
-            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <PlusCircle className="w-4 h-4 mr-2" />
             Create Channel
           </DropdownMenuItem>
           <DropdownMenuItem 
             onClick={onCreateCategory || onCreateChannel}
-            className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer"
+            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <Folder className="w-4 h-4 mr-2" />
             Create Category
           </DropdownMenuItem>
-          <DropdownMenuSeparator className="bg-[#222222]" />
-          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer">
+          <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
+          <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
             <Bell className="w-4 h-4 mr-2" />
             Notification Settings
           </DropdownMenuItem>
-          <DropdownMenuItem className="focus:bg-[#8B5CF6] focus:text-white cursor-pointer">
+          <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
             <Shield className="w-4 h-4 mr-2" />
             Privacy Settings
           </DropdownMenuItem>
-          <DropdownMenuSeparator className="bg-[#222222]" />
+          <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
           <DropdownMenuItem 
             onClick={async () => {
               if (currentServer && confirm(`Are you sure you want to leave ${currentServer.name}?`)) {
                 await leaveServer(currentServer.id);
               }
             }}
-            className="text-red-500 focus:bg-red-500 focus:text-white cursor-pointer"
+            className="text-red-500 focus:bg-red-500 focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <LogOut className="w-4 h-4 mr-2" />
             Leave Server
@@ -399,11 +399,11 @@ export function ChannelSidebar({
                 >
                   <ChevronRight 
                     className={cn(
-                      "w-3 h-3 text-[var(--app-muted-2)] transition-transform",
+                      "w-3 h-3 text-[var(--text-muted)] transition-transform",
                       !collapsedCategories.has('announcements') && "rotate-90"
                     )} 
                   />
-                  <span className="text-xs font-semibold uppercase text-[var(--app-muted-2)] group-hover:text-[var(--app-muted)]">
+                  <span className="text-xs font-semibold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">
                     Announcements
                   </span>
                 </button>
@@ -414,8 +414,8 @@ export function ChannelSidebar({
                   onClick={() => setCurrentChannel(channel)}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
-                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--app-muted-2)] hover:text-[var(--app-muted)] hover:bg-[var(--app-surface)] transition-all group",
-                    currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
+                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
+                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
                   )}
                   style={{ width: "calc(100% - 16px)" }}
                 >
@@ -436,11 +436,11 @@ export function ChannelSidebar({
                 <div className="flex items-center gap-0.5">
                   <ChevronRight 
                     className={cn(
-                      "w-3 h-3 text-[var(--app-muted-2)] transition-transform",
+                      "w-3 h-3 text-[var(--text-muted)] transition-transform",
                       !collapsedCategories.has('text') && "rotate-90"
                     )} 
                   />
-                  <span className="text-xs font-semibold uppercase text-[var(--app-muted-2)] group-hover:text-[var(--app-muted)]">
+                  <span className="text-xs font-semibold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">
                     Text Channels
                   </span>
                 </div>
@@ -449,7 +449,7 @@ export function ChannelSidebar({
                     e.stopPropagation();
                     onCreateChannel?.();
                   }}
-                  className="w-4 h-4 text-[var(--app-muted-2)] hover:text-[var(--app-muted)] opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
                 />
               </button>
             </div>
@@ -466,7 +466,7 @@ export function ChannelSidebar({
                       if (e.key === 'Escape') { setEditingChannel(null); setEditName(""); }
                     }}
                     autoFocus
-                    className="w-full px-2 py-1 bg-[#1a1a1a] border border-[#8B5CF6] rounded text-white text-sm focus:outline-none"
+                    className="w-full px-2 py-1 bg-[var(--bg-sidebar-elevated)] border border-[#8B5CF6] rounded text-[var(--text-primary)] text-sm focus:outline-none"
                   />
                 </div>
               ) : (
@@ -475,8 +475,8 @@ export function ChannelSidebar({
                   onClick={() => setCurrentChannel(channel)}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
-                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--app-muted-2)] hover:text-[var(--app-muted)] hover:bg-[var(--app-surface)] transition-all group",
-                    currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
+                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
+                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
                   )}
                   style={{ width: "calc(100% - 16px)" }}
                 >
@@ -497,11 +497,11 @@ export function ChannelSidebar({
                 <div className="flex items-center gap-0.5">
                   <ChevronRight 
                     className={cn(
-                      "w-3 h-3 text-[var(--app-muted-2)] transition-transform",
+                      "w-3 h-3 text-[var(--text-muted)] transition-transform",
                       !collapsedCategories.has('voice') && "rotate-90"
                     )} 
                   />
-                  <span className="text-xs font-semibold uppercase text-[var(--app-muted-2)] group-hover:text-[var(--app-muted)]">
+                  <span className="text-xs font-semibold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">
                     Voice Channels
                   </span>
                 </div>
@@ -510,7 +510,7 @@ export function ChannelSidebar({
                     e.stopPropagation();
                     onCreateChannel?.();
                   }}
-                  className="w-4 h-4 text-[var(--app-muted-2)] hover:text-[var(--app-muted)] opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
                 />
               </button>
             </div>
@@ -520,14 +520,14 @@ export function ChannelSidebar({
                   onClick={() => setCurrentChannel(channel)}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
-                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--app-muted-2)] hover:text-[var(--app-muted)] hover:bg-[var(--app-surface)] transition-all group",
-                    currentChannel?.id === channel.id && "bg-[#8B5CF6]/10 text-[#8B5CF6]"
+                    "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
+                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
                   )}
                   style={{ width: "calc(100% - 16px)" }}
                 >
                   {getChannelIcon(channel.type)}
                   <span className="truncate text-sm">{channel.name}</span>
-                  <span className="ml-auto flex items-center gap-1 text-xs text-[#8B5CF6]">
+                  <span className="ml-auto flex items-center gap-1 text-xs text-[var(--app-accent)]">
                     <Clock className="w-3 h-3" />
                     <span className="text-[10px] font-medium">Soon</span>
                   </span>
@@ -544,51 +544,51 @@ export function ChannelSidebar({
       {/* Channel Context Menu */}
       {contextMenu && (
         <div
-          className="fixed z-50 min-w-[180px] bg-[var(--app-surface)] border border-[#222222] rounded-lg shadow-xl py-1.5 animate-in fade-in-0 zoom-in-95"
+          className="fixed z-50 min-w-[180px] bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] rounded-lg shadow-xl py-1.5 animate-in fade-in-0 zoom-in-95"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={handleEditChannel}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <Edit2 className="w-4 h-4" />
             Edit Channel
           </button>
           <button
             onClick={onInvitePeople}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <UserPlus className="w-4 h-4" />
             Invite People
           </button>
-          <div className="h-px bg-[#222222] my-1" />
+          <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
             onClick={handleCopyChannelLink}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <LinkIcon className="w-4 h-4" />
             Copy Link
           </button>
           <button
             onClick={handleCopyChannelId}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <Copy className="w-4 h-4" />
             Copy Channel ID
           </button>
-          <div className="h-px bg-[#222222] my-1" />
+          <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
             onClick={() => { closeContextMenu(); /* TODO: Mute channel */ }}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[#dcddde] hover:bg-[#8B5CF6] hover:text-white transition-colors"
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <BellOff className="w-4 h-4" />
             Mute Channel
           </button>
-          <div className="h-px bg-[#222222] my-1" />
+          <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
             onClick={handleDeleteChannel}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-red-400 hover:bg-red-500 hover:text-[var(--text-primary)] transition-colors"
           >
             <Trash2 className="w-4 h-4" />
             Delete Channel
@@ -632,33 +632,33 @@ function UserPanel({ user }: UserPanelProps) {
   };
 
   return (
-    <div className="h-[52px] px-2 flex items-center bg-[var(--app-bg)] border-t border-[var(--app-border)]">
+    <div className="h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
       <UserProfilePopup onOpenSettings={handleSettingsClick}>
         <button 
-          className="flex items-center gap-2 flex-1 min-w-0 p-1 rounded hover:bg-[var(--app-surface)] transition-colors"
+          className="flex items-center gap-2 flex-1 min-w-0 p-1 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
         >
           <div className="relative">
             <Avatar className="w-8 h-8">
               <AvatarImage src={user?.avatar} alt={user?.displayName} />
-              <AvatarFallback className="bg-[#8B5CF6] text-white text-sm">
+              <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm">
                 {user?.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>
             </Avatar>
             <div
               className={cn(
-                "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[#0a0a0a]",
-                user?.status === "online" && "bg-[#8B5CF6]",
+                "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[var(--bg-sidebar)]",
+                user?.status === "online" && "bg-[var(--app-accent)]",
                 user?.status === "idle" && "bg-[#A78BFA]",
                 user?.status === "dnd" && "bg-red-500",
-                (!user?.status || user?.status === "offline") && "bg-[#555555]"
+                (!user?.status || user?.status === "offline") && "bg-[var(--text-muted)]"
               )}
             />
         </div>
         <div className="flex-1 min-w-0 text-left">
-          <div className="text-sm font-medium text-white truncate">
+          <div className="text-sm font-medium text-[var(--text-primary)] truncate">
             {user?.displayName || "Unknown"}
           </div>
-          <div className="text-xs text-[var(--app-muted-2)] truncate">
+          <div className="text-xs text-[var(--text-muted)] truncate">
             {user?.username || "unknown"}
           </div>
         </div>
@@ -668,8 +668,8 @@ function UserPanel({ user }: UserPanelProps) {
         <button 
           onClick={handleMuteToggle}
           className={cn(
-            "p-1.5 rounded hover:bg-[var(--app-surface)] transition-colors",
-            isMuted ? "text-red-500" : "text-[var(--app-muted)] hover:text-white"
+            "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
+            isMuted ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
           title={isMuted ? "Unmute" : "Mute"}
         >
@@ -678,8 +678,8 @@ function UserPanel({ user }: UserPanelProps) {
         <button 
           onClick={handleDeafenToggle}
           className={cn(
-            "p-1.5 rounded hover:bg-[var(--app-surface)] transition-colors",
-            isDeafened ? "text-red-500" : "text-[var(--app-muted)] hover:text-white"
+            "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
+            isDeafened ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
           title={isDeafened ? "Undeafen" : "Deafen"}
         >
@@ -687,7 +687,7 @@ function UserPanel({ user }: UserPanelProps) {
         </button>
         <button 
           onClick={handleSettingsClick}
-          className="p-1.5 rounded hover:bg-[var(--app-surface)] text-[var(--app-muted)] hover:text-white transition-colors"
+          className="p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           title="User Settings"
         >
           <Settings className="w-5 h-5" />

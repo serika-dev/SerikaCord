@@ -35,11 +35,10 @@ interface Tag {
 
 interface GifPickerProps {
   onGifSelect: (gif: Gif) => void;
-  apiKey?: string;
   className?: string;
 }
 
-const SERIKA_GIFS_API = "https://gifs.serika.dev/api";
+const SERIKA_GIFS_API = "/api/gifs";
 const GIF_PAGE_SIZE = 20;
 const COLLECTION_PAGE_SIZE = 20;
 const TAG_PAGE_SIZE = 10;
@@ -47,7 +46,7 @@ const TAG_PAGE_SIZE = 10;
 type ViewMode = "home" | "trending" | "category" | "search";
 type HomeTab = "tags" | "collections";
 
-export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
+export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const [search, setSearch] = useState("");
   const [gifs, setGifs] = useState<Gif[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -66,8 +65,6 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-
-  const headers: HeadersInit = apiKey ? { "X-API-Key": apiKey } : {};
 
   // Format GIF response
   const formatGifs = (data: Record<string, unknown>[]): Gif[] => {
@@ -97,8 +94,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?sort=trending&limit=${GIF_PAGE_SIZE}&page=${page}`,
-        { headers }
+        `${SERIKA_GIFS_API}/gifs?sort=trending&limit=${GIF_PAGE_SIZE}&page=${page}`
       );
       
       if (response.ok) {
@@ -120,13 +116,13 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // Fetch collections
   const fetchCollections = useCallback(async (page = 1, append = false) => {
     if (append) setIsLoadingMore(true);
     try {
-      const response = await fetch(`${SERIKA_GIFS_API}/collections?limit=${COLLECTION_PAGE_SIZE}&page=${page}`, { headers });
+      const response = await fetch(`${SERIKA_GIFS_API}/collections?limit=${COLLECTION_PAGE_SIZE}&page=${page}`);
       
       if (response.ok) {
         const data = await response.json();
@@ -150,45 +146,22 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     } finally {
       if (append) setIsLoadingMore(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // Fetch tags with preview images
   const fetchTags = useCallback(async (page = 1, append = false) => {
     if (append) setIsLoadingMore(true);
     try {
-      const response = await fetch(`${SERIKA_GIFS_API}/tags?limit=${TAG_PAGE_SIZE}&page=${page}`, { headers });
+      const response = await fetch(`${SERIKA_GIFS_API}/tags?limit=${TAG_PAGE_SIZE}&page=${page}`);
       
       if (response.ok) {
         const data = await response.json();
-        const tagsData = data.tags || [];
-        
-        // Fetch preview image for each tag
-        const tagsWithPreviews = await Promise.all(
-          tagsData.map(async (tag: Tag) => {
-            try {
-              const gifResponse = await fetch(
-                `${SERIKA_GIFS_API}/gifs?tag=${encodeURIComponent(tag.slug)}&limit=1`,
-                { headers }
-              );
-              if (gifResponse.ok) {
-                const gifData = await gifResponse.json();
-                const firstGif = gifData.gifs?.[0];
-                return {
-                  ...tag,
-                  previewUrl: firstGif?.thumbnailUrl || firstGif?.url || "",
-                };
-              }
-            } catch {
-              // Ignore individual tag preview errors
-            }
-            return tag;
-          })
-        );
+        const tagsWithPreviews: Tag[] = data.tags || [];
         
         if (append) {
           setTags((prev) => {
             const seen = new Set(prev.map((item) => item.id));
-            const uniqueNew = tagsWithPreviews.filter((item) => !seen.has(item.id));
+            const uniqueNew = tagsWithPreviews.filter((item: Tag) => !seen.has(item.id));
             return [...prev, ...uniqueNew];
           });
         } else {
@@ -202,7 +175,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     } finally {
       if (append) setIsLoadingMore(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // Fetch GIFs by tag
   const fetchByTag = useCallback(async (tagSlug: string, page = 1, append = false) => {
@@ -211,8 +184,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?tag=${encodeURIComponent(tagSlug)}&limit=${GIF_PAGE_SIZE}&page=${page}`,
-        { headers }
+        `${SERIKA_GIFS_API}/gifs?tag=${encodeURIComponent(tagSlug)}&limit=${GIF_PAGE_SIZE}&page=${page}`
       );
       
       if (response.ok) {
@@ -234,7 +206,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // Fetch GIFs from collection
   const fetchCollectionGifs = useCallback(async (collectionId: string, page = 1, append = false) => {
@@ -243,8 +215,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?collection=${encodeURIComponent(collectionId)}&limit=${GIF_PAGE_SIZE}&page=${page}`,
-        { headers }
+        `${SERIKA_GIFS_API}/gifs?collection=${encodeURIComponent(collectionId)}&limit=${GIF_PAGE_SIZE}&page=${page}`
       );
       
       if (response.ok) {
@@ -266,7 +237,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // Search GIFs
   const searchGifs = useCallback(async (query: string, page = 1, append = false) => {
@@ -282,8 +253,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
     
     try {
       const response = await fetch(
-        `${SERIKA_GIFS_API}/gifs?search=${encodeURIComponent(query)}&limit=${GIF_PAGE_SIZE}&page=${page}`,
-        { headers }
+        `${SERIKA_GIFS_API}/gifs?search=${encodeURIComponent(query)}&limit=${GIF_PAGE_SIZE}&page=${page}`
       );
       
       if (response.ok) {
@@ -305,7 +275,7 @@ export function GifPicker({ onGifSelect, apiKey, className }: GifPickerProps) {
       setIsLoading(false);
       setIsLoadingMore(false);
     }
-  }, [apiKey]);
+  }, []);
 
   // Initial load
   useEffect(() => {

@@ -1036,11 +1036,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   if (!currentChannel) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] text-[#666666]">
-        <div className="w-40 h-40 mb-4 rounded-full bg-[#111111] flex items-center justify-center">
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--bg-app)] text-[var(--text-secondary)]">
+        <div className="w-40 h-40 mb-4 rounded-full bg-[var(--bg-card)] flex items-center justify-center border border-[var(--border-subtle)]">
           <Hash className="w-20 h-20 text-[#8B5CF6]" />
         </div>
-        <h2 className="text-xl font-semibold text-white mb-2">
+        <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
           {currentServer ? "Select a channel" : "Welcome to SerikaCord"}
         </h2>
         <p className="text-center max-w-md">
@@ -1066,18 +1066,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             </button>
           )}
           <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
-          <span className="font-semibold text-white truncate text-sm sm:text-base">{currentChannel.name}</span>
+          <span className="font-semibold text-[var(--text-primary)] truncate text-sm sm:text-base">{currentChannel.name}</span>
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
           <button
-            className="hover:text-white transition-colors hidden sm:block"
+            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={toggleChannelNotifications}
             title={isChannelMuted ? "Enable notifications" : "Mute notifications"}
           >
             <Bell className={cn("w-5 h-5", isChannelMuted && "text-red-400")} />
           </button>
           <button
-            className="hover:text-white transition-colors hidden sm:block"
+            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={() => {
               setShowPins(true);
               void fetchPinnedMessages();
@@ -1088,7 +1088,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           </button>
           <button
             onClick={onToggleMembers}
-            className={cn("hover:text-white transition-colors", showMembers && "text-white")}
+            className={cn("hover:text-[var(--text-primary)] transition-colors", showMembers && "text-[var(--text-primary)]")}
           >
             <Users className="w-5 h-5" />
           </button>
@@ -1099,20 +1099,20 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               placeholder="Search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-32 h-6 px-2 rounded bg-[var(--app-surface-alt)] text-sm text-white placeholder:text-[var(--app-muted)] focus:outline-none focus:w-48 transition-all"
+              className="w-32 h-6 px-2 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--app-muted)] focus:outline-none focus:w-48 transition-all"
               onFocus={() => setShowSearchResults(true)}
             />
             <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--app-muted)]" />
           </div>
           <button
-            className="hover:text-white transition-colors hidden sm:block"
+            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={() => setShowInbox(true)}
             title="Open inbox"
           >
             <Inbox className="w-5 h-5" />
           </button>
           <button
-            className="hover:text-white transition-colors hidden sm:block"
+            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={() => setShowHelp(true)}
             title="Open help"
           >
@@ -1127,7 +1127,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             <p className="text-xs uppercase tracking-wider text-[var(--app-muted)]">Search Results</p>
             <button
               onClick={() => setShowSearchResults(false)}
-              className="text-xs text-[var(--app-muted)] hover:text-white transition-colors"
+              className="text-xs text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               Close
             </button>
@@ -1155,7 +1155,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                   <p className="text-xs text-[var(--app-muted)] mb-0.5">
                     {result.author?.displayName || result.author?.username || "Unknown"} • {formatTimestamp(result.createdAt)}
                   </p>
-                  <p className="text-sm text-white line-clamp-2">{result.content || "(attachment)"}</p>
+                  <p className="text-sm text-[var(--text-primary)] line-clamp-2">{result.content || "(attachment)"}</p>
                 </button>
               ))}
             </div>
@@ -1169,9 +1169,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           {/* Channel Welcome */}
           <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
             <div className="w-16 h-16 mb-2 rounded-2xl bg-[var(--app-surface-alt)] flex items-center justify-center border border-[var(--app-border)]">
-              <Hash className="w-10 h-10 text-white" />
+              <Hash className="w-10 h-10 text-[var(--text-primary)]" />
             </div>
-            <h1 className="text-3xl font-bold text-white mb-2">Welcome to #{currentChannel.name}!</h1>
+            <h1 className="text-3xl font-bold text-[var(--text-primary)] mb-2">Welcome to #{currentChannel.name}!</h1>
             <p className="text-[var(--app-muted)]">This is the start of the #{currentChannel.name} channel.</p>
           </div>
 
@@ -1179,7 +1179,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           {isLoading ? (
             <MessageSkeleton count={5} />
           ) : groupedMessages.length === 0 ? (
-            <div className="text-center text-[#666666] py-8">No messages yet. Be the first to say something!</div>
+            <div className="text-center text-[var(--text-muted)] py-8">No messages yet. Be the first to say something!</div>
           ) : (
             groupedMessages.map((group, groupIndex) => (
               <div
@@ -1190,7 +1190,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                   <div className="w-10 flex-shrink-0">
                     <Avatar className="w-10 h-10 mt-0.5">
                       <AvatarImage src={group.author?.avatar} alt={group.author?.displayName} />
-                      <AvatarFallback className="bg-[#8B5CF6] text-white">
+                      <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                         {group.author?.displayName?.charAt(0).toUpperCase() || "?"}
                       </AvatarFallback>
                     </Avatar>
@@ -1198,21 +1198,21 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 mb-1">
-                      <span className="font-medium text-white hover:underline cursor-pointer">
+                      <span className="font-medium text-[var(--text-primary)] hover:underline cursor-pointer">
                         {group.author?.displayName || "Unknown"}
                       </span>
-                      <span className="text-xs text-[#666666]">{formatTimestamp(group.messages[0].createdAt)}</span>
+                      <span className="text-xs text-[var(--text-muted)]">{formatTimestamp(group.messages[0].createdAt)}</span>
                     </div>
 
                     {group.messages.map((message) => (
                       <div key={message.id} id={`message-${message.id}`} className="group/message relative">
                         {editingMessage?.id === message.id ? (
-                          <div className="bg-[#1a1a1a] rounded-md p-2 mb-1">
+                          <div className="bg-[var(--bg-card)] rounded-md p-2 mb-1 border border-[var(--border-subtle)]">
                             <Textarea
                               value={editContent}
                               onChange={(e) => setEditContent(e.target.value)}
                               onKeyDown={handleEditKeyDown}
-                              className="bg-[#0a0a0a] border-[#2a2a2a] text-white min-h-[40px] mb-2"
+                              className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[40px] mb-2"
                               autoFocus
                             />
                             <div className="flex items-center gap-2 text-xs">
@@ -1243,7 +1243,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                     .getElementById(`message-${message.referencedMessage?.id}`)
                                     ?.scrollIntoView({ behavior: "smooth", block: "center" })
                                 }
-                                className="mb-1 text-xs text-[var(--app-muted)] hover:text-white transition-colors flex items-center gap-1 max-w-full"
+                                className="mb-1 text-xs text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1 max-w-full"
                               >
                                 <Reply className="w-3.5 h-3.5" />
                                 <span className="truncate">
@@ -1309,18 +1309,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                       className={cn(
                                         "flex items-center gap-1 px-2 py-0.5 rounded-full text-sm transition-colors",
                                         hasReacted
-                                          ? "bg-[#8B5CF6]/20 border border-[#8B5CF6] text-white"
+                                          ? "bg-[#8B5CF6]/20 border border-[#8B5CF6] text-[var(--text-primary)]"
                                           : "bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110"
                                       )}
                                     >
                                       <span>{reaction.emoji.name}</span>
-                                      <span className={hasReacted ? "text-white" : "text-[var(--app-muted)]"}>{reaction.count}</span>
+                                      <span className={hasReacted ? "text-[var(--text-primary)]" : "text-[var(--app-muted)]"}>{reaction.count}</span>
                                     </button>
                                   );
                                 })}
                                 <button
                                   onClick={() => setReactionPickerMessage(message.id)}
-                                  className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110 hover:text-white transition-colors"
+                                  className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110 hover:text-[var(--text-primary)] transition-colors"
                                 >
                                   <Plus className="w-4 h-4" />
                                 </button>
@@ -1364,18 +1364,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent
                                     align="end"
-                                    className="bg-[#111111] border-[#2a2a2a] text-white min-w-[160px]"
+                                    className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-w-[160px]"
                                   >
                                     <DropdownMenuItem
                                       onClick={() => handleCopyMessage(message.content)}
-                                      className="hover:bg-[#1a1a1a] cursor-pointer"
+                                      className="hover:bg-[var(--bg-hover)] cursor-pointer"
                                     >
                                       <Copy className="w-4 h-4 mr-2" />
                                       Copy Text
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => handlePinToggle(message)}
-                                      className="hover:bg-[#1a1a1a] cursor-pointer"
+                                      className="hover:bg-[var(--bg-hover)] cursor-pointer"
                                     >
                                       <Pin className="w-4 h-4 mr-2" />
                                       {message.pinned ? "Unpin Message" : "Pin Message"}
@@ -1388,7 +1388,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                             setEditingMessage(message);
                                             setEditContent(message.content);
                                           }}
-                                          className="hover:bg-[#1a1a1a] cursor-pointer"
+                                          className="hover:bg-[var(--bg-hover)] cursor-pointer"
                                         >
                                           <Pencil className="w-4 h-4 mr-2" />
                                           Edit Message
@@ -1467,11 +1467,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               <p className="text-xs text-[var(--app-muted)] mb-0.5">
                 Replying to {replyToMessage.author?.displayName || replyToMessage.author?.username || "message"}
               </p>
-              <p className="text-sm text-white truncate">{replyToMessage.content || "(attachment)"}</p>
+              <p className="text-sm text-[var(--text-primary)] truncate">{replyToMessage.content || "(attachment)"}</p>
             </div>
             <button
               onClick={() => setReplyToMessage(null)}
-              className="text-[var(--app-muted)] hover:text-white transition-colors"
+              className="text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
               title="Cancel reply"
             >
               <X className="w-4 h-4" />
@@ -1482,7 +1482,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple accept="*/*" className="hidden" />
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-white transition-colors"
+            className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
             title="Upload file"
           >
             <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
@@ -1493,27 +1493,27 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             onChange={handleTextareaChange}
             onKeyDown={handleKeyDown}
             placeholder={`Message #${currentChannel.name}`}
-            className="w-full min-h-[44px] max-h-[300px] py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent border-none text-white placeholder:text-[var(--app-muted-2)] resize-none focus-visible:ring-0 focus-visible:ring-offset-0 text-sm sm:text-base"
+            className="w-full min-h-[44px] max-h-[300px] py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent border-none text-[var(--text-primary)] placeholder:text-[var(--app-muted-2)] resize-none focus-visible:ring-0 focus-visible:ring-offset-0 text-sm sm:text-base"
             rows={1}
             disabled={isSending}
           />
           <div className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
-            <button
-              onClick={() => {
-                setComposerPickerTab("gifs");
-                setShowEmojiPicker(true);
-              }}
-              className="hover:text-white transition-colors hidden sm:block"
+              <button
+                onClick={() => {
+                  setComposerPickerTab("gifs");
+                  setShowEmojiPicker(true);
+                }}
+                className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
               title="Open GIF picker"
             >
               <Gift className="w-6 h-6" />
             </button>
-            <button
-              onClick={() => {
-                setComposerPickerTab("stickers");
-                setShowEmojiPicker(true);
-              }}
-              className="hover:text-white transition-colors hidden sm:block"
+              <button
+                onClick={() => {
+                  setComposerPickerTab("stickers");
+                  setShowEmojiPicker(true);
+                }}
+                className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
               title="Open sticker picker"
             >
               <Sticker className="w-6 h-6" />
@@ -1529,7 +1529,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             >
               <PopoverTrigger asChild>
                 <button
-                  className="hover:text-white transition-colors"
+                  className="hover:text-[var(--text-primary)] transition-colors"
                   onClick={() => setComposerPickerTab("emoji")}
                 >
                   <Smile className="w-5 sm:w-6 h-5 sm:h-6" />
@@ -1569,18 +1569,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!deleteConfirmMessage} onOpenChange={() => setDeleteConfirmMessage(null)}>
-        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white">
+        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]">
           <DialogHeader>
             <DialogTitle>Delete Message</DialogTitle>
-            <DialogDescription className="text-[#888888]">
+            <DialogDescription className="text-[var(--text-secondary)]">
               Are you sure you want to delete this message? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <div className="bg-[#111111] p-3 rounded-md text-[#888888] text-sm max-h-32 overflow-y-auto">
+          <div className="bg-[var(--bg-sidebar-elevated)] p-3 rounded-md text-[var(--text-secondary)] text-sm max-h-32 overflow-y-auto">
             {deleteConfirmMessage?.content}
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDeleteConfirmMessage(null)} className="text-white hover:bg-[#2a2a2a]">
+            <Button variant="ghost" onClick={() => setDeleteConfirmMessage(null)} className="text-[var(--text-primary)] hover:bg-[var(--bg-hover)]">
               Cancel
             </Button>
             <Button onClick={handleDeleteMessage} className="bg-red-500 hover:bg-red-600 text-white">
@@ -1591,21 +1591,21 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       </Dialog>
 
       <Dialog open={showPins} onOpenChange={setShowPins}>
-        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white max-w-2xl">
+        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-2xl">
           <DialogHeader>
             <DialogTitle>Pinned Messages</DialogTitle>
-            <DialogDescription className="text-[#888888]">
+            <DialogDescription className="text-[var(--text-secondary)]">
               Quick access to important messages in #{currentChannel?.name}.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
             {isLoadingPins ? (
-              <div className="text-sm text-[#888888] flex items-center gap-2">
+              <div className="text-sm text-[var(--text-secondary)] flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Loading pinned messages...
               </div>
             ) : pinnedMessages.length === 0 ? (
-              <div className="text-sm text-[#888888]">No pinned messages yet.</div>
+              <div className="text-sm text-[var(--text-secondary)]">No pinned messages yet.</div>
             ) : (
               pinnedMessages.map((message) => (
                 <button
@@ -1614,12 +1614,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                     document.getElementById(`message-${message.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                     setShowPins(false);
                   }}
-                  className="w-full text-left p-3 rounded-md bg-[#111111] hover:bg-[#171717] transition"
+                  className="w-full text-left p-3 rounded-md bg-[var(--bg-sidebar-elevated)] hover:bg-[var(--bg-hover)] transition"
                 >
-                  <p className="text-xs text-[#888888] mb-1">
+                  <p className="text-xs text-[var(--text-secondary)] mb-1">
                     {message.author?.displayName || message.author?.username || "Unknown"} • {formatTimestamp(message.createdAt)}
                   </p>
-                  <p className="text-sm text-white line-clamp-3">{message.content || "(attachment)"}</p>
+                  <p className="text-sm text-[var(--text-primary)] line-clamp-3">{message.content || "(attachment)"}</p>
                 </button>
               ))
             )}
@@ -1628,16 +1628,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       </Dialog>
 
       <Dialog open={showInbox} onOpenChange={setShowInbox}>
-        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white max-w-xl">
+        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-xl">
           <DialogHeader>
             <DialogTitle>Inbox</DialogTitle>
-            <DialogDescription className="text-[#888888]">
+            <DialogDescription className="text-[var(--text-secondary)]">
               Recent mentions in this channel.
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
             {inboxItems.length === 0 ? (
-              <p className="text-sm text-[#888888]">No recent mentions.</p>
+              <p className="text-sm text-[var(--text-secondary)]">No recent mentions.</p>
             ) : (
               inboxItems.map((item) => (
                 <button
@@ -1646,12 +1646,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                     document.getElementById(`message-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
                     setShowInbox(false);
                   }}
-                  className="w-full text-left p-3 rounded-md bg-[#111111] hover:bg-[#171717] transition"
+                  className="w-full text-left p-3 rounded-md bg-[var(--bg-sidebar-elevated)] hover:bg-[var(--bg-hover)] transition"
                 >
-                  <p className="text-xs text-[#888888] mb-1">
+                  <p className="text-xs text-[var(--text-secondary)] mb-1">
                     {item.author?.displayName || item.author?.username || "Unknown"} • {formatTimestamp(item.createdAt)}
                   </p>
-                  <p className="text-sm text-white line-clamp-2">{item.content}</p>
+                  <p className="text-sm text-[var(--text-primary)] line-clamp-2">{item.content}</p>
                 </button>
               ))
             )}
@@ -1660,17 +1660,17 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       </Dialog>
 
       <Dialog open={showHelp} onOpenChange={setShowHelp}>
-        <DialogContent className="bg-[#1a1a1a] border-[#2a2a2a] text-white max-w-lg">
+        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
           <DialogHeader>
             <DialogTitle>Channel Help</DialogTitle>
-            <DialogDescription className="text-[#888888]">
+            <DialogDescription className="text-[var(--text-secondary)]">
               Useful shortcuts and docs.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 text-sm text-[#cccccc]">
+          <div className="space-y-3 text-sm text-[var(--text-secondary)]">
             <p>
-              Press <span className="px-1.5 py-0.5 rounded bg-[#111111] border border-[#2a2a2a]">Enter</span> to send and{" "}
-              <span className="px-1.5 py-0.5 rounded bg-[#111111] border border-[#2a2a2a]">Shift + Enter</span> for a new line.
+              Press <span className="px-1.5 py-0.5 rounded bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">Enter</span> to send and{" "}
+              <span className="px-1.5 py-0.5 rounded bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">Shift + Enter</span> for a new line.
             </p>
             <p>Use the pin icon to keep important messages accessible to everyone in the channel.</p>
             <a

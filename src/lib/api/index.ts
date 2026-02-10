@@ -42,6 +42,7 @@ function getDefaultUserSettings() {
     theme: 'dark',
     locale: 'en-US',
     appearance: {
+      theme: 'dark',
       themeStyle: 'dark',
       accentColor: '#8B5CF6',
       fontSize: 14,
@@ -109,6 +110,41 @@ function getDefaultUserSettings() {
       allowCrashReports: true,
     },
   } as Record<string, any>;
+}
+
+const ALLOWED_APPEARANCE_THEMES = new Set(['light', 'dark', 'midnight']);
+
+function normalizeUserSettingsShape(settings: Record<string, any>) {
+  const next = mergeDeep(getDefaultUserSettings(), settings || {});
+  if (!next.appearance || typeof next.appearance !== 'object') {
+    next.appearance = { ...getDefaultUserSettings().appearance };
+  }
+
+  const rawTheme = next.appearance.theme ?? next.appearance.themeStyle;
+  const theme = ALLOWED_APPEARANCE_THEMES.has(rawTheme) ? rawTheme : 'dark';
+  next.appearance.theme = theme;
+  next.appearance.themeStyle = theme;
+  return next;
+}
+
+function normalizeSettingsPatch(patch: Record<string, any>) {
+  const nextPatch: Record<string, any> = mergeDeep({}, patch || {});
+  const appearancePatch = nextPatch.appearance;
+  if (appearancePatch && typeof appearancePatch === 'object') {
+    const requestedTheme = appearancePatch.theme ?? appearancePatch.themeStyle;
+    if (requestedTheme !== undefined) {
+      if (!ALLOWED_APPEARANCE_THEMES.has(requestedTheme)) {
+        return {
+          error: "appearance.theme must be one of 'light', 'dark', or 'midnight'",
+          patch: null as Record<string, any> | null,
+        };
+      }
+      appearancePatch.theme = requestedTheme;
+      appearancePatch.themeStyle = requestedTheme;
+    }
+  }
+
+  return { error: null as string | null, patch: nextPatch };
 }
 
 function mergeDeep<T extends Record<string, any>>(base: T, patch: Record<string, any>): T {
@@ -283,8 +319,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (customStatus !== undefined) user.customStatus = customStatus;
       if (status !== undefined) user.status = status;
       if (settings !== undefined) {
-        const currentSettings = mergeDeep(getDefaultUserSettings(), (user.settings || {}) as Record<string, any>);
-        user.settings = mergeDeep(currentSettings, settings) as any;
+        const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
+        const normalizedPatch = normalizeSettingsPatch(settings);
+        if (normalizedPatch.error) {
+          set.status = 400;
+          return { error: normalizedPatch.error };
+        }
+        user.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {})) as any;
       }
 
       await user.save();
@@ -340,7 +381,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }
 
     return {
-      settings: mergeDeep(getDefaultUserSettings(), (user.settings || {}) as Record<string, any>),
+      settings: normalizeUserSettingsShape((user.settings || {}) as Record<string, any>),
     };
   })
   .patch('/me/settings', async ({ headers, cookie, body, set }) => {
@@ -357,7 +398,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }
 
     const payload = body as Record<string, any>;
-    const currentSettings = mergeDeep(getDefaultUserSettings(), (user.settings || {}) as Record<string, any>);
+    const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
 
     let patch: Record<string, any> = payload;
     if (payload.section && payload.value !== undefined) {
@@ -366,7 +407,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
       patch = payload.settings;
     }
 
-    user.settings = mergeDeep(currentSettings, patch) as any;
+    const normalizedPatch = normalizeSettingsPatch(patch);
+    if (normalizedPatch.error) {
+      set.status = 400;
+      return { error: normalizedPatch.error };
+    }
+
+    user.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {})) as any;
     await user.save();
     await invalidateUserCache(user._id.toString());
 

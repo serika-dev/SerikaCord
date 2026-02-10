@@ -127,7 +127,7 @@ export default function MobileSettingsSectionPage() {
                 toast.error("Failed to update status");
               }
             }}
-            className={`w-full p-4 rounded-xl border text-left capitalize ${user?.status === status ? "bg-[#8B5CF6]/20 border-[#8B5CF6] text-white" : "bg-[#111111] border-[#222222] text-white"}`}
+            className={`w-full p-4 rounded-xl border text-left capitalize ${user?.status === status ? "bg-[var(--bg-active)] border-[var(--app-accent)] text-[var(--text-primary)]" : "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"}`}
           >
             {status}
           </button>
@@ -138,19 +138,19 @@ export default function MobileSettingsSectionPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full bg-[#000000]">
+      <div className="flex items-center justify-center h-full bg-[var(--bg-app)]">
         <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#000000]">
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-[#1a1a1a]">
-        <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-[#1a1a1a]">
-          <ArrowLeft className="w-5 h-5 text-white" />
+    <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-primary)]">
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--border-subtle)]">
+        <button onClick={() => router.back()} className="p-2 -ml-2 rounded-full hover:bg-[var(--bg-hover)]">
+          <ArrowLeft className="w-5 h-5 text-[var(--text-primary)]" />
         </button>
-        <h1 className="text-lg font-bold text-white">{title}</h1>
+        <h1 className="text-lg font-bold text-[var(--text-primary)]">{title}</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 pb-20">
@@ -194,20 +194,20 @@ export default function MobileSettingsSectionPage() {
 
         {section === "appearance" && settings && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-[#222222] bg-[#111111] p-4">
-              <label className="text-sm text-[#888888]">Theme</label>
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+              <label className="text-sm text-[var(--text-secondary)]">Theme</label>
               <select
-                value={settings.appearance?.themeStyle || "dark"}
-                onChange={(e) => saveSettings({ appearance: { ...(settings.appearance || {}), themeStyle: e.target.value } })}
-                className="mt-2 w-full h-10 rounded-md bg-[#0a0a0a] border border-[#222222] px-3 text-white"
+                value={settings.appearance?.theme || settings.appearance?.themeStyle || "dark"}
+                onChange={(e) => saveSettings({ appearance: { ...(settings.appearance || {}), theme: e.target.value } })}
+                className="mt-2 w-full h-10 rounded-md bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] px-3 text-[var(--text-primary)]"
               >
                 <option value="dark">Dark</option>
                 <option value="midnight">Midnight</option>
                 <option value="light">Light</option>
               </select>
             </div>
-            <div className="rounded-xl border border-[#222222] bg-[#111111] p-4">
-              <label className="text-sm text-[#888888]">Accent Color</label>
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+              <label className="text-sm text-[var(--text-secondary)]">Accent Color</label>
               <input
                 type="color"
                 value={settings.appearance?.accentColor || "#8B5CF6"}
@@ -237,12 +237,12 @@ export default function MobileSettingsSectionPage() {
 
         {section === "language" && settings && (
           <div className="space-y-4">
-            <div className="rounded-xl border border-[#222222] bg-[#111111] p-4">
-              <label className="text-sm text-[#888888]">Language</label>
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+              <label className="text-sm text-[var(--text-secondary)]">Language</label>
               <input
                 value={settings.language?.locale || "en-US"}
                 onChange={(e) => setSettings((prev) => ({ ...(prev || {}), language: { ...(prev?.language || {}), locale: e.target.value } }))}
-                className="mt-2 w-full h-10 rounded-md bg-[#0a0a0a] border border-[#222222] px-3 text-white"
+                className="mt-2 w-full h-10 rounded-md bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] px-3 text-[var(--text-primary)]"
               />
               <button
                 onClick={() => saveSettings({ language: settings.language })}
@@ -256,11 +256,11 @@ export default function MobileSettingsSectionPage() {
 
         {section === "apps" && (
           <div className="space-y-3">
-            {apps.length === 0 ? <p className="text-[#888888] text-sm">No authorized apps.</p> : apps.map((app) => (
-              <div key={app._id} className="rounded-xl border border-[#222222] bg-[#111111] p-4 flex items-center justify-between">
+            {apps.length === 0 ? <p className="text-[var(--text-secondary)] text-sm">No authorized apps.</p> : apps.map((app) => (
+              <div key={app._id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 flex items-center justify-between">
                 <div>
-                  <p className="text-white font-medium">{app.name}</p>
-                  <p className="text-xs text-[#888888]">{app.description || "No description"}</p>
+                  <p className="text-[var(--text-primary)] font-medium">{app.name}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">{app.description || "No description"}</p>
                 </div>
                 <button
                   onClick={async () => {
@@ -278,9 +278,9 @@ export default function MobileSettingsSectionPage() {
         )}
 
         {section === "premium" && (
-          <div className="rounded-xl border border-[#222222] bg-[#111111] p-4">
-            <p className="text-white font-semibold">{user?.isPremium ? "Your Premium is Active" : "Premium is not active"}</p>
-            <p className="text-sm text-[#888888] mt-2">Premium unlocks profile cosmetics and extra media limits.</p>
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+            <p className="text-[var(--text-primary)] font-semibold">{user?.isPremium ? "Your Premium is Active" : "Premium is not active"}</p>
+            <p className="text-sm text-[var(--text-secondary)] mt-2">Premium unlocks profile cosmetics and extra media limits.</p>
           </div>
         )}
 
@@ -290,7 +290,7 @@ export default function MobileSettingsSectionPage() {
               value={supportText}
               onChange={(e) => setSupportText(e.target.value)}
               placeholder={section === "bug-report" ? "Describe the bug..." : "Write your message..."}
-              className="w-full min-h-[140px] rounded-xl border border-[#222222] bg-[#111111] p-4 text-white"
+              className="w-full min-h-[140px] rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-[var(--text-primary)]"
             />
             <button
               onClick={() => {
@@ -309,19 +309,19 @@ export default function MobileSettingsSectionPage() {
         {section === "status" && statusSection}
 
         {section === "account" && (
-          <div className="rounded-xl border border-[#222222] bg-[#111111] p-4 text-[#888888] text-sm">
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-[var(--text-secondary)] text-sm">
             Use the My Account page for profile editing.
           </div>
         )}
 
         {section === "apps" && (
           <div className="mt-6 space-y-3">
-            <h3 className="text-sm text-[#888888]">Connected Devices</h3>
+            <h3 className="text-sm text-[var(--text-secondary)]">Connected Devices</h3>
             {devices.map((device) => (
-              <div key={device._id} className="rounded-xl border border-[#222222] bg-[#111111] p-3 flex items-center justify-between">
+              <div key={device._id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 flex items-center justify-between">
                 <div>
-                  <p className="text-white text-sm">{device.deviceName}</p>
-                  <p className="text-xs text-[#888888]">{device.platform} • {new Date(device.lastActiveAt).toLocaleString()}</p>
+                  <p className="text-[var(--text-primary)] text-sm">{device.deviceName}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">{device.platform} • {new Date(device.lastActiveAt).toLocaleString()}</p>
                 </div>
                 {!device.current && (
                   <button
@@ -338,12 +338,12 @@ export default function MobileSettingsSectionPage() {
               </div>
             ))}
 
-            <h3 className="text-sm text-[#888888] pt-2">Connections</h3>
-            {connections.length === 0 ? <p className="text-xs text-[#666666]">No social connections.</p> : connections.map((connection) => (
-              <div key={connection._id} className="rounded-xl border border-[#222222] bg-[#111111] p-3 flex items-center justify-between">
+            <h3 className="text-sm text-[var(--text-secondary)] pt-2">Connections</h3>
+            {connections.length === 0 ? <p className="text-xs text-[var(--text-muted)]">No social connections.</p> : connections.map((connection) => (
+              <div key={connection._id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 flex items-center justify-between">
                 <div>
-                  <p className="text-white text-sm capitalize">{connection.provider}</p>
-                  <p className="text-xs text-[#888888]">{connection.displayName || connection.username || connection.accountId}</p>
+                  <p className="text-[var(--text-primary)] text-sm capitalize">{connection.provider}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">{connection.displayName || connection.username || connection.accountId}</p>
                 </div>
                 <button
                   onClick={async () => {
@@ -362,7 +362,7 @@ export default function MobileSettingsSectionPage() {
       </div>
 
       {isSaving && (
-        <div className="absolute bottom-6 right-6 px-3 py-2 rounded-md bg-[#111111] border border-[#222222] text-white text-sm flex items-center gap-2">
+        <div className="absolute bottom-6 right-6 px-3 py-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" />
           Saving...
         </div>
@@ -373,8 +373,8 @@ export default function MobileSettingsSectionPage() {
 
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
-    <label className="flex items-center justify-between rounded-xl border border-[#222222] bg-[#111111] p-4">
-      <span className="text-white">{label}</span>
+    <label className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+      <span className="text-[var(--text-primary)]">{label}</span>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4 accent-[#8B5CF6]" />
     </label>
   );

@@ -787,37 +787,37 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     : menuSections;
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#0a0a0a]">
+    <div className="fixed inset-0 z-50 bg-[var(--bg-app)] text-[var(--text-primary)]">
       <div className="h-full flex flex-col md:flex-row">
         {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between p-4 border-b border-[#1a1a1a]">
-          <h2 className="text-lg font-semibold text-white">Settings</h2>
+        <div className="md:hidden flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Settings</h2>
           <button
             onClick={() => onOpenChange(false)}
-            className="p-2 rounded-full hover:bg-[#1a1a1a] text-[#888888]"
+            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Sidebar */}
-        <div className="hidden md:flex w-56 lg:w-64 bg-[#0a0a0a] flex-col border-r border-[#1a1a1a] h-full overflow-hidden">
+        <div className="hidden md:flex w-56 lg:w-64 bg-[var(--bg-sidebar)] flex-col border-r border-[var(--border-subtle)] h-full overflow-hidden">
           {/* User Header */}
-          <div className="p-4 border-b border-[#1a1a1a] flex-shrink-0">
+          <div className="p-4 border-b border-[var(--border-subtle)] flex-shrink-0">
             <div className="flex items-center gap-3">
               <Avatar className="w-10 h-10">
                 <AvatarImage src={user?.avatar} />
-                <AvatarFallback className="bg-[#8B5CF6] text-white">
+                <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
                   {user?.displayName?.charAt(0).toUpperCase() || "?"}
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-white truncate text-sm">
+                <h3 className="font-semibold text-[var(--text-primary)] truncate text-sm">
                   {user?.displayName || user?.username}
                 </h3>
                 <button 
                   onClick={() => setActiveTab("profiles")}
-                  className="text-xs text-[#888888] hover:text-[#8B5CF6] flex items-center gap-1 transition-colors"
+                  className="text-xs text-[var(--text-secondary)] hover:text-[#8B5CF6] flex items-center gap-1 transition-colors"
                 >
                   <Pencil className="w-3 h-3" />
                   Edit Profiles
@@ -834,7 +834,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search"
-                className="pl-9 h-8 bg-[#111111] border-[#222222] text-white text-sm placeholder:text-[#555555]"
+                className="pl-9 h-8 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] text-sm placeholder:text-[#555555]"
               />
             </div>
           </div>
@@ -844,7 +844,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             <div className="px-2 pb-4">
               {filteredSections.map((section, i) => (
                 <div key={i} className="mb-2">
-                  <h3 className="text-[10px] font-semibold text-[#666666] uppercase px-2.5 py-2 tracking-wide">
+                  <h3 className="text-[10px] font-semibold text-[var(--text-muted)] uppercase px-2.5 py-2 tracking-wide">
                     {section.title}
                   </h3>
                   {section.items.map((item) => (
@@ -854,8 +854,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       className={cn(
                         "w-full flex items-center gap-3 px-2.5 py-1.5 rounded text-sm transition-colors mb-0.5",
                         activeTab === item.id
-                          ? "bg-[#8B5CF6]/20 text-white"
-                          : "text-[#b5bac1] hover:bg-[#1a1a1a] hover:text-white"
+                          ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                       )}
                     >
                       <item.icon className="w-5 h-5" />
@@ -865,7 +865,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 </div>
               ))}
 
-              <div className="h-px bg-[#222222] my-2 mx-2" />
+              <div className="h-px bg-[var(--border-subtle)] my-2 mx-2" />
 
               {/* Logout */}
               <button
@@ -880,7 +880,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         </div>
 
         {/* Mobile Tab Navigation */}
-        <div className="md:hidden overflow-x-auto border-b border-[#1a1a1a]">
+        <div className="md:hidden overflow-x-auto border-b border-[var(--border-subtle)]">
           <div className="flex px-4 py-2 gap-2">
             {menuSections.flatMap(s => s.items).slice(0, 6).map((item) => (
               <button
@@ -890,7 +890,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors",
                   activeTab === item.id
                     ? "bg-[#8B5CF6] text-white"
-                    : "bg-[#1a1a1a] text-[#888888]"
+                    : "bg-[var(--bg-card)] text-[var(--text-secondary)]"
                 )}
               >
                 <item.icon className="w-4 h-4" />
@@ -901,11 +901,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         </div>
 
         {/* Content */}
-        <div className="flex-1 bg-[#111111] relative flex flex-col overflow-hidden">
+        <div className="flex-1 bg-[var(--bg-card)] relative flex flex-col overflow-hidden">
           {/* Desktop Close Button */}
           <button
             onClick={() => onOpenChange(false)}
-            className="hidden md:flex absolute top-4 right-4 z-10 p-2 rounded-full hover:bg-[#1a1a1a] text-[#888888] hover:text-white transition-colors"
+            className="hidden md:flex absolute top-4 right-4 z-10 p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -915,14 +915,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Profiles Tab */}
               {activeTab === "profiles" && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5">Profiles</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">Profiles</h2>
                   
                   {/* Tabs */}
-                  <div className="flex gap-6 border-b border-[#1a1a1a] mb-6">
-                    <button className="pb-3 text-white font-medium border-b-2 border-[#8B5CF6]">
+                  <div className="flex gap-6 border-b border-[var(--border-subtle)] mb-6">
+                    <button className="pb-3 text-[var(--text-primary)] font-medium border-b-2 border-[#8B5CF6]">
                       Main Profile
                     </button>
-                    <button className="pb-3 text-[#b5bac1] hover:text-white transition-colors">
+                    <button className="pb-3 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
                       Per-server Profiles
                     </button>
                   </div>
@@ -949,12 +949,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <div className="space-y-4 mb-6">
                         <div className="flex gap-4">
                           <div className="flex-1">
-                            <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
                               Avatar
                             </label>
                             <div
                               onClick={() => avatarInputRef.current?.click()}
-                              className="relative w-20 h-20 rounded-full bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#8B5CF6] cursor-pointer transition-colors group overflow-hidden"
+                              className="relative w-20 h-20 rounded-full bg-[var(--bg-app)] border-2 border-dashed border-[#333] hover:border-[#8B5CF6] cursor-pointer transition-colors group overflow-hidden"
                             >
                               {user?.avatar ? (
                                 <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
@@ -980,12 +980,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             />
                           </div>
                           <div className="flex-1">
-                            <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
                               Banner
                             </label>
                             <div
                               onClick={() => bannerInputRef.current?.click()}
-                              className="relative w-full h-20 rounded-lg bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#8B5CF6] cursor-pointer transition-colors group overflow-hidden"
+                              className="relative w-full h-20 rounded-lg bg-[var(--bg-app)] border-2 border-dashed border-[#333] hover:border-[#8B5CF6] cursor-pointer transition-colors group overflow-hidden"
                             >
                               {user?.banner ? (
                                 <img src={user.banner} alt="Banner" className="w-full h-full object-cover" />
@@ -1015,36 +1015,36 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                       <div className="space-y-4">
                         <div>
-                          <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
                             Display Name
                           </label>
                           <Input
                             value={displayName}
                             onChange={(e) => setDisplayName(e.target.value)}
-                            className="bg-[#0a0a0a] border-none text-white h-10"
+                            className="bg-[var(--bg-app)] border-none text-white h-10"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
                             Pronouns
                           </label>
                           <Input
                             value={pronouns}
                             onChange={(e) => setPronouns(e.target.value)}
-                            className="bg-[#0a0a0a] border-none text-white h-10"
+                            className="bg-[var(--bg-app)] border-none text-white h-10"
                             placeholder="Add your pronouns"
                           />
                         </div>
 
                         <div>
-                          <label className="block text-xs font-bold text-[#b5bac1] uppercase mb-2">
+                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
                             About Me
                           </label>
                           <Textarea
                             value={bio}
                             onChange={(e) => setBio(e.target.value)}
-                            className="bg-[#0a0a0a] border-none text-white min-h-[100px] resize-none"
+                            className="bg-[var(--bg-app)] border-none text-white min-h-[100px] resize-none"
                             maxLength={190}
                           />
                         </div>
@@ -1053,7 +1053,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                     {/* Preview */}
                     <div>
-                      <h3 className="text-xs font-bold text-[#b5bac1] uppercase mb-3">Preview</h3>
+                      <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-3">Preview</h3>
                       <div className="bg-[#232428] rounded-lg overflow-hidden w-full max-w-[300px]">
                         <div
                           className="h-[60px]"
@@ -1074,7 +1074,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           </div>
                           <div className="pt-10 bg-[#111214] rounded-lg p-3 mt-2">
                             <h3 className="font-bold text-white">{displayName || user?.username}</h3>
-                            <div className="flex items-center gap-1 text-sm text-[#b5bac1]">
+                            <div className="flex items-center gap-1 text-sm text-[var(--text-secondary)]">
                               <span>{user?.username}</span>
                               {pronouns && (
                                 <>
@@ -1107,7 +1107,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <Crown className="w-10 h-10 text-[#8B5CF6]" />
                         <div>
                           <h3 className="text-lg font-bold text-white">You have Serika+!</h3>
-                          <p className="text-sm text-[#b5bac1]">
+                          <p className="text-sm text-[var(--text-secondary)]">
                             Member since{" "}
                             {user.premiumSince
                               ? new Date(user.premiumSince).toLocaleDateString()
@@ -1116,25 +1116,25 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4 mt-6">
-                        <div className="bg-[#0a0a0a] p-4 rounded-lg">
+                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
                           <p className="text-sm text-[#8B5CF6] font-medium">✓ Custom profile themes</p>
                         </div>
-                        <div className="bg-[#0a0a0a] p-4 rounded-lg">
+                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
                           <p className="text-sm text-[#8B5CF6] font-medium">✓ Animated avatars</p>
                         </div>
-                        <div className="bg-[#0a0a0a] p-4 rounded-lg">
+                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
                           <p className="text-sm text-[#8B5CF6] font-medium">✓ Extended file uploads</p>
                         </div>
-                        <div className="bg-[#0a0a0a] p-4 rounded-lg">
+                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
                           <p className="text-sm text-[#8B5CF6] font-medium">✓ Exclusive badge</p>
                         </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="bg-[#0a0a0a] rounded-lg p-8 text-center">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
                       <Crown className="w-16 h-16 text-[#8B5CF6] mx-auto mb-4" />
                       <h3 className="text-2xl font-bold text-white mb-2">Upgrade to Serika+</h3>
-                      <p className="text-[#b5bac1] max-w-md mx-auto mb-6">
+                      <p className="text-[var(--text-secondary)] max-w-md mx-auto mb-6">
                         Get exclusive features like animated avatars, custom themes, enhanced upload
                         limits, and more.
                       </p>
@@ -1155,16 +1155,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Appearance Tab */}
               {activeTab === "appearance" && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-bold text-white">Appearance</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)]">Appearance</h2>
 
                   {userSettings && (
-                    <div className="bg-[#0a0a0a] rounded-lg p-5 space-y-4 border border-[#1a1a1a]">
+                    <div className="rounded-lg p-5 space-y-4 border border-[var(--border-subtle)] bg-[var(--bg-card)]">
                       <div>
-                        <label className="block text-sm text-[#888888] mb-2">Theme style</label>
+                        <label className="block text-sm text-[var(--text-secondary)] mb-2">Theme style</label>
                         <select
-                          value={userSettings.appearance?.themeStyle || themeSettings.theme || "dark"}
-                          onChange={(e) => saveAppearancePatch({ themeStyle: e.target.value })}
-                          className="w-full bg-[#111111] border border-[#222222] rounded-md px-3 py-2 text-white"
+                          value={userSettings.appearance?.theme || userSettings.appearance?.themeStyle || themeSettings.theme || "dark"}
+                          onChange={(e) => saveAppearancePatch({ theme: e.target.value })}
+                          className="w-full rounded-md px-3 py-2 bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                         >
                           <option value="dark">Dark</option>
                           <option value="midnight">Midnight</option>
@@ -1172,7 +1172,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         </select>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-white">Compact mode</span>
+                        <span className="text-[var(--text-primary)]">Compact mode</span>
                         <input
                           type="checkbox"
                           checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)}
@@ -1184,22 +1184,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   )}
                   
                   {/* Theme Selection */}
-                  <div className="bg-[#0a0a0a] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-4">Theme</h3>
+                  <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">Theme</h3>
                     <div className="grid grid-cols-3 gap-3">
                       {[
                         { id: "dark", label: "Dark", stripA: "#111111", stripB: "#0f0f0f", body: "#0a0a0a" },
                         { id: "midnight", label: "Midnight", stripA: "#0b1020", stripB: "#101728", body: "#050913" },
                         { id: "light", label: "Light", stripA: "#e5e5e5", stripB: "#f0f0f0", body: "#ffffff" },
                       ].map((themeOption) => {
-                        const selected = (userSettings?.appearance?.themeStyle || themeSettings.theme || "dark") === themeOption.id;
+                        const selected = (userSettings?.appearance?.theme || userSettings?.appearance?.themeStyle || themeSettings.theme || "dark") === themeOption.id;
                         return (
                           <button
                             key={themeOption.id}
-                            onClick={() => saveAppearancePatch({ themeStyle: themeOption.id })}
+                            onClick={() => saveAppearancePatch({ theme: themeOption.id })}
                             className={cn(
-                              "group p-3 bg-[#111111] rounded-xl text-left transition-all hover:scale-[1.02]",
-                              selected ? "border-2 border-[var(--app-accent)]" : "border border-[#222222]"
+                              "group p-3 rounded-xl text-left transition-all hover:scale-[1.02] bg-[var(--bg-sidebar-elevated)]",
+                              selected ? "border-2 border-[var(--app-accent)]" : "border border-[var(--border-subtle)]"
                             )}
                           >
                             <div className="aspect-video rounded-lg mb-3 overflow-hidden relative" style={{ backgroundColor: themeOption.body }}>
@@ -1210,7 +1210,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </div>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span className="text-white font-medium text-sm">{themeOption.label}</span>
+                              <span className="text-[var(--text-primary)] font-medium text-sm">{themeOption.label}</span>
                               {selected && <Check className="w-4 h-4 text-[var(--app-accent)]" />}
                             </div>
                           </button>
@@ -1220,9 +1220,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </div>
 
                   {/* Accent Color */}
-                  <div className="bg-[#0a0a0a] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-2">Accent Color</h3>
-                    <p className="text-sm text-[#888888] mb-4">Choose your primary accent color</p>
+                  <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">Accent Color</h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4">Choose your primary accent color</p>
                     <div className="flex gap-2 flex-wrap">
                       {[
                         { color: '#8B5CF6', name: 'Purple' },
@@ -1240,7 +1240,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           className={cn(
                             "w-10 h-10 rounded-full transition-all hover:scale-110 relative",
                             c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase() &&
-                              "ring-2 ring-white ring-offset-2 ring-offset-[#0a0a0a]"
+                              "ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-card)]"
                           )}
                           style={{ backgroundColor: c.color }}
                           title={c.name}
@@ -1254,20 +1254,20 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </div>
 
                   {/* Font Size */}
-                  <div className="bg-[#0a0a0a] rounded-lg p-5">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
                     <h3 className="text-base font-bold text-white mb-2">Chat Font Size</h3>
-                    <p className="text-sm text-[#888888] mb-4">Adjust the size of text in chat</p>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4">Adjust the size of text in chat</p>
                     <div className="flex items-center gap-4">
-                      <span className="text-xs text-[#888888]">12px</span>
+                      <span className="text-xs text-[var(--text-secondary)]">12px</span>
                       <input 
                         type="range" 
                         min="12" 
                         max="20" 
                         value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
                         onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) })}
-                        className="flex-1 accent-[#8B5CF6] h-1 bg-[#222222] rounded-full appearance-none cursor-pointer"
+                        className="flex-1 accent-[#8B5CF6] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
                       />
-                      <span className="text-xs text-[#888888]">20px</span>
+                      <span className="text-xs text-[var(--text-secondary)]">20px</span>
                     </div>
                     <p className="text-sm text-[#dcddde] mt-3">
                       Preview ({userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}px): This is how your chat will look.
@@ -1275,13 +1275,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </div>
 
                   {/* Message Display */}
-                  <div className="bg-[#0a0a0a] rounded-lg p-5">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
                     <h3 className="text-base font-bold text-white mb-4">Message Display</h3>
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
                           <p className="text-white font-medium group-hover:text-[#8B5CF6] transition-colors">Compact Mode</p>
-                          <p className="text-sm text-[#888888]">Display messages in a compact format</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Display messages in a compact format</p>
                         </div>
                         <div className="relative">
                           <input
@@ -1290,14 +1290,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             checked={Boolean(userSettings?.appearance?.compactMode ?? themeSettings.compactMode)}
                             onChange={(e) => saveAppearancePatch({ compactMode: e.target.checked })}
                           />
-                          <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
+                          <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
                       </label>
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
                           <p className="text-white font-medium group-hover:text-[#8B5CF6] transition-colors">Show Timestamps</p>
-                          <p className="text-sm text-[#888888]">Display message timestamps</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Display message timestamps</p>
                         </div>
                         <div className="relative">
                           <input
@@ -1306,14 +1306,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             checked={Boolean(themeSettings.showTimestamps)}
                             onChange={(e) => updateSettings({ showTimestamps: e.target.checked })}
                           />
-                          <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
+                          <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
                       </label>
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
                           <p className="text-white font-medium group-hover:text-[#8B5CF6] transition-colors">Show Role Colors</p>
-                          <p className="text-sm text-[#888888]">Color usernames by their highest role</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Color usernames by their highest role</p>
                         </div>
                         <div className="relative">
                           <input
@@ -1322,7 +1322,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)}
                             onChange={(e) => saveAppearancePatch({ showRoleColors: e.target.checked })}
                           />
-                          <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
+                          <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
                       </label>
@@ -1330,13 +1330,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </div>
 
                   {/* Animations */}
-                  <div className="bg-[#0a0a0a] rounded-lg p-5">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
                     <h3 className="text-base font-bold text-white mb-4">Animations</h3>
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
                           <p className="text-white font-medium group-hover:text-[#8B5CF6] transition-colors">Enable Animations</p>
-                          <p className="text-sm text-[#888888]">Show smooth transitions and animations</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Show smooth transitions and animations</p>
                         </div>
                         <div className="relative">
                           <input
@@ -1345,14 +1345,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)}
                             onChange={(e) => saveAppearancePatch({ enableAnimations: e.target.checked })}
                           />
-                          <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
+                          <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
                       </label>
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
                           <p className="text-white font-medium group-hover:text-[#8B5CF6] transition-colors">Animated Emojis</p>
-                          <p className="text-sm text-[#888888]">Play animated emojis automatically</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Play animated emojis automatically</p>
                         </div>
                         <div className="relative">
                           <input
@@ -1371,7 +1371,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               );
                             }}
                           />
-                          <div className="w-11 h-6 bg-[#222222] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
+                          <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
                       </label>
@@ -1384,16 +1384,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {activeTab === "voice-video" && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5">Voice & Video</h2>
-                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <div className="flex items-center gap-4 mb-4">
                       <Volume2 className="w-10 h-10 text-[#8B5CF6]" />
                       <div>
                         <h3 className="text-white font-bold">Voice Settings</h3>
-                        <p className="text-sm text-[#b5bac1]">Configure microphone and audio output</p>
+                        <p className="text-sm text-[var(--text-secondary)]">Configure microphone and audio output</p>
                       </div>
                     </div>
                     {isLoadingSettings || !userSettings ? (
-                      <div className="text-[#666666] text-sm">Loading settings...</div>
+                      <div className="text-[var(--text-muted)] text-sm">Loading settings...</div>
                     ) : (
                       <div className="space-y-3">
                         <label className="flex items-center justify-between">
@@ -1433,12 +1433,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {activeTab === "notifications" && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5">Notifications</h2>
-                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white font-medium">Enable Desktop Notifications</p>
-                          <p className="text-sm text-[#b5bac1]">Receive notifications on your desktop</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Receive notifications on your desktop</p>
                         </div>
                         <input
                           type="checkbox"
@@ -1450,7 +1450,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white font-medium">Message Sounds</p>
-                          <p className="text-sm text-[#b5bac1]">Play a sound for new messages</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Play a sound for new messages</p>
                         </div>
                         <input
                           type="checkbox"
@@ -1462,7 +1462,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white font-medium">Mute @everyone and @here</p>
-                          <p className="text-sm text-[#b5bac1]">Suppress notifications from @everyone and @here</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Suppress notifications from @everyone and @here</p>
                         </div>
                         <input
                           type="checkbox"
@@ -1483,20 +1483,20 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     {activeTab.replace(/-/g, " ")}
                   </h2>
                   {isLoadingSettings || !userSettings ? (
-                    <div className="bg-[#0a0a0a] rounded-lg p-8 text-center">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
                       <Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6] mx-auto" />
                     </div>
                   ) : activeTab === "authorized-apps" ? (
                     <div className="space-y-2">
                       {authorizedApps.length === 0 ? (
-                        <div className="bg-[#0a0a0a] rounded-lg p-6 text-center text-[#888888] text-sm">
+                        <div className="bg-[var(--bg-app)] rounded-lg p-6 text-center text-[var(--text-secondary)] text-sm">
                           No authorized apps connected.
                         </div>
                       ) : authorizedApps.map((app) => (
-                        <div key={app._id} className="bg-[#0a0a0a] rounded-lg p-4 flex items-center justify-between">
+                        <div key={app._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
                             <p className="text-white font-medium">{app.name}</p>
-                            <p className="text-xs text-[#888888]">{app.description || "No description"}</p>
+                            <p className="text-xs text-[var(--text-secondary)]">{app.description || "No description"}</p>
                           </div>
                           <button
                             onClick={async () => {
@@ -1518,10 +1518,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   ) : activeTab === "devices" ? (
                     <div className="space-y-2">
                       {deviceSessions.map((device) => (
-                        <div key={device._id} className="bg-[#0a0a0a] rounded-lg p-4 flex items-center justify-between">
+                        <div key={device._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
                             <p className="text-white text-sm">{device.deviceName}</p>
-                            <p className="text-xs text-[#888888]">{device.platform} • {new Date(device.lastActiveAt).toLocaleString()}</p>
+                            <p className="text-xs text-[var(--text-secondary)]">{device.platform} • {new Date(device.lastActiveAt).toLocaleString()}</p>
                           </div>
                           {!device.current && (
                             <button
@@ -1545,14 +1545,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   ) : activeTab === "connections" ? (
                     <div className="space-y-2">
                       {userConnections.length === 0 ? (
-                        <div className="bg-[#0a0a0a] rounded-lg p-6 text-center text-[#888888] text-sm">
+                        <div className="bg-[var(--bg-app)] rounded-lg p-6 text-center text-[var(--text-secondary)] text-sm">
                           No social connections added.
                         </div>
                       ) : userConnections.map((connection) => (
-                        <div key={connection._id} className="bg-[#0a0a0a] rounded-lg p-4 flex items-center justify-between">
+                        <div key={connection._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
                             <p className="text-white capitalize">{connection.provider}</p>
-                            <p className="text-xs text-[#888888]">{connection.displayName || connection.username || connection.accountId}</p>
+                            <p className="text-xs text-[var(--text-secondary)]">{connection.displayName || connection.username || connection.accountId}</p>
                           </div>
                           <button
                             onClick={async () => {
@@ -1572,14 +1572,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       ))}
                     </div>
                   ) : (
-                    <div className="space-y-4 bg-[#0a0a0a] rounded-lg p-5">
+                    <div className="space-y-4 bg-[var(--bg-app)] rounded-lg p-5">
                       {(activeTab === "content-social" || activeTab === "data-privacy") && (
                         <>
-                          <label className="block text-sm text-[#888888]">Sensitive Content Filter</label>
+                          <label className="block text-sm text-[var(--text-secondary)]">Sensitive Content Filter</label>
                           <select
                             value={userSettings.contentSocial?.explicitFilter || "moderate"}
                             onChange={(e) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), explicitFilter: e.target.value } }, "content-social")}
-                            className="w-full bg-[#111111] border border-[#222222] rounded-md px-3 py-2 text-white"
+                            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
                           >
                             <option value="disabled">Disabled</option>
                             <option value="moderate">Moderate</option>
@@ -1655,11 +1655,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                       {activeTab === "keybinds" && (
                         <>
-                          <label className="block text-sm text-[#888888]">Preset</label>
+                          <label className="block text-sm text-[var(--text-secondary)]">Preset</label>
                           <select
                             value={userSettings.keybinds?.preset || "default"}
                             onChange={(e) => saveSettingsPatch({ keybinds: { ...(userSettings.keybinds || {}), preset: e.target.value } }, "keybinds")}
-                            className="w-full bg-[#111111] border border-[#222222] rounded-md px-3 py-2 text-white"
+                            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
                           >
                             <option value="default">Default</option>
                             <option value="gaming">Gaming</option>
@@ -1670,16 +1670,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                       {activeTab === "language" && (
                         <>
-                          <label className="block text-sm text-[#888888]">Locale</label>
+                          <label className="block text-sm text-[var(--text-secondary)]">Locale</label>
                           <input
                             defaultValue={userSettings.language?.locale || "en-US"}
                             onBlur={(e) => saveSettingsPatch({ language: { ...(userSettings.language || {}), locale: e.target.value } }, "language")}
-                            className="w-full bg-[#111111] border border-[#222222] rounded-md px-3 py-2 text-white"
+                            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
                           />
                         </>
                       )}
 
-                      <div className="text-xs text-[#666666]">
+                      <div className="text-xs text-[var(--text-muted)]">
                         {isSavingSettings ? `Saving ${isSavingSettings}...` : "Changes are saved instantly."}
                       </div>
                     </div>
@@ -1694,14 +1694,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <ShieldCheck className="w-6 h-6 text-[#8B5CF6]" />
                     User Management
                   </h2>
-                  <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
                     <div className="flex gap-4 mb-4">
                       <Input
                         value={adminUserSearch}
                         onChange={(e) => setAdminUserSearch(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && searchAdminUsers()}
                         placeholder="Search users by email or username..."
-                        className="bg-[#111111] border-[#222222] text-white flex-1"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
                       />
                       <button 
                         onClick={searchAdminUsers}
@@ -1712,14 +1712,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         Search
                       </button>
                     </div>
-                    <p className="text-[#666666] text-sm">
+                    <p className="text-[var(--text-muted)] text-sm">
                       Search for users to view their profile, edit badges, or take moderation actions.
                     </p>
                   </div>
                   
                   {/* Search Results */}
                   {adminUsers.length > 0 && (
-                    <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
                       <h3 className="text-white font-semibold mb-3">Search Results</h3>
                       <div className="space-y-2">
                         {adminUsers.map((u) => (
@@ -1729,7 +1729,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               "flex items-center justify-between p-3 rounded-lg border",
                               selectedUser?.id === u.id
                                 ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/40"
-                                : "bg-[#111111] border-transparent"
+                                : "bg-[var(--bg-card)] border-transparent"
                             )}
                           >
                             <div className="flex items-center gap-3">
@@ -1741,7 +1741,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </Avatar>
                               <div>
                                 <p className="text-white font-medium">{u.displayName || u.username}</p>
-                                <p className="text-sm text-[#666666]">@{u.username} • {u.email}</p>
+                                <p className="text-sm text-[var(--text-muted)]">@{u.username} • {u.email}</p>
                               </div>
                               {u.isBanned && (
                                 <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded">Banned</span>
@@ -1757,7 +1757,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   "px-3 py-1.5 rounded text-sm",
                                   selectedUser?.id === u.id
                                     ? "bg-[#8B5CF6] text-white"
-                                    : "bg-[#222222] text-[#cccccc] hover:bg-[#2a2a2a]"
+                                    : "bg-[var(--border-subtle)] text-[#cccccc] hover:bg-[#2a2a2a]"
                                 )}
                               >
                                 {selectedUser?.id === u.id ? "Selected" : "Select"}
@@ -1784,7 +1784,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </div>
                   )}
 
-                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <button 
@@ -1795,17 +1795,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }
                           void handleBanUser(selectedUser.id, "Administrative action");
                         }}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Ban User</p>
-                        <p className="text-sm text-[#666666]">Permanently ban a user</p>
+                        <p className="text-sm text-[var(--text-muted)]">Permanently ban a user</p>
                       </button>
                       <button 
                         onClick={handleUpdateBadges}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Edit Badges</p>
-                        <p className="text-sm text-[#666666]">Add or remove badges</p>
+                        <p className="text-sm text-[var(--text-muted)]">Add or remove badges</p>
                       </button>
                       <button 
                         onClick={() => {
@@ -1813,10 +1813,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           setAdminLogFilter("reports");
                           void fetchAdminLogs("reports");
                         }}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">View Reports</p>
-                        <p className="text-sm text-[#666666]">Open filtered admin activity logs</p>
+                        <p className="text-sm text-[var(--text-muted)]">Open filtered admin activity logs</p>
                       </button>
                       <button 
                         onClick={() => {
@@ -1826,10 +1826,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }
                           window.location.href = `/dm/${selectedUser.id}`;
                         }}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Open DM Debug</p>
-                        <p className="text-sm text-[#666666]">Jump to a direct message with selected user</p>
+                        <p className="text-sm text-[var(--text-muted)]">Jump to a direct message with selected user</p>
                       </button>
                     </div>
                   </div>
@@ -1843,14 +1843,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <Database className="w-6 h-6 text-[#8B5CF6]" />
                     Server Management
                   </h2>
-                  <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
                     <div className="flex gap-4 mb-4">
                       <Input
                         value={adminServerSearch}
                         onChange={(e) => setAdminServerSearch(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && searchAdminServers()}
                         placeholder="Search servers by name or ID..."
-                        className="bg-[#111111] border-[#222222] text-white flex-1"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
                       />
                       <button 
                         onClick={searchAdminServers}
@@ -1865,7 +1865,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Search Results */}
                   {adminServers.length > 0 && (
-                    <div className="bg-[#0a0a0a] rounded-lg p-4 mb-4">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
                       <h3 className="text-white font-semibold mb-3">Search Results</h3>
                       <div className="space-y-2">
                         {adminServers.map((s) => (
@@ -1875,7 +1875,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               "flex items-center justify-between p-3 rounded-lg border",
                               selectedServer?.id === s.id
                                 ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/40"
-                                : "bg-[#111111] border-transparent"
+                                : "bg-[var(--bg-card)] border-transparent"
                             )}
                           >
                             <div className="flex items-center gap-3">
@@ -1887,7 +1887,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </Avatar>
                               <div>
                                 <p className="text-white font-medium">{s.name}</p>
-                                <p className="text-sm text-[#666666]">
+                                <p className="text-sm text-[var(--text-muted)]">
                                   {s.memberCount} members • Owner: {s.owner?.displayName || s.owner?.username}
                                 </p>
                               </div>
@@ -1905,7 +1905,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   "px-3 py-1.5 rounded text-sm",
                                   selectedServer?.id === s.id
                                     ? "bg-[#8B5CF6] text-white"
-                                    : "bg-[#222222] text-[#cccccc] hover:bg-[#2a2a2a]"
+                                    : "bg-[var(--border-subtle)] text-[#cccccc] hover:bg-[#2a2a2a]"
                                 )}
                               >
                                 {selectedServer?.id === s.id ? "Selected" : "Select"}
@@ -1935,7 +1935,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </div>
                   )}
 
-                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-3">Server Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
                       <button 
@@ -1946,10 +1946,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }
                           void handleTogglePartner(selectedServer.id);
                         }}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Partner Server</p>
-                        <p className="text-sm text-[#666666]">Grant partner status</p>
+                        <p className="text-sm text-[var(--text-muted)]">Grant partner status</p>
                       </button>
                       <button 
                         onClick={() => {
@@ -1959,10 +1959,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }
                           void handleDeleteServer(selectedServer.id);
                         }}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Delete Server</p>
-                        <p className="text-sm text-[#666666]">Remove server permanently</p>
+                        <p className="text-sm text-[var(--text-muted)]">Remove server permanently</p>
                       </button>
                       <button 
                         onClick={() => {
@@ -1972,17 +1972,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }
                           void handleToggleDiscovery(selectedServer.id);
                         }}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Toggle Discovery</p>
-                        <p className="text-sm text-[#666666]">Enable/disable discoverability</p>
+                        <p className="text-sm text-[var(--text-muted)]">Enable/disable discoverability</p>
                       </button>
                       <button 
                         onClick={handleTransferOwnership}
-                        className="p-3 bg-[#111111] hover:bg-[#1a1a1a] rounded-lg text-left transition-colors"
+                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Transfer Ownership</p>
-                        <p className="text-sm text-[#666666]">Change server owner</p>
+                        <p className="text-sm text-[var(--text-muted)]">Change server owner</p>
                       </button>
                     </div>
                   </div>
@@ -2000,32 +2000,32 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   {/* Stats Overview */}
                   {adminStats && (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-white">{adminStats.users.toLocaleString()}</p>
-                        <p className="text-sm text-[#666666]">Total Users</p>
+                        <p className="text-sm text-[var(--text-muted)]">Total Users</p>
                       </div>
-                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-white">{adminStats.servers.toLocaleString()}</p>
-                        <p className="text-sm text-[#666666]">Total Servers</p>
+                        <p className="text-sm text-[var(--text-muted)]">Total Servers</p>
                       </div>
-                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-white">{adminStats.messages.toLocaleString()}</p>
-                        <p className="text-sm text-[#666666]">Total Messages</p>
+                        <p className="text-sm text-[var(--text-muted)]">Total Messages</p>
                       </div>
-                      <div className="bg-[#0a0a0a] rounded-lg p-4 text-center">
+                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-green-400">+{adminStats.newUsersToday}</p>
-                        <p className="text-sm text-[#666666]">New Today</p>
+                        <p className="text-sm text-[var(--text-muted)]">New Today</p>
                       </div>
                     </div>
                   )}
 
                   <div className="space-y-4">
-                    <div className="bg-[#0a0a0a] rounded-lg p-4">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Maintenance Mode</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white">Enable Maintenance Mode</p>
-                          <p className="text-sm text-[#666666]">Restrict access to staff only</p>
+                          <p className="text-sm text-[var(--text-muted)]">Restrict access to staff only</p>
                         </div>
                         <input 
                           type="checkbox" 
@@ -2035,12 +2035,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         />
                       </label>
                     </div>
-                    <div className="bg-[#0a0a0a] rounded-lg p-4">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Registration</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white">Allow New Registrations</p>
-                          <p className="text-sm text-[#666666]">Enable new user sign-ups</p>
+                          <p className="text-sm text-[var(--text-muted)]">Enable new user sign-ups</p>
                         </div>
                         <input 
                           type="checkbox" 
@@ -2050,13 +2050,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         />
                       </label>
                     </div>
-                    <div className="bg-[#0a0a0a] rounded-lg p-4">
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Global Announcement</h3>
                       <Textarea
                         value={announcementText}
                         onChange={(e) => setAnnouncementText(e.target.value)}
                         placeholder="Enter a global announcement to display to all users..."
-                        className="bg-[#111111] border-[#222222] text-white mb-3"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-3"
                         rows={3}
                       />
                       <button 
@@ -2077,29 +2077,29 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <Activity className="w-6 h-6 text-[#8B5CF6]" />
                     Activity Logs
                   </h2>
-                  <div className="bg-[#0a0a0a] rounded-lg p-4">
+                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <div className="flex gap-2 mb-4">
                       <button 
                         onClick={() => { setAdminLogFilter("all"); fetchAdminLogs("all"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "all" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "all" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         All
                       </button>
                       <button 
                         onClick={() => { setAdminLogFilter("bans"); fetchAdminLogs("bans"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "bans" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "bans" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         Bans
                       </button>
                       <button 
                         onClick={() => { setAdminLogFilter("reports"); fetchAdminLogs("reports"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "reports" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "reports" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         Reports
                       </button>
                       <button 
                         onClick={() => { setAdminLogFilter("admin"); fetchAdminLogs("admin"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "admin" ? "bg-[#8B5CF6] text-white" : "bg-[#111111] text-white hover:bg-[#1a1a1a]")}
+                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "admin" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         Admin Actions
                       </button>
@@ -2110,13 +2110,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6]" />
                         </div>
                       ) : adminLogs.length === 0 ? (
-                        <div className="p-3 bg-[#111111] rounded-lg">
+                        <div className="p-3 bg-[var(--bg-card)] rounded-lg">
                           <p className="text-white text-sm">No activity logs yet</p>
-                          <p className="text-[#666666] text-xs mt-1">Admin actions will appear here</p>
+                          <p className="text-[var(--text-muted)] text-xs mt-1">Admin actions will appear here</p>
                         </div>
                       ) : (
                         adminLogs.map((log) => (
-                          <div key={log.id} className="p-3 bg-[#111111] rounded-lg">
+                          <div key={log.id} className="p-3 bg-[var(--bg-card)] rounded-lg">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <Avatar className="w-6 h-6">
@@ -2128,16 +2128,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <span className="text-white text-sm font-medium">
                                   {log.admin?.displayName || log.admin?.username}
                                 </span>
-                                <span className="text-[#666666] text-sm">
+                                <span className="text-[var(--text-muted)] text-sm">
                                   {log.action.replace(/_/g, " ")}
                                 </span>
                               </div>
-                              <span className="text-[#666666] text-xs">
+                              <span className="text-[var(--text-muted)] text-xs">
                                 {new Date(log.createdAt).toLocaleString()}
                               </span>
                             </div>
                             {log.reason && (
-                              <p className="text-[#888888] text-sm mt-1">Reason: {log.reason}</p>
+                              <p className="text-[var(--text-secondary)] text-sm mt-1">Reason: {log.reason}</p>
                             )}
                           </div>
                         ))
@@ -2152,7 +2152,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           {/* Close Button */}
           <button
             onClick={() => onOpenChange(false)}
-            className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center text-[#b5bac1] hover:text-white border border-[#3f4147] rounded-full transition-colors"
+            className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[#3f4147] rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -2164,7 +2164,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
           {/* Save bar */}
           {hasChanges && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[#111111] border-t border-[#1a1a1a] p-3 flex items-center justify-between animate-in slide-in-from-bottom">
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom">
               <span className="text-white text-sm">Careful — you have unsaved changes!</span>
               <div className="flex gap-2">
                 <button

@@ -9,6 +9,20 @@ import { Toast } from '@capacitor/toast';
 import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
+const normalizeAppRoute = (rawPath: string) => {
+  const normalized = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+  const dmFromChannelsMe = normalized.match(/^\/channels\/me\/([^/?#]+)/);
+  if (dmFromChannelsMe?.[1]) return `/dm/${dmFromChannelsMe[1]}`;
+
+  const dmFromMessages = normalized.match(/^\/channels\/messages\/([^/?#]+)/);
+  if (dmFromMessages?.[1]) return `/dm/${dmFromMessages[1]}`;
+
+  const legacyMessages = normalized.match(/^\/messages\/([^/?#]+)/);
+  if (legacyMessages?.[1]) return `/dm/${legacyMessages[1]}`;
+
+  return normalized;
+};
+
 // Helper to set user status
 const setUserStatus = async (status: 'online' | 'idle' | 'offline') => {
   try {
@@ -52,17 +66,18 @@ const initApp = async () => {
 
       // Navigate based on notification data
       if (extra.channelId && extra.serverId) {
-        window.location.href = `/channels/${extra.serverId}/${extra.channelId}`;
-      } else if (extra.channelId && extra.isDM) {
-        if (extra.recipientId) {
-          window.location.href = `/dm/${extra.recipientId}`;
+        window.location.href = normalizeAppRoute(`/channels/${extra.serverId}/${extra.channelId}`);
+      } else if (extra.isDM) {
+        const recipientId = extra.recipientId || extra.dmUserId || extra.userId || extra.channelId;
+        if (recipientId) {
+          window.location.href = normalizeAppRoute(`/dm/${recipientId}`);
         } else {
-          window.location.href = '/channels/messages';
+          window.location.href = normalizeAppRoute('/channels/messages');
         }
       } else if (extra.type === 'friend-request') {
-        window.location.href = '/channels/me';
+        window.location.href = normalizeAppRoute('/channels/me');
       } else if (extra.type === 'mention') {
-        window.location.href = `/channels/${extra.serverId}/${extra.channelId}`;
+        window.location.href = normalizeAppRoute(`/channels/${extra.serverId}/${extra.channelId}`);
       }
     });
 
@@ -79,7 +94,7 @@ const initApp = async () => {
     // Handle serikacord:// deep links
     if (url.startsWith('serikacord://')) {
       const path = url.replace('serikacord://', '/');
-      window.location.href = path;
+      window.location.href = normalizeAppRoute(path);
     }
   });
 

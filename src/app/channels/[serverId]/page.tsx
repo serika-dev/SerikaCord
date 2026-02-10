@@ -41,7 +41,7 @@ export default function ServerPage() {
   // Show loading state while waiting for redirect
   if (currentServer && channels.length === 0) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#0a0a0a] text-[#666666]">
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--bg-app)] text-[var(--text-secondary)]">
         <Loader2 className="w-8 h-8 animate-spin text-[#8B5CF6] mb-4" />
         <p>Loading channels...</p>
       </div>

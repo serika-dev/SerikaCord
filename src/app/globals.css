@@ -96,6 +96,22 @@
   --app-muted-2: #6b7387;
   --app-accent: #7c8cff;
   --app-elev-1: 0 8px 30px rgba(0, 0, 0, 0.25);
+
+  /* Semantic theme tokens */
+  --bg-app: var(--app-bg);
+  --bg-sidebar: var(--app-bg);
+  --bg-sidebar-elevated: var(--app-surface);
+  --bg-card: var(--app-surface);
+  --bg-hover: color-mix(in srgb, var(--app-surface-alt) 70%, transparent);
+  --bg-active: color-mix(in srgb, var(--app-accent) 18%, transparent);
+  --text-primary: var(--app-text);
+  --text-secondary: var(--app-muted);
+  --text-muted: var(--app-muted-2);
+  --text-on-accent: #ffffff;
+  --border-subtle: var(--app-border);
+  --border-strong: color-mix(in srgb, var(--app-border) 80%, #ffffff 20%);
+  --accent: var(--app-accent);
+  --accent-hover: color-mix(in srgb, var(--app-accent) 82%, #ffffff 18%);
 }
 
 .dark {
@@ -141,6 +157,21 @@
   --app-muted-2: #6b7387;
   --app-accent: #7c8cff;
   --app-elev-1: 0 8px 30px rgba(0, 0, 0, 0.25);
+
+  --bg-app: var(--app-bg);
+  --bg-sidebar: var(--app-bg);
+  --bg-sidebar-elevated: var(--app-surface);
+  --bg-card: var(--app-surface);
+  --bg-hover: color-mix(in srgb, var(--app-surface-alt) 72%, transparent);
+  --bg-active: color-mix(in srgb, var(--app-accent) 18%, transparent);
+  --text-primary: var(--app-text);
+  --text-secondary: var(--app-muted);
+  --text-muted: var(--app-muted-2);
+  --text-on-accent: #ffffff;
+  --border-subtle: var(--app-border);
+  --border-strong: color-mix(in srgb, var(--app-border) 80%, #ffffff 20%);
+  --accent: var(--app-accent);
+  --accent-hover: color-mix(in srgb, var(--app-accent) 82%, #ffffff 18%);
 }
 
 .theme-midnight {
@@ -152,6 +183,20 @@
   --app-muted: #90a0bf;
   --app-muted-2: #6f7f99;
   --app-elev-1: 0 10px 34px rgba(0, 0, 0, 0.32);
+  --bg-app: var(--app-bg);
+  --bg-sidebar: #040a14;
+  --bg-sidebar-elevated: var(--app-surface);
+  --bg-card: var(--app-surface);
+  --bg-hover: color-mix(in srgb, var(--app-surface-alt) 78%, transparent);
+  --bg-active: color-mix(in srgb, var(--app-accent) 22%, transparent);
+  --text-primary: var(--app-text);
+  --text-secondary: var(--app-muted);
+  --text-muted: var(--app-muted-2);
+  --text-on-accent: #ffffff;
+  --border-subtle: var(--app-border);
+  --border-strong: #203150;
+  --accent: var(--app-accent);
+  --accent-hover: color-mix(in srgb, var(--app-accent) 84%, #ffffff 16%);
 }
 
 .theme-light {
@@ -163,6 +208,20 @@
   --app-muted: #596986;
   --app-muted-2: #7b89a3;
   --app-elev-1: 0 8px 22px rgba(23, 35, 58, 0.08);
+  --bg-app: var(--app-bg);
+  --bg-sidebar: #edf2fb;
+  --bg-sidebar-elevated: var(--app-surface);
+  --bg-card: #ffffff;
+  --bg-hover: color-mix(in srgb, #dfe7f7 68%, transparent);
+  --bg-active: color-mix(in srgb, var(--app-accent) 15%, #f6f8fe 85%);
+  --text-primary: var(--app-text);
+  --text-secondary: var(--app-muted);
+  --text-muted: var(--app-muted-2);
+  --text-on-accent: #ffffff;
+  --border-subtle: var(--app-border);
+  --border-strong: #c2cfe6;
+  --accent: var(--app-accent);
+  --accent-hover: color-mix(in srgb, var(--app-accent) 88%, #000000 12%);
 }
 
 html.theme-light body {
@@ -187,10 +246,10 @@ html.theme-midnight body {
   body {
     @apply bg-background text-foreground;
     background:
-      radial-gradient(1200px circle at 10% -20%, rgba(124, 140, 255, 0.16), transparent 50%),
+      radial-gradient(1200px circle at 10% -20%, color-mix(in srgb, var(--app-accent) 16%, transparent), transparent 50%),
       radial-gradient(900px circle at 95% 5%, rgba(46, 181, 203, 0.08), transparent 45%),
-      var(--app-bg);
-    color: var(--app-text);
+      var(--bg-app);
+    color: var(--text-primary);
   }
 
   input[type="checkbox"],
