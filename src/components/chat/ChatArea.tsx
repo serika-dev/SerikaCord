@@ -457,10 +457,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         return;
       }
 
-      const staticSuggestions: MentionSuggestion[] = [
+      const staticSuggestionPool: MentionSuggestion[] = [
         { id: "everyone", kind: "everyone", label: "everyone", description: "Notify everyone in this channel" },
         { id: "here", kind: "here", label: "here", description: "Notify currently active members" },
-      ].filter((entry) => entry.label.startsWith(query));
+      ];
+      const staticSuggestions = staticSuggestionPool.filter((entry) => entry.label.startsWith(query));
 
       const userSuggestions = mentionUsers
         .filter((entry) => {
