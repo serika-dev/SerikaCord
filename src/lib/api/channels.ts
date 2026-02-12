@@ -49,6 +49,14 @@ interface RawLeanMessage {
   mentionedChannelIds?: Array<Types.ObjectId | string>;
 }
 
+function isPopulatedAuthor(value: unknown): value is PopulatedAuthor {
+  return Boolean(value) && typeof value === 'object' && '_id' in (value as Record<string, unknown>);
+}
+
+function isReferencedMessageRaw(value: unknown): value is ReferencedMessageRaw {
+  return Boolean(value) && typeof value === 'object' && '_id' in (value as Record<string, unknown>) && !(value instanceof Types.ObjectId);
+}
+
 const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-fA-F]{24}>|<@&[0-9a-fA-F]{24}>|<#(?:[0-9a-fA-F]{24})>|<a?:[a-zA-Z0-9_]+:[0-9a-fA-F]{24}>/g;
 const USER_MENTION_REGEX = /<@!?([0-9a-fA-F]{24})>/g;
 const ROLE_MENTION_REGEX = /<@&([0-9a-fA-F]{24})>/g;
@@ -423,7 +431,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const decryptedMessages = await Promise.all((messages as RawLeanMessage[]).map(async (msg) => {
       const author = msg.authorId as PopulatedAuthor | Types.ObjectId | string | null;
       const populatedAuthor =
-        author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+        isPopulatedAuthor(author) ? author : null;
       const decryptedContent = await decryptFromStorage(msg.content || '');
       const referencedRaw = msg.referencedMessageId;
       let referencedMessage:
@@ -440,12 +448,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           }
         | undefined;
 
-      if (referencedRaw && typeof referencedRaw === 'object' && '_id' in referencedRaw) {
+      if (isReferencedMessageRaw(referencedRaw)) {
         const referencedAuthor = referencedRaw.authorId as PopulatedAuthor | Types.ObjectId | string | null;
         const populatedReferencedAuthor =
-          referencedAuthor && typeof referencedAuthor === 'object' && '_id' in referencedAuthor
-            ? referencedAuthor as PopulatedAuthor
-            : null;
+          isPopulatedAuthor(referencedAuthor) ? referencedAuthor : null;
         referencedMessage = {
           id: referencedRaw._id.toString(),
           content: referencedRaw.content ? await decryptFromStorage(referencedRaw.content) : '',
@@ -549,7 +555,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
       const author = msg.authorId as PopulatedAuthor | Types.ObjectId | string | null;
       const populatedAuthor =
-        author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+        isPopulatedAuthor(author) ? author : null;
 
       results.push({
         id: msg._id.toString(),
@@ -702,7 +708,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Transform message for frontend (return original sanitized content, not encrypted)
     const author = message.authorId as PopulatedAuthor | Types.ObjectId | string | null;
     const populatedAuthor =
-      author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+      isPopulatedAuthor(author) ? author : null;
     let referencedMessage:
       | {
           id: string;
@@ -724,9 +730,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       if (reference) {
         const referenceAuthor = reference.authorId as PopulatedAuthor | Types.ObjectId | string | null;
         const populatedReferenceAuthor =
-          referenceAuthor && typeof referenceAuthor === 'object' && '_id' in referenceAuthor
-            ? referenceAuthor as PopulatedAuthor
-            : null;
+          isPopulatedAuthor(referenceAuthor) ? referenceAuthor : null;
         referencedMessage = {
           id: reference._id.toString(),
           content: reference.content ? await decryptFromStorage(reference.content) : '',
@@ -840,7 +844,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       (pinnedMessages as RawLeanMessage[]).map(async (msg) => {
         const author = msg.authorId as PopulatedAuthor | Types.ObjectId | string | null;
         const populatedAuthor =
-          author && typeof author === 'object' && '_id' in author ? author as PopulatedAuthor : null;
+          isPopulatedAuthor(author) ? author : null;
         return {
           id: msg._id.toString(),
           content: msg.content ? await decryptFromStorage(msg.content) : '',
