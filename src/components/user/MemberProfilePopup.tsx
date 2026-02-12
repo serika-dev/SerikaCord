@@ -25,19 +25,19 @@ interface MemberProfilePopupProps {
     id: string;
     username: string;
     displayName?: string;
-    avatar?: string;
-    banner?: string;
-    bio?: string;
+    avatar?: string | null;
+    banner?: string | null;
+    bio?: string | null;
     status: "online" | "idle" | "dnd" | "offline";
-    customStatus?: string;
+    customStatus?: string | null;
     badges?: string[];
     roles?: Array<{
       id: string;
       name: string;
       color?: string;
     }>;
-    joinedAt?: string;
-    createdAt?: string;
+    joinedAt?: string | null;
+    createdAt?: string | null;
     isPremium?: boolean;
     isOwner?: boolean;
   };
@@ -177,7 +177,7 @@ export function MemberProfilePopup({
           <div className="absolute -top-8 left-4">
             <div className="relative">
               <Avatar className="w-20 h-20 border-4 border-[#111111]">
-                <AvatarImage src={fullProfile.avatar} />
+                <AvatarImage src={fullProfile.avatar || undefined} />
                 <AvatarFallback className="bg-[#8B5CF6] text-white text-2xl">
                   {(fullProfile.displayName || fullProfile.username).charAt(0).toUpperCase()}
                 </AvatarFallback>
