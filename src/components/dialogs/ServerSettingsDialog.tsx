@@ -8,6 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ImageCropper } from "@/components/ui/image-cropper";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import {
   X,
@@ -533,6 +542,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: "new role",
+          color: "#99AAB5",
+          permissions: "0",
         }),
       });
 
@@ -728,7 +739,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
     // Get emoji name from filename
     const emojiName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_]/g, "_").substring(0, 32);
-    
+
     setIsUploadingEmoji(true);
     const formData = new FormData();
     formData.append("file", file);
@@ -1561,82 +1572,121 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               return name.includes(needle) || username.includes(needle);
             })
             .map((member, index) => (
-            <div
-              key={member.id || `member-${index}`}
-              className="flex items-center gap-3 p-3 rounded-lg hover:bg-[#111111] transition-colors border border-transparent hover:border-[#222222]"
-            >
-              <Avatar className="w-10 h-10">
-                <AvatarImage src={member.avatar || undefined} />
-                <AvatarFallback className="bg-[#8B5CF6] text-white">
-                  {(member.displayName || member.username || '?').charAt(0)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-white font-medium">
-                    {member.displayName || member.username}
-                  </span>
-                  {currentServer.ownerId === member.id && (
-                    <Crown className="w-4 h-4 text-[#F59E0B]" />
-                  )}
-                </div>
-                <span className="text-sm text-[#888888]">@{member.username}</span>
-                {member.roles.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {member.roles.slice(0, 3).map((role) => (
-                      <span
-                        key={`${member.id}-${role.id}`}
-                        className="px-2 py-0.5 rounded text-[11px]"
-                        style={{ backgroundColor: `${role.color}22`, color: role.color }}
-                      >
-                        {role.name}
-                      </span>
-                    ))}
-                    {member.roles.length > 3 && (
-                      <span className="px-2 py-0.5 rounded text-[11px] bg-[#1a1a1a] text-[#777777]">
-                        +{member.roles.length - 3}
-                      </span>
+              <div
+                key={member.id || `member-${index}`}
+                className="flex items-center gap-3 p-3 rounded-lg hover:bg-[#111111] transition-colors border border-transparent hover:border-[#222222]"
+              >
+                <Avatar className="w-10 h-10">
+                  <AvatarImage src={member.avatar || undefined} />
+                  <AvatarFallback className="bg-[#8B5CF6] text-white">
+                    {(member.displayName || member.username || '?').charAt(0)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-white font-medium">
+                      {member.displayName || member.username}
+                    </span>
+                    {currentServer.ownerId === member.id && (
+                      <Crown className="w-4 h-4 text-[#F59E0B]" />
                     )}
                   </div>
-                )}
-              </div>
-              <details className="relative">
-                <summary className="list-none p-2 hover:bg-[#1a1a1a] rounded-md text-[#888888] transition-colors cursor-pointer">
-                  {memberRoleSavingId === member.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <MoreHorizontal className="w-4 h-4" />
+                  <span className="text-sm text-[#888888]">@{member.username}</span>
+                  {member.roles.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {member.roles.slice(0, 3).map((role) => (
+                        <span
+                          key={`${member.id}-${role.id}`}
+                          className="px-2 py-0.5 rounded text-[11px]"
+                          style={{ backgroundColor: `${role.color}22`, color: role.color }}
+                        >
+                          {role.name}
+                        </span>
+                      ))}
+                      {member.roles.length > 3 && (
+                        <span className="px-2 py-0.5 rounded text-[11px] bg-[#1a1a1a] text-[#777777]">
+                          +{member.roles.length - 3}
+                        </span>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="p-0.5 text-[#888888] hover:text-[#8B5CF6] transition-colors">
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="w-56 bg-[#111111] border-[#222222] text-[#888888]">
+                          <DropdownMenuLabel className="text-xs font-bold text-[#666666] uppercase">
+                            Manage Roles
+                          </DropdownMenuLabel>
+                          <DropdownMenuSeparator className="bg-[#222222]" />
+                          <ScrollArea className="h-[200px]">
+                            {roles
+                              .filter(r => !r.isDefault && !r.managed)
+                              .sort((a, b) => b.position - a.position)
+                              .map((role) => {
+                                const hasRole = member.roles.some(r => r.id === role.id);
+                                return (
+                                  <DropdownMenuCheckboxItem
+                                    key={role.id}
+                                    checked={hasRole}
+                                    onCheckedChange={(checked) =>
+                                      handleToggleMemberRole(member, role.id, checked)
+                                    }
+                                    className="focus:bg-[#8B5CF6] focus:text-white"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div
+                                        className="w-2 h-2 rounded-full"
+                                        style={{ backgroundColor: role.color }}
+                                      />
+                                      <span className={hasRole ? "text-white" : ""}>{role.name}</span>
+                                    </div>
+                                  </DropdownMenuCheckboxItem>
+                                );
+                              })}
+                          </ScrollArea>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   )}
-                </summary>
-                <div className="absolute right-0 mt-2 z-20 w-64 rounded-lg bg-[#0c0c0c] border border-[#222222] p-3 shadow-xl">
-                  <p className="text-xs uppercase tracking-wide text-[#888888] mb-2">Assign Roles</p>
-                  <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
-                    {roles
-                      .slice()
-                      .sort((a, b) => b.position - a.position)
-                      .map((role) => {
-                        const checked = member.roles.some((entry) => entry.id === role.id);
-                        const isDisabled = role.isDefault || memberRoleSavingId === member.id;
-                        return (
-                          <label key={`${member.id}-${role.id}`} className="flex items-center justify-between gap-2 py-1">
-                            <span className="text-sm" style={{ color: role.color || "#ffffff" }}>
-                              {role.name}
-                            </span>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              disabled={isDisabled}
-                              onChange={(event) => void handleToggleMemberRole(member, role.id, event.target.checked)}
-                              className="w-4 h-4 accent-[#8B5CF6]"
-                            />
-                          </label>
-                        );
-                      })}
-                  </div>
                 </div>
-              </details>
-            </div>
-          ))}
+                <details className="relative">
+                  <summary className="list-none p-2 hover:bg-[#1a1a1a] rounded-md text-[#888888] transition-colors cursor-pointer">
+                    {memberRoleSavingId === member.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <MoreHorizontal className="w-4 h-4" />
+                    )}
+                  </summary>
+                  <div className="absolute right-0 mt-2 z-20 w-64 rounded-lg bg-[#0c0c0c] border border-[#222222] p-3 shadow-xl">
+                    <p className="text-xs uppercase tracking-wide text-[#888888] mb-2">Assign Roles</p>
+                    <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
+                      {roles
+                        .slice()
+                        .sort((a, b) => b.position - a.position)
+                        .map((role) => {
+                          const checked = member.roles.some((entry) => entry.id === role.id);
+                          const isDisabled = role.isDefault || memberRoleSavingId === member.id;
+                          return (
+                            <label key={`${member.id}-${role.id}`} className="flex items-center justify-between gap-2 py-1">
+                              <span className="text-sm" style={{ color: role.color || "#ffffff" }}>
+                                {role.name}
+                              </span>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                disabled={isDisabled}
+                                onChange={(event) => void handleToggleMemberRole(member, role.id, event.target.checked)}
+                                className="w-4 h-4 accent-[#8B5CF6]"
+                              />
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </details>
+              </div>
+            ))}
         </div>
       )}
     </div>

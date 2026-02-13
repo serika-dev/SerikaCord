@@ -215,7 +215,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
           />
         </div>
         <div className="flex-1 min-w-0 text-left">
-          <div className="text-sm font-medium truncate" style={roleColor ? { color: roleColor } : undefined}>
+          <div className="text-sm font-medium truncate text-[var(--text-primary)]" style={roleColor ? { color: roleColor } : undefined}>
             {member.displayName || member.username || "Unknown"}
           </div>
         </div>

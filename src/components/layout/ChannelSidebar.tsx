@@ -174,12 +174,12 @@ export function ChannelSidebar({
   const textChannels = channels.filter(c => c.type === "text");
   const voiceChannels = channels.filter(c => c.type === "voice");
   const announcementChannels = channels.filter(c => c.type === "announcement");
-  
+
   // State for collapsed categories
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
   const pathname = usePathname();
-  
+
   const toggleCategory = (categoryId: string) => {
     setCollapsedCategories(prev => {
       const newSet = new Set(prev);
@@ -233,7 +233,7 @@ export function ChannelSidebar({
 
         {/* Navigation */}
         <div className="px-2 pt-3 pb-1">
-          <Link 
+          <Link
             href="/channels/me"
             className={cn(
               "flex items-center gap-3 px-2 py-2 rounded-md transition-colors",
@@ -258,14 +258,14 @@ export function ChannelSidebar({
                 <PlusCircle className="w-4 h-4" />
               </button>
             </div>
-            
+
             {dmChannels.length > 0 ? (
               <div className="space-y-0.5">
                 {dmChannels.map((channel) => {
                   const recipient = channel.recipients[0];
                   if (!recipient) return null;
                   const isActive = pathname === `/dm/${recipient.id}`;
-                  
+
                   return (
                     <Link
                       key={channel.id}
@@ -277,7 +277,7 @@ export function ChannelSidebar({
                           : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
                       )}
                     >
-                      <div className="relative flex-shrink-0">
+                      <div className="relative shrink-0">
                         <Avatar className="w-8 h-8">
                           <AvatarImage src={recipient.avatar} />
                           <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-xs">
@@ -292,7 +292,7 @@ export function ChannelSidebar({
                       <span className="flex-1 truncate text-sm">
                         {recipient.displayName || recipient.username}
                       </span>
-                      <button 
+                      <button
                         className="p-1 opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-opacity"
                         onClick={(e) => {
                           e.preventDefault();
@@ -355,7 +355,7 @@ export function ChannelSidebar({
             <PlusCircle className="w-4 h-4 mr-2" />
             Create Channel
           </DropdownMenuItem>
-          <DropdownMenuItem 
+          <DropdownMenuItem
             onClick={onCreateCategory || onCreateChannel}
             className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
           >
@@ -372,7 +372,7 @@ export function ChannelSidebar({
             Privacy Settings
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
-          <DropdownMenuItem 
+          <DropdownMenuItem
             onClick={async () => {
               if (currentServer && confirm(`Are you sure you want to leave ${currentServer.name}?`)) {
                 await leaveServer(currentServer.id);
@@ -393,15 +393,15 @@ export function ChannelSidebar({
           {announcementChannels.length > 0 && (
             <div className="mb-2">
               <div className="px-2 mb-1">
-                <button 
+                <button
                   className="w-full px-1 flex items-center gap-0.5 group"
                   onClick={() => toggleCategory('announcements')}
                 >
-                  <ChevronRight 
+                  <ChevronRight
                     className={cn(
                       "w-3 h-3 text-[var(--text-muted)] transition-transform",
                       !collapsedCategories.has('announcements') && "rotate-90"
-                    )} 
+                    )}
                   />
                   <span className="text-xs font-semibold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">
                     Announcements
@@ -429,16 +429,16 @@ export function ChannelSidebar({
           {/* Text Channels */}
           <div className="mb-2">
             <div className="px-2 mb-1">
-              <button 
+              <button
                 className="w-full px-1 flex items-center justify-between group"
                 onClick={() => toggleCategory('text')}
               >
                 <div className="flex items-center gap-0.5">
-                  <ChevronRight 
+                  <ChevronRight
                     className={cn(
                       "w-3 h-3 text-[var(--text-muted)] transition-transform",
                       !collapsedCategories.has('text') && "rotate-90"
-                    )} 
+                    )}
                   />
                   <span className="text-xs font-semibold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">
                     Text Channels
@@ -490,16 +490,16 @@ export function ChannelSidebar({
           {/* Voice Channels */}
           <div className="mb-2">
             <div className="px-2 mb-1">
-              <button 
+              <button
                 className="w-full px-1 flex items-center justify-between group"
                 onClick={() => toggleCategory('voice')}
               >
                 <div className="flex items-center gap-0.5">
-                  <ChevronRight 
+                  <ChevronRight
                     className={cn(
                       "w-3 h-3 text-[var(--text-muted)] transition-transform",
                       !collapsedCategories.has('voice') && "rotate-90"
-                    )} 
+                    )}
                   />
                   <span className="text-xs font-semibold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)]">
                     Voice Channels
@@ -634,10 +634,10 @@ function UserPanel({ user }: UserPanelProps) {
   return (
     <div className="h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
       <UserProfilePopup onOpenSettings={handleSettingsClick}>
-        <button 
+        <button
           className="flex items-center gap-2 flex-1 min-w-0 p-1 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
         >
-          <div className="relative">
+          <div className="relative shrink-0">
             <Avatar className="w-8 h-8">
               <AvatarImage src={user?.avatar} alt={user?.displayName} />
               <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm">
@@ -653,19 +653,19 @@ function UserPanel({ user }: UserPanelProps) {
                 (!user?.status || user?.status === "offline") && "bg-[var(--text-muted)]"
               )}
             />
-        </div>
-        <div className="flex-1 min-w-0 text-left">
-          <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-            {user?.displayName || "Unknown"}
           </div>
-          <div className="text-xs text-[var(--text-muted)] truncate">
-            {user?.username || "unknown"}
+          <div className="flex-1 min-w-0 text-left">
+            <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+              {user?.displayName || "Unknown"}
+            </div>
+            <div className="text-xs text-[var(--text-muted)] truncate">
+              {user?.username || "unknown"}
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
       </UserProfilePopup>
       <div className="flex items-center gap-0.5">
-        <button 
+        <button
           onClick={handleMuteToggle}
           className={cn(
             "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
@@ -675,7 +675,7 @@ function UserPanel({ user }: UserPanelProps) {
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
-        <button 
+        <button
           onClick={handleDeafenToggle}
           className={cn(
             "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
@@ -685,7 +685,7 @@ function UserPanel({ user }: UserPanelProps) {
         >
           {isDeafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
         </button>
-        <button 
+        <button
           onClick={handleSettingsClick}
           className="p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           title="User Settings"

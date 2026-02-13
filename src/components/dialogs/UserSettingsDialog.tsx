@@ -38,6 +38,7 @@ import {
   Settings,
   Database,
   Activity,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getBadgesByPriority, type BadgeId } from "@/lib/constants/badges";
@@ -67,7 +68,8 @@ type SettingsTab =
   | "admin-users"
   | "admin-servers"
   | "admin-settings"
-  | "admin-logs";
+  | "admin-logs"
+  | "experiments";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -760,7 +762,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   ];
 
   // Add admin section if user has staff badge
-  const isStaff = user?.badges?.some((badge: string) => 
+  const isStaff = user?.badges?.some((badge: string) =>
     ['staff', 'admin', 'moderator', 'serikacord_developer'].includes(badge)
   );
 
@@ -772,6 +774,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         { id: "admin-servers" as SettingsTab, label: "Server Management", icon: Database },
         { id: "admin-settings" as SettingsTab, label: "Platform Settings", icon: Settings },
         { id: "admin-logs" as SettingsTab, label: "Activity Logs", icon: Activity },
+        { id: "experiments" as SettingsTab, label: "Experiments", icon: FlaskConical },
       ],
     });
   }
@@ -779,11 +782,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   // Filter menu items based on search
   const filteredSections = searchQuery
     ? menuSections.map(section => ({
-        ...section,
-        items: section.items.filter(item =>
-          item.label.toLowerCase().includes(searchQuery.toLowerCase())
-        ),
-      })).filter(section => section.items.length > 0)
+      ...section,
+      items: section.items.filter(item =>
+        item.label.toLowerCase().includes(searchQuery.toLowerCase())
+      ),
+    })).filter(section => section.items.length > 0)
     : menuSections;
 
   return (
@@ -815,7 +818,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <h3 className="font-semibold text-[var(--text-primary)] truncate text-sm">
                   {user?.displayName || user?.username}
                 </h3>
-                <button 
+                <button
                   onClick={() => setActiveTab("profiles")}
                   className="text-xs text-[var(--text-secondary)] hover:text-[#8B5CF6] flex items-center gap-1 transition-colors"
                 >
@@ -910,13 +913,110 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             <X className="w-5 h-5" />
           </button>
 
-          <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
+          <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
             <div className="max-w-[740px] py-6 px-4 md:py-10 md:px-10 mx-auto pb-24">
+              {/* Admin Logs Tab */}
+              {activeTab === "admin-logs" && (
+                <div>
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-xl font-bold text-[var(--text-primary)]">Activity Logs</h2>
+                    <div className="flex gap-2">
+                      {/* Filter Dropdown would go here */}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    {adminLogs.map((log) => (
+                      <div key={log.id} className="p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+                              {log.action}
+                            </span>
+                            <span className="text-sm text-[var(--text-muted)]">
+                              by {log.admin.displayName || log.admin.username}
+                            </span>
+                          </div>
+                          <span className="text-xs text-[var(--text-muted)]">
+                            {new Date(log.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-[var(--text-secondary)]">{log.targetType}: </span>
+                          <span className="font-mono text-[var(--text-primary)]">{log.targetId}</span>
+                        </div>
+                        {log.details && (
+                          <pre className="mt-2 p-2 rounded bg-[var(--bg-card)] text-xs overflow-x-auto text-[var(--text-secondary)]">
+                            {JSON.stringify(log.details, null, 2)}
+                          </pre>
+                        )}
+                      </div>
+                    ))}
+                    {isLoadingAdmin && <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#8B5CF6]" />}
+                  </div>
+                </div>
+              )}
+
+              {/* Experiments Tab */}
+              {activeTab === "experiments" && (
+                <div>
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 rounded-lg bg-gradient-to-br from-pink-500 to-rose-500 text-white">
+                      <FlaskConical className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h2 className="text-xl font-bold text-[var(--text-primary)]">Experiments</h2>
+                      <p className="text-sm text-[var(--text-muted)]">Beta features & developer tools</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="p-4 rounded-lg bg-[var(--bg-app)] border border-pink-500/20">
+                      <h3 className="font-semibold text-[var(--text-primary)] mb-2 flex items-center gap-2">
+                        <Crown className="w-4 h-4 text-pink-500" />
+                        Premium Features
+                      </h3>
+                      <p className="text-sm text-[var(--text-secondary)] mb-4">
+                        Unlock premium features for testing purposes.
+                      </p>
+                      <button
+                        onClick={() => toast.success("Premium features unlocked for this session")}
+                        className="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-md text-sm font-medium transition-colors"
+                      >
+                        Unlock Premium
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-semibold text-[var(--text-muted)] uppercase tracking-wide">
+                        Lab Features
+                      </h3>
+                      {[
+                        { id: "new_profile", label: "New Profile Logic", desc: "Enable the experimental profile v2 backend." },
+                        { id: "voice_v2", label: "Voice Engine V2", desc: "Use the new WebRTC implementation." },
+                      ].map((experiment) => (
+                        <div key={experiment.id} className="flex items-center justify-between p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+                          <div>
+                            <p className="font-medium text-[var(--text-primary)]">{experiment.label}</p>
+                            <p className="text-sm text-[var(--text-muted)]">{experiment.desc}</p>
+                          </div>
+                          <button
+                            onClick={() => toast.success(`Toggled ${experiment.label}`)}
+                            className="px-3 py-1.5 rounded bg-[var(--bg-card)] border border-[var(--border-subtle)] text-sm hover:bg-[var(--bg-hover)] transition-colors"
+                          >
+                            Enable
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
               {/* Profiles Tab */}
               {activeTab === "profiles" && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">Profiles</h2>
-                  
+
                   {/* Tabs */}
                   <div className="flex gap-6 border-b border-[var(--border-subtle)] mb-6">
                     <button className="pb-3 text-[var(--text-primary)] font-medium border-b-2 border-[#8B5CF6]">
@@ -1182,7 +1282,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
                     </div>
                   )}
-                  
+
                   {/* Theme Selection */}
                   <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
                     <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">Theme</h3>
@@ -1240,7 +1340,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           className={cn(
                             "w-10 h-10 rounded-full transition-all hover:scale-110 relative",
                             c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase() &&
-                              "ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-card)]"
+                            "ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-card)]"
                           )}
                           style={{ backgroundColor: c.color }}
                           title={c.name}
@@ -1259,10 +1359,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <p className="text-sm text-[var(--text-secondary)] mb-4">Adjust the size of text in chat</p>
                     <div className="flex items-center gap-4">
                       <span className="text-xs text-[var(--text-secondary)]">12px</span>
-                      <input 
-                        type="range" 
-                        min="12" 
-                        max="20" 
+                      <input
+                        type="range"
+                        min="12"
+                        max="20"
                         value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
                         onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) })}
                         className="flex-1 accent-[#8B5CF6] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
@@ -1703,7 +1803,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         placeholder="Search users by email or username..."
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
                       />
-                      <button 
+                      <button
                         onClick={searchAdminUsers}
                         disabled={isLoadingAdmin}
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
@@ -1716,7 +1816,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       Search for users to view their profile, edit badges, or take moderation actions.
                     </p>
                   </div>
-                  
+
                   {/* Search Results */}
                   {adminUsers.length > 0 && (
                     <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
@@ -1787,7 +1887,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-3">Quick Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      <button 
+                      <button
                         onClick={() => {
                           if (!selectedUser) {
                             toast.info("Select a user first");
@@ -1800,14 +1900,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <p className="text-white font-medium">Ban User</p>
                         <p className="text-sm text-[var(--text-muted)]">Permanently ban a user</p>
                       </button>
-                      <button 
+                      <button
                         onClick={handleUpdateBadges}
                         className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
                         <p className="text-white font-medium">Edit Badges</p>
                         <p className="text-sm text-[var(--text-muted)]">Add or remove badges</p>
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
                           setActiveTab("admin-logs");
                           setAdminLogFilter("reports");
@@ -1818,7 +1918,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <p className="text-white font-medium">View Reports</p>
                         <p className="text-sm text-[var(--text-muted)]">Open filtered admin activity logs</p>
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
                           if (!selectedUser) {
                             toast.info("Select a user first");
@@ -1852,7 +1952,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         placeholder="Search servers by name or ID..."
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
                       />
-                      <button 
+                      <button
                         onClick={searchAdminServers}
                         disabled={isLoadingAdmin}
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
@@ -1938,7 +2038,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <h3 className="text-white font-semibold mb-3">Server Actions</h3>
                     <div className="grid grid-cols-2 gap-3">
-                      <button 
+                      <button
                         onClick={() => {
                           if (!selectedServer) {
                             toast.info("Select a server first");
@@ -1951,7 +2051,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <p className="text-white font-medium">Partner Server</p>
                         <p className="text-sm text-[var(--text-muted)]">Grant partner status</p>
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
                           if (!selectedServer) {
                             toast.info("Select a server first");
@@ -1964,7 +2064,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <p className="text-white font-medium">Delete Server</p>
                         <p className="text-sm text-[var(--text-muted)]">Remove server permanently</p>
                       </button>
-                      <button 
+                      <button
                         onClick={() => {
                           if (!selectedServer) {
                             toast.info("Select a server first");
@@ -1977,7 +2077,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <p className="text-white font-medium">Toggle Discovery</p>
                         <p className="text-sm text-[var(--text-muted)]">Enable/disable discoverability</p>
                       </button>
-                      <button 
+                      <button
                         onClick={handleTransferOwnership}
                         className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                       >
@@ -2027,9 +2127,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white">Enable Maintenance Mode</p>
                           <p className="text-sm text-[var(--text-muted)]">Restrict access to staff only</p>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          className="w-5 h-5 accent-[#8B5CF6]" 
+                        <input
+                          type="checkbox"
+                          className="w-5 h-5 accent-[#8B5CF6]"
                           checked={platformSettings?.maintenanceMode || false}
                           onChange={(e) => handleUpdatePlatformSettings({ maintenanceMode: e.target.checked })}
                         />
@@ -2042,9 +2142,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white">Allow New Registrations</p>
                           <p className="text-sm text-[var(--text-muted)]">Enable new user sign-ups</p>
                         </div>
-                        <input 
-                          type="checkbox" 
-                          className="w-5 h-5 accent-[#8B5CF6]" 
+                        <input
+                          type="checkbox"
+                          className="w-5 h-5 accent-[#8B5CF6]"
                           checked={platformSettings?.allowRegistration !== false}
                           onChange={(e) => handleUpdatePlatformSettings({ allowRegistration: e.target.checked })}
                         />
@@ -2059,7 +2159,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-3"
                         rows={3}
                       />
-                      <button 
+                      <button
                         onClick={handlePublishAnnouncement}
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium"
                       >
@@ -2079,25 +2179,25 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </h2>
                   <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <div className="flex gap-2 mb-4">
-                      <button 
+                      <button
                         onClick={() => { setAdminLogFilter("all"); fetchAdminLogs("all"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "all" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         All
                       </button>
-                      <button 
+                      <button
                         onClick={() => { setAdminLogFilter("bans"); fetchAdminLogs("bans"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "bans" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         Bans
                       </button>
-                      <button 
+                      <button
                         onClick={() => { setAdminLogFilter("reports"); fetchAdminLogs("reports"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "reports" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
                         Reports
                       </button>
-                      <button 
+                      <button
                         onClick={() => { setAdminLogFilter("admin"); fetchAdminLogs("admin"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "admin" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
