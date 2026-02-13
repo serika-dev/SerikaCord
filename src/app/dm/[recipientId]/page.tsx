@@ -53,7 +53,13 @@ interface Message {
   channelId: string;
   createdAt: string;
   updatedAt?: string;
-  attachments?: string[];
+  attachments?: Array<{
+    id: string;
+    url: string;
+    filename: string;
+    contentType: string;
+    size: number;
+  }>;
   customEmojis?: Array<{
     id: string;
     name: string;
@@ -387,11 +393,11 @@ export default function DMConversationPage() {
   // Group messages by author and time
   const groupMessages = (messages: Message[]) => {
     const groups: { messages: Message[]; author: User; timestamp: string }[] = [];
-    
+
     messages.forEach((message, index) => {
       const prevMessage = messages[index - 1];
       const isSameAuthor = prevMessage?.authorId === message.authorId;
-      const timeDiff = prevMessage 
+      const timeDiff = prevMessage
         ? new Date(message.createdAt).getTime() - new Date(prevMessage.createdAt).getTime()
         : Infinity;
       const isWithinTimeWindow = timeDiff < 5 * 60 * 1000; // 5 minutes
@@ -473,7 +479,7 @@ export default function DMConversationPage() {
             >
               <ArrowLeft className="w-5 h-5 text-[#888888]" />
             </Link>
-            
+
             <div className="relative flex-shrink-0">
               <Avatar className="w-8 h-8">
                 <AvatarImage src={recipient?.avatar} />
@@ -486,7 +492,7 @@ export default function DMConversationPage() {
                 style={{ backgroundColor: statusColors[recipient?.status || "offline"] }}
               />
             </div>
-            
+
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-semibold text-white truncate">
                 {recipient?.displayName || recipient?.username || "Loading..."}
@@ -569,8 +575,8 @@ export default function DMConversationPage() {
               ) : (
                 <div className="space-y-[var(--chat-row-gap)] animate-fade-in">
                   {messageGroups.map((group, groupIndex) => (
-                    <div 
-                      key={`group-${groupIndex}-${group.author.id}-${group.timestamp}`} 
+                    <div
+                      key={`group-${groupIndex}-${group.author.id}-${group.timestamp}`}
                       className="chat-message-row -mx-4 group/message hover:bg-[#111111]/50 py-0.5 rounded transition-colors duration-100"
                     >
                       <div className="flex gap-4">
@@ -603,6 +609,46 @@ export default function DMConversationPage() {
                                 onMediaClick={({ src, alt }) => openMediaViewer(src, alt, message.id)}
                               />
                               <LinkEmbed content={message.content} />
+
+                              {/* Attachments */}
+                              {message.attachments?.map((attachment) => (
+                                <div key={attachment.id} className="mt-2">
+                                  {attachment.contentType.startsWith("image/") ? (
+                                    <img
+                                      src={attachment.url}
+                                      alt={attachment.filename}
+                                      className="chat-media cursor-pointer hover:opacity-90 max-w-sm max-h-[350px] object-contain rounded-md"
+                                      onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
+                                    />
+                                  ) : attachment.contentType.startsWith("video/") ? (
+                                    <video
+                                      src={attachment.url}
+                                      controls
+                                      className="max-w-sm max-h-[350px] rounded-md bg-black"
+                                      preload="metadata"
+                                    />
+                                  ) : attachment.contentType.startsWith("audio/") ? (
+                                    <audio
+                                      src={attachment.url}
+                                      controls
+                                      className="w-full max-w-sm"
+                                    />
+                                  ) : (
+                                    <a
+                                      href={attachment.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-2 p-3 bg-[#1a1a1a] rounded-md hover:brightness-110 max-w-sm transition"
+                                    >
+                                      {/* Using a generic file icon or existing one if available */}
+                                      <div className="min-w-0">
+                                        <div className="text-[#8B5CF6] hover:underline truncate">{attachment.filename}</div>
+                                        <div className="text-xs text-[#888888]">{Math.round(attachment.size / 1024)} KB</div>
+                                      </div>
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           ))}
                         </div>
@@ -636,7 +682,7 @@ export default function DMConversationPage() {
               <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
                 <Plus className="w-5 h-5" />
               </button>
-              
+
               <input
                 value={newMessage}
                 onChange={(e) => handleMessageInputChange(e.target.value)}
@@ -779,7 +825,7 @@ export default function DMConversationPage() {
                     )}
                   </div>
                   <p className="text-sm text-[#888888]">{recipient.username}</p>
-                  
+
                   {recipient.customStatus && (
                     <p className="text-sm text-[#888888] mt-2">
                       {recipient.customStatus}
@@ -791,41 +837,41 @@ export default function DMConversationPage() {
                   {recipient.bio && (
                     <>
                       <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
-                    About Me
+                        About Me
+                      </h4>
+                      <p className="text-sm text-[#dcddde]">{recipient.bio}</p>
+                      <div className="h-px bg-[#222222] my-4" />
+                    </>
+                  )}
+
+                  <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
+                    SerikaCord Member Since
                   </h4>
-                  <p className="text-sm text-[#dcddde]">{recipient.bio}</p>
-                  <div className="h-px bg-[#222222] my-4" />
-                </>
-              )}
+                  <p className="text-sm text-[#dcddde]">
+                    {recipient.createdAt
+                      ? new Date(recipient.createdAt).toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })
+                      : "Unknown"}
+                  </p>
+                </div>
+              </div>
 
-              <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
-                SerikaCord Member Since
-              </h4>
-              <p className="text-sm text-[#dcddde]">
-                {recipient.createdAt
-                  ? new Date(recipient.createdAt).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })
-                  : "Unknown"}
-              </p>
-            </div>
-          </div>
-
-          {/* Note section */}
-          <div className="px-4 mt-4">
-            <div className="bg-[#111111] rounded-lg p-4">
-              <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
-                Note
-              </h4>
-              <textarea
-                placeholder="Click to add a note"
-                className="w-full bg-transparent text-sm text-[#dcddde] placeholder:text-[#555555] resize-none focus:outline-none transition-colors duration-150"
-                rows={2}
-              />
-            </div>
-          </div>
+              {/* Note section */}
+              <div className="px-4 mt-4">
+                <div className="bg-[#111111] rounded-lg p-4">
+                  <h4 className="text-xs font-semibold uppercase text-[#888888] mb-2">
+                    Note
+                  </h4>
+                  <textarea
+                    placeholder="Click to add a note"
+                    className="w-full bg-transparent text-sm text-[#dcddde] placeholder:text-[#555555] resize-none focus:outline-none transition-colors duration-150"
+                    rows={2}
+                  />
+                </div>
+              </div>
             </>
           ) : null}
         </div>

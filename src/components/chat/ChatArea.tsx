@@ -668,11 +668,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               data.message.author ||
               (data.message.authorId && typeof data.message.authorId === "object"
                 ? {
-                    id: data.message.authorId._id || data.message.authorId.id,
-                    username: data.message.authorId.username,
-                    displayName: data.message.authorId.displayName || data.message.authorId.username,
-                    avatar: data.message.authorId.avatar,
-                  }
+                  id: data.message.authorId._id || data.message.authorId.id,
+                  username: data.message.authorId.username,
+                  displayName: data.message.authorId.displayName || data.message.authorId.username,
+                  avatar: data.message.authorId.avatar,
+                }
                 : null);
 
             const newMsg: Message = {
@@ -726,12 +726,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             prev.map((m) =>
               m.id === data.messageId
                 ? {
-                    ...m,
-                    content: data.content ?? m.content,
-                    pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
-                    edited: data.content !== undefined ? true : m.edited,
-                    updatedAt: new Date().toISOString(),
-                  }
+                  ...m,
+                  content: data.content ?? m.content,
+                  pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
+                  edited: data.content !== undefined ? true : m.edited,
+                  updatedAt: new Date().toISOString(),
+                }
                 : m
             )
           );
@@ -968,11 +968,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         referencedMessageId: replyReference?.id,
         referencedMessage: replyReference
           ? {
-              id: replyReference.id,
-              content: replyReference.content,
-              author: replyReference.author,
-              createdAt: replyReference.createdAt,
-            }
+            id: replyReference.id,
+            content: replyReference.content,
+            author: replyReference.author,
+            createdAt: replyReference.createdAt,
+          }
           : undefined,
         attachments: uploadedAttachments,
         reactions: [],
@@ -1004,28 +1004,28 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             prev.map((msg) =>
               msg.id === tempId
                 ? {
-                    ...msg,
-                    id: messageId,
-                    content: message.content ?? msg.content,
-                    type: message.type ?? msg.type,
-                    authorId:
-                      typeof message.authorId === "object"
-                        ? message.authorId._id || message.authorId.id || msg.authorId
-                        : message.authorId || msg.authorId,
-                    author: message.author || msg.author,
-                    createdAt: message.createdAt || msg.createdAt,
-                    updatedAt: message.updatedAt || msg.updatedAt,
-                    referencedMessageId: message.referencedMessageId || msg.referencedMessageId,
-                    referencedMessage: message.referencedMessage || msg.referencedMessage,
-                    attachments: message.attachments || msg.attachments,
-                    reactions: message.reactions || msg.reactions,
-                    customEmojis: message.customEmojis || msg.customEmojis,
-                    mentionEveryone:
-                      message.mentionEveryone !== undefined ? Boolean(message.mentionEveryone) : msg.mentionEveryone,
-                    mentionedUserIds: message.mentionedUserIds || msg.mentionedUserIds,
-                    mentionedRoleIds: message.mentionedRoleIds || msg.mentionedRoleIds,
-                    mentionedChannelIds: message.mentionedChannelIds || msg.mentionedChannelIds,
-                  }
+                  ...msg,
+                  id: messageId,
+                  content: message.content ?? msg.content,
+                  type: message.type ?? msg.type,
+                  authorId:
+                    typeof message.authorId === "object"
+                      ? message.authorId._id || message.authorId.id || msg.authorId
+                      : message.authorId || msg.authorId,
+                  author: message.author || msg.author,
+                  createdAt: message.createdAt || msg.createdAt,
+                  updatedAt: message.updatedAt || msg.updatedAt,
+                  referencedMessageId: message.referencedMessageId || msg.referencedMessageId,
+                  referencedMessage: message.referencedMessage || msg.referencedMessage,
+                  attachments: message.attachments || msg.attachments,
+                  reactions: message.reactions || msg.reactions,
+                  customEmojis: message.customEmojis || msg.customEmojis,
+                  mentionEveryone:
+                    message.mentionEveryone !== undefined ? Boolean(message.mentionEveryone) : msg.mentionEveryone,
+                  mentionedUserIds: message.mentionedUserIds || msg.mentionedUserIds,
+                  mentionedRoleIds: message.mentionedRoleIds || msg.mentionedRoleIds,
+                  mentionedChannelIds: message.mentionedChannelIds || msg.mentionedChannelIds,
+                }
                 : msg
             )
           );
@@ -1221,7 +1221,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const handleAddReaction = async (messageId: string, emoji: string) => {
     if (!currentChannel) return;
-    
+
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
@@ -1234,10 +1234,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         setMessages((prev) =>
           prev.map((msg) => {
             if (msg.id !== messageId) return msg;
-            
+
             const reactions = msg.reactions || [];
             const existingReaction = reactions.find((r) => r.emoji.name === emoji);
-            
+
             if (existingReaction) {
               // Check if user already reacted
               if (!existingReaction.userIds.includes(user?.id || "")) {
@@ -1268,7 +1268,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const handleRemoveReaction = async (messageId: string, emoji: string) => {
     if (!currentChannel) return;
-    
+
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
@@ -1281,7 +1281,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         setMessages((prev) =>
           prev.map((msg) => {
             if (msg.id !== messageId) return msg;
-            
+
             const reactions = msg.reactions || [];
             return {
               ...msg,
@@ -1289,10 +1289,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 .map((r) =>
                   r.emoji.name === emoji
                     ? {
-                        ...r,
-                        count: r.count - 1,
-                        userIds: r.userIds.filter((id) => id !== user?.id),
-                      }
+                      ...r,
+                      count: r.count - 1,
+                      userIds: r.userIds.filter((id) => id !== user?.id),
+                    }
                     : r
                 )
                 .filter((r) => r.count > 0),
@@ -1399,7 +1399,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const inboxItems = useMemo(() => {
     const currentUserId = user?.id;
     const currentUsername = user?.username?.toLowerCase() || "";
-    const userTokenRegex = currentUserId ? new RegExp(`<@!?${escapeRegex(currentUserId)}>` , "i") : null;
+    const userTokenRegex = currentUserId ? new RegExp(`<@!?${escapeRegex(currentUserId)}>`, "i") : null;
     return messages
       .filter((message) => {
         const mentionedDirectly =
@@ -1667,8 +1667,21 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                   <img
                                     src={attachment.url}
                                     alt={attachment.filename}
-                                    className="chat-media cursor-pointer hover:opacity-90"
+                                    className="chat-media cursor-pointer hover:opacity-90 max-w-sm max-h-[350px] object-contain rounded-md"
                                     onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
+                                  />
+                                ) : attachment.contentType.startsWith("video/") ? (
+                                  <video
+                                    src={attachment.url}
+                                    controls
+                                    className="max-w-sm max-h-[350px] rounded-md bg-black"
+                                    preload="metadata"
+                                  />
+                                ) : attachment.contentType.startsWith("audio/") ? (
+                                  <audio
+                                    src={attachment.url}
+                                    controls
+                                    className="w-full max-w-sm"
                                   />
                                 ) : (
                                   <a
@@ -1720,7 +1733,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                             {/* Message Actions */}
                             <div className="absolute -top-3 right-0 opacity-0 group-hover/message:opacity-100 transition-opacity z-10">
                               <div className="flex items-center bg-[var(--app-surface-alt)] border border-[var(--app-border)] rounded-md shadow-lg">
-                                <Popover 
+                                <Popover
                                   open={reactionPickerMessage === message.id}
                                   onOpenChange={(open) => setReactionPickerMessage(open ? message.id : null)}
                                 >
@@ -1921,22 +1934,22 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             disabled={isSending}
           />
           <div className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
-              <button
-                onClick={() => {
-                  setComposerPickerTab("gifs");
-                  setShowEmojiPicker(true);
-                }}
-                className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
+            <button
+              onClick={() => {
+                setComposerPickerTab("gifs");
+                setShowEmojiPicker(true);
+              }}
+              className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
               title="Open GIF picker"
             >
               <Gift className="w-6 h-6" />
             </button>
-              <button
-                onClick={() => {
-                  setComposerPickerTab("stickers");
-                  setShowEmojiPicker(true);
-                }}
-                className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
+            <button
+              onClick={() => {
+                setComposerPickerTab("stickers");
+                setShowEmojiPicker(true);
+              }}
+              className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
               title="Open sticker picker"
             >
               <Sticker className="w-6 h-6" />
