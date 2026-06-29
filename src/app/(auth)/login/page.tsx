@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,8 @@ import { Eye, EyeOff, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -24,7 +26,7 @@ export default function LoginPage() {
       // Check if already logged in
       const checkResponse = await fetch("/api/users/@me");
       if (checkResponse.ok) {
-        router.push("/channels/me");
+        router.push(redirectTo);
         return;
       }
 
@@ -53,7 +55,7 @@ export default function LoginPage() {
         throw new Error(data.error || "Failed to login");
       }
 
-      router.push("/channels/me");
+      router.push(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -62,7 +64,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-8">
+    <div className="bg-[#0a0a0a]/90 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-8 shadow-2xl shadow-black/60">
       {/* Header */}
       <div className="text-center mb-8">
         <h1 className="text-2xl font-semibold text-white mb-2">
@@ -91,7 +93,7 @@ export default function LoginPage() {
             required
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors"
+            className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
             placeholder="you@example.com"
           />
         </div>
@@ -115,7 +117,7 @@ export default function LoginPage() {
               required
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors pr-11"
+              className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors pr-11"
               placeholder="Enter your password"
             />
             <button
@@ -132,7 +134,7 @@ export default function LoginPage() {
         <Button
           type="submit"
           disabled={isLoading}
-          className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium rounded-md transition-colors disabled:opacity-50"
+          className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
         >
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -145,7 +147,7 @@ export default function LoginPage() {
         <p className="text-sm text-center text-[#888888] pt-4">
           Don&apos;t have an account?{" "}
           <Link 
-            href="/register" 
+            href={`/register${redirectTo !== "/channels/me" ? `?redirect=${redirectTo}` : ""}`}
             className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
           >
             Sign up

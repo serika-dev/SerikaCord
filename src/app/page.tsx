@@ -18,7 +18,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-[#000000] text-white overflow-x-hidden">
       {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#000000]/90 backdrop-blur-sm border-b border-[#1a1a1a]">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-[#000000]/80 backdrop-blur-xl border-b border-white/[0.06] transition-all">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
@@ -38,7 +38,7 @@ export default function HomePage() {
               <Link href="#safety" className="text-sm text-[#888888] hover:text-white transition-colors">
                 Safety
               </Link>
-              <Link href="https://accounts.serika.dev" className="text-sm text-[#888888] hover:text-white transition-colors">
+              <Link href="https://accounts.serika.dev" className="text-sm text-[#8B5CF6] font-medium hover:text-white transition-colors">
                 Serika+
               </Link>
             </div>
@@ -63,18 +63,23 @@ export default function HomePage() {
 
       {/* Hero Section */}
       <section className="relative pt-32 pb-20 px-4 sm:px-6 lg:px-8">
-        {/* Subtle background grid */}
+        {/* Background effects */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          {/* Radial purple glow */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[600px] rounded-full bg-[#8B5CF6]/10 blur-[120px]" />
+          {/* Grid */}
           <div 
-            className="absolute inset-0"
+            className="absolute inset-0 opacity-30"
             style={{
               backgroundImage: `
-                linear-gradient(rgba(139, 92, 246, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(139, 92, 246, 0.03) 1px, transparent 1px)
+                linear-gradient(rgba(139, 92, 246, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(139, 92, 246, 0.06) 1px, transparent 1px)
               `,
               backgroundSize: '60px 60px'
             }}
           />
+          {/* Fade bottom */}
+          <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#000000] to-transparent" />
         </div>
         
         <div className="max-w-5xl mx-auto text-center relative">
@@ -83,12 +88,12 @@ export default function HomePage() {
             <span className="text-sm text-[#888888]">The future of communication is here</span>
           </div>
           
-          <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight mb-6">
+          <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-[1.08]">
             <span className="text-white">
               Where Communities
             </span>
             <br />
-            <span className="text-[#8B5CF6]">
+            <span style={{ background: 'linear-gradient(135deg, #8B5CF6 0%, #a78bfa 40%, #c4b5fd 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               Come Together
             </span>
           </h1>
@@ -102,14 +107,14 @@ export default function HomePage() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link 
               href="/channels/me"
-              className="w-full sm:w-auto px-8 py-4 text-base font-medium bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md transition-colors flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-8 py-4 text-base font-semibold bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_40px_rgba(139,92,246,0.3)] hover:shadow-[0_0_60px_rgba(139,92,246,0.45)] flex items-center justify-center gap-2"
             >
               Open SerikaCord in your browser
               <ArrowRight className="w-4 h-4" />
             </Link>
             <Link 
               href="/register"
-              className="w-full sm:w-auto px-8 py-4 text-base font-medium bg-transparent border border-[#333333] hover:border-[#8B5CF6] hover:bg-[#8B5CF6]/5 rounded-md transition-colors flex items-center justify-center gap-2"
+              className="w-full sm:w-auto px-8 py-4 text-base font-semibold bg-transparent border border-white/10 hover:border-[#8B5CF6]/50 hover:bg-[#8B5CF6]/5 rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
             >
               Create an Account
             </Link>
@@ -118,7 +123,7 @@ export default function HomePage() {
         
         {/* App Preview */}
         <div className="max-w-6xl mx-auto mt-20 relative">
-          <div className="aspect-video rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] overflow-hidden">
+          <div className="aspect-video rounded-2xl bg-[#050608] border border-white/[0.07] overflow-hidden shadow-2xl shadow-black/60">
             <div className="flex h-full">
               {/* Server sidebar preview */}
               <div className="w-[72px] bg-[#0a0a0a] p-3 flex flex-col items-center gap-2 border-r border-[#1a1a1a]">
@@ -204,8 +209,7 @@ export default function HomePage() {
               {
                 icon: Volume2,
                 title: "Voice Channels",
-                description: "Drop in when free, hang out and talk with friends and community members.",
-                comingSoon: true
+                description: "Drop in when free, hang out and talk with friends and community members using P2P voice."
               },
               {
                 icon: Megaphone,
@@ -230,18 +234,16 @@ export default function HomePage() {
             ].map((feature) => (
               <div 
                 key={feature.title}
-                className="group relative p-6 rounded-lg bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#8B5CF6]/30 transition-all"
+                className="group relative p-6 rounded-2xl bg-[#080a0f] border border-white/[0.06] hover:border-[#8B5CF6]/25 hover:bg-[#0d0f1a] transition-all duration-200"
               >
-                {feature.comingSoon && (
-                  <div className="absolute top-4 right-4 px-2 py-1 rounded-md bg-[#8B5CF6]/10 border border-[#8B5CF6]/20">
-                    <span className="text-xs font-medium text-[#8B5CF6]">Coming Soon</span>
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-[#8B5CF6]/0 to-[#8B5CF6]/0 group-hover:from-[#8B5CF6]/5 group-hover:to-transparent transition-all duration-300" />
+                <div className="relative">
+                  <div className="w-11 h-11 rounded-xl bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 flex items-center justify-center mb-4">
+                    <feature.icon className="w-5 h-5 text-[#8B5CF6]" />
                   </div>
-                )}
-                <div className="w-12 h-12 rounded-lg bg-[#8B5CF6]/10 flex items-center justify-center mb-4">
-                  <feature.icon className="w-6 h-6 text-[#8B5CF6]" />
+                  <h3 className="text-base font-semibold mb-2">{feature.title}</h3>
+                  <p className="text-sm text-[#555555] leading-relaxed group-hover:text-[#777] transition-colors">{feature.description}</p>
                 </div>
-                <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
-                <p className="text-sm text-[#666666] leading-relaxed">{feature.description}</p>
               </div>
             ))}
           </div>
@@ -422,19 +424,31 @@ export default function HomePage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold mb-4">Ready to get started?</h2>
-          <p className="text-lg text-[#666666] mb-8">
-            Join millions of users already using SerikaCord. It&apos;s free to use.
+      <section className="py-24 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-[#8B5CF6]/8 blur-[100px]" />
+        </div>
+        <div className="max-w-4xl mx-auto text-center relative">
+          <h2 className="text-3xl sm:text-5xl font-bold mb-4 tracking-tight">Ready to get started?</h2>
+          <p className="text-lg text-[#555555] mb-10">
+            Join thousands of communities already using SerikaCord. It&apos;s free.
           </p>
-          <Link 
-            href="/channels/me"
-            className="inline-flex items-center gap-2 px-8 py-4 text-base font-medium bg-[#8B5CF6] hover:bg-[#7C3AED] rounded-md transition-colors"
-          >
-            Open SerikaCord
-            <ArrowRight className="w-4 h-4" />
-          </Link>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+            <Link 
+              href="/channels/me"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-10 py-4 text-base font-semibold bg-[#8B5CF6] hover:bg-[#7C3AED] rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_0_40px_rgba(139,92,246,0.25)]"
+            >
+              Open SerikaCord
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+            <Link
+              href="/register"
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-10 py-4 text-base font-semibold border border-white/10 hover:border-white/20 rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] text-[#888]"
+            >
+              Create Account
+            </Link>
+          </div>
+          <p className="text-xs text-[#333] mt-6">No credit card required · Free forever for core features</p>
         </div>
       </section>
 

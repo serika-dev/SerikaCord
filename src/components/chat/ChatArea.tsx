@@ -60,6 +60,7 @@ import { MessageContent } from "@/components/chat/MessageContent";
 import { MessageSkeleton } from "@/components/ui/skeleton";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { buildGalleryFromMessages, findGalleryIndex } from "@/lib/chat/media";
+import { incrementUnread, clearUnread, playNotificationSound } from "@/lib/services/notificationUX";
 
 interface Message {
   id: string;
@@ -704,16 +705,43 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               mentionedChannelIds: data.message.mentionedChannelIds || [],
             };
             const incomingAuthorId = newMsg.authorId || newMsg.author?.id;
+            const isOwnMessage = incomingAuthorId === user?.id;
             const ownTempIndex = prev.findIndex(
               (msg) =>
                 msg.id.startsWith("temp-") &&
                 msg.authorId === user?.id &&
-                incomingAuthorId === user?.id &&
+                isOwnMessage &&
                 msg.content === newMsg.content
             );
 
             if (ownTempIndex !== -1) {
               return prev.map((msg, index) => (index === ownTempIndex ? newMsg : msg));
+            }
+
+            // Notification UX for incoming messages from others
+            if (!isOwnMessage) {
+              const isMentioned =
+                newMsg.mentionEveryone ||
+                (user?.id && newMsg.mentionedUserIds?.includes(user.id));
+              const isHidden = document.visibilityState !== "visible";
+
+              if (isHidden) {
+                incrementUnread();
+                playNotificationSound();
+              }
+
+              if (isHidden || isMentioned) {
+                const authorName = newMsg.author?.displayName || newMsg.author?.username || "Someone";
+                const preview = newMsg.content?.slice(0, 80) || (newMsg.attachments?.length ? "📎 Attachment" : "New message");
+                toast(authorName, {
+                  description: preview,
+                  duration: 4000,
+                  action: {
+                    label: "View",
+                    onClick: () => {},
+                  },
+                });
+              }
             }
 
             return [...prev, newMsg];
@@ -791,6 +819,17 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
     eventSourceRef.current = eventSource;
   }, [addTypingUser, applyReactionEvent, currentChannel, fetchPinnedMessages, user?.id]);
+
+  // Clear unread badge when tab becomes visible
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        clearUnread();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   useEffect(() => {
     connectSSE();
@@ -1364,9 +1403,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const typingStatusText = useMemo(() => {
     if (typingUsers.length === 0) return "";
-    if (typingUsers.length === 1) return `${typingUsers[0]} is typing...`;
-    if (typingUsers.length === 2) return `${typingUsers[0]} and ${typingUsers[1]} are typing...`;
-    return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} others are typing...`;
+    if (typingUsers.length === 1) return `${typingUsers[0]} is typing`;
+    if (typingUsers.length === 2) return `${typingUsers[0]} and ${typingUsers[1]} are typing`;
+    if (typingUsers.length === 3) return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers[2]} are typing`;
+    return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} others are typing`;
   }, [typingUsers]);
 
   const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
@@ -1823,18 +1863,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       </ScrollArea>
 
       {/* Typing Indicator */}
-      {typingStatusText && (
-        <div className="px-4 py-1.5 text-sm text-[var(--app-muted)]">
-          <span className="inline-flex items-center gap-2">
-            <span className="flex gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)] animate-bounce [animation-delay:0ms]" />
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)] animate-bounce [animation-delay:120ms]" />
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)] animate-bounce [animation-delay:240ms]" />
-            </span>
-            {typingStatusText}
+      <div className={cn(
+        "px-4 overflow-hidden transition-all duration-200",
+        typingStatusText ? "py-1.5 max-h-8 opacity-100" : "py-0 max-h-0 opacity-0"
+      )}>
+        <span className="inline-flex items-center gap-2 text-xs text-[var(--app-muted)]">
+          <span className="flex gap-0.5 items-center">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)] animate-bounce [animation-delay:0ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)] animate-bounce [animation-delay:150ms]" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-accent)] animate-bounce [animation-delay:300ms]" />
           </span>
-        </div>
-      )}
+          <span className="font-medium">{typingStatusText}</span>
+        </span>
+      </div>
 
       {/* Attachment Previews */}
       {attachments.length > 0 && (

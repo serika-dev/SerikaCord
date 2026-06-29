@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,8 @@ const passwordRequirements = [
 
 export default function RegisterPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -45,7 +47,7 @@ export default function RegisterPage() {
         throw new Error(data.error || "Failed to register");
       }
 
-      router.push("/channels/me");
+      router.push(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -54,7 +56,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-8">
+    <div className="bg-[#0a0a0a]/90 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-8 shadow-2xl shadow-black/60">
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-2xl font-semibold text-white mb-2">
@@ -83,7 +85,7 @@ export default function RegisterPage() {
             required
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors"
+            className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
             placeholder="you@example.com"
           />
         </div>
@@ -98,7 +100,7 @@ export default function RegisterPage() {
             required
             value={formData.displayName}
             onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
-            className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors"
+            className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
             placeholder="John Doe"
           />
         </div>
@@ -113,7 +115,7 @@ export default function RegisterPage() {
             required
             value={formData.username}
             onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
-            className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors"
+            className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
             placeholder="johndoe"
           />
           <p className="text-xs text-[#555555]">Only letters, numbers, and underscores</p>
@@ -131,7 +133,7 @@ export default function RegisterPage() {
               minLength={8}
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="h-11 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] rounded-md focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] focus-visible:ring-[#8B5CF6] transition-colors pr-11"
+              className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors pr-11"
               placeholder="Create a password"
             />
             <button
@@ -170,7 +172,7 @@ export default function RegisterPage() {
         <Button
           type="submit"
           disabled={isLoading}
-          className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium rounded-md transition-colors disabled:opacity-50 mt-2"
+          className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 mt-2 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
         >
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />

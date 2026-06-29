@@ -43,6 +43,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
+import { VoiceBar } from "@/components/voice/VoiceBar";
+import { voiceService } from "@/lib/services/voiceService";
 import { toast } from "sonner";
 
 interface DMChannel {
@@ -76,6 +78,17 @@ export function ChannelSidebar({
 }: ChannelSidebarProps) {
   const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel } = useServer();
   const { user } = useAuth();
+  const [activeVoiceChannelName, setActiveVoiceChannelName] = useState<string | undefined>(undefined);
+
+  const handleVoiceChannelClick = async (channel: typeof channels[0]) => {
+    if (voiceService.currentRoomId === channel.id) {
+      await voiceService.leaveChannel();
+      setActiveVoiceChannelName(undefined);
+    } else {
+      await voiceService.joinChannel(channel.id);
+      setActiveVoiceChannelName(channel.name);
+    }
+  };
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -517,26 +530,30 @@ export function ChannelSidebar({
             {!collapsedCategories.has('voice') && voiceChannels.map((channel) => (
               <div key={channel.id} className="relative">
                 <button
-                  onClick={() => setCurrentChannel(channel)}
+                  onClick={() => handleVoiceChannelClick(channel)}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
-                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
+                    voiceService.currentRoomId === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
                   )}
                   style={{ width: "calc(100% - 16px)" }}
                 >
                   {getChannelIcon(channel.type)}
                   <span className="truncate text-sm">{channel.name}</span>
-                  <span className="ml-auto flex items-center gap-1 text-xs text-[var(--app-accent)]">
-                    <Clock className="w-3 h-3" />
-                    <span className="text-[10px] font-medium">Soon</span>
-                  </span>
+                  {voiceService.currentRoomId === channel.id && (
+                    <span className="ml-auto flex items-center gap-1">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                    </span>
+                  )}
                 </button>
               </div>
             ))}
           </div>
         </div>
       </ScrollArea>
+
+      {/* Voice Bar */}
+      <VoiceBar channelName={activeVoiceChannelName} />
 
       {/* User Panel */}
       <UserPanel user={user} />

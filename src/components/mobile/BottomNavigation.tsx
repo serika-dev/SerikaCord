@@ -81,8 +81,8 @@ export function BottomNavigation({
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/95 backdrop-blur-xl border-t border-white/10 md:hidden pb-[env(safe-area-inset-bottom)]">
-      <div className="flex items-center justify-around h-[60px] px-2">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[#050608]/95 backdrop-blur-2xl border-t border-white/[0.06] md:hidden">
+      <div className="flex items-center justify-around h-[56px] px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         {navItems.map((item) => {
           const isActive = getIsActive(item.href);
           const Icon = item.icon;
@@ -92,28 +92,33 @@ export function BottomNavigation({
               key={item.label}
               onClick={() => handleNavigation(item)}
               className={cn(
-                "relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all duration-150",
-                "active:scale-90 touch-manipulation",
-                isActive ? "text-white" : "text-neutral-500"
+                "relative flex flex-col items-center justify-center flex-1 h-full pt-1 gap-0.5 transition-all duration-200",
+                "active:scale-[0.88] touch-manipulation select-none"
               )}
             >
+              {/* Active pill indicator at top */}
               <div className={cn(
-                "relative p-2 rounded-2xl transition-all duration-150",
-                isActive ? "bg-[#8B5CF6]/20 scale-105" : "scale-100"
+                "absolute top-0 inset-x-1/4 h-[2px] rounded-full transition-all duration-300",
+                isActive ? "bg-[#8B5CF6] opacity-100" : "opacity-0"
+              )} />
+
+              <div className={cn(
+                "relative flex items-center justify-center w-10 h-8 rounded-2xl transition-all duration-200",
+                isActive ? "bg-[#8B5CF6]/15" : "bg-transparent"
               )}>
                 <Icon className={cn(
-                  "w-6 h-6 transition-all duration-150",
+                  "w-[22px] h-[22px] transition-all duration-200",
                   isActive ? "text-[#8B5CF6]" : "text-neutral-500"
                 )} />
-                {item.badge && item.badge > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[#ED4245] text-white text-[10px] font-bold rounded-full border-2 border-black shadow-lg">
+                {item.badge != null && item.badge > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center bg-[#ED4245] text-white text-[9px] font-bold rounded-full border-[2px] border-[#050608]">
                     {item.badge > 99 ? "99+" : item.badge}
                   </span>
                 )}
               </div>
               <span className={cn(
-                "text-[10px] font-semibold transition-colors",
-                isActive ? "text-[#8B5CF6]" : "text-neutral-500"
+                "text-[10px] font-semibold leading-none transition-colors duration-200",
+                isActive ? "text-[#8B5CF6]" : "text-neutral-600"
               )}>
                 {item.label}
               </span>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Loader2, ChevronLeft, TrendingUp, Grid3X3, Tag as TagIcon } from "lucide-react";
+import { Search, Loader2, ChevronLeft, TrendingUp, Grid3X3, Tag as TagIcon, X, Flame } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +44,7 @@ const COLLECTION_PAGE_SIZE = 20;
 const TAG_PAGE_SIZE = 10;
 
 type ViewMode = "home" | "trending" | "category" | "search";
-type HomeTab = "tags" | "collections";
+type HomeTab = "trending" | "tags" | "collections";
 
 export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const [search, setSearch] = useState("");
@@ -54,7 +54,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("home");
-  const [homeTab, setHomeTab] = useState<HomeTab>("tags");
+  const [homeTab, setHomeTab] = useState<HomeTab>("trending");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [collectionsPage, setCollectionsPage] = useState(1);
@@ -279,9 +279,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
 
   // Initial load
   useEffect(() => {
+    fetchTrending(1, false);
     fetchTags(1, false);
     fetchCollections(1, false);
-  }, [fetchTags, fetchCollections]);
+  }, [fetchTrending, fetchTags, fetchCollections]);
 
   // Handle search input change with debounce
   const handleSearchChange = (value: string) => {
@@ -306,7 +307,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     if (isLoadingMore) return;
 
     if (viewMode === "home") {
-      if (homeTab === "tags") {
+      if (homeTab === "trending") {
+        if (currentPage >= totalPages) return;
+        fetchTrending(currentPage + 1, true);
+      } else if (homeTab === "tags") {
         if (tagsPage >= tagsTotalPages) return;
         fetchTags(tagsPage + 1, true);
       } else {
@@ -381,7 +385,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   }, [loadMore, isLoading, isLoadingMore, viewMode]);
 
   const canLoadMore = viewMode === "home"
-    ? (homeTab === "tags" ? tagsPage < tagsTotalPages : collectionsPage < collectionsTotalPages)
+    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : collectionsPage < collectionsTotalPages)
     : currentPage < totalPages;
 
   // Navigation handlers
@@ -428,208 +432,197 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   };
 
   // Get category background image
-  const getCategoryBackground = (item: Tag | Collection, type: "tag" | "collection") => {
-    if (type === "collection") {
-      const col = item as Collection;
-      return col.previewGifs?.[0]?.thumbnailUrl || col.previewGifs?.[0]?.url || "";
-    }
-    return "";
-  };
-
   const showBackButton = viewMode !== "home";
 
+  const SkeletonTile = () => (
+    <div className="relative aspect-[16/9] rounded-lg overflow-hidden bg-[#2b2d31] animate-pulse" />
+  );
+
+  const SkeletonGif = ({ tall }: { tall?: boolean }) => (
+    <div className={cn("w-full rounded-lg bg-[#2b2d31] animate-pulse break-inside-avoid mb-2", tall ? "h-32" : "h-20")} />
+  );
+
   return (
-    <div className={cn("w-[440px] h-[500px] bg-[#1e1f22] rounded-lg flex flex-col overflow-hidden", className)}>
-      {/* Sub-header with back button when in category/trending view */}
+    <div className={cn(
+      "w-full max-w-[440px] h-[480px] bg-[#1e1f22] rounded-xl flex flex-col overflow-hidden shadow-2xl border border-[#2b2d31]/60",
+      className
+    )}>
+      {/* Header: back button or home tabs */}
       {showBackButton ? (
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-[#2b2d31] flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2b2d31] flex-shrink-0">
           <button
             onClick={goHome}
-            className="p-1 hover:bg-[#2b2d31] rounded transition-colors"
+            className="p-1.5 hover:bg-[#2b2d31] rounded-md transition-colors"
           >
-            <ChevronLeft className="w-5 h-5 text-[#b5bac1]" />
+            <ChevronLeft className="w-4 h-4 text-[#b5bac1]" />
           </button>
-          <span className="text-sm font-medium text-white">{getHeaderTitle()}</span>
+          <span className="text-sm font-semibold text-white truncate">{getHeaderTitle()}</span>
         </div>
       ) : (
-        // Home tabs
-        <div className="flex gap-1 px-4 pt-3 pb-2 border-b border-[#2b2d31] flex-shrink-0">
-          <button
-            onClick={() => setHomeTab("tags")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-              homeTab === "tags"
-                ? "text-white bg-[#5865f2]"
-                : "text-[#b5bac1] hover:text-white hover:bg-[#2b2d31]"
-            )}
-          >
-            <TagIcon className="w-4 h-4" />
-            Tags
-          </button>
-          <button
-            onClick={() => setHomeTab("collections")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-              homeTab === "collections"
-                ? "text-white bg-[#5865f2]"
-                : "text-[#b5bac1] hover:text-white hover:bg-[#2b2d31]"
-            )}
-          >
-            <Grid3X3 className="w-4 h-4" />
-            Collections
-          </button>
+        <div className="flex gap-0.5 px-3 pt-2.5 pb-0 border-b border-[#2b2d31] flex-shrink-0">
+          {([
+            { id: "trending", label: "Trending", icon: <Flame className="w-3.5 h-3.5" /> },
+            { id: "tags",     label: "Tags",     icon: <TagIcon className="w-3.5 h-3.5" /> },
+            { id: "collections", label: "Collections", icon: <Grid3X3 className="w-3.5 h-3.5" /> },
+          ] as { id: HomeTab; label: string; icon: React.ReactNode }[]).map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setHomeTab(tab.id)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-md transition-all border-b-2 -mb-px",
+                homeTab === tab.id
+                  ? "text-white border-[#5865f2] bg-[#5865f2]/10"
+                  : "text-[#949ba4] border-transparent hover:text-[#d5d9e8] hover:bg-[#2b2d31]/50"
+              )}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
         </div>
       )}
 
       {/* Search bar */}
-      <div className="px-4 py-2">
+      <div className="px-3 py-2 flex-shrink-0">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#949ba4]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#949ba4]" />
           <Input
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search Serika"
-            className="pl-10 bg-[#1e1f22] border-[#1e1f22] text-white placeholder:text-[#949ba4] h-10 rounded-md focus:ring-0 focus:border-[#1e1f22]"
+            placeholder="Search GIFs…"
+            className="pl-9 pr-8 bg-[#111214] border-[#2b2d31] text-white placeholder:text-[#949ba4] h-9 text-sm rounded-lg focus:ring-1 focus:ring-[#5865f2]/50 focus:border-[#5865f2]/50"
             autoFocus
           />
+          {search && (
+            <button
+              onClick={() => { handleSearchChange(""); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 hover:bg-[#2b2d31] rounded transition-colors"
+            >
+              <X className="w-3.5 h-3.5 text-[#949ba4]" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0 scrollbar-thin scrollbar-thumb-[#1a1b1e] scrollbar-track-transparent hover:scrollbar-thumb-[#2b2d31] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#1a1b1e] [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:border-2 [&::-webkit-scrollbar-thumb]:border-transparent hover:[&::-webkit-scrollbar-thumb]:bg-[#3b3d44]">
+      <div className="flex-1 overflow-y-auto min-h-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2b2d31] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#3b3d44]">
         {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <Loader2 className="w-8 h-8 text-[#5865f2] animate-spin" />
-          </div>
+          /* Skeleton loaders */
+          viewMode === "home" && !search ? (
+            <div className="p-2 grid grid-cols-2 gap-2">
+              {Array.from({ length: 8 }).map((_, i) => <SkeletonTile key={i} />)}
+            </div>
+          ) : (
+            <div className="p-2 columns-2 gap-2">
+              {Array.from({ length: 10 }).map((_, i) => <SkeletonGif key={i} tall={i % 3 === 0} />)}
+            </div>
+          )
         ) : viewMode === "home" && !search ? (
-          // Home view - Category tiles based on selected tab
-          <div className="p-2 grid grid-cols-2 gap-2">
-            {/* Trending GIFs tile - always show */}
-            <button
-              onClick={goToTrending}
-              className="relative aspect-[16/9] rounded-lg overflow-hidden group"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-[#5865f2] to-[#3b44a8]" />
-              <div className="absolute inset-0 flex items-center justify-center gap-2">
-                <TrendingUp className="w-5 h-5 text-white" />
-                <span className="text-sm font-semibold text-white">Trending GIFs</span>
+          /* Home tabs: trending gifs grid OR category tiles */
+          homeTab === "trending" ? (
+            gifs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+                <Flame className="w-10 h-10 mb-3 opacity-30" />
+                <p className="text-sm">No trending GIFs right now</p>
               </div>
-              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity" />
-            </button>
-
-            {homeTab === "collections" ? (
-              // Collection tiles
-              <>
-                {collections.map((collection) => (
-                  <button
-                    key={collection.id}
-                    onClick={() => goToCategory("collection", collection)}
-                    className="relative aspect-[16/9] rounded-lg overflow-hidden group"
-                  >
-                    {/* Background image */}
-                    {collection.previewGifs?.[0] && (
-                      <img
-                        src={collection.previewGifs[0].thumbnailUrl || collection.previewGifs[0].url}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    )}
-                    {!collection.previewGifs?.[0] && (
-                      <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
-                    )}
-                    {/* Overlay */}
-                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition-colors" />
-                    {/* Label */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-sm font-semibold text-white drop-shadow-lg">
-                        {collection.name}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </>
             ) : (
-              // Tag tiles with preview images
-              <>
-                {tags.map((tag) => (
+              <div className="p-2">
+                <div className="columns-2 gap-2">
+                  {gifs.map((gif) => (
+                    <button
+                      key={gif.id}
+                      onClick={() => onGifSelect(gif)}
+                      title={gif.title}
+                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
+                    >
+                      <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+                    </button>
+                  ))}
+                </div>
+                {canLoadMore && (
+                  <div ref={loadMoreRef} className="flex justify-center py-3">
+                    {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                  </div>
+                )}
+              </div>
+            )
+          ) : (
+            <div className="p-2 grid grid-cols-2 gap-2">
+              {(homeTab === "collections" ? collections : tags).map((item) => {
+                const isCollection = homeTab === "collections";
+                const col = item as Collection;
+                const tag = item as Tag;
+                const bgImg = isCollection
+                  ? col.previewGifs?.[0]?.thumbnailUrl || col.previewGifs?.[0]?.url
+                  : tag.previewUrl;
+                return (
                   <button
-                    key={tag.id}
-                    onClick={() => goToCategory("tag", tag)}
+                    key={item.id}
+                    onClick={() => goToCategory(isCollection ? "collection" : "tag", item)}
                     className="relative aspect-[16/9] rounded-lg overflow-hidden group"
                   >
-                    {/* Background image from first GIF */}
-                    {tag.previewUrl ? (
-                      <img
-                        src={tag.previewUrl}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-cover"
-                        loading="lazy"
-                      />
+                    {bgImg ? (
+                      <img src={bgImg} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
                     ) : (
                       <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
                     )}
-                    {/* Overlay */}
-                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/50 transition-colors" />
-                    {/* Label */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-sm font-semibold text-white drop-shadow-lg capitalize">
-                        {tag.name}
+                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
+                    <div className="absolute inset-0 flex items-end p-2">
+                      <span className="text-xs font-bold text-white drop-shadow-md capitalize leading-tight line-clamp-2">
+                        {item.name}
                       </span>
                     </div>
                   </button>
-                ))}
-              </>
-            )}
-
-            {canLoadMore && (
-              <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
-                {isLoadingMore && (
-                  <Loader2 className="w-5 h-5 text-[#5865f2] animate-spin" />
-                )}
-              </div>
-            )}
-          </div>
+                );
+              })}
+              {(homeTab === "collections" ? collections.length : tags.length) === 0 && (
+                <div className="col-span-2 flex flex-col items-center justify-center py-12 text-[#949ba4]">
+                  <Grid3X3 className="w-10 h-10 mb-3 opacity-30" />
+                  <p className="text-sm">Nothing here yet</p>
+                </div>
+              )}
+              {canLoadMore && (
+                <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
+                  {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                </div>
+              )}
+            </div>
+          )
         ) : gifs.length === 0 && !isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-[#949ba4]">
-            <Search className="w-12 h-12 mb-3 opacity-50" />
-            <p className="text-sm">No GIFs found</p>
+          <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+            <Search className="w-10 h-10 mb-3 opacity-30" />
+            <p className="text-sm font-medium">No GIFs found</p>
             {search && (
-              <button
-                onClick={goHome}
-                className="mt-3 text-[#5865f2] hover:underline text-sm"
-              >
-                Browse categories
-              </button>
+              <p className="text-xs mt-1 text-[#6b7387]">Try a different search term</p>
             )}
+            <button
+              onClick={() => handleSearchChange("")}
+              className="mt-4 px-4 py-1.5 text-xs font-medium bg-[#5865f2]/20 hover:bg-[#5865f2]/30 text-[#7289da] rounded-full transition-colors"
+            >
+              Clear search
+            </button>
           </div>
         ) : (
-          // GIF grid - masonry-like 2 column layout
           <div className="p-2">
-            <div className="columns-2 gap-2 space-y-2">
+            <div className="columns-2 gap-2">
               {gifs.map((gif) => (
                 <button
                   key={gif.id}
                   onClick={() => onGifSelect(gif)}
-                  className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] transition-all break-inside-avoid"
                   title={gif.title}
+                  className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                 >
-                  <img
-                    src={gif.url}
-                    alt={gif.title}
-                    className="w-full h-auto"
-                    loading="lazy"
-                  />
+                  <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                  <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <p className="text-[10px] text-white leading-tight line-clamp-1">{gif.title}</p>
+                  </div>
                 </button>
               ))}
             </div>
-            
-            {/* Load more trigger */}
             {canLoadMore && (
-              <div ref={loadMoreRef} className="flex justify-center py-4">
-                {isLoadingMore && (
-                  <Loader2 className="w-5 h-5 text-[#5865f2] animate-spin" />
-                )}
+              <div ref={loadMoreRef} className="flex justify-center py-3">
+                {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
               </div>
             )}
           </div>
@@ -637,15 +630,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-2 border-t border-[#2b2d31] flex items-center justify-center">
-        <span className="text-xs text-[#949ba4]">
+      <div className="px-3 py-1.5 border-t border-[#2b2d31] flex items-center justify-center flex-shrink-0">
+        <span className="text-[10px] text-[#6b7387]">
           Powered by{" "}
-          <a
-            href="https://gifs.serika.dev"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[#5865f2] hover:underline"
-          >
+          <a href="https://gifs.serika.dev" target="_blank" rel="noopener noreferrer" className="text-[#5865f2] hover:underline">
             SerikaGIFs
           </a>
         </span>

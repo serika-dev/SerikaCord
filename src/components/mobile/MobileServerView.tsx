@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { voiceService } from "@/lib/services/voiceService";
 
 interface MobileServerViewProps {
   onBack?: () => void;
@@ -157,7 +158,15 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
     }
   };
 
-  const handleChannelClick = (channel: typeof channels[0]) => {
+  const handleChannelClick = async (channel: typeof channels[0]) => {
+    if (channel.type === "voice") {
+      if (voiceService.currentRoomId === channel.id) {
+        await voiceService.leaveChannel();
+      } else {
+        await voiceService.joinChannel(channel.id);
+      }
+      return;
+    }
     setCurrentChannel(channel);
     router.push(`/channels/${currentServer.id}/${channel.id}`);
   };
@@ -319,14 +328,19 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
                           className={cn(
                             "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-150",
                             "hover:bg-[#1a1a1a]/80 active:bg-[#1a1a1a] active:scale-[0.98]",
-                            "text-neutral-400 hover:text-white"
+                            channel.type === "voice" && voiceService.currentRoomId === channel.id
+                              ? "bg-green-500/10 text-green-400"
+                              : "text-neutral-400 hover:text-white"
                           )}
                         >
                           {getChannelIcon(channel.type)}
                           <span className="flex-1 text-left truncate font-medium text-[15px]">
                             {channel.name}
                           </span>
-                          {extChannel.unreadCount && extChannel.unreadCount > 0 && (
+                          {channel.type === "voice" && voiceService.currentRoomId === channel.id && (
+                            <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                          )}
+                          {extChannel.unreadCount != null && extChannel.unreadCount > 0 && channel.type !== "voice" && (
                             <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-[#ED4245] text-white text-xs font-bold rounded-full shadow-lg">
                               {extChannel.unreadCount > 99 ? "99+" : extChannel.unreadCount}
                             </span>

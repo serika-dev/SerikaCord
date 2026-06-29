@@ -10,14 +10,16 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#000000]">
+    <div className="min-h-screen flex items-center justify-center bg-[#000000] overflow-hidden">
+      {/* Radial glow */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] rounded-full bg-[#8B5CF6]/8 blur-[120px] pointer-events-none" />
       {/* Subtle grid pattern */}
       <div 
-        className="absolute inset-0 opacity-[0.03]"
+        className="absolute inset-0 opacity-[0.025]"
         style={{
           backgroundImage: `
-            linear-gradient(rgba(139, 92, 246, 0.5) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(139, 92, 246, 0.5) 1px, transparent 1px)
+            linear-gradient(rgba(139, 92, 246, 0.8) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(139, 92, 246, 0.8) 1px, transparent 1px)
           `,
           backgroundSize: '60px 60px'
         }}

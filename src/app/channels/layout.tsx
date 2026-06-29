@@ -8,6 +8,7 @@ import { ServerProvider, useServer } from "@/contexts/ServerContext";
 import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
+import { VoiceBar } from "@/components/voice/VoiceBar";
 import { Loader2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -227,6 +228,9 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
             </AnimatePresence>
           )}
         </div>
+
+        {/* Voice Bar (above bottom nav when in call) */}
+        <VoiceBar className="fixed bottom-14 left-0 right-0 z-40 md:hidden" />
 
         {/* Bottom Navigation */}
         <BottomNavigation />
