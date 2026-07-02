@@ -120,7 +120,7 @@ export function sanitizeUsername(username: string): string {
 
 // Content validation
 export function validateMessageContent(content: string): { valid: boolean; error?: string } {
-  if (!content || content.length === 0) {
+  if (!content || content.length === 0 || content.trim().length === 0) {
     return { valid: false, error: 'Message content cannot be empty' };
   }
   

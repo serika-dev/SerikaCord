@@ -4,7 +4,7 @@ import { useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
 
 export interface SwipeAction {
-  icon: React.ElementType;
+  icon: React.ReactNode;
   label: string;
   /** Tailwind background class, e.g. "bg-[#8B5CF6]" or "bg-red-500" */
   className: string;
@@ -72,7 +72,7 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
 
   const close = useCallback(() => setOffset(0), []);
 
-  const isOpen = offset <= -maxOffset;
+  const isOpen = actions.length > 0 && offset <= -maxOffset;
 
   return (
     <div className={cn("relative overflow-hidden", className)}>
@@ -80,7 +80,6 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
       {actions.length > 0 && (
         <div className="absolute inset-y-0 right-0 flex" aria-hidden={!isOpen}>
           {actions.map((action) => {
-            const Icon = action.icon;
             return (
               <button
                 key={action.label}
@@ -96,7 +95,7 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
                 )}
                 style={{ width: ACTION_WIDTH }}
               >
-                <Icon className="w-5 h-5" />
+                {action.icon}
                 {action.label}
               </button>
             );

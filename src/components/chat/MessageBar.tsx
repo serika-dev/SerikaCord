@@ -484,7 +484,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 <PopoverContent
                   side="top"
                   align="end"
-                  className="p-0 border-none bg-transparent shadow-xl w-[420px] max-w-[calc(100vw-1rem)]"
+                  className="p-0 border-none bg-transparent shadow-xl w-[440px] max-w-[calc(100vw-1rem)]"
                 >
                   <CustomEmojiPicker
                     onEmojiSelect={handlePickerEmojiSelect}

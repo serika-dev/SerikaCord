@@ -1200,8 +1200,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }),
   })
   // Add reaction to message
-  .put('/:channelId/messages/:messageId/reactions/:emoji/@me', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+  .put('/:channelId/messages/:messageId/reactions', async ({ headers, cookie, params, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown } >);
     if (!user) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
@@ -1233,8 +1233,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Message not found' };
     }
 
-    // Decode the emoji (handles URL encoding like %F0%9F%91%8D for 👍)
-    const decodedEmoji = decodeURIComponent(params.emoji);
+    // Get emoji from query parameter (avoids URL path encoding issues with custom emoji tokens)
+    const decodedEmoji = typeof query.emoji === 'string' ? query.emoji : '';
+    if (!decodedEmoji) {
+      set.status = 400;
+      return { error: 'Missing emoji parameter' };
+    }
     
     // Parse emoji - handles both custom emojis and unicode
     const emojiData = await getReactionEmoji(decodedEmoji);
@@ -1290,12 +1294,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     params: t.Object({
       channelId: t.String(),
       messageId: t.String(),
+    }),
+    query: t.Object({
       emoji: t.String(),
     }),
   })
   // Remove reaction from message
-  .delete('/:channelId/messages/:messageId/reactions/:emoji/@me', async ({ headers, cookie, params, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+  .delete('/:channelId/messages/:messageId/reactions', async ({ headers, cookie, params, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown } >);
     if (!user) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
@@ -1327,7 +1333,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Message not found' };
     }
 
-    const decodedEmoji = decodeURIComponent(params.emoji);
+    const decodedEmoji = typeof query.emoji === 'string' ? query.emoji : '';
+    if (!decodedEmoji) {
+      set.status = 400;
+      return { error: 'Missing emoji parameter' };
+    }
     
     // Parse emoji to get ID for custom emojis
     const emojiData = await getReactionEmoji(decodedEmoji);
@@ -1363,6 +1373,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     params: t.Object({
       channelId: t.String(),
       messageId: t.String(),
+    }),
+    query: t.Object({
       emoji: t.String(),
     }),
   })

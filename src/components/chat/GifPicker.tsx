@@ -42,6 +42,7 @@ const SERIKA_GIFS_API = "/api/gifs";
 const GIF_PAGE_SIZE = 20;
 const COLLECTION_PAGE_SIZE = 20;
 const TAG_PAGE_SIZE = 10;
+const MAX_PAGES = 50; // Safety cap to prevent infinite loading
 
 type ViewMode = "home" | "trending" | "category" | "search";
 type HomeTab = "trending" | "tags" | "collections";
@@ -65,6 +66,8 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const gifsRef = useRef<Gif[]>([]);
+  const noNewItemsRef = useRef(false);
 
   // Format GIF response
   const formatGifs = (data: Record<string, unknown>[]): Gif[] => {
@@ -82,9 +85,12 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
 
   const resolveTotalPages = (apiTotalPages: unknown, page: number, resultCount: number, pageSize: number) => {
     if (typeof apiTotalPages === "number" && apiTotalPages > 0) {
-      return apiTotalPages;
+      return Math.min(apiTotalPages, MAX_PAGES);
     }
-    return resultCount >= pageSize ? page + 1 : page;
+    // If we got fewer than pageSize results, we've reached the end
+    if (resultCount < pageSize) return page;
+    // Otherwise allow one more page, but cap at MAX_PAGES
+    return Math.min(page + 1, MAX_PAGES);
   };
 
   // Fetch trending GIFs
@@ -102,8 +108,18 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         const formattedGifs = formatGifs(data.gifs || []);
         
         if (append) {
-          setGifs(prev => [...prev, ...formattedGifs]);
+          const seen = new Set(gifsRef.current.map(g => g.id));
+          const unique = formattedGifs.filter(g => !seen.has(g.id));
+          if (unique.length === 0) {
+            noNewItemsRef.current = true;
+            setTotalPages(page); // No more pages
+            return;
+          }
+          gifsRef.current = [...gifsRef.current, ...unique];
+          setGifs(gifsRef.current);
         } else {
+          gifsRef.current = formattedGifs;
+          noNewItemsRef.current = false;
           setGifs(formattedGifs);
         }
         
@@ -199,8 +215,18 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         const formattedGifs = formatGifs(data.gifs || []);
         
         if (append) {
-          setGifs(prev => [...prev, ...formattedGifs]);
+          const seen = new Set(gifsRef.current.map(g => g.id));
+          const unique = formattedGifs.filter(g => !seen.has(g.id));
+          if (unique.length === 0) {
+            noNewItemsRef.current = true;
+            setTotalPages(page);
+            return;
+          }
+          gifsRef.current = [...gifsRef.current, ...unique];
+          setGifs(gifsRef.current);
         } else {
+          gifsRef.current = formattedGifs;
+          noNewItemsRef.current = false;
           setGifs(formattedGifs);
         }
         
@@ -230,8 +256,18 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         const formattedGifs = formatGifs(data.gifs || []);
         
         if (append) {
-          setGifs(prev => [...prev, ...formattedGifs]);
+          const seen = new Set(gifsRef.current.map(g => g.id));
+          const unique = formattedGifs.filter(g => !seen.has(g.id));
+          if (unique.length === 0) {
+            noNewItemsRef.current = true;
+            setTotalPages(page);
+            return;
+          }
+          gifsRef.current = [...gifsRef.current, ...unique];
+          setGifs(gifsRef.current);
         } else {
+          gifsRef.current = formattedGifs;
+          noNewItemsRef.current = false;
           setGifs(formattedGifs);
         }
         
@@ -268,8 +304,18 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         const formattedGifs = formatGifs(data.gifs || []);
         
         if (append) {
-          setGifs(prev => [...prev, ...formattedGifs]);
+          const seen = new Set(gifsRef.current.map(g => g.id));
+          const unique = formattedGifs.filter(g => !seen.has(g.id));
+          if (unique.length === 0) {
+            noNewItemsRef.current = true;
+            setTotalPages(page);
+            return;
+          }
+          gifsRef.current = [...gifsRef.current, ...unique];
+          setGifs(gifsRef.current);
         } else {
+          gifsRef.current = formattedGifs;
+          noNewItemsRef.current = false;
           setGifs(formattedGifs);
         }
         
@@ -311,7 +357,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
 
   // Load more when scrolling
   const loadMore = useCallback(() => {
-    if (isLoadingMore) return;
+    if (isLoadingMore || noNewItemsRef.current) return;
 
     if (viewMode === "home") {
       if (homeTab === "trending") {
@@ -401,6 +447,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     setSearch("");
     setSelectedCategory(null);
     setCurrentPage(1);
+    noNewItemsRef.current = false;
     fetchTrending(1);
   };
 
@@ -409,6 +456,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     setViewMode("category");
     setSearch("");
     setCurrentPage(1);
+    noNewItemsRef.current = false;
     if (type === "tag") {
       fetchByTag((item as Tag).slug, 1);
     } else {
@@ -421,6 +469,8 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     setSearch("");
     setSelectedCategory(null);
     setCurrentPage(1);
+    noNewItemsRef.current = false;
+    gifsRef.current = [];
     setGifs([]);
   };
 

@@ -377,7 +377,7 @@ export function CustomEmojiPicker({
   }, []);
 
   return (
-    <div className={cn("w-[440px] bg-[#1a1a2e] rounded-lg border border-[#2a2a40] flex flex-col shadow-2xl overflow-hidden", className)}>
+    <div className={cn("w-full max-w-[440px] bg-[#1a1a2e] rounded-lg border border-[#2a2a40] flex flex-col shadow-2xl overflow-hidden", className)}>
       {/* Top Tabs - GIFs, Stickers, Emoji */}
       <div className="flex border-b border-[#2a2a40]">
         <button
@@ -420,20 +420,20 @@ export function CustomEmojiPicker({
 
       {/* Content based on tab */}
       {activeTab === "gifs" ? (
-        <div className="flex-1 min-h-[400px]">
+        <div className="flex-1 min-h-0 h-[440px]">
           <GifPicker
             onGifSelect={(gif) => onGifSelect?.(gif.url)}
-            className="w-full h-[400px] rounded-none border-none bg-[#1a1a2e]"
+            className="w-full h-full rounded-none border-none bg-[#1a1a2e]"
           />
         </div>
       ) : activeTab === "stickers" ? (
-        <div className="flex-1 min-h-[400px] flex flex-col">
+        <div className="flex-1 min-h-0 h-[440px] flex flex-col">
           <div className="p-3 border-b border-[#2a2a40]">
             <p className="text-xs uppercase tracking-wider text-[#8888aa]">
               {serverId || availableServerStickers.length > 0 ? "Server Stickers" : "Stickers"}
             </p>
           </div>
-          <div className="p-3 h-[340px] overflow-y-auto">
+          <div className="p-3 flex-1 overflow-y-auto">
             {isLoadingStickers ? (
               <div className="grid grid-cols-5 gap-2">
                 {Array.from({ length: 10 }).map((_, idx) => (
@@ -535,7 +535,7 @@ export function CustomEmojiPicker({
             {/* Emoji Grid - Single scrollable list with sections */}
             <div 
               ref={scrollRef}
-              className="flex-1 h-[380px] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent"
+              className="flex-1 h-[440px] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent"
             >
               <div className="p-3 space-y-4">
                 {/* Recently Used Section */}

@@ -648,13 +648,13 @@ export default function DirectMessagesPage() {
                           className="rounded-lg"
                           actions={[
                             {
-                              icon: MessageCircle,
+                              icon: <MessageCircle className="w-5 h-5" />,
                               label: "Message",
                               className: "bg-[#8B5CF6]",
                               onAction: () => startDM(friend.id),
                             },
                             {
-                              icon: UserX,
+                              icon: <UserX className="w-5 h-5" />,
                               label: "Remove",
                               className: "bg-red-500",
                               onAction: () => handleRemoveFriend(friend.id),

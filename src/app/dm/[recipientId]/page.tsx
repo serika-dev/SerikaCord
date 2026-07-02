@@ -16,6 +16,14 @@ import {
   Loader2,
   ArrowLeft,
   FileText,
+  Smile,
+  Reply,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Copy,
+  X,
+  Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -32,6 +40,14 @@ import { buildGalleryFromMessages, findGalleryIndex } from "@/lib/chat/media";
 import { voiceService } from "@/lib/services/voiceService";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VideoGrid } from "@/components/voice/VideoGrid";
+import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
+import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
 
 interface User {
   id: string;
@@ -49,11 +65,36 @@ interface User {
 interface Message {
   id: string;
   content: string;
+  type?: "default" | "reply" | "system";
   authorId: string;
   author: User;
   channelId: string;
   createdAt: string;
   updatedAt?: string;
+  edited?: boolean;
+  pinned?: boolean;
+  referencedMessageId?: string;
+  referencedMessage?: {
+    id: string;
+    content: string;
+    author?: {
+      id: string;
+      username: string;
+      displayName: string;
+      avatar?: string;
+    };
+    createdAt?: string;
+  };
+  reactions?: Array<{
+    emoji: {
+      id?: string;
+      name: string;
+      animated?: boolean;
+      url?: string;
+    };
+    count: number;
+    userIds: string[];
+  }>;
   attachments?: Array<{
     id: string;
     url: string;
@@ -122,6 +163,30 @@ export default function DMConversationPage() {
   const activeFetchRecipientRef = useRef<string | null>(null);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const lastTypingSentAtRef = useRef(0);
+
+  // Edit state
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [editContent, setEditContent] = useState("");
+
+  // Delete confirmation
+  const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<Message | null>(null);
+
+  // Right-click context menu
+  const [contextMenu, setContextMenu] = useState<{ message: Message; x: number; y: number } | null>(null);
+
+  // Reaction picker
+  const [reactionPickerMessage, setReactionPickerMessage] = useState<string | null>(null);
+
+  // Reply state
+  const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
+
+  // Pins
+  const [showPins, setShowPins] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
+  const [isLoadingPins, setIsLoadingPins] = useState(false);
+
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false);
   const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
   const mentionUsers = useMemo(() => {
     const entries: Array<{ id: string; username: string; displayName: string }> = [];
@@ -146,6 +211,27 @@ export default function DMConversationPage() {
   useEffect(() => {
     clearContext();
   }, [clearContext]);
+
+  // Detect mobile
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return;
+    const handleClick = () => setContextMenu(null);
+    const handleScroll = () => setContextMenu(null);
+    window.addEventListener("click", handleClick);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      window.removeEventListener("click", handleClick);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [contextMenu]);
 
   // Fetch all server emojis the user has access to (for DM emoji picker)
   useEffect(() => {
@@ -185,11 +271,21 @@ export default function DMConversationPage() {
     fetchAllStickers();
   }, []);
 
-  const handleEmojiSelect = useCallback((emoji: string, isCustom?: boolean, emojiData?: { id: string; name: string; animated?: boolean }) => {
-    const emojiString = isCustom && emojiData
-      ? `<${emojiData.animated ? "a" : ""}:${emojiData.name}:${emojiData.id}>`
-      : emoji;
-    messageBarRef.current?.getComposer()?.insertTextAtCaret(emojiString);
+  const handleEmojiSelect = useCallback((emoji: string, isCustom?: boolean, emojiData?: { id: string; name: string; animated?: boolean; url?: string }) => {
+    const composer = messageBarRef.current?.getComposer();
+    if (isCustom && emojiData && emojiData.url && composer) {
+      composer.insertEmojiAtCaret({
+        id: emojiData.id,
+        name: emojiData.name,
+        url: emojiData.url,
+        animated: emojiData.animated,
+      });
+    } else if (composer) {
+      const emojiString = isCustom && emojiData
+        ? `<${emojiData.animated ? "a" : ""}:${emojiData.name}:${emojiData.id}>`
+        : emoji;
+      composer.insertTextAtCaret(emojiString);
+    }
   }, []);
 
   const addTypingUser = useCallback(
@@ -264,6 +360,22 @@ export default function DMConversationPage() {
     }
   }, [recipientId, scrollToBottom]);
 
+  // Fetch pinned messages
+  const fetchPinnedMessages = useCallback(async () => {
+    setIsLoadingPins(true);
+    try {
+      const response = await fetch(`/api/dms/${recipientId}/pins`);
+      if (response.ok) {
+        const data = await response.json();
+        setPinnedMessages(data.messages || []);
+      }
+    } catch {
+      // best-effort
+    } finally {
+      setIsLoadingPins(false);
+    }
+  }, [recipientId]);
+
   // Fetch DM messages
   const fetchMessages = useCallback(async () => {
     // Guard against a slower response from a previously viewed DM overwriting
@@ -296,6 +408,13 @@ export default function DMConversationPage() {
       fetchMessages();
     }
   }, [recipientId, fetchMessages, user]);
+
+  // Fetch pinned messages
+  useEffect(() => {
+    if (recipientId && user) {
+      void fetchPinnedMessages();
+    }
+  }, [recipientId, fetchPinnedMessages, user]);
 
   // Set up real-time updates using SSE
   useEffect(() => {
@@ -344,6 +463,34 @@ export default function DMConversationPage() {
             });
             setTimeout(scrollToBottom, 100);
           }
+          if (data.type === "edit") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === data.messageId
+                  ? { ...m, content: data.content, edited: true }
+                  : m
+              )
+            );
+          }
+          if (data.type === "delete") {
+            setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+          }
+          if (data.type === "reaction_add" || data.type === "reaction_remove") {
+            const add = data.type === "reaction_add";
+            if (data.userId !== user?.id) {
+              applyReactionEvent(data.messageId, data.emoji, data.userId, add);
+            }
+          }
+          if (data.type === "pin_update") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === data.messageId
+                  ? { ...m, pinned: data.pinned }
+                  : m
+              )
+            );
+            void fetchPinnedMessages();
+          }
         } catch (error) {
           console.error("SSE parse error:", error);
         }
@@ -383,6 +530,7 @@ export default function DMConversationPage() {
     const pendingAttachments = messageBarRef.current?.getAttachments() ?? [];
     if ((!newMessage.trim() && !isStickerSend && pendingAttachments.length === 0) || isSending) return;
 
+    const replyReference = replyToMessage;
     setIsSending(true);
     const messageContent = newMessage.trim();
     setNewMessage("");
@@ -403,6 +551,7 @@ export default function DMConversationPage() {
       const optimisticMessage: Message = {
         id: tempId,
         content: messageContent,
+        type: replyReference ? "reply" : "default",
         authorId: user?.id || "",
         author: {
           id: user?.id || "",
@@ -417,6 +566,16 @@ export default function DMConversationPage() {
         createdAt: new Date().toISOString(),
         sticker,
         attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+        referencedMessageId: replyReference?.id,
+        referencedMessage: replyReference
+          ? {
+              id: replyReference.id,
+              content: replyReference.content,
+              author: replyReference.author,
+              createdAt: replyReference.createdAt,
+            }
+          : undefined,
+        reactions: [],
       };
       setMessages((prev) => [...prev, optimisticMessage]);
       scrollToBottom();
@@ -425,6 +584,7 @@ export default function DMConversationPage() {
       if (messageContent) body.content = messageContent;
       if (sticker) body.sticker = sticker;
       if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
+      if (replyReference) body.replyTo = replyReference.id;
 
       const response = await fetch(`/api/dms/${recipientId}/messages`, {
         method: "POST",
@@ -457,6 +617,7 @@ export default function DMConversationPage() {
       }
     } finally {
       setIsSending(false);
+      setReplyToMessage(null);
     }
   };
 
@@ -503,6 +664,250 @@ export default function DMConversationPage() {
 
   const handleStickerSelect = (sticker: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string }) => {
     void sendMessage(sticker);
+  };
+
+  // Edit message
+  const handleEditMessage = async () => {
+    if (!editingMessage || !editContent.trim()) return;
+
+    const messageId = editingMessage.id;
+    const previous = messages.find((m) => m.id === messageId);
+    if (!previous) return;
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, content: editContent, edited: true } : m))
+    );
+    setEditingMessage(null);
+    setEditContent("");
+
+    try {
+      const response = await fetch(`/api/dms/${recipientId}/messages/${messageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editContent }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessages((prev) => prev.map((m) => (m.id === messageId ? previous : m)));
+        toast.error(data?.error || "Failed to edit message");
+      }
+    } catch {
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? previous : m)));
+      toast.error("Failed to edit message. Check your connection.");
+    }
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleEditMessage();
+    }
+    if (e.key === "Escape") {
+      setEditingMessage(null);
+      setEditContent("");
+    }
+  };
+
+  // Delete message
+  const handleDeleteMessage = async () => {
+    if (!deleteConfirmMessage) return;
+
+    const messageId = deleteConfirmMessage.id;
+    const previousMessages = messages;
+
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    setDeleteConfirmMessage(null);
+
+    try {
+      const response = await fetch(`/api/dms/${recipientId}/messages/${messageId}`, {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessages(previousMessages);
+        toast.error(data?.error || "Failed to delete message");
+      }
+    } catch {
+      setMessages(previousMessages);
+      toast.error("Failed to delete message. Check your connection.");
+    }
+  };
+
+  // Copy message
+  const handleCopyMessage = (content: string) => {
+    navigator.clipboard.writeText(content);
+    toast.success("Copied to clipboard");
+  };
+
+  // Pin toggle
+  const handlePinToggle = async (message: Message) => {
+    try {
+      const response = await fetch(`/api/dms/${recipientId}/messages/${message.id}/pin`, {
+        method: message.pinned ? "DELETE" : "PUT",
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to update pin");
+        return;
+      }
+
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? { ...m, pinned: !message.pinned } : m))
+      );
+      void fetchPinnedMessages();
+      toast.success(message.pinned ? "Message unpinned" : "Message pinned");
+    } catch {
+      toast.error("Failed to update pin");
+    }
+  };
+
+  // Reaction helpers
+  const applyReactionEvent = useCallback((messageId: string, emoji: string, userId: string, add: boolean) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== messageId) return m;
+        const reactions = [...(m.reactions || [])];
+        const idx = reactions.findIndex(
+          (r) => r.emoji.id
+            ? r.emoji.id === emoji
+            : r.emoji.name === emoji
+        );
+        if (add) {
+          if (idx !== -1) {
+            const r = reactions[idx];
+            if (!r.userIds.includes(userId)) {
+              reactions[idx] = { ...r, count: r.count + 1, userIds: [...r.userIds, userId] };
+            }
+          } else {
+            reactions.push({
+              emoji: { name: emoji },
+              count: 1,
+              userIds: [userId],
+            });
+          }
+        } else {
+          if (idx !== -1) {
+            const r = reactions[idx];
+            const newUserIds = r.userIds.filter((id) => id !== userId);
+            if (newUserIds.length === 0) {
+              reactions.splice(idx, 1);
+            } else {
+              reactions[idx] = { ...r, count: newUserIds.length, userIds: newUserIds };
+            }
+          }
+        }
+        return { ...m, reactions };
+      })
+    );
+  }, []);
+
+  const handleAddReaction = async (messageId: string, emoji: string) => {
+    if (!user?.id) return;
+    setReactionPickerMessage(null);
+    applyReactionEvent(messageId, emoji, user.id, true);
+    try {
+      const encodedEmoji = encodeURIComponent(emoji);
+      const response = await fetch(`/api/dms/${recipientId}/messages/${messageId}/reactions?emoji=${encodedEmoji}`, {
+        method: "PUT",
+      });
+      if (!response.ok) {
+        applyReactionEvent(messageId, emoji, user.id, false);
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to add reaction");
+      }
+    } catch {
+      applyReactionEvent(messageId, emoji, user.id, false);
+      toast.error("Failed to add reaction. Check your connection.");
+    }
+  };
+
+  const handleRemoveReaction = async (messageId: string, emoji: string) => {
+    if (!user?.id) return;
+    applyReactionEvent(messageId, emoji, user.id, false);
+    try {
+      const encodedEmoji = encodeURIComponent(emoji);
+      const response = await fetch(`/api/dms/${recipientId}/messages/${messageId}/reactions?emoji=${encodedEmoji}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        applyReactionEvent(messageId, emoji, user.id, true);
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to remove reaction");
+      }
+    } catch {
+      applyReactionEvent(messageId, emoji, user.id, true);
+      toast.error("Failed to remove reaction. Check your connection.");
+    }
+  };
+
+  const handleReactionClick = (messageId: string, emoji: string, hasReacted: boolean) => {
+    if (hasReacted) {
+      void handleRemoveReaction(messageId, emoji);
+    } else {
+      void handleAddReaction(messageId, emoji);
+    }
+  };
+
+  // Context menu
+  const handleContextMenu = (e: React.MouseEvent, message: Message) => {
+    e.preventDefault();
+    setContextMenu({ message, x: e.clientX, y: e.clientY });
+  };
+
+  // Reaction picker
+  const handleReactionPickerOpen = (messageId: string) => {
+    setReactionPickerMessage(messageId);
+  };
+
+  // Reply
+  const handleReply = (message: Message) => {
+    setReplyToMessage(message);
+    messageBarRef.current?.getComposer()?.focus();
+  };
+
+  const handleCancelReply = () => {
+    setReplyToMessage(null);
+  };
+
+  // Start editing
+  const startEditing = (message: Message) => {
+    setEditingMessage(message);
+    setEditContent(message.content);
+  };
+
+  // Swipe actions for mobile
+  const getSwipeActions = (message: Message): SwipeAction[] => {
+    const actions: SwipeAction[] = [
+      {
+        label: "Reply",
+        icon: <Reply className="w-5 h-5" />,
+        onAction: () => handleReply(message),
+        className: "bg-[#8B5CF6]",
+      },
+      {
+        label: "React",
+        icon: <Smile className="w-5 h-5" />,
+        onAction: () => setReactionPickerMessage(message.id),
+        className: "bg-[#6366f1]",
+      },
+    ];
+    if (message.authorId === user?.id) {
+      actions.push({
+        label: "Edit",
+        icon: <Pencil className="w-5 h-5" />,
+        onAction: () => startEditing(message),
+        className: "bg-[#3b82f6]",
+      });
+      actions.push({
+        label: "Delete",
+        icon: <Trash2 className="w-5 h-5" />,
+        onAction: () => setDeleteConfirmMessage(message),
+        className: "bg-red-500",
+      });
+    }
+    return actions;
   };
 
   // Handle key press
@@ -659,7 +1064,11 @@ export default function DMConversationPage() {
             >
               <Video className="w-5 h-5" />
             </button>
-            <button className="p-2 text-[#888888] hover:text-white transition-colors rounded-md hover:bg-[#111111] hidden sm:block">
+            <button
+              onClick={() => setShowPins(true)}
+              className="p-2 text-[#888888] hover:text-white transition-colors rounded-md hover:bg-[#111111] hidden sm:block"
+              title="Pinned Messages"
+            >
               <Pin className="w-5 h-5" />
             </button>
             <button
@@ -786,61 +1195,224 @@ export default function DMConversationPage() {
                               {formatTime(group.timestamp)}
                             </span>
                           </div>
-                          {group.messages.map((message, msgIndex) => (
-                            <div key={`${groupIndex}-${msgIndex}-${message.id}`}>
-                              <MessageContent
-                                content={message.content}
-                                serverEmojis={message.customEmojis}
-                                mentionUsers={mentionUsers}
-                                currentUserId={user?.id}
-                                sticker={message.sticker}
-                                className="chat-message-body text-[#dcddde]"
-                                onMediaClick={({ src, alt }) => openMediaViewer(src, alt, message.id)}
-                              />
-                              <LinkEmbed content={message.content} />
+                          {group.messages.map((message, msgIndex) => {
+                            const isEditing = editingMessage?.id === message.id;
+                            const messageReactions = message.reactions || [];
 
-                              {/* Attachments */}
-                              {message.attachments?.map((attachment) => (
-                                <div key={attachment.id} className="mt-2">
-                                  {attachment.contentType.startsWith("image/") ? (
-                                    <img
-                                      src={attachment.url}
-                                      alt={attachment.filename}
-                                      className="chat-media cursor-pointer hover:opacity-90 max-w-sm max-h-[350px] object-contain rounded-md"
-                                      onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
-                                    />
-                                  ) : attachment.contentType.startsWith("video/") ? (
-                                    <VideoMediaPlayer
-                                      src={attachment.url}
-                                      filename={attachment.filename}
-                                      contentType={attachment.contentType}
-                                      className="max-w-sm rounded-lg overflow-hidden"
-                                    />
-                                  ) : attachment.contentType.startsWith("audio/") ? (
-                                    <AudioMediaPlayer
-                                      src={attachment.url}
-                                      filename={attachment.filename}
-                                      contentType={attachment.contentType}
-                                      className="w-full max-w-sm"
-                                    />
-                                  ) : (
-                                    <a
-                                      href={attachment.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 p-3 bg-[#1a1a1a] rounded-md hover:brightness-110 max-w-sm transition"
-                                    >
-                                      <FileText className="w-8 h-8 text-[#8B5CF6] flex-shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="text-[#8B5CF6] hover:underline truncate">{attachment.filename}</div>
-                                        <div className="text-xs text-[#888888]">{attachment.size ? Math.round(attachment.size / 1024) : '?'} KB</div>
+                            return (
+                              <SwipeableRow
+                                key={`${groupIndex}-${msgIndex}-${message.id}`}
+                                actions={isMobile ? getSwipeActions(message) : []}
+                              >
+                                <div
+                                  onContextMenu={(e) => handleContextMenu(e, message)}
+                                  className="relative group/msg"
+                                >
+                                  {/* Reply reference */}
+                                  {message.referencedMessage && (
+                                    <div className="mb-1 flex items-center gap-2 text-xs text-[#888888] pl-2 border-l-2 border-[#333333]">
+                                      <Reply className="w-3 h-3 flex-shrink-0" />
+                                      {message.referencedMessage.author && (
+                                        <span className="font-medium text-[#aaa]">
+                                          @{message.referencedMessage.author.displayName || message.referencedMessage.author.username}
+                                        </span>
+                                      )}
+                                      <span className="truncate max-w-[300px]">
+                                        {message.referencedMessage.content || "(attachment)"}
+                                      </span>
+                                    </div>
+                                  )}
+
+                                  {/* Pinned indicator */}
+                                  {message.pinned && (
+                                    <div className="absolute -left-2 top-0 bottom-0 flex items-center pointer-events-none">
+                                      <Pin className="w-3 h-3 text-[#8B5CF6]" />
+                                    </div>
+                                  )}
+
+                                  {/* Edit mode */}
+                                  {isEditing ? (
+                                    <div className="mt-1">
+                                      <Textarea
+                                        value={editContent}
+                                        onChange={(e) => setEditContent(e.target.value)}
+                                        onKeyDown={handleEditKeyDown}
+                                        autoFocus
+                                        className="bg-[#1a1a1a] border-none text-[#dcddde] text-sm rounded-md resize-none focus-visible:ring-1 focus-visible:ring-[#8B5CF6] min-h-[40px]"
+                                        rows={2}
+                                      />
+                                      <div className="text-xs text-[#666666] mt-1">
+                                        escape to <button onClick={() => { setEditingMessage(null); setEditContent(""); }} className="text-[#8B5CF6] hover:underline">cancel</button>
+                                        {" • "}enter to <button onClick={() => void handleEditMessage()} className="text-[#8B5CF6] hover:underline">save</button>
                                       </div>
-                                    </a>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <MessageContent
+                                        content={message.content}
+                                        serverEmojis={message.customEmojis}
+                                        mentionUsers={mentionUsers}
+                                        currentUserId={user?.id}
+                                        sticker={message.sticker}
+                                        className="chat-message-body text-[#dcddde]"
+                                        onMediaClick={({ src, alt }) => openMediaViewer(src, alt, message.id)}
+                                      />
+                                      {message.edited && (
+                                        <span className="text-xs text-[#666666] ml-1">(edited)</span>
+                                      )}
+                                      <LinkEmbed content={message.content} />
+
+                                      {/* Attachments */}
+                                      {message.attachments?.map((attachment) => (
+                                        <div key={attachment.id} className="mt-2">
+                                          {attachment.contentType.startsWith("image/") ? (
+                                            <img
+                                              src={attachment.url}
+                                              alt={attachment.filename}
+                                              className="chat-media cursor-pointer hover:opacity-90 max-w-sm max-h-[350px] object-contain rounded-md"
+                                              onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
+                                            />
+                                          ) : attachment.contentType.startsWith("video/") ? (
+                                            <VideoMediaPlayer
+                                              src={attachment.url}
+                                              filename={attachment.filename}
+                                              contentType={attachment.contentType}
+                                              className="max-w-sm rounded-lg overflow-hidden"
+                                            />
+                                          ) : attachment.contentType.startsWith("audio/") ? (
+                                            <AudioMediaPlayer
+                                              src={attachment.url}
+                                              filename={attachment.filename}
+                                              contentType={attachment.contentType}
+                                              className="w-full max-w-sm"
+                                            />
+                                          ) : (
+                                            <a
+                                              href={attachment.url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="flex items-center gap-2 p-3 bg-[#1a1a1a] rounded-md hover:brightness-110 max-w-sm transition"
+                                            >
+                                              <FileText className="w-8 h-8 text-[#8B5CF6] flex-shrink-0" />
+                                              <div className="min-w-0">
+                                                <div className="text-[#8B5CF6] hover:underline truncate">{attachment.filename}</div>
+                                                <div className="text-xs text-[#888888]">{attachment.size ? Math.round(attachment.size / 1024) : '?'} KB</div>
+                                              </div>
+                                            </a>
+                                          )}
+                                        </div>
+                                      ))}
+
+                                      {/* Reactions */}
+                                      {messageReactions.length > 0 && (
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                          {messageReactions.map((reaction) => {
+                                            const hasReacted = user?.id ? reaction.userIds.includes(user.id) : false;
+                                            return (
+                                              <button
+                                                key={`${reaction.emoji.id || reaction.emoji.name}`}
+                                                onClick={() => handleReactionClick(message.id, reaction.emoji.id || reaction.emoji.name, hasReacted)}
+                                                className={cn(
+                                                  "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs transition-colors border",
+                                                  hasReacted
+                                                    ? "bg-[#8B5CF6]/20 border-[#8B5CF6]/50 text-white"
+                                                    : "bg-[#1a1a1a] border-[#222222] text-[#dcddde] hover:bg-[#222222]"
+                                                )}
+                                              >
+                                                {reaction.emoji.url ? (
+                                                  <img src={reaction.emoji.url} alt={reaction.emoji.name} className="w-4 h-4" />
+                                                ) : (
+                                                  <span className="text-sm leading-none">{reaction.emoji.name}</span>
+                                                )}
+                                                <span>{reaction.count}</span>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {/* Hover actions */}
+                                  {!isEditing && (
+                                    <div className={cn(
+                                      "absolute -top-3 right-0 transition-opacity z-10",
+                                      reactionPickerMessage === message.id
+                                        ? "opacity-100"
+                                        : "opacity-0 group-hover/msg:opacity-100"
+                                    )}>
+                                      <div className="flex items-center bg-[#1a1a1a] border border-[#222222] rounded-md shadow-lg">
+                                        <Popover
+                                          open={reactionPickerMessage === message.id}
+                                          onOpenChange={(open) => setReactionPickerMessage(open ? message.id : null)}
+                                        >
+                                          <PopoverTrigger asChild>
+                                            <button
+                                              className="p-1.5 hover:bg-black/20 rounded-l-md transition-colors"
+                                              title="Add Reaction"
+                                            >
+                                              <Smile className="w-4 h-4 text-[#888888]" />
+                                            </button>
+                                          </PopoverTrigger>
+                                          <PopoverContent className="w-[440px] max-w-[calc(100vw-1rem)] p-0 border-none" side="top" align="end">
+                                            <CustomEmojiPicker
+                                              onEmojiSelect={(emoji: string, isCustom?: boolean, emojiData?: { id: string; name: string; animated?: boolean; url?: string }) => {
+                                                const emojiStr = isCustom && emojiData
+                                                  ? `<${emojiData.animated ? "a" : ""}:${emojiData.name}:${emojiData.id}>`
+                                                  : emoji;
+                                                void handleAddReaction(message.id, emojiStr);
+                                              }}
+                                              availableServerEmojis={availableServerEmojis}
+                                              availableServerStickers={[]}
+                                              onGifSelect={() => {}}
+                                              onStickerSelect={() => {}}
+                                              initialTab="emoji"
+                                            />
+                                          </PopoverContent>
+                                        </Popover>
+                                        <button
+                                          onClick={() => handleReply(message)}
+                                          className="p-1.5 hover:bg-black/20 transition-colors"
+                                          title="Reply"
+                                        >
+                                          <Reply className="w-4 h-4 text-[#888888]" />
+                                        </button>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title="More">
+                                              <MoreHorizontal className="w-4 h-4 text-[#888888]" />
+                                            </button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent side="bottom" align="end" className="bg-[#1a1a1a] border-[#222222] min-w-[160px]">
+                                            <DropdownMenuItem onClick={() => handleReply(message)} className="text-[#dcddde] hover:bg-[#222222] focus:bg-[#222222] cursor-pointer">
+                                              <Reply className="w-4 h-4 mr-2" /> Reply
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleCopyMessage(message.content)} className="text-[#dcddde] hover:bg-[#222222] focus:bg-[#222222] cursor-pointer">
+                                              <Copy className="w-4 h-4 mr-2" /> Copy Text
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => void handlePinToggle(message)} className="text-[#dcddde] hover:bg-[#222222] focus:bg-[#222222] cursor-pointer">
+                                              <Pin className="w-4 h-4 mr-2" /> {message.pinned ? "Unpin" : "Pin"}
+                                            </DropdownMenuItem>
+                                            {message.authorId === user?.id && (
+                                              <>
+                                                <DropdownMenuSeparator className="bg-[#222222]" />
+                                                <DropdownMenuItem onClick={() => startEditing(message)} className="text-[#dcddde] hover:bg-[#222222] focus:bg-[#222222] cursor-pointer">
+                                                  <Pencil className="w-4 h-4 mr-2" /> Edit
+                                                </DropdownMenuItem>
+                                                <DropdownMenuItem onClick={() => setDeleteConfirmMessage(message)} className="text-red-400 hover:bg-red-500/10 focus:bg-red-500/10 cursor-pointer">
+                                                  <Trash2 className="w-4 h-4 mr-2" /> Delete
+                                                </DropdownMenuItem>
+                                              </>
+                                            )}
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
-                              ))}
-                            </div>
-                          ))}
+                              </SwipeableRow>
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -867,6 +1439,27 @@ export default function DMConversationPage() {
 
         {/* Message input */}
         <div className="p-3 sm:p-4 pt-0 safe-area-bottom">
+          {/* Reply preview */}
+          {replyToMessage && (
+            <div className="flex items-center gap-2 px-3 py-2 mb-1 bg-[#111111] rounded-t-md text-sm">
+              <Reply className="w-4 h-4 text-[#8B5CF6] flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-[#888888]">Replying to </span>
+                <span className="font-medium text-white">
+                  {replyToMessage.author.displayName || replyToMessage.author.username}
+                </span>
+                <div className="text-[#888888] truncate">
+                  {replyToMessage.content || "(attachment)"}
+                </div>
+              </div>
+              <button
+                onClick={handleCancelReply}
+                className="p-1 hover:bg-[#222222] rounded-md transition-colors"
+              >
+                <X className="w-4 h-4 text-[#888888]" />
+              </button>
+            </div>
+          )}
           <MessageBar
             ref={messageBarRef}
             placeholder={`Message @${recipient?.displayName || recipient?.username || "..."}`}
@@ -983,6 +1576,132 @@ export default function DMConversationPage() {
               </div>
             </>
           ) : null}
+        </div>
+      )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!deleteConfirmMessage} onOpenChange={(open) => { if (!open) setDeleteConfirmMessage(null); }}>
+        <DialogContent className="bg-[#1a1a1a] border-[#222222] text-white">
+          <DialogHeader>
+            <DialogTitle>Delete Message</DialogTitle>
+            <DialogDescription className="text-[#888888]">
+              Are you sure you want to delete this message? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteConfirmMessage && (
+            <div className="bg-[#0a0a0a] rounded-md p-3 text-sm text-[#dcddde] border border-[#222222]">
+              <p className="truncate">{deleteConfirmMessage.content || "(attachment)"}</p>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="ghost" onClick={() => setDeleteConfirmMessage(null)} className="text-[#888888] hover:text-white">
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void handleDeleteMessage()} className="bg-red-600 hover:bg-red-700 text-white">
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Pinned messages dialog */}
+      <Dialog open={showPins} onOpenChange={setShowPins}>
+        <DialogContent className="bg-[#1a1a1a] border-[#222222] text-white max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pin className="w-5 h-5 text-[#8B5CF6]" />
+              Pinned Messages
+            </DialogTitle>
+            <DialogDescription className="text-[#888888]">
+              {isLoadingPins ? "Loading..." : `${pinnedMessages.length} pinned message${pinnedMessages.length === 1 ? "" : "s"}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[400px] overflow-y-auto space-y-2 scrollbar-thin">
+            {pinnedMessages.length === 0 ? (
+              <div className="text-center py-8 text-[#888888]">
+                No pinned messages yet
+              </div>
+            ) : (
+              pinnedMessages.map((msg) => (
+                <div key={msg.id} className="bg-[#0a0a0a] rounded-md p-3 border border-[#222222]">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Avatar className="w-6 h-6">
+                      <AvatarImage src={msg.author?.avatar} />
+                      <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                        {(msg.author?.displayName || msg.author?.username || "?").charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="font-medium text-sm text-white">
+                      {msg.author?.displayName || msg.author?.username || "Unknown"}
+                    </span>
+                    <span className="text-xs text-[#666666]">
+                      {formatTime(msg.createdAt)}
+                    </span>
+                    <button
+                      onClick={() => void handlePinToggle(msg)}
+                      className="ml-auto p-1 hover:bg-[#222222] rounded-md transition-colors"
+                      title="Unpin"
+                    >
+                      <Pin className="w-4 h-4 text-[#8B5CF6]" />
+                    </button>
+                  </div>
+                  <p className="text-sm text-[#dcddde]">{msg.content || "(attachment)"}</p>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Right-click context menu */}
+      {contextMenu && (
+        <div
+          className="fixed z-50 bg-[#1a1a1a] border border-[#222222] rounded-md shadow-xl py-1 min-w-[180px]"
+          style={{ left: Math.min(contextMenu.x, window.innerWidth - 200), top: Math.min(contextMenu.y, window.innerHeight - 300) }}
+          onClick={() => setContextMenu(null)}
+        >
+          <button
+            onClick={() => handleReply(contextMenu.message)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#dcddde] hover:bg-[#222222] transition-colors text-left"
+          >
+            <Reply className="w-4 h-4" /> Reply
+          </button>
+          <button
+            onClick={() => handleReactionPickerOpen(contextMenu.message.id)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#dcddde] hover:bg-[#222222] transition-colors text-left"
+          >
+            <Smile className="w-4 h-4" /> Add Reaction
+          </button>
+          <button
+            onClick={() => handleCopyMessage(contextMenu.message.content)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#dcddde] hover:bg-[#222222] transition-colors text-left"
+          >
+            <Copy className="w-4 h-4" /> Copy Text
+          </button>
+          <div className="h-px bg-[#222222] my-1" />
+          <button
+            onClick={() => void handlePinToggle(contextMenu.message)}
+            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#dcddde] hover:bg-[#222222] transition-colors text-left"
+          >
+            <Pin className="w-4 h-4" /> {contextMenu.message.pinned ? "Unpin" : "Pin"}
+          </button>
+          {contextMenu.message.authorId === user?.id && (
+            <>
+              <div className="h-px bg-[#222222] my-1" />
+              <button
+                onClick={() => startEditing(contextMenu.message)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[#dcddde] hover:bg-[#222222] transition-colors text-left"
+              >
+                <Pencil className="w-4 h-4" /> Edit
+              </button>
+              <button
+                onClick={() => setDeleteConfirmMessage(contextMenu.message)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition-colors text-left"
+              >
+                <Trash2 className="w-4 h-4" /> Delete
+              </button>
+            </>
+          )}
         </div>
       )}
 

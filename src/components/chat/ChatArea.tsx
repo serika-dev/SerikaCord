@@ -54,7 +54,6 @@ import { toast } from "sonner";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { RichComposer, type RichComposerHandle } from "@/components/chat/RichComposer";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { StaffPill } from "@/components/chat/StaffPill";
@@ -202,7 +201,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const composerRef = useRef<RichComposerHandle>(null);
   const messageBarRef = useRef<MessageBarHandle>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -595,7 +593,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const updateMentionSuggestions = useCallback(
     (draft: string, explicitCaretPosition?: number | null) => {
       const caretPosition =
-        explicitCaretPosition ?? composerRef.current?.getCaret() ?? draft.length;
+        explicitCaretPosition ?? messageBarRef.current?.getComposer()?.getCaret() ?? draft.length;
       const beforeCursor = draft.slice(0, caretPosition);
       const mentionMatch = beforeCursor.match(/(^|\s)@([^\s@]{0,40})$/);
 
@@ -740,7 +738,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const insertMentionFromSuggestion = useCallback(
     (suggestion: MentionSuggestion) => {
       const activeRange = mentionRangeRef.current;
-      const composer = composerRef.current;
+      const composer = messageBarRef.current?.getComposer();
       if (!activeRange || !composer) return;
 
       mentionRangeRef.current = null;
@@ -1152,7 +1150,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     const replyReference = replyToMessage;
     if (!isOverrideSend) {
       setNewMessage("");
-      composerRef.current?.clear();
+      messageBarRef.current?.getComposer()?.clear();
       mentionRangeRef.current = null;
       setMentionSuggestions([]);
       setActiveMentionIndex(0);
@@ -1454,7 +1452,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     isCustom?: boolean,
     emojiData?: { id: string; name: string; animated?: boolean; url?: string }
   ) => {
-    const composer = composerRef.current;
+    const composer = messageBarRef.current?.getComposer();
     if (isCustom && emojiData && emojiData.url && composer) {
       composer.insertEmojiAtCaret({
         id: emojiData.id,
@@ -1465,9 +1463,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     } else if (composer) {
       composer.insertTextAtCaret(emoji);
     }
-    void sendTypingStatus(composerRef.current?.getText());
+    void sendTypingStatus(messageBarRef.current?.getComposer()?.getText() ?? "");
     setShowEmojiPicker(false);
-    composerRef.current?.focus();
+    messageBarRef.current?.getComposer()?.focus();
   };
 
   const handleGifSelect = (gifUrl: string) => {
@@ -1492,7 +1490,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
-        `/api/channels/${currentChannel.id}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
+        `/api/channels/${currentChannel.id}/messages/${messageId}/reactions?emoji=${encodedEmoji}`,
         { method: "PUT" }
       );
       if (!response.ok) {
@@ -1513,7 +1511,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
-        `/api/channels/${currentChannel.id}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
+        `/api/channels/${currentChannel.id}/messages/${messageId}/reactions?emoji=${encodedEmoji}`,
         { method: "DELETE" }
       );
       if (!response.ok) {
@@ -2108,7 +2106,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                       <Smile className="w-4 h-4 text-[var(--app-muted)]" />
                                     </button>
                                   </PopoverTrigger>
-                                  <PopoverContent className="w-auto p-0 border-none" side="top" align="end">
+                                  <PopoverContent className="w-[440px] max-w-[calc(100vw-1rem)] p-0 border-none" side="top" align="end">
                                     <CustomEmojiPicker
                                       onEmojiSelect={(emoji, isCustom, emojiData) => {
                                         const emojiStr = isCustom && emojiData
