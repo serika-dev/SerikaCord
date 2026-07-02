@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, memo } from "react";
 import twemoji from "twemoji";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl } from "@/lib/chat/media";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 
 interface CustomEmoji {
   id: string;
@@ -40,8 +41,10 @@ interface MessageContentProps {
     name: string;
     imageUrl: string;
   };
-  onMediaClick?: (media: { src: string; alt?: string }) => void;
+  onMediaClick?: (media: { src: string; alt?: string; messageId?: string }) => void;
   onImageClick?: (src: string, alt?: string) => void;
+  /** Passed back through onMediaClick so parents can keep a stable handler */
+  messageId?: string;
 }
 
 // Check if a string is only a URL (possibly with whitespace)
@@ -64,7 +67,9 @@ function isOnlyEmoji(text: string, customEmojiCount: number): boolean {
   return emojiRegex.test(stripped) && totalEmojis > 0 && totalEmojis <= 6;
 }
 
-export function MessageContent({
+// Memoized: message rows must not re-parse/re-render while the composer or
+// unrelated chat state changes.
+export const MessageContent = memo(function MessageContent({
   content,
   serverEmojis = [],
   mentionUsers = [],
@@ -75,6 +80,7 @@ export function MessageContent({
   sticker,
   onMediaClick,
   onImageClick,
+  messageId,
 }: MessageContentProps) {
   const textRef = useRef<HTMLSpanElement>(null);
   const mentionUserMap = useMemo(() => {
@@ -96,7 +102,7 @@ export function MessageContent({
     return map;
   }, [mentionRoles]);
   const handleMediaClick = (src: string, alt?: string) => {
-    onMediaClick?.({ src, alt });
+    onMediaClick?.({ src, alt, messageId });
     onImageClick?.(src, alt);
   };
 
@@ -376,11 +382,11 @@ export function MessageContent({
         }
         return (
           <span key={`text-${index}`} className="twemoji-text">
-            {part.content}
+            <MarkdownRenderer content={part.content} />
           </span>
         );
       })}
       {edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
     </span>
   );
-}
+});

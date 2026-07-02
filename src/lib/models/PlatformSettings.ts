@@ -7,6 +7,8 @@ export interface IPlatformSettings {
   globalAnnouncement?: string;
   announcementUpdatedAt?: Date;
   encryptionKey: string;
+  oembedWhitelist?: string[];
+  experiments?: Record<string, boolean>;
   updatedAt: Date;
 }
 
@@ -33,6 +35,14 @@ const PlatformSettingsSchema = new Schema<IPlatformSettings>({
   encryptionKey: {
     type: String,
     required: true,
+  },
+  oembedWhitelist: {
+    type: [String],
+    default: [],
+  },
+  experiments: {
+    type: Schema.Types.Mixed,
+    default: {},
   },
 }, {
   timestamps: { updatedAt: true, createdAt: false },

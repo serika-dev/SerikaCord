@@ -309,6 +309,64 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     params: t.Object({ roomId: t.String() }),
     body: t.Object({ targetUserId: t.String(), candidate: t.Any() }),
   })
+  // Play a soundboard sound to everyone in a voice room
+  .post('/soundboard/:roomId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+
+    const room = roomState.get(params.roomId);
+    if (!room || !room.has(user._id.toString())) {
+      set.status = 403;
+      return { error: 'You must be connected to this voice channel' };
+    }
+
+    // Channel rooms: verify the sound belongs to the channel's server and
+    // the server's soundboard is enabled.
+    let volume = 100;
+    if (params.roomId.startsWith('channel-')) {
+      const channelId = params.roomId.slice('channel-'.length);
+      const { Channel, Server } = await import('@/lib/models');
+      if (!/^[0-9a-fA-F]{24}$/.test(channelId)) {
+        set.status = 400;
+        return { error: 'Invalid voice channel' };
+      }
+      const channel = await Channel.findById(channelId).select('serverId');
+      if (!channel) { set.status = 404; return { error: 'Channel not found' }; }
+      const server = await Server.findById(channel.serverId).select('settings soundboardSounds');
+      if (!server) { set.status = 404; return { error: 'Server not found' }; }
+
+      if (server.settings?.soundboard?.enabled === false) {
+        set.status = 403;
+        return { error: 'Soundboard is disabled in this server' };
+      }
+      volume = server.settings?.soundboard?.volume ?? 100;
+
+      const sound = (server.soundboardSounds || []).find(
+        (s: { url: string }) => s.url === body.soundUrl
+      );
+      if (!sound) {
+        set.status = 400;
+        return { error: 'That sound does not exist in this server' };
+      }
+    }
+
+    broadcastToRoom(params.roomId, {
+      type: 'voice:soundboard',
+      userId: user._id.toString(),
+      username: user.displayName || user.username,
+      soundUrl: body.soundUrl,
+      soundName: body.soundName,
+      volume,
+    }, user._id.toString());
+
+    return { success: true, volume };
+  }, {
+    params: t.Object({ roomId: t.String() }),
+    body: t.Object({
+      soundUrl: t.String({ minLength: 1, maxLength: 2048 }),
+      soundName: t.String({ minLength: 1, maxLength: 100 }),
+    }),
+  })
   // Update mute/deafen state
   .patch('/state/:roomId', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -340,5 +398,29 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       deafened: t.Optional(t.Boolean()),
       video: t.Optional(t.Boolean()),
       screenShare: t.Optional(t.Boolean()),
+    }),
+  })
+  // Broadcast speaking state to other participants
+  .post('/speaking/:roomId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+
+    const room = roomState.get(params.roomId);
+    if (!room || !room.has(user._id.toString())) {
+      set.status = 404;
+      return { error: 'Not in room' };
+    }
+
+    broadcastToRoom(params.roomId, {
+      type: 'voice:speaking',
+      userId: user._id.toString(),
+      speaking: body.speaking,
+    }, user._id.toString());
+
+    return { success: true };
+  }, {
+    params: t.Object({ roomId: t.String() }),
+    body: t.Object({
+      speaking: t.Boolean(),
     }),
   });

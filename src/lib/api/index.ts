@@ -4,7 +4,7 @@ import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
 import { connectDB } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP } from '@/lib/security';
+import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams } from '@/lib/security';
 import { User, type IUser, AuthorizedApp, UserDeviceSession, UserConnection } from '@/lib/models';
 import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes, partnerRoutes } from './servers';
@@ -212,6 +212,7 @@ const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
 
 // User routes
 const userRoutes = new Elysia({ prefix: '/users' })
+  .onBeforeHandle(rejectInvalidObjectIdParams)
   // Support both /me and /@me for compatibility
   .get('/me', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -276,7 +277,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const memberships = await ServerMember.find({ userId: user._id })
       .populate({
         path: 'serverId',
-        select: 'name icon description memberCount isOfficial isVerified vanityUrlCode ownerId',
+        select: 'name icon banner description memberCount isOfficial isVerified isPartnered vanityUrlCode ownerId systemChannelId rulesChannelId afkChannelId afkTimeout',
       });
 
     const servers = memberships
@@ -287,12 +288,19 @@ const userRoutes = new Elysia({ prefix: '/users' })
           id: server._id,
           name: server.name,
           icon: server.icon,
+          banner: server.banner ?? null,
           description: server.description,
           memberCount: server.memberCount,
           isOfficial: server.isOfficial,
           isVerified: server.isVerified,
+          isPartnered: Boolean(server.isPartnered),
           vanityUrlCode: server.vanityUrlCode,
+          ownerId: server.ownerId?.toString() ?? null,
           isOwner: server.ownerId?.toString() === user._id.toString(),
+          systemChannelId: server.systemChannelId?.toString() ?? null,
+          rulesChannelId: server.rulesChannelId?.toString() ?? null,
+          afkChannelId: server.afkChannelId?.toString() ?? null,
+          afkTimeout: server.afkTimeout ?? 300,
           joinedAt: m.joinedAt,
           roles: m.roles,
           nickname: m.nickname,
@@ -301,7 +309,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
     return servers;
   })
-  .get('/@me/mentions', async ({ headers, cookie, set }) => {
+  .get('/@me/mentions', async ({ headers, cookie, set, query }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
       set.status = 401;
@@ -311,48 +319,96 @@ const userRoutes = new Elysia({ prefix: '/users' })
     try {
       const { ServerMember, Message, Channel } = await import('@/lib/models');
 
-      // Get all servers the user is a member of
-      const memberships = await ServerMember.find({ userId: user._id }).select('serverId').lean();
+      // Get all servers the user is a member of, plus their role IDs per server
+      const memberships = await ServerMember.find({ userId: user._id }).select('serverId roles').lean();
       const serverIds = memberships.map(m => m.serverId);
 
       if (serverIds.length === 0) {
-        return { servers: [] };
+        return { servers: [], mentions: [] };
+      }
+
+      // Map serverId -> user's role IDs (for role mention matching)
+      const serverToRoles = new Map<string, string[]>();
+      for (const m of memberships) {
+        serverToRoles.set(m.serverId.toString(), (m.roles || []).map((r: { toString(): string }) => r.toString()));
       }
 
       // Get all channels in those servers
-      const channels = await Channel.find({ serverId: { $in: serverIds } }).select('_id serverId').lean();
+      const channels = await Channel.find({ serverId: { $in: serverIds } }).select('_id serverId name').lean();
       const channelIds = channels.map(c => c._id);
 
-      // Find recent messages (last 7 days) that mention the user
+      // Map channelId -> { serverId, name }
+      const channelToServer = new Map<string, string>();
+      const channelToName = new Map<string, string>();
+      for (const c of channels) {
+        channelToServer.set(c._id.toString(), c.serverId.toString());
+        channelToName.set(c._id.toString(), c.name);
+      }
+
+      // Build mention query: direct user mentions, @everyone, or role mentions
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      // Collect all role IDs the user has across all servers
+      const allUserRoleIds = new Set<string>();
+      for (const roleIds of serverToRoles.values()) {
+        for (const rid of roleIds) allUserRoleIds.add(rid);
+      }
+
+      const orConditions: Record<string, unknown>[] = [
+        { mentionedUserIds: user._id },
+        { mentionEveryone: true },
+      ];
+      if (allUserRoleIds.size > 0) {
+        orConditions.push({ mentionedRoleIds: { $in: Array.from(allUserRoleIds) } });
+      }
+
+      // Optional server filter
+      const serverFilter = (query as { serverId?: string })?.serverId;
+      let filterChannelIds = channelIds;
+      if (serverFilter) {
+        filterChannelIds = channels.filter(c => c.serverId.toString() === serverFilter).map(c => c._id);
+      }
+
       const mentionedMessages = await Message.find({
-        channelId: { $in: channelIds },
+        channelId: { $in: filterChannelIds },
         isDeleted: false,
         createdAt: { $gte: sevenDaysAgo },
-        $or: [
-          { mentionedUserIds: user._id },
-          { mentionEveryone: true },
-        ],
+        $or: orConditions,
       })
-        .select('channelId')
+        .select('content channelId createdAt authorId author')
+        .sort({ createdAt: -1 })
+        .limit(50)
         .lean();
 
-      // Map channel -> serverId
-      const channelToServer = new Map(channels.map(c => [c._id.toString(), c.serverId.toString()]));
-
-      // Collect server IDs that have mentions
+      // Map channel -> serverId for filtering
       const serversWithMentions = new Set<string>();
-      for (const msg of mentionedMessages) {
-        const serverId = channelToServer.get(msg.channelId.toString());
-        if (serverId) serversWithMentions.add(serverId);
-      }
+      const mentions = mentionedMessages.map(msg => {
+        const sid = channelToServer.get(msg.channelId.toString()) || '';
+        if (sid) serversWithMentions.add(sid);
+        const author = msg.author as unknown as { id?: string; _id?: string; username?: string; displayName?: string; avatar?: string } | undefined;
+        return {
+          id: (msg as { _id: { toString(): string } })._id.toString(),
+          content: msg.content,
+          channelId: msg.channelId.toString(),
+          channelName: channelToName.get(msg.channelId.toString()) || '',
+          serverId: sid,
+          createdAt: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : String(msg.createdAt),
+          author: author ? {
+            id: author.id || author._id?.toString() || '',
+            username: author.username || '',
+            displayName: author.displayName || author.username || '',
+            avatar: author.avatar,
+          } : null,
+        };
+      });
 
       return {
         servers: Array.from(serversWithMentions).map(id => ({ id })),
+        mentions,
       };
     } catch (error) {
       console.error('Failed to fetch mentions:', error);
-      return { servers: [] };
+      return { servers: [], mentions: [] };
     }
   })
   .get('/@me/emojis', async ({ headers, cookie, set }) => {
@@ -771,25 +827,41 @@ const userRoutes = new Elysia({ prefix: '/users' })
       connectionId: t.String(),
     }),
   })
-  .get('/:userId', async ({ params, set }) => {
-    const user = await User.findById(params.userId).select('-settings -blockedUsers -pendingFriendRequests');
+  .get('/:userId', async ({ params, headers, cookie, set }) => {
+    const targetUser = await User.findById(params.userId).select('-settings -blockedUsers -pendingFriendRequests');
 
-    if (!user) {
+    if (!targetUser) {
       set.status = 404;
       return { error: 'User not found' };
     }
 
+    // Optionally check friend status if the requester is authenticated
+    let isFriend = false;
+    let friendRequestSent = false;
+    try {
+      const { user: requester } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+      if (requester) {
+        isFriend = (requester.friends as Types.ObjectId[]).some((f) => compareIds(f, targetUser._id));
+        const outgoing = (requester.pendingFriendRequests?.outgoing as Types.ObjectId[]) || [];
+        friendRequestSent = outgoing.some((f) => compareIds(f, targetUser._id));
+      }
+    } catch {
+      // Not authenticated — leave isFriend false
+    }
+
     return {
-      id: user._id,
-      username: user.username,
-      displayName: user.displayName,
-      avatar: user.avatar,
-      banner: user.banner,
-      bio: user.bio,
-      status: getPublicPresenceStatus(user),
-      customStatus: user.customStatus,
-      isPremium: user.isPremium,
-      createdAt: user.createdAt,
+      id: targetUser._id,
+      username: targetUser.username,
+      displayName: targetUser.displayName,
+      avatar: targetUser.avatar,
+      banner: targetUser.banner,
+      bio: targetUser.bio,
+      status: getPublicPresenceStatus(targetUser),
+      customStatus: targetUser.customStatus,
+      isPremium: targetUser.isPremium,
+      createdAt: targetUser.createdAt,
+      isFriend,
+      friendRequestSent,
     };
   }, {
     params: t.Object({
@@ -799,6 +871,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
 // Friends routes
 const friendsRoutes = new Elysia({ prefix: '/friends' })
+  .onBeforeHandle(rejectInvalidObjectIdParams)
   .get('/', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {

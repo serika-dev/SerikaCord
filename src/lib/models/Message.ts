@@ -197,6 +197,7 @@ const ReactionSchema = new Schema<IReaction>({
     id: String,
     name: { type: String, required: true },
     animated: Boolean,
+    url: String, // CDN URL for custom emoji reactions
   },
   count: { type: Number, default: 1 },
   userIds: [{

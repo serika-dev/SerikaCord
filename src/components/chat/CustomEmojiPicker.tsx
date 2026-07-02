@@ -122,24 +122,46 @@ const CustomEmojiButton = memo(function CustomEmojiButton({
   );
 });
 
+const RECENT_EMOJIS_KEY = "serika-recent-emojis";
+
+type RecentEmojiEntry =
+  | { kind: "unicode"; emoji: string }
+  | { kind: "custom"; id: string; name: string; url: string; animated?: boolean };
+
+// Stable default values: inline `= []` defaults create a new array identity
+// on every render, which turns any effect depending on them into an infinite
+// setState loop (this crashed the reaction picker).
+const EMPTY_CUSTOM_EMOJIS: CustomEmoji[] = [];
+const EMPTY_STRINGS: string[] = [];
+const EMPTY_STICKERS: StickerItem[] = [];
+
 export function CustomEmojiPicker({
   onEmojiSelect,
   onGifSelect,
   onStickerSelect,
-  serverEmojis = [],
-  recentEmojis = [],
-  favoriteEmojis = [],
+  serverEmojis = EMPTY_CUSTOM_EMOJIS,
+  recentEmojis = EMPTY_STRINGS,
+  favoriteEmojis = EMPTY_STRINGS,
   serverName = "Server",
   className,
   allowServerEmojisInDMs = false,
-  availableServerEmojis = [],
+  availableServerEmojis = EMPTY_CUSTOM_EMOJIS,
   allowServerStickersInDMs = false,
-  availableServerStickers = [],
+  availableServerStickers = EMPTY_STICKERS,
   serverId,
   initialTab = "emoji",
 }: EmojiPickerProps) {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [recentEntries, setRecentEntries] = useState<RecentEmojiEntry[]>([]);
+
+  // Load persisted recently-used emojis once
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_EMOJIS_KEY);
+      if (raw) setRecentEntries(JSON.parse(raw) as RecentEmojiEntry[]);
+    } catch { /* corrupt/unavailable storage */ }
+  }, []);
   const [stickers, setStickers] = useState<StickerItem[]>([]);
   const [isLoadingStickers, setIsLoadingStickers] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -153,10 +175,20 @@ export function CustomEmojiPicker({
   // Combined emojis - use all server emojis user has access to (cross-server)
   const allCustomEmojis = useMemo(() => {
     if (availableServerEmojis.length > 0) {
-      // Merge: show all available server emojis, but prioritize current server's
+      // Merge: show all available server emojis, but prioritize current server's.
+      // Backfill serverName on current-server entries from the cross-server
+      // list so per-server grouping labels every emoji correctly.
+      const nameById = new Map(
+        availableServerEmojis
+          .filter((e) => e.serverName)
+          .map((e) => [e.id, e.serverName as string])
+      );
       const currentServerIds = new Set(serverEmojis.map(e => e.id));
+      const enrichedCurrent = serverEmojis.map((e) =>
+        e.serverName ? e : { ...e, serverName: nameById.get(e.id) }
+      );
       const others = availableServerEmojis.filter(e => !currentServerIds.has(e.id));
-      return [...serverEmojis, ...others];
+      return [...enrichedCurrent, ...others];
     }
     return serverEmojis;
   }, [availableServerEmojis, serverEmojis]);
@@ -179,17 +211,43 @@ export function CustomEmojiPicker({
   const filteredCustomEmojis = useMemo(() => {
     if (!search.trim()) return allCustomEmojis;
     const query = search.toLowerCase();
-    return allCustomEmojis.filter(emoji => 
+    return allCustomEmojis.filter(emoji =>
       emoji.name.toLowerCase().includes(query)
     );
   }, [search, allCustomEmojis]);
 
-  // Filter recent/favorites
+  // Group custom emojis by their server (current server first, since
+  // allCustomEmojis puts the current server's emojis before the others)
+  const groupedCustomEmojis = useMemo(() => {
+    const groups: Array<{ server: string; emojis: CustomEmoji[] }> = [];
+    const indexByServer = new Map<string, number>();
+    for (const emoji of filteredCustomEmojis) {
+      const server = emoji.serverName || serverName;
+      let index = indexByServer.get(server);
+      if (index === undefined) {
+        index = groups.length;
+        indexByServer.set(server, index);
+        groups.push({ server, emojis: [] });
+      }
+      groups[index].emojis.push(emoji);
+    }
+    return groups;
+  }, [filteredCustomEmojis, serverName]);
+
+  // Filter recent/favorites — persisted entries first, then any prop-provided
   const filteredRecent = useMemo(() => {
-    if (!search.trim()) return recentEmojis;
+    const fromProps: RecentEmojiEntry[] = recentEmojis.map((emoji) => ({ kind: "unicode" as const, emoji }));
+    const seen = new Set(recentEntries.map((e) => (e.kind === "custom" ? `c:${e.id}` : `u:${e.emoji}`)));
+    const combined = [
+      ...recentEntries,
+      ...fromProps.filter((e) => e.kind === "unicode" && !seen.has(`u:${e.emoji}`)),
+    ];
+    if (!search.trim()) return combined;
     const query = search.toLowerCase();
-    return recentEmojis.filter(emoji => emoji.toLowerCase().includes(query));
-  }, [search, recentEmojis]);
+    return combined.filter((entry) =>
+      entry.kind === "custom" ? entry.name.toLowerCase().includes(query) : entry.emoji.toLowerCase().includes(query)
+    );
+  }, [search, recentEmojis, recentEntries]);
 
   const filteredFavorites = useMemo(() => {
     if (!search.trim()) return favoriteEmojis;
@@ -198,6 +256,18 @@ export function CustomEmojiPicker({
   }, [search, favoriteEmojis]);
 
   const handleEmojiClick = useCallback((emoji: string, isCustom = false, emojiData?: CustomEmoji) => {
+    // Record in recently used (persisted locally)
+    setRecentEntries((prev) => {
+      const entry: RecentEmojiEntry = isCustom && emojiData
+        ? { kind: "custom", id: emojiData.id, name: emojiData.name, url: emojiData.url, animated: emojiData.animated }
+        : { kind: "unicode", emoji };
+      const key = entry.kind === "custom" ? `c:${entry.id}` : `u:${entry.emoji}`;
+      const next = [entry, ...prev.filter((e) => (e.kind === "custom" ? `c:${e.id}` : `u:${e.emoji}`) !== key)].slice(0, 24);
+      try {
+        localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(next));
+      } catch { /* storage full or unavailable */ }
+      return next;
+    });
     onEmojiSelect(emoji, isCustom, emojiData);
   }, [onEmojiSelect]);
 
@@ -247,7 +317,8 @@ export function CustomEmojiPicker({
 
   useEffect(() => {
     if (activeTab !== "stickers") {
-      setStickers([]);
+      // Bail out if already empty — a new [] identity here re-renders forever
+      setStickers((prev) => (prev.length === 0 ? prev : []));
       return;
     }
 
@@ -270,7 +341,7 @@ export function CustomEmojiPicker({
         if (!response.ok) return;
         const data = await response.json();
         if (!active) return;
-        setStickers((data.stickers || []).map((sticker: any) => ({
+        setStickers((data.stickers || []).map((sticker: { id?: string; _id?: string; name: string; description?: string; tags?: string[]; imageUrl?: string; url?: string }) => ({
           id: sticker.id || sticker._id,
           name: sticker.name,
           description: sticker.description,
@@ -475,13 +546,28 @@ export function CustomEmojiPicker({
                       Recently Used
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
-                      {filteredRecent.slice(0, 24).map((emoji, idx) => (
-                        <EmojiButton
-                          key={`recent-${idx}`}
-                          emoji={emoji}
-                          onClick={() => handleEmojiClick(emoji)}
-                        />
-                      ))}
+                      {filteredRecent.slice(0, 24).map((entry, idx) =>
+                        entry.kind === "custom" ? (
+                          <CustomEmojiButton
+                            key={`recent-c-${entry.id}-${idx}`}
+                            emoji={{ id: entry.id, name: entry.name, url: entry.url, animated: entry.animated }}
+                            onClick={() =>
+                              handleEmojiClick(`:${entry.name}:`, true, {
+                                id: entry.id,
+                                name: entry.name,
+                                url: entry.url,
+                                animated: entry.animated,
+                              })
+                            }
+                          />
+                        ) : (
+                          <EmojiButton
+                            key={`recent-u-${idx}`}
+                            emoji={entry.emoji}
+                            onClick={() => handleEmojiClick(entry.emoji)}
+                          />
+                        )
+                      )}
                     </div>
                   </div>
                 )}
@@ -505,14 +591,14 @@ export function CustomEmojiPicker({
                   </div>
                 )}
 
-                {/* Server Custom Emojis Section */}
-                {filteredCustomEmojis.length > 0 && (
-                  <div>
+                {/* Server Custom Emojis — one section per server, like Discord */}
+                {groupedCustomEmojis.map((group) => (
+                  <div key={`server-${group.server}`}>
                     <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
-                      {availableServerEmojis.length > 0 ? "Your Servers" : serverName}
+                      {group.server}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
-                      {filteredCustomEmojis.map((emoji) => (
+                      {group.emojis.map((emoji) => (
                         <CustomEmojiButton
                           key={emoji.id}
                           emoji={emoji}
@@ -521,7 +607,7 @@ export function CustomEmojiPicker({
                       ))}
                     </div>
                   </div>
-                )}
+                ))}
 
                 {/* Standard Emoji Categories */}
                 {filteredCategories.map((category) => (
@@ -545,22 +631,18 @@ export function CustomEmojiPicker({
                 {search && filteredCategories.length === 0 && filteredCustomEmojis.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <Search className="w-12 h-12 text-[#4a4a6a] mb-4" />
-                    <p className="text-[#8888aa] text-sm">No emojis found for "{search}"</p>
+                    <p className="text-[#8888aa] text-sm">No emojis found for &quot;{search}&quot;</p>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Footer with Add Emoji button */}
-          <div className="border-t border-[#2a2a40] p-2 flex items-center justify-between bg-[#0f0f1a]">
+          {/* Footer */}
+          <div className="border-t border-[#2a2a40] p-2 flex items-center bg-[#0f0f1a]">
             <div className="flex items-center gap-2 text-xs text-[#8888aa]">
               <span>Powered by Twemoji</span>
             </div>
-            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-xs font-semibold rounded-lg transition-colors">
-              <Plus className="w-3.5 h-3.5" />
-              Add Emoji
-            </button>
           </div>
         </>
       )}

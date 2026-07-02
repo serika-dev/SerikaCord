@@ -6,7 +6,16 @@ interface Server {
   id: string;
   name: string;
   icon?: string;
+  banner?: string | null;
   ownerId: string;
+  isOwner?: boolean;
+  isPartnered?: boolean;
+  description?: string;
+  memberCount?: number;
+  systemChannelId?: string | null;
+  rulesChannelId?: string | null;
+  afkChannelId?: string | null;
+  afkTimeout?: number;
 }
 
 type ChannelType = 
@@ -101,6 +110,12 @@ export function ServerProvider({ children }: { children: ReactNode }) {
           ...s,
         }));
         setServers(transformedServers);
+        // Also update currentServer if it exists in the new list (keeps banner, icon, etc. in sync)
+        setCurrentServerState((prev) => {
+          if (!prev) return prev;
+          const updated = transformedServers.find((s: Server) => s.id === prev.id);
+          return updated || prev;
+        });
       }
     } catch (error) {
       console.error("Failed to fetch servers:", error);

@@ -1,10 +1,11 @@
 import { Elysia, t } from 'elysia';
 import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId } from '@/lib/security';
+import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
 import { cache } from '@/lib/db';
 import { nanoid } from 'nanoid';
 import { config } from '@/lib/config';
+import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { Types } from 'mongoose';
 
@@ -158,6 +159,8 @@ function normalizeMemberDto(member: {
 }
 
 export const serverRoutes = new Elysia({ prefix: '/servers' })
+  // Reject malformed ObjectId route params before any handler runs
+  .onBeforeHandle(rejectInvalidObjectIdParams)
   // Get user's servers
   .get('/', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -542,6 +545,254 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }),
     body: t.Object({
       settings: t.Object({}, { additionalProperties: true }),
+    }),
+  })
+  // Bulk settings update: validates every field first, rejects the whole
+  // request with field-specific errors if anything is invalid, then applies
+  // all changes in a single document save (atomic per server).
+  .patch('/:serverId/settings/bulk', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!server.ownerId.equals(user._id) && !(await canManageRoles(server, user._id))) {
+      set.status = 403;
+      return { error: 'You do not have permission to edit this server' };
+    }
+
+    const changes = body.changes as Record<string, string | number | boolean | null>;
+    const fieldErrors: Record<string, string> = {};
+
+    const VERIFICATION_LEVELS = ['none', 'low', 'medium', 'high', 'very_high'];
+    const CONTENT_FILTERS = ['disabled', 'members_without_roles', 'all_members'];
+    const CHANNEL_FIELDS = ['systemChannelId', 'rulesChannelId', 'afkChannelId', 'widget.channelId'];
+
+    const expectString = (key: string, max: number, min = 0): string | undefined => {
+      const value = changes[key];
+      if (typeof value !== 'string') {
+        fieldErrors[key] = 'Must be text';
+        return undefined;
+      }
+      const trimmed = value.trim();
+      if (trimmed.length < min) {
+        fieldErrors[key] = `Must be at least ${min} characters`;
+        return undefined;
+      }
+      if (trimmed.length > max) {
+        fieldErrors[key] = `Must be at most ${max} characters`;
+        return undefined;
+      }
+      return sanitizeInput(trimmed);
+    };
+
+    const expectBoolean = (key: string): boolean | undefined => {
+      const value = changes[key];
+      if (typeof value !== 'boolean') {
+        fieldErrors[key] = 'Must be true or false';
+        return undefined;
+      }
+      return value;
+    };
+
+    const expectIntInRange = (key: string, minValue: number, maxValue: number): number | undefined => {
+      const value = changes[key];
+      if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+        fieldErrors[key] = 'Must be a whole number';
+        return undefined;
+      }
+      if (value < minValue || value > maxValue) {
+        fieldErrors[key] = `Must be between ${minValue} and ${maxValue}`;
+        return undefined;
+      }
+      return value;
+    };
+
+    const expectEnum = (key: string, allowed: string[]): string | undefined => {
+      const value = changes[key];
+      if (typeof value !== 'string' || !allowed.includes(value)) {
+        fieldErrors[key] = `Must be one of: ${allowed.join(', ')}`;
+        return undefined;
+      }
+      return value;
+    };
+
+    // Validate channel references in one query
+    const channelIdsToCheck: string[] = [];
+    for (const key of CHANNEL_FIELDS) {
+      if (!(key in changes)) continue;
+      const value = changes[key];
+      if (value === null || value === '') continue;
+      if (typeof value !== 'string' || !isValidObjectId(value)) {
+        fieldErrors[key] = 'Invalid channel';
+        continue;
+      }
+      channelIdsToCheck.push(value);
+    }
+    if (channelIdsToCheck.length > 0) {
+      const found = await Channel.find({
+        _id: { $in: channelIdsToCheck },
+        serverId: server._id,
+      }).select('_id').lean();
+      const foundIds = new Set(found.map((c) => c._id.toString()));
+      for (const key of CHANNEL_FIELDS) {
+        const value = changes[key];
+        if (typeof value === 'string' && value && isValidObjectId(value) && !foundIds.has(value)) {
+          fieldErrors[key] = 'Channel does not belong to this server';
+        }
+      }
+    }
+
+    // Validate and stage every known field; unknown fields are rejected
+    type Staged = () => void;
+    const staged: Staged[] = [];
+    const settings = () => {
+      server.settings = server.settings || {};
+      return server.settings as Record<string, Record<string, unknown>>;
+    };
+    const section = (name: string) => {
+      const s = settings();
+      s[name] = s[name] || {};
+      return s[name];
+    };
+
+    for (const key of Object.keys(changes)) {
+      switch (key) {
+        case 'name': {
+          const v = expectString(key, 100, 2);
+          if (v !== undefined) staged.push(() => { server.name = v; });
+          break;
+        }
+        case 'description': {
+          if (changes[key] === null) {
+            staged.push(() => { server.description = null; });
+          } else {
+            const v = expectString(key, 1024);
+            if (v !== undefined) staged.push(() => { server.description = v || null; });
+          }
+          break;
+        }
+        case 'systemChannelId':
+        case 'rulesChannelId':
+        case 'afkChannelId': {
+          if (fieldErrors[key]) break;
+          const v = changes[key];
+          staged.push(() => { (server as Record<string, unknown>)[key] = v || undefined; });
+          break;
+        }
+        case 'afkTimeout': {
+          const v = expectIntInRange(key, 30, 7200);
+          if (v !== undefined) staged.push(() => { server.afkTimeout = v; });
+          break;
+        }
+        case 'widget.enabled': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('widget').enabled = v; });
+          break;
+        }
+        case 'widget.channelId': {
+          if (fieldErrors[key]) break;
+          const v = changes[key];
+          staged.push(() => { section('widget').channelId = v || null; });
+          break;
+        }
+        case 'moderation.verificationLevel': {
+          const v = expectEnum(key, VERIFICATION_LEVELS);
+          if (v !== undefined) staged.push(() => {
+            section('moderation').verificationLevel = v;
+            server.verificationLevel = v as typeof server.verificationLevel;
+          });
+          break;
+        }
+        case 'moderation.explicitContentFilter': {
+          const v = expectEnum(key, CONTENT_FILTERS);
+          if (v !== undefined) staged.push(() => {
+            section('moderation').explicitContentFilter = v;
+            server.explicitContentFilter = v as typeof server.explicitContentFilter;
+          });
+          break;
+        }
+        case 'moderation.require2FA': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('moderation').require2FA = v; });
+          break;
+        }
+        case 'safety.raidProtection':
+        case 'safety.antiSpam': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('safety')[key.split('.')[1]] = v; });
+          break;
+        }
+        case 'safety.mentionSpamLimit': {
+          const v = expectIntInRange(key, 1, 50);
+          if (v !== undefined) staged.push(() => { section('safety').mentionSpamLimit = v; });
+          break;
+        }
+        case 'integrations.discord':
+        case 'integrations.twitch':
+        case 'integrations.youtube':
+        case 'integrations.webhooks': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
+          break;
+        }
+        case 'soundboard.enabled': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('soundboard').enabled = v; });
+          break;
+        }
+        case 'soundboard.volume': {
+          const v = expectIntInRange(key, 0, 200);
+          if (v !== undefined) staged.push(() => { section('soundboard').volume = v; });
+          break;
+        }
+        default:
+          fieldErrors[key] = 'Unknown setting';
+      }
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      set.status = 400;
+      return { error: 'Some settings are invalid', fieldErrors };
+    }
+
+    // All valid: apply everything, then persist in one save
+    for (const apply of staged) apply();
+    server.markModified('settings');
+    await server.save();
+    await cache.del(`server:${server._id}`);
+
+    return {
+      success: true,
+      server: {
+        id: server._id.toString(),
+        name: server.name,
+        description: server.description,
+        systemChannelId: server.systemChannelId?.toString() ?? null,
+        rulesChannelId: server.rulesChannelId?.toString() ?? null,
+        afkChannelId: server.afkChannelId?.toString() ?? null,
+        afkTimeout: server.afkTimeout,
+      },
+      settings: server.settings,
+    };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+    body: t.Object({
+      changes: t.Record(t.String(), t.Union([t.String(), t.Number(), t.Boolean(), t.Null()])),
     }),
   })
   // Update server
@@ -1669,6 +1920,117 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       soundId: t.String(),
     }),
   })
+  // Get vanity URL (partnered servers)
+  .get('/:serverId/vanity-url', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId)
+      .select('ownerId isPartnered vanityUrlCode vanityUrlUses');
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!server.ownerId.equals(user._id) && !(await canManageRoles(server, user._id))) {
+      set.status = 403;
+      return { error: 'You do not have permission to manage this server' };
+    }
+
+    return {
+      code: server.vanityUrlCode ?? null,
+      uses: server.vanityUrlUses ?? 0,
+      isPartnered: Boolean(server.isPartnered),
+    };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
+  // Set / change / remove vanity URL (partnered servers only)
+  .patch('/:serverId/vanity-url', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!server.ownerId.equals(user._id) && !(await canManageRoles(server, user._id))) {
+      set.status = 403;
+      return { error: 'You do not have permission to manage this server' };
+    }
+
+    if (!server.isPartnered) {
+      set.status = 403;
+      return { error: 'Custom invite links are only available to partnered servers' };
+    }
+
+    const rawCode = body.code;
+
+    // null / empty clears the vanity URL
+    if (rawCode === null || rawCode === undefined || rawCode.trim() === '') {
+      server.vanityUrlCode = undefined;
+      await server.save();
+      return { code: null, uses: server.vanityUrlUses ?? 0 };
+    }
+
+    const code = rawCode.trim().toLowerCase();
+
+    if (!isValidVanityCode(code)) {
+      set.status = 400;
+      return {
+        error: isReservedSlug(code)
+          ? 'That link is reserved and cannot be used'
+          : 'Links must be 3-32 characters using lowercase letters, numbers, and hyphens',
+      };
+    }
+
+    if (server.vanityUrlCode === code) {
+      return { code, uses: server.vanityUrlUses ?? 0 };
+    }
+
+    // Enforce uniqueness against other servers' vanity URLs and invite codes
+    const [vanityTaken, inviteTaken] = await Promise.all([
+      Server.exists({ vanityUrlCode: code, _id: { $ne: server._id } }),
+      Invite.exists({ code }),
+    ]);
+    if (vanityTaken || inviteTaken) {
+      set.status = 409;
+      return { error: 'That link is already in use' };
+    }
+
+    server.vanityUrlCode = code;
+    server.vanityUrlUses = 0;
+    await server.save();
+
+    return { code, uses: 0 };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+    body: t.Object({
+      code: t.Nullable(t.String()),
+    }),
+  })
   // Get server invites
   .get('/:serverId/invites', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -2103,22 +2465,59 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     }),
   });
 
+// Resolve an invite code to a server: normal invite docs first, then partnered
+// vanity URLs stored on the server itself (e.g. serika.cc/my-community).
+async function resolveInviteCode(code: string): Promise<
+  | { kind: 'invite'; invite: InstanceType<typeof Invite>; serverId: Types.ObjectId }
+  | { kind: 'vanity'; server: InstanceType<typeof Server>; serverId: Types.ObjectId }
+  | null
+> {
+  const invite = await Invite.findOne({ code });
+  if (invite) {
+    if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) return null;
+    return { kind: 'invite', invite, serverId: invite.serverId };
+  }
+
+  const vanityServer = await Server.findOne({ vanityUrlCode: code.toLowerCase() });
+  if (vanityServer) {
+    return { kind: 'vanity', server: vanityServer, serverId: vanityServer._id };
+  }
+
+  return null;
+}
+
 // Invite routes
 export const inviteRoutes = new Elysia({ prefix: '/invites' })
   // Get invite info
   .get('/:code', async ({ params, set }) => {
-    const invite = await Invite.findOne({ code: params.code })
-      .populate('serverId', 'name icon memberCount onlineCount');
+    const resolved = await resolveInviteCode(params.code);
 
-    if (!invite) {
+    if (!resolved) {
+      set.status = 404;
+      return { error: 'Invite not found or expired' };
+    }
+
+    const server = await Server.findById(resolved.serverId)
+      .select('name icon banner description memberCount onlineCount isPartnered');
+
+    if (!server) {
       set.status = 404;
       return { error: 'Invite not found or expired' };
     }
 
     return {
-      code: invite.code,
-      server: invite.serverId,
-      expiresAt: invite.expiresAt,
+      code: params.code,
+      server: {
+        _id: server._id,
+        name: server.name,
+        icon: server.icon,
+        banner: server.banner,
+        description: server.description,
+        memberCount: server.memberCount,
+        onlineCount: server.onlineCount,
+        isPartnered: server.isPartnered,
+      },
+      expiresAt: resolved.kind === 'invite' ? resolved.invite.expiresAt : null,
     };
   }, {
     params: t.Object({
@@ -2133,14 +2532,16 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const invite = await Invite.findOne({ code: params.code });
+    const resolved = await resolveInviteCode(params.code);
 
-    if (!invite) {
+    if (!resolved) {
       set.status = 404;
       return { error: 'Invite not found or expired' };
     }
 
-    const isBanned = await ServerBan.exists({ serverId: invite.serverId, userId: user._id });
+    const invite = resolved.kind === 'invite' ? resolved.invite : null;
+
+    const isBanned = await ServerBan.exists({ serverId: resolved.serverId, userId: user._id });
     if (isBanned) {
       set.status = 403;
       return { error: 'You are banned from this server' };
@@ -2148,7 +2549,7 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
 
     // Check if already a member
     const existingMembership = await ServerMember.findOne({
-      serverId: invite.serverId,
+      serverId: resolved.serverId,
       userId: user._id,
     });
 
@@ -2165,37 +2566,44 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
     }
 
     // Check max uses
-    if (invite.maxUses > 0 && invite.uses >= invite.maxUses) {
+    if (invite && invite.maxUses > 0 && invite.uses >= invite.maxUses) {
       set.status = 400;
       return { error: 'Invite has reached maximum uses' };
     }
 
     // Get @everyone role
     const everyoneRole = await Role.findOne({
-      serverId: invite.serverId,
+      serverId: resolved.serverId,
       isDefault: true,
     });
 
     // Create membership
     const membership = new ServerMember({
-      serverId: invite.serverId,
+      serverId: resolved.serverId,
       userId: user._id,
       roles: everyoneRole ? [everyoneRole._id] : [],
     });
 
     await membership.save();
 
-    // Update invite uses
-    invite.uses += 1;
-    await invite.save();
+    // Track uses on the invite doc, or on the server for vanity joins
+    if (invite) {
+      invite.uses += 1;
+      await invite.save();
+    } else {
+      await Server.updateOne(
+        { _id: resolved.serverId },
+        { $inc: { vanityUrlUses: 1 } }
+      );
+    }
 
     // Update server member count
     await Server.updateOne(
-      { _id: invite.serverId },
+      { _id: resolved.serverId },
       { $inc: { memberCount: 1 } }
     );
 
-    const server = await Server.findById(invite.serverId);
+    const server = await Server.findById(resolved.serverId);
 
     return {
       success: true,

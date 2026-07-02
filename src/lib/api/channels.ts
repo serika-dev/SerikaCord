@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
-import { checkRateLimit, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage } from '@/lib/security';
+import { checkRateLimit, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams } from '@/lib/security';
 import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { Types } from 'mongoose';
@@ -227,6 +227,8 @@ async function checkChannelAccess(userId: string, channelId: string): Promise<{
 }
 
 export const channelRoutes = new Elysia({ prefix: '/channels' })
+  // Reject malformed ObjectId route params before any handler runs
+  .onBeforeHandle(rejectInvalidObjectIdParams)
   // Get channel
   .get('/:channelId', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -413,13 +415,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const messages = await Message.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('authorId', 'username displayName avatar status')
+      .populate('authorId', 'username displayName avatar status badges')
       .populate({
         path: 'referencedMessageId',
         select: '_id content authorId createdAt',
         populate: {
           path: 'authorId',
-          select: 'username displayName avatar',
+          select: 'username displayName avatar badges',
         },
       })
       .lean();
@@ -434,8 +436,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isPopulatedAuthor(author) ? author : null;
       const decryptedContent = await decryptFromStorage(msg.content || '');
 
-      // Parse custom emojis from the decrypted content
-      const emojiResult = await parseCustomEmojis(decryptedContent, msg.serverId);
+      // Parse custom emojis from the decrypted content. No server restriction
+      // here: access was validated at send time, and restricting to the
+      // message's own server broke rendering of cross-server emojis on fetch.
+      const emojiResult = await parseCustomEmojis(decryptedContent);
       const customEmojis = emojiResult.emojis.map(e => ({
         id: e.id,
         name: e.name,
@@ -487,6 +491,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           displayName: populatedAuthor.displayName || populatedAuthor.username,
           avatar: populatedAuthor.avatar,
           status: populatedAuthor.status,
+          badges: (populatedAuthor as PopulatedAuthor & { badges?: string[] }).badges || [],
         } : null,
         channelId: msg.channelId.toString(),
         serverId: msg.serverId?.toString(),
@@ -737,7 +742,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     await channel.save();
 
     // Populate author for response
-    await message.populate('authorId', 'username displayName avatar status');
+    await message.populate('authorId', 'username displayName avatar status badges');
 
     // Transform message for frontend (return original sanitized content, not encrypted)
     const author = message.authorId as PopulatedAuthor | Types.ObjectId | string | null;
@@ -791,6 +796,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         displayName: populatedAuthor.displayName || populatedAuthor.username,
         avatar: populatedAuthor.avatar,
         status: populatedAuthor.status,
+        badges: (populatedAuthor as PopulatedAuthor & { badges?: string[] }).badges || [],
       } : null,
       channelId: message.channelId.toString(),
       serverId: message.serverId?.toString(),
@@ -839,7 +845,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         id: t.String(),
         filename: t.String(),
         contentType: t.String(),
-        size: t.Number(),
+        size: t.Optional(t.Number()),
         url: t.String(),
         width: t.Optional(t.Number()),
         height: t.Optional(t.Number()),
@@ -888,7 +894,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         const populatedAuthor =
           isPopulatedAuthor(author) ? author : null;
         const decryptedContent = msg.content ? await decryptFromStorage(msg.content) : '';
-        const emojiResult = await parseCustomEmojis(decryptedContent, msg.serverId);
+        // No server restriction: cross-server emojis must render on fetch
+        const emojiResult = await parseCustomEmojis(decryptedContent);
         const customEmojis = emojiResult.emojis.map(e => ({
           id: e.id,
           name: e.name,
@@ -1248,6 +1255,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       if (!existingReaction.userIds.some((id: Types.ObjectId | string) => compareIds(id, user._id))) {
         existingReaction.userIds.push(user._id);
         existingReaction.count++;
+        // Ensure url is populated for custom emoji reactions
+        if (emojiData.url) {
+          existingReaction.emoji.url = emojiData.url;
+        }
       }
     } else {
       // Add new reaction with full emoji data

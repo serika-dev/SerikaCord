@@ -22,7 +22,8 @@ export type VoiceEvent =
   | { type: "video_toggled"; enabled: boolean }
   | { type: "screen_share_toggled"; enabled: boolean }
   | { type: "mute_toggled"; muted: boolean }
-  | { type: "deafen_toggled"; deafened: boolean };
+  | { type: "deafen_toggled"; deafened: boolean }
+  | { type: "soundboard_played"; userId: string; username: string; soundName: string };
 
 type VoiceListener = (event: VoiceEvent) => void;
 
@@ -100,11 +101,23 @@ class VoiceService {
     }
 
     // Register with server
-    await fetch(`/api/voice/join`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomId: channelId, audio: true, video: withVideo }),
-    });
+    try {
+      const joinRes = await fetch(`/api/voice/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId: channelId, audio: true, video: withVideo }),
+      });
+      if (!joinRes.ok) {
+        throw new Error(`join failed: ${joinRes.status}`);
+      }
+    } catch {
+      this.localStream?.getTracks().forEach((t) => t.stop());
+      this.localStream = null;
+      this.isVideoOn = false;
+      this.roomId = null;
+      this.emit({ type: "error", message: "Could not connect to voice. Please try again." });
+      return;
+    }
 
     // Connect SSE signaling
     this.connectSignaling(channelId);
@@ -192,6 +205,17 @@ class VoiceService {
         if (peer) peer.signal(msg.candidate as SimplePeer.SignalData);
         break;
       }
+      case "voice:soundboard": {
+        // Another participant played a soundboard sound
+        const soundUrl = msg.soundUrl as string;
+        const soundName = (msg.soundName as string) || "Sound";
+        const fromUserId = msg.userId as string;
+        const username = (msg.username as string) || "Someone";
+        const volume = typeof msg.volume === "number" ? msg.volume : 100;
+        this.playSoundboardAudio(soundUrl, volume);
+        this.emit({ type: "soundboard_played", userId: fromUserId, username, soundName });
+        break;
+      }
       case "voice:state_update": {
         const userId = msg.userId as string;
         const participant = this.participants.get(userId);
@@ -202,6 +226,13 @@ class VoiceService {
           if (msg.screenShare !== undefined) participant.screenShare = msg.screenShare as boolean;
           this.emitParticipants();
         }
+        break;
+      }
+      case "voice:speaking": {
+        const userId = msg.userId as string;
+        const speaking = msg.speaking as boolean;
+        this.speakingState.set(userId, speaking);
+        this.emit({ type: "speaking", userId, speaking });
         break;
       }
     }
@@ -243,6 +274,10 @@ class VoiceService {
     });
 
     peer.on("stream", (stream) => {
+      // Respect an active deafen for streams that arrive after toggling
+      stream.getAudioTracks().forEach((t) => {
+        t.enabled = !this.isDeafened;
+      });
       this.remoteStreams.set(targetUserId, stream);
       this.emitParticipants();
     });
@@ -335,6 +370,14 @@ class VoiceService {
             if (isSpeaking !== wasSpeaking) {
               this.speakingState.set("local", isSpeaking);
               this.emit({ type: "speaking", userId: this.getMyUserId(), speaking: isSpeaking });
+              // Broadcast to other peers via server
+              if (this.roomId) {
+                fetch(`/api/voice/speaking/${this.roomId}`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ speaking: isSpeaking }),
+                }).catch(() => {});
+              }
             }
           } catch {
             // AudioContext may fail in some browsers
@@ -529,6 +572,44 @@ class VoiceService {
         body: JSON.stringify({ screenShare: false }),
       }).catch(() => {});
       this.emit({ type: "screen_share_toggled", enabled: false });
+    }
+  }
+
+  // Local playback for soundboard sounds; respects deafen and clamps volume.
+  private playSoundboardAudio(url: string, volumePercent: number) {
+    if (this.isDeafened) return;
+    try {
+      const audio = new Audio(url);
+      audio.volume = Math.min(Math.max(volumePercent, 0) / 100, 1);
+      void audio.play().catch(() => { /* autoplay blocked; ignore */ });
+    } catch {
+      // Invalid URL or unsupported format — nothing to play
+    }
+  }
+
+  /**
+   * Play a soundboard sound in the current voice room: hear it locally and
+   * broadcast it so every other participant hears it too.
+   */
+  async playSoundboardSound(sound: { url: string; name: string }): Promise<boolean> {
+    if (!this.roomId) return false;
+    try {
+      const res = await fetch(`/api/voice/soundboard/${this.roomId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ soundUrl: sound.url, soundName: sound.name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        this.emit({ type: "error", message: data?.error || "Failed to play sound" });
+        return false;
+      }
+      const data = await res.json().catch(() => null);
+      this.playSoundboardAudio(sound.url, typeof data?.volume === "number" ? data.volume : 100);
+      return true;
+    } catch {
+      this.emit({ type: "error", message: "Failed to play sound. Check your connection." });
+      return false;
     }
   }
 

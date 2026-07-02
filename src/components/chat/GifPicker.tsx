@@ -156,7 +156,14 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
       
       if (response.ok) {
         const data = await response.json();
-        const tagsWithPreviews: Tag[] = data.tags || [];
+        const rawTags: Record<string, unknown>[] = data.tags || [];
+        const tagsWithPreviews: Tag[] = rawTags.map((t) => ({
+          id: String(t.id ?? t.slug ?? t.name ?? ""),
+          name: String(t.name ?? t.slug ?? ""),
+          slug: String(t.slug ?? t.name ?? ""),
+          count: Number(t.count ?? 0),
+          previewUrl: (t.previewUrl as string) || (t.preview_url as string) || (t.preview as string) || undefined,
+        }));
         
         if (append) {
           setTags((prev) => {
@@ -382,7 +389,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         observerRef.current.disconnect();
       }
     };
-  }, [loadMore, isLoading, isLoadingMore, viewMode]);
+  }, [loadMore, isLoading, isLoadingMore, viewMode, homeTab]);
 
   const canLoadMore = viewMode === "home"
     ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : collectionsPage < collectionsTotalPages)
@@ -535,7 +542,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                       title={gif.title}
                       className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                     >
-                      <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                      <img src={gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                     </button>
                   ))}
@@ -613,7 +620,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                   title={gif.title}
                   className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                 >
-                  <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                  <img src={gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
                   <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <p className="text-[10px] text-white leading-tight line-clamp-1">{gif.title}</p>
                   </div>

@@ -9,6 +9,7 @@ import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
+import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
 import { Loader2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -70,7 +71,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (isLoading) {
     return (
-      <div className="h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center">
+      <div className="h-dvh bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6">
           <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-8 h-8 text-white" />
@@ -90,7 +91,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
 
   if (!user) {
     return (
-      <div className="h-screen bg-[var(--bg-app)] flex flex-col items-center justify-center">
+      <div className="h-dvh bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6 text-center px-4">
           <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-8 h-8 text-white" />
@@ -134,21 +135,30 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { currentServer } = useServer();
 
-  // Listen for custom events from UserPanel
+  // Listen for custom events from UserPanel and mobile views
   useEffect(() => {
     const handleOpenSettings = () => setShowUserSettings(true);
+    const handleOpenInvite = () => setShowInvite(true);
+    const handleOpenServerSettings = () => setShowServerSettings(true);
     window.addEventListener('openUserSettings', handleOpenSettings);
-    return () => window.removeEventListener('openUserSettings', handleOpenSettings);
+    window.addEventListener('openInviteDialog', handleOpenInvite);
+    window.addEventListener('openServerSettings', handleOpenServerSettings);
+    return () => {
+      window.removeEventListener('openUserSettings', handleOpenSettings);
+      window.removeEventListener('openInviteDialog', handleOpenInvite);
+      window.removeEventListener('openServerSettings', handleOpenServerSettings);
+    };
   }, []);
 
   // Track if we're on mobile
   const [isMobile, setIsMobile] = useState(false);
   
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    const query = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
   }, []);
 
   const mobileView: "servers" | "messages" | "notifications" | "profile" = pathname?.includes("/messages")
@@ -167,7 +177,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="flex h-screen bg-[var(--bg-app)] overflow-hidden">
+      <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden">
         {/* Mobile Server List - Only show in servers view when not in a channel */}
         {mobileView === "servers" && !isInChannel && !isSettingsRoute && (
           <MobileServerList 
@@ -185,7 +195,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex flex-col min-w-0 pb-16"
+                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pb-[var(--mobile-content-pb)]"
               >
                 {children}
               </motion.main>
@@ -199,7 +209,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex flex-col min-w-0 pb-16"
+                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pb-[var(--mobile-content-pb)]"
               >
                 {children}
               </motion.main>
@@ -221,7 +231,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex min-w-0 pb-16"
+                className="flex-1 flex min-w-0 min-h-0 overflow-hidden pb-[var(--mobile-content-pb)]"
               >
                 {children}
               </motion.main>
@@ -231,6 +241,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
         {/* Voice Bar (above bottom nav when in call, but not on voice channel page) */}
         <VoiceBar className="fixed bottom-14 left-0 right-0 z-40 md:hidden" />
+        <VoiceAudioSink />
 
         {/* Bottom Navigation */}
         <BottomNavigation />
@@ -248,13 +259,21 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           open={showUserSettings}
           onOpenChange={setShowUserSettings}
         />
+        <InviteDialog
+          open={showInvite}
+          onOpenChange={setShowInvite}
+        />
+        <ServerSettingsDialog
+          open={showServerSettings}
+          onOpenChange={setShowServerSettings}
+        />
       </div>
     );
   }
 
   // Desktop Layout
   return (
-    <div className="flex h-screen bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden">
       {/* Combined Sidebars */}
       <div className="flex flex-shrink-0">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
@@ -300,6 +319,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         open={showServerSettings}
         onOpenChange={setShowServerSettings}
       />
+      <VoiceAudioSink />
     </div>
   );
 }

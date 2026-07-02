@@ -11,7 +11,6 @@ import {
   Search, 
   UserPlus,
   Settings,
-  Bell,
   Megaphone,
   Users,
   ChevronLeft,
@@ -228,10 +227,11 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <button className="p-2.5 rounded-xl bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors active:scale-95">
-                <Bell className="w-5 h-5 text-white" />
-              </button>
-              <button className="p-2.5 rounded-xl bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors active:scale-95">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent("openServerSettings"))}
+                aria-label="Server settings"
+                className="p-2.5 rounded-xl bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors active:scale-95"
+              >
                 <Settings className="w-5 h-5 text-white" />
               </button>
             </div>
@@ -270,7 +270,11 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
               <Search className="w-4 h-4" />
               <span className="text-sm">Search channels</span>
             </button>
-            <button className="p-2.5 rounded-xl bg-[#1a1a1a] hover:bg-[#252525] transition-colors active:scale-95">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent("openInviteDialog"))}
+              aria-label="Invite people"
+              className="p-2.5 rounded-xl bg-[#1a1a1a] hover:bg-[#252525] transition-colors active:scale-95"
+            >
               <UserPlus className="w-5 h-5 text-neutral-400" />
             </button>
           </>

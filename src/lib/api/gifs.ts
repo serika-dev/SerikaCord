@@ -168,10 +168,38 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       return { error: error || 'Unauthorized' };
     }
 
-    return proxySerikaJson('/tags', {
+    const tagsData = await proxySerikaJson('/tags', {
       limit: query.limit,
       page: query.page,
-    }, set);
+    }, set) as { tags?: Array<Record<string, unknown>> };
+
+    const rawTags = tagsData.tags || [];
+
+    // Fetch one preview GIF per tag in parallel
+    const tagsWithPreviews = await Promise.all(
+      rawTags.map(async (t) => {
+        const slug = String(t.slug ?? t.name ?? '');
+        let previewUrl: string | undefined;
+        try {
+          const previewRes = await fetch(
+            serikaUrl('/gifs', { tag: slug, limit: '1', page: '1' }),
+            { headers: getSerikaGifAuthHeaders() }
+          );
+          if (previewRes.ok) {
+            const previewData = await previewRes.json() as { gifs?: Array<{ url?: string; thumbnailUrl?: string }> };
+            const firstGif = previewData.gifs?.[0];
+            if (firstGif) {
+              previewUrl = firstGif.thumbnailUrl || firstGif.url;
+            }
+          }
+        } catch {
+          // ignore — preview is optional
+        }
+        return { ...t, previewUrl };
+      })
+    );
+
+    return { ...tagsData, tags: tagsWithPreviews };
   }, {
     query: t.Object({
       limit: t.Optional(t.String()),

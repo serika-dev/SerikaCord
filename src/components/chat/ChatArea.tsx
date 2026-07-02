@@ -36,11 +36,7 @@ import {
   Search,
   Inbox,
   HelpCircle,
-  PlusCircle,
-  Gift,
-  Sticker,
   Smile,
-  SendHorizontal,
   ChevronLeft,
   MoreHorizontal,
   Pencil,
@@ -58,10 +54,16 @@ import { toast } from "sonner";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MessageContent } from "@/components/chat/MessageContent";
+import { RichComposer, type RichComposerHandle } from "@/components/chat/RichComposer";
+import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
+import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
+import { StaffPill } from "@/components/chat/StaffPill";
+import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { MessageSkeleton } from "@/components/ui/skeleton";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { buildGalleryFromMessages, findGalleryIndex } from "@/lib/chat/media";
-import { incrementUnread, clearUnread, playNotificationSound } from "@/lib/services/notificationUX";
+import { incrementUnread, clearUnread, playNotificationSound, isChannelMuted, toggleChannelMute, subscribeChannelMutes } from "@/lib/services/notificationUX";
+import { useMentions, type MentionData } from "@/hooks/useMentions";
 
 interface Message {
   id: string;
@@ -73,6 +75,7 @@ interface Message {
     username: string;
     displayName: string;
     avatar?: string;
+    badges?: string[];
   };
   channelId: string;
   createdAt: string;
@@ -143,10 +146,12 @@ interface MentionRole {
 
 interface MentionSuggestion {
   id: string;
-  kind: "user" | "role" | "everyone" | "here";
+  kind: "user" | "role" | "everyone" | "here" | "emoji";
   label: string;
   description?: string;
   color?: string;
+  imageUrl?: string;
+  animated?: boolean;
 }
 
 function escapeRegex(input: string): string {
@@ -197,12 +202,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<RichComposerHandle>(null);
+  const messageBarRef = useRef<MessageBarHandle>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
+  const activeMessageFetchChannelRef = useRef<string | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -225,11 +232,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   // Right-click context menu
   const [contextMenu, setContextMenu] = useState<{ message: Message; x: number; y: number } | null>(null);
-
-  // Attachment state
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [attachmentPreviews, setAttachmentPreviews] = useState<string[]>([]);
-  const [isUploading, setIsUploading] = useState(false);
 
   // Emoji picker
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -273,11 +275,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
 
   // Header utilities
-  const [isChannelMuted, setIsChannelMuted] = useState(false);
+  const [channelMuted, setChannelMuted] = useState(false);
   const [showPins, setShowPins] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState<Message[]>([]);
   const [isLoadingPins, setIsLoadingPins] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
+  const { mentions: allMentions, totalUnread, markChannelRead, refresh: refreshMentions } = useMentions();
   const [showHelp, setShowHelp] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -436,6 +439,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const fetchMessages = useCallback(async () => {
     if (!currentChannel) return;
 
+    // Guard against a slower response from a previously viewed channel
+    // overwriting the current channel's messages after a fast switch.
+    const requestedChannelId = currentChannel.id;
+    activeMessageFetchChannelRef.current = requestedChannelId;
+
     setIsLoading(true);
     setTypingUsers([]);
     setHasMoreOlder(false);
@@ -443,20 +451,31 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     isAtBottomRef.current = true;
     setIsAtBottom(true);
     try {
-      const response = await fetch(`/api/channels/${currentChannel.id}/messages?limit=${PAGE_SIZE}`);
+      const response = await fetch(`/api/channels/${requestedChannelId}/messages?limit=${PAGE_SIZE}`);
+      if (activeMessageFetchChannelRef.current !== requestedChannelId) return;
       if (response.ok) {
         const data = await response.json();
+        if (activeMessageFetchChannelRef.current !== requestedChannelId) return;
         const messagesArray = Array.isArray(data) ? data : data.messages || [];
-        setMessages(messagesArray);
-        setHasMoreOlder(messagesArray.length >= PAGE_SIZE);
+        const seen = new Set<string>();
+        const deduped = messagesArray.filter((m: Message) => {
+          if (seen.has(m.id)) return false;
+          seen.add(m.id);
+          return true;
+        });
+        setMessages(deduped);
+        setHasMoreOlder(deduped.length >= PAGE_SIZE);
       } else {
         toast.error("Failed to load messages");
       }
     } catch (error) {
+      if (activeMessageFetchChannelRef.current !== requestedChannelId) return;
       console.error("Failed to fetch messages:", error);
       toast.error("Failed to load messages");
     } finally {
-      setIsLoading(false);
+      if (activeMessageFetchChannelRef.current === requestedChannelId) {
+        setIsLoading(false);
+      }
     }
   }, [currentChannel]);
 
@@ -478,7 +497,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const olderMessages = Array.isArray(data) ? data : data.messages || [];
         if (olderMessages.length > 0) {
           setMessages((prev) => {
-            const combined = [...olderMessages, ...prev];
+            const existingIds = new Set(prev.map((m) => m.id));
+            const seenOlder = new Set<string>();
+            const filtered = olderMessages.filter((m: Message) => {
+              const key = String(m.id);
+              if (seenOlder.has(key)) return false;
+              seenOlder.add(key);
+              return !existingIds.has(m.id);
+            });
+            const combined = [...filtered, ...prev];
             return combined.length > MAX_LOADED_MESSAGES
               ? combined.slice(0, MAX_LOADED_MESSAGES)
               : combined;
@@ -547,8 +574,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   useEffect(() => {
     if (!currentChannel) return;
-    const key = `channel-muted:${currentChannel.id}`;
-    setIsChannelMuted(localStorage.getItem(key) === "1");
+    setChannelMuted(isChannelMuted(currentChannel.id));
     setReplyToMessage(null);
     setSearchQuery("");
     setSearchResults([]);
@@ -569,14 +595,39 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const updateMentionSuggestions = useCallback(
     (draft: string, explicitCaretPosition?: number | null) => {
       const caretPosition =
-        explicitCaretPosition ??
-        (typeof textareaRef.current?.selectionStart === "number"
-          ? textareaRef.current.selectionStart
-          : draft.length);
+        explicitCaretPosition ?? composerRef.current?.getCaret() ?? draft.length;
       const beforeCursor = draft.slice(0, caretPosition);
       const mentionMatch = beforeCursor.match(/(^|\s)@([^\s@]{0,40})$/);
 
       if (!mentionMatch) {
+        // Emoji autocomplete: `:query` with 2+ chars (avoids firing on plain colons)
+        const emojiMatch = beforeCursor.match(/(^|\s):([a-zA-Z0-9_+-]{2,32})$/);
+        if (emojiMatch) {
+          const emojiQuery = emojiMatch[2].toLowerCase();
+          const emojiStart = caretPosition - emojiMatch[2].length - 1;
+          const seenNames = new Set<string>();
+          const emojiSuggestions: MentionSuggestion[] = [];
+          for (const entry of allServerEmojis) {
+            if (!entry.name.toLowerCase().includes(emojiQuery)) continue;
+            if (seenNames.has(entry.name)) continue;
+            seenNames.add(entry.name);
+            emojiSuggestions.push({
+              id: entry.id,
+              kind: "emoji",
+              label: entry.name,
+              description: entry.serverName,
+              imageUrl: entry.url,
+              animated: entry.animated,
+            });
+            if (emojiSuggestions.length >= 8) break;
+          }
+          if (emojiSuggestions.length > 0) {
+            mentionRangeRef.current = { start: emojiStart, end: caretPosition };
+            setMentionSuggestions(emojiSuggestions);
+            setActiveMentionIndex(0);
+            return;
+          }
+        }
         mentionRangeRef.current = null;
         setMentionSuggestions([]);
         setActiveMentionIndex(0);
@@ -646,7 +697,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       setMentionSuggestions(nextSuggestions);
       setActiveMentionIndex(0);
     },
-    [mentionRoles, mentionUsers]
+    [mentionRoles, mentionUsers, allServerEmojis]
   );
 
   const addTypingUser = useCallback(
@@ -689,39 +740,36 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const insertMentionFromSuggestion = useCallback(
     (suggestion: MentionSuggestion) => {
       const activeRange = mentionRangeRef.current;
-      if (!activeRange) return;
+      const composer = composerRef.current;
+      if (!activeRange || !composer) return;
 
-      const mentionToken =
-        suggestion.kind === "user"
-          ? `<@${suggestion.id}>`
-          : suggestion.kind === "role"
-            ? `<@&${suggestion.id}>`
-            : suggestion.kind === "everyone"
-              ? "@everyone"
-              : "@here";
-
-      const before = newMessage.slice(0, activeRange.start);
-      const after = newMessage.slice(activeRange.end);
-      const separator = after.startsWith(" ") || after.startsWith("\n") || after.length === 0 ? "" : " ";
-      const nextMessage = `${before}${mentionToken}${separator}${after}`;
-      const nextCaret = before.length + mentionToken.length + separator.length;
-
-      setNewMessage(nextMessage);
       mentionRangeRef.current = null;
       setMentionSuggestions([]);
       setActiveMentionIndex(0);
 
-      requestAnimationFrame(() => {
-        if (!textareaRef.current) return;
-        textareaRef.current.focus();
-        textareaRef.current.style.height = "44px";
-        textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 300) + "px";
-        textareaRef.current.setSelectionRange(nextCaret, nextCaret);
-      });
+      if (suggestion.kind === "emoji") {
+        // Insert as an inline image; the composer serializes it to a token
+        composer.replaceRangeWithEmoji(activeRange.start, activeRange.end, {
+          id: suggestion.id,
+          name: suggestion.label,
+          url: suggestion.imageUrl || "",
+          animated: suggestion.animated,
+        });
+      } else {
+        const mentionToken =
+          suggestion.kind === "user"
+            ? `<@${suggestion.id}>`
+            : suggestion.kind === "role"
+              ? `<@&${suggestion.id}>`
+              : suggestion.kind === "everyone"
+                ? "@everyone"
+                : "@here";
+        composer.replaceRange(activeRange.start, activeRange.end, `${mentionToken} `);
+      }
 
-      void sendTypingStatus(nextMessage);
+      void sendTypingStatus(composer.getText());
     },
-    [newMessage, sendTypingStatus]
+    [sendTypingStatus]
   );
 
   const applyReactionEvent = useCallback(
@@ -737,9 +785,20 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
           if (reactionIndex === -1) {
             if (!isAdd) return msg;
+            // Parse custom emoji format <:name:id> or <a:name:id>
+            const customMatch = emoji.match(/^<(a)?:([a-zA-Z0-9_]+):([a-f0-9]{24})>$/);
+            let emojiObj: { name: string; id?: string; animated?: boolean; url?: string };
+            if (customMatch) {
+              const [, animated, name, id] = customMatch;
+              // Try to find url from serverEmojis or allServerEmojis
+              const found = serverEmojis.find(e => e.id === id) || allServerEmojis.find(e => e.id === id);
+              emojiObj = { name, id, animated: Boolean(animated), url: found?.url };
+            } else {
+              emojiObj = { name: emoji };
+            }
             return {
               ...msg,
-              reactions: [...reactions, { emoji: { name: emoji }, count: 1, userIds: [userId] }],
+              reactions: [...reactions, { emoji: emojiObj, count: 1, userIds: [userId] }],
             };
           }
 
@@ -769,7 +828,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         })
       );
     },
-    []
+    [serverEmojis, allServerEmojis]
   );
 
   // SSE connection with reconnection logic
@@ -861,10 +920,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             }
 
             // Notification UX for incoming messages from others
-            if (!isOwnMessage) {
+            if (!isOwnMessage && !isChannelMuted(newMsg.channelId)) {
               const isMentioned =
                 newMsg.mentionEveryone ||
-                (user?.id && newMsg.mentionedUserIds?.includes(user.id));
+                (user?.id && newMsg.mentionedUserIds?.includes(user.id)) ||
+                (currentUserRoleIds.length > 0 &&
+                  newMsg.mentionedRoleIds?.some((rid) => currentUserRoleIds.includes(rid)));
+              if (isMentioned) {
+                refreshMentions();
+              }
               const isHidden = document.visibilityState !== "visible";
 
               if (isHidden) {
@@ -880,7 +944,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                   duration: 4000,
                   action: {
                     label: "View",
-                    onClick: () => {},
+                    onClick: () => {
+                      window.focus();
+                      isAtBottomRef.current = true;
+                      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+                    },
                   },
                 });
               }
@@ -1033,69 +1101,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return () => viewport.removeEventListener("scroll", handleScroll);
   }, [hasMoreOlder, isLoadingMore, loadOlderMessages, newMessagesCount]);
 
-  // File upload handling
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length === 0) return;
-
-    // Limit to 10 files
-    const newFiles = files.slice(0, 10 - attachments.length);
-
-    setAttachments((prev) => [...prev, ...newFiles]);
-
-    // Generate previews
-    newFiles.forEach((file) => {
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setAttachmentPreviews((prev) => [...prev, reader.result as string]);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        setAttachmentPreviews((prev) => [...prev, ""]);
-      }
-    });
-
-    // Clear input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-    setAttachmentPreviews((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const uploadAttachments = async (): Promise<Array<{ id: string; url: string; filename: string; contentType: string }>> => {
-    const uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
-
-    for (const file of attachments) {
-      const formData = new FormData();
-      formData.append("file", file);
-      if (currentChannel) {
-        formData.append("channelId", currentChannel.id);
-      }
-
-      try {
-        const response = await fetch("/api/upload/attachment", {
-          method: "POST",
-          body: formData,
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          uploadedAttachments.push(data.attachment);
-        } else {
-          toast.error(`Failed to upload ${file.name}`);
-        }
-      } catch {
-        toast.error(`Failed to upload ${file.name}`);
-      }
-    }
-
-    return uploadedAttachments;
-  };
 
   const normalizeMessageMentions = useCallback(
     (content: string): string => {
@@ -1139,7 +1144,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     const isOverrideSend = typeof contentOverride === "string";
     const rawMessageContent = isOverrideSend ? contentOverride : newMessage;
     const messageContent = currentServer ? normalizeMessageMentions(rawMessageContent) : rawMessageContent;
-    const pendingAttachments = isOverrideSend ? [] : attachments;
+    const pendingAttachments = isOverrideSend ? [] : messageBarRef.current?.getAttachments() ?? [];
     const isStickerSend = !!sticker;
 
     if (!messageContent.trim() && pendingAttachments.length === 0 && !isStickerSend) return;
@@ -1147,6 +1152,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     const replyReference = replyToMessage;
     if (!isOverrideSend) {
       setNewMessage("");
+      composerRef.current?.clear();
       mentionRangeRef.current = null;
       setMentionSuggestions([]);
       setActiveMentionIndex(0);
@@ -1154,21 +1160,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     lastTypingSentAtRef.current = 0;
     setIsSending(true);
 
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "44px";
-    }
-
     let tempId: string | null = null;
 
     try {
       let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
 
       if (pendingAttachments.length > 0) {
-        setIsUploading(true);
-        uploadedAttachments = await uploadAttachments();
-        setIsUploading(false);
-        setAttachments([]);
-        setAttachmentPreviews([]);
+        uploadedAttachments = await messageBarRef.current?.uploadAttachments() ?? [];
+        messageBarRef.current?.clearAttachments();
       }
 
       tempId = `temp-${Date.now()}`;
@@ -1276,49 +1275,66 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     }
   };
 
+  // Optimistic edit: apply immediately, roll back to the previous content if
+  // the server rejects the change.
   const handleEditMessage = async () => {
     if (!editingMessage || !editContent.trim()) return;
 
+    const messageId = editingMessage.id;
+    const channelId = editingMessage.channelId;
+    const nextContent = editContent;
+    const previous = messages.find((m) => m.id === messageId);
+    if (!previous) return;
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === messageId ? { ...m, content: nextContent, edited: true } : m))
+    );
+    setEditingMessage(null);
+    setEditContent("");
+
     try {
-      const response = await fetch(`/api/channels/${editingMessage.channelId}/messages/${editingMessage.id}`, {
+      const response = await fetch(`/api/channels/${channelId}/messages/${messageId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: editContent }),
+        body: JSON.stringify({ content: nextContent }),
       });
 
-      if (response.ok) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === editingMessage.id ? { ...m, content: editContent, edited: true } : m))
-        );
-        toast.success("Message edited");
-        setEditingMessage(null);
-        setEditContent("");
-      } else {
-        toast.error("Failed to edit message");
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessages((prev) => prev.map((m) => (m.id === messageId ? previous : m)));
+        toast.error(data?.error || "Failed to edit message");
       }
     } catch {
-      toast.error("Failed to edit message");
+      setMessages((prev) => prev.map((m) => (m.id === messageId ? previous : m)));
+      toast.error("Failed to edit message. Check your connection.");
     }
   };
 
+  // Optimistic delete: remove immediately, restore in place on failure.
   const handleDeleteMessage = async () => {
     if (!deleteConfirmMessage) return;
 
+    const messageId = deleteConfirmMessage.id;
+    const channelId = deleteConfirmMessage.channelId;
+    const previousMessages = messages;
+
+    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    setDeleteConfirmMessage(null);
+
     try {
       const response = await fetch(
-        `/api/channels/${deleteConfirmMessage.channelId}/messages/${deleteConfirmMessage.id}`,
+        `/api/channels/${channelId}/messages/${messageId}`,
         { method: "DELETE" }
       );
 
-      if (response.ok) {
-        setMessages((prev) => prev.filter((m) => m.id !== deleteConfirmMessage.id));
-        toast.success("Message deleted");
-        setDeleteConfirmMessage(null);
-      } else {
-        toast.error("Failed to delete message");
+      if (!response.ok) {
+        const data = await response.json().catch(() => null);
+        setMessages(previousMessages);
+        toast.error(data?.error || "Failed to delete message");
       }
     } catch {
-      toast.error("Failed to delete message");
+      setMessages(previousMessages);
+      toast.error("Failed to delete message. Check your connection.");
     }
   };
 
@@ -1342,11 +1358,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const toggleChannelNotifications = () => {
     if (!currentChannel) return;
-    const next = !isChannelMuted;
-    setIsChannelMuted(next);
-    localStorage.setItem(`channel-muted:${currentChannel.id}`, next ? "1" : "0");
+    const next = toggleChannelMute(currentChannel.id);
+    setChannelMuted(next);
     toast.success(next ? "Channel notifications muted" : "Channel notifications enabled");
   };
+
+  // Stay in sync when the channel is muted/unmuted from the sidebar menu
+  useEffect(() => {
+    if (!currentChannel) return;
+    return subscribeChannelMutes((channelId, muted) => {
+      if (channelId === currentChannel.id) setChannelMuted(muted);
+    });
+  }, [currentChannel]);
 
   const handlePinToggle = async (message: Message) => {
     if (!currentChannel) return;
@@ -1418,30 +1441,33 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     }
   };
 
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
+  const handleComposerChange = (value: string, caret: number) => {
     setNewMessage(value);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "44px";
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 300) + "px";
-    }
     if (value.trim()) {
       void sendTypingStatus(value);
     }
-    updateMentionSuggestions(value, e.target.selectionStart);
+    updateMentionSuggestions(value, caret);
   };
 
-  const handleEmojiSelect = (emoji: string, isCustom?: boolean, emojiData?: { id: string; name: string; animated?: boolean }) => {
-    const emojiString = isCustom && emojiData
-      ? `<${emojiData.animated ? "a" : ""}:${emojiData.name}:${emojiData.id}>`
-      : emoji;
-    setNewMessage((prev) => {
-      const next = prev + emojiString;
-      void sendTypingStatus(next);
-      return next;
-    });
+  const handleEmojiSelect = (
+    emoji: string,
+    isCustom?: boolean,
+    emojiData?: { id: string; name: string; animated?: boolean; url?: string }
+  ) => {
+    const composer = composerRef.current;
+    if (isCustom && emojiData && emojiData.url && composer) {
+      composer.insertEmojiAtCaret({
+        id: emojiData.id,
+        name: emojiData.name,
+        url: emojiData.url,
+        animated: emojiData.animated,
+      });
+    } else if (composer) {
+      composer.insertTextAtCaret(emoji);
+    }
+    void sendTypingStatus(composerRef.current?.getText());
     setShowEmojiPicker(false);
-    textareaRef.current?.focus();
+    composerRef.current?.focus();
   };
 
   const handleGifSelect = (gifUrl: string) => {
@@ -1456,89 +1482,48 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     void handleSendMessage(undefined, sticker);
   };
 
+  // Optimistic reactions: apply immediately via the same reducer the SSE
+  // stream uses, and apply the inverse if the server rejects the change.
   const handleAddReaction = async (messageId: string, emoji: string) => {
-    if (!currentChannel) return;
+    if (!currentChannel || !user?.id) return;
+    setReactionPickerMessage(null);
 
+    applyReactionEvent(messageId, emoji, user.id, true);
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
         `/api/channels/${currentChannel.id}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
         { method: "PUT" }
       );
-
-      if (response.ok) {
-        // Update local state
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id !== messageId) return msg;
-
-            const reactions = msg.reactions || [];
-            const existingReaction = reactions.find((r) => r.emoji.name === emoji);
-
-            if (existingReaction) {
-              // Check if user already reacted
-              if (!existingReaction.userIds.includes(user?.id || "")) {
-                return {
-                  ...msg,
-                  reactions: reactions.map((r) =>
-                    r.emoji.name === emoji
-                      ? { ...r, count: r.count + 1, userIds: [...r.userIds, user?.id || ""] }
-                      : r
-                  ),
-                };
-              }
-              return msg;
-            } else {
-              return {
-                ...msg,
-                reactions: [...reactions, { emoji: { name: emoji }, count: 1, userIds: [user?.id || ""] }],
-              };
-            }
-          })
-        );
+      if (!response.ok) {
+        applyReactionEvent(messageId, emoji, user.id, false);
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to add reaction");
       }
-    } catch (error) {
-      console.error("Failed to add reaction:", error);
+    } catch {
+      applyReactionEvent(messageId, emoji, user.id, false);
+      toast.error("Failed to add reaction. Check your connection.");
     }
-    setReactionPickerMessage(null);
   };
 
   const handleRemoveReaction = async (messageId: string, emoji: string) => {
-    if (!currentChannel) return;
+    if (!currentChannel || !user?.id) return;
 
+    applyReactionEvent(messageId, emoji, user.id, false);
     try {
       const encodedEmoji = encodeURIComponent(emoji);
       const response = await fetch(
         `/api/channels/${currentChannel.id}/messages/${messageId}/reactions/${encodedEmoji}/@me`,
         { method: "DELETE" }
       );
-
-      if (response.ok) {
-        // Update local state
-        setMessages((prev) =>
-          prev.map((msg) => {
-            if (msg.id !== messageId) return msg;
-
-            const reactions = msg.reactions || [];
-            return {
-              ...msg,
-              reactions: reactions
-                .map((r) =>
-                  r.emoji.name === emoji
-                    ? {
-                      ...r,
-                      count: r.count - 1,
-                      userIds: r.userIds.filter((id) => id !== user?.id),
-                    }
-                    : r
-                )
-                .filter((r) => r.count > 0),
-            };
-          })
-        );
+      if (!response.ok) {
+        applyReactionEvent(messageId, emoji, user.id, true);
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || "Failed to remove reaction");
       }
-    } catch (error) {
-      console.error("Failed to remove reaction:", error);
+    } catch {
+      applyReactionEvent(messageId, emoji, user.id, true);
+      toast.error("Failed to remove reaction. Check your connection.");
     }
   };
 
@@ -1578,11 +1563,18 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  // Group messages by author and time proximity
+  // Group messages by author and time proximity (deduplicate by ID first)
   const groupedMessages = useMemo(
-    () =>
-      messages.reduce((groups, message, index) => {
-        const prevMessage = messages[index - 1];
+    () => {
+      const seen = new Set<string>();
+      const deduped = messages.filter((m) => {
+        const key = String(m.id);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      return deduped.reduce((groups, message, index) => {
+        const prevMessage = deduped[index - 1];
         const isGrouped =
           prevMessage &&
           prevMessage.authorId === message.authorId &&
@@ -1595,7 +1587,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         }
 
         return groups;
-      }, [] as Array<{ author: Message["author"]; messages: Message[] }>),
+      }, [] as Array<{ author: Message["author"]; messages: Message[] }>);
+    },
     [messages]
   );
 
@@ -1609,9 +1602,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
 
+  const mediaGalleryRef = useRef(mediaGallery);
+  useEffect(() => {
+    mediaGalleryRef.current = mediaGallery;
+  }, [mediaGallery]);
+
+  // Stable identity (reads gallery via ref) so memoized message rows keep
+  // their props referentially equal across re-renders.
   const openMediaViewer = useCallback(
     (src: string, alt?: string, messageId?: string) => {
-      const mediaIndex = findGalleryIndex(mediaGallery, { src, messageId });
+      const mediaIndex = findGalleryIndex(mediaGalleryRef.current, { src, messageId });
       if (mediaIndex >= 0) {
         setStandaloneMedia(null);
         setLightboxIndex(mediaIndex);
@@ -1620,7 +1620,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       setLightboxIndex(null);
       setStandaloneMedia({ src, alt });
     },
-    [mediaGallery]
+    []
+  );
+
+  const handleMessageMediaClick = useCallback(
+    ({ src, alt, messageId }: { src: string; alt?: string; messageId?: string }) => {
+      openMediaViewer(src, alt, messageId);
+    },
+    [openMediaViewer]
   );
 
   useEffect(() => {
@@ -1634,29 +1641,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     }
   }, [lightboxIndex, mediaGallery.length]);
 
-  const inboxItems = useMemo(() => {
-    const currentUserId = user?.id;
-    const currentUsername = user?.username?.toLowerCase() || "";
-    const userTokenRegex = currentUserId ? new RegExp(`<@!?${escapeRegex(currentUserId)}>`, "i") : null;
-    return messages
-      .filter((message) => {
-        const mentionedDirectly =
-          (currentUserId && message.mentionedUserIds?.includes(currentUserId)) ||
-          (userTokenRegex ? userTokenRegex.test(message.content) : false) ||
-          (currentUsername ? message.content.toLowerCase().includes(`@${currentUsername}`) : false);
-
-        const mentionedByRole =
-          Boolean(message.mentionedRoleIds?.some((roleId) => currentUserRoleIds.includes(roleId))) ||
-          currentUserRoleIds.some((roleId) => message.content.includes(`<@&${roleId}>`));
-
-        const mentionedEveryone =
-          Boolean(message.mentionEveryone) || /(^|\s)@(everyone|here)\b/i.test(message.content);
-
-        return Boolean(mentionedDirectly || mentionedByRole || mentionedEveryone);
-      })
-      .slice(-20)
-      .reverse();
-  }, [currentUserRoleIds, messages, user?.id, user?.username]);
+  // Mark current channel as read when it changes
+  useEffect(() => {
+    if (currentChannel?.id) {
+      markChannelRead(currentChannel.id);
+    }
+  }, [currentChannel?.id, markChannelRead]);
 
   if (!currentChannel) {
     return (
@@ -1696,9 +1686,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={toggleChannelNotifications}
-            title={isChannelMuted ? "Enable notifications" : "Mute notifications"}
+            title={channelMuted ? "Enable notifications" : "Mute notifications"}
+            aria-label={channelMuted ? "Enable notifications" : "Mute notifications"}
           >
-            <Bell className={cn("w-5 h-5", isChannelMuted && "text-red-400")} />
+            <Bell className={cn("w-5 h-5", channelMuted && "text-red-400")} />
           </button>
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
@@ -1729,11 +1720,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--app-muted)]" />
           </div>
           <button
-            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
+            className={cn(
+              "hover:text-[var(--text-primary)] transition-colors hidden sm:block relative",
+              totalUnread > 0 && "text-[var(--app-accent)]"
+            )}
             onClick={() => setShowInbox(true)}
             title="Open inbox"
           >
             <Inbox className="w-5 h-5" />
+            {totalUnread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
+                {totalUnread > 99 ? "99+" : totalUnread}
+              </span>
+            )}
           </button>
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
@@ -1805,11 +1804,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             {newMessagesCount} new message{newMessagesCount > 1 ? "s" : ""}
           </button>
         )}
-      <ScrollArea className="chat-scroller h-full">
-        <div className="flex flex-col py-4">
+      <ScrollArea className="chat-scroller h-full [&_[data-slot='scroll-area-viewport']>div]:!block [&_[data-slot='scroll-area-viewport']>div]:w-full">
+        <div className="flex flex-col py-4 w-full max-w-full overflow-x-hidden">
           {/* Load More indicator */}
           {hasMoreOlder && !isLoading && (
-            <div className="flex justify-center py-2">
+            <div className="flex justify-center py-3">
               {isLoadingMore ? (
                 <div className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -1818,21 +1817,23 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               ) : (
                 <button
                   onClick={() => void loadOlderMessages()}
-                  className="text-sm text-[#8B5CF6] hover:underline"
+                  className="px-4 py-1.5 rounded-full text-sm text-[#8B5CF6] bg-[#8B5CF6]/10 hover:bg-[#8B5CF6]/20 transition-colors"
                 >
                   Load older messages
                 </button>
               )}
             </div>
           )}
-          {/* Channel Welcome */}
-          <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
-            <div className="w-16 h-16 mb-2 rounded-2xl bg-[var(--app-surface-alt)] flex items-center justify-center border border-[var(--app-border)]">
-              <Hash className="w-10 h-10 text-[var(--text-primary)]" />
+          {/* Channel Welcome — only at the true start of history */}
+          {!hasMoreOlder && !isLoading && (
+            <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
+              <div className="w-16 h-16 mb-2 rounded-2xl bg-[var(--app-surface-alt)] flex items-center justify-center border border-[var(--app-border)]">
+                <Hash className="w-10 h-10 text-[var(--text-primary)]" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] mb-2 break-words">Welcome to #{currentChannel.name}!</h1>
+              <p className="text-[var(--app-muted)]">This is the start of the #{currentChannel.name} channel.</p>
             </div>
-            <h1 className="text-3xl font-bold text-[var(--text-primary)] mb-2">Welcome to #{currentChannel.name}!</h1>
-            <p className="text-[var(--app-muted)]">This is the start of the #{currentChannel.name} channel.</p>
-          </div>
+          )}
 
           {/* Messages */}
           {isLoading ? (
@@ -1847,25 +1848,67 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               >
                 <div className="flex gap-4">
                   <div className="w-10 flex-shrink-0">
-                    <Avatar className="w-10 h-10 mt-0.5">
-                      <AvatarImage src={group.author?.avatar} alt={group.author?.displayName} />
-                      <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
-                        {group.author?.displayName?.charAt(0).toUpperCase() || "?"}
-                      </AvatarFallback>
-                    </Avatar>
+                    {group.author?.id && group.author.id !== "unknown" ? (
+                      <MemberProfilePopup
+                        member={{
+                          id: group.author.id,
+                          username: group.author.username || "unknown",
+                          displayName: group.author.displayName,
+                          avatar: group.author.avatar,
+                        }}
+                        serverId={currentServer?.id}
+                        side="right"
+                        align="start"
+                      >
+                        <button className="block rounded-full focus-visible:outline-2 focus-visible:outline-[#8B5CF6]" aria-label={`View profile of ${group.author.displayName || group.author.username}`}>
+                          <Avatar className="w-10 h-10 mt-0.5 cursor-pointer hover:opacity-90 transition-opacity">
+                            <AvatarImage src={group.author?.avatar} alt="" />
+                            <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
+                              {group.author?.displayName?.charAt(0).toUpperCase() || "?"}
+                            </AvatarFallback>
+                          </Avatar>
+                        </button>
+                      </MemberProfilePopup>
+                    ) : (
+                      <Avatar className="w-10 h-10 mt-0.5">
+                        <AvatarImage src={group.author?.avatar} alt="" />
+                        <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
+                          {group.author?.displayName?.charAt(0).toUpperCase() || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 mb-1">
-                      <span className="font-medium text-[var(--text-primary)] hover:underline cursor-pointer">
-                        {group.author?.displayName || "Unknown"}
-                      </span>
+                      {group.author?.id && group.author.id !== "unknown" ? (
+                        <MemberProfilePopup
+                          member={{
+                            id: group.author.id,
+                            username: group.author.username || "unknown",
+                            displayName: group.author.displayName,
+                            avatar: group.author.avatar,
+                          }}
+                          serverId={currentServer?.id}
+                          side="right"
+                          align="start"
+                        >
+                          <button className="font-medium text-[var(--text-primary)] hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded">
+                            {group.author?.displayName || "Unknown"}
+                          </button>
+                        </MemberProfilePopup>
+                      ) : (
+                        <span className="font-medium text-[var(--text-primary)]">
+                          {group.author?.displayName || "Unknown"}
+                        </span>
+                      )}
+                      <StaffPill badges={group.author?.badges} />
                       <span className="text-xs text-[var(--text-muted)]">{formatTimestamp(group.messages[0].createdAt)}</span>
                     </div>
 
-                    {group.messages.map((message) => (
+                    {group.messages.map((message, msgIndex) => (
                       <div
-                        key={message.id}
+                        key={`${groupIndex}-${message.id}-${msgIndex}`}
                         id={`message-${message.id}`}
                         className="group/message relative"
                         onContextMenu={(e) => {
@@ -1904,20 +1947,43 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                         ) : (
                           <>
                             {message.referencedMessage && (
-                              <button
+                              <div
                                 onClick={() =>
                                   document
                                     .getElementById(`message-${message.referencedMessage?.id}`)
                                     ?.scrollIntoView({ behavior: "smooth", block: "center" })
                                 }
-                                className="mb-1 text-xs text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1 max-w-full"
+                                className="mb-1 text-xs text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1 max-w-full cursor-pointer"
                               >
                                 <Reply className="w-3.5 h-3.5" />
                                 <span className="truncate">
-                                  Replying to {message.referencedMessage.author?.displayName || message.referencedMessage.author?.username || "message"}:{" "}
+                                  Replying to{" "}
+                                  {message.referencedMessage.author?.id ? (
+                                    <MemberProfilePopup
+                                      member={{
+                                        id: message.referencedMessage.author.id,
+                                        username: message.referencedMessage.author.username || "unknown",
+                                        displayName: message.referencedMessage.author.displayName,
+                                        avatar: message.referencedMessage.author.avatar,
+                                      }}
+                                      serverId={currentServer?.id}
+                                      side="right"
+                                      align="start"
+                                    >
+                                      <span
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="font-medium text-[var(--app-accent)] hover:underline cursor-pointer inline"
+                                      >
+                                        {message.referencedMessage.author?.displayName || message.referencedMessage.author?.username || "message"}
+                                      </span>
+                                    </MemberProfilePopup>
+                                  ) : (
+                                    message.referencedMessage.author?.displayName || message.referencedMessage.author?.username || "message"
+                                  )}
+                                  :{" "}
                                   {message.referencedMessage.content || "(attachment)"}
                                 </span>
-                              </button>
+                              </div>
                             )}
 
                             <MessageContent
@@ -1929,7 +1995,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                               edited={message.edited}
                               sticker={message.sticker}
                               className="chat-message-body text-[var(--app-text)]"
-                              onMediaClick={({ src, alt }) => openMediaViewer(src, alt, message.id)}
+                              onMediaClick={handleMessageMediaClick}
+                              messageId={message.id}
                             />
 
                             {message.pinned && (
@@ -1953,16 +2020,17 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                     onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
                                   />
                                 ) : attachment.contentType.startsWith("video/") ? (
-                                  <video
+                                  <VideoMediaPlayer
                                     src={attachment.url}
-                                    controls
-                                    className="max-w-sm max-h-[350px] rounded-md bg-black"
-                                    preload="metadata"
+                                    filename={attachment.filename}
+                                    contentType={attachment.contentType}
+                                    className="max-w-sm rounded-lg overflow-hidden"
                                   />
                                 ) : attachment.contentType.startsWith("audio/") ? (
-                                  <audio
+                                  <AudioMediaPlayer
                                     src={attachment.url}
-                                    controls
+                                    filename={attachment.filename}
+                                    contentType={attachment.contentType}
                                     className="w-full max-w-sm"
                                   />
                                 ) : (
@@ -1987,10 +2055,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {message.reactions.map((reaction) => {
                                   const hasReacted = reaction.userIds.includes(user?.id || "");
+                                  const isCustomEmoji = Boolean(reaction.emoji.id && reaction.emoji.url);
+                                  // For custom emojis, pass the full format to the API; for unicode, pass the name
+                                  const emojiIdentifier = reaction.emoji.id
+                                    ? `<${reaction.emoji.animated ? "a" : ""}:${reaction.emoji.name}:${reaction.emoji.id}>`
+                                    : reaction.emoji.name;
                                   return (
                                     <button
                                       key={reaction.emoji.id || reaction.emoji.name}
-                                      onClick={() => handleReactionClick(message.id, reaction.emoji.name, hasReacted)}
+                                      onClick={() => handleReactionClick(message.id, emojiIdentifier, hasReacted)}
                                       className={cn(
                                         "flex items-center gap-1 px-2 py-0.5 rounded-full text-sm transition-colors",
                                         hasReacted
@@ -1998,7 +2071,15 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                           : "bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110"
                                       )}
                                     >
-                                      <span>{reaction.emoji.name}</span>
+                                      {isCustomEmoji ? (
+                                        <img
+                                          src={reaction.emoji.url}
+                                          alt={reaction.emoji.name}
+                                          className="w-4 h-4 object-contain"
+                                        />
+                                      ) : (
+                                        <span>{reaction.emoji.name}</span>
+                                      )}
                                       <span className={hasReacted ? "text-[var(--text-primary)]" : "text-[var(--app-muted)]"}>{reaction.count}</span>
                                     </button>
                                   );
@@ -2036,6 +2117,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                                         void handleAddReaction(message.id, emojiStr);
                                       }}
                                       serverEmojis={serverEmojis}
+                                      serverName={currentServer?.name}
                                       availableServerEmojis={allServerEmojis}
                                     />
                                   </PopoverContent>
@@ -2126,177 +2208,30 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         </span>
       </div>
 
-      {/* Attachment Previews */}
-      {attachments.length > 0 && (
-        <div className="px-4 pb-2">
-          <div className="flex flex-wrap gap-2 p-2 bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)]">
-            {attachments.map((file, index) => (
-              <div key={index} className="relative group">
-                {file.type.startsWith("image/") && attachmentPreviews[index] ? (
-                  <img src={attachmentPreviews[index]} alt={file.name} className="w-20 h-20 object-cover rounded-md" />
-                ) : (
-                  <div className="w-20 h-20 bg-[var(--app-surface-alt)] rounded-md flex flex-col items-center justify-center p-2">
-                    <FileText className="w-6 h-6 text-[#8B5CF6] mb-1" />
-                    <span className="text-xs text-[var(--app-muted)] truncate w-full text-center">{file.name.slice(0, 10)}</span>
-                  </div>
-                )}
-                <button
-                  onClick={() => removeAttachment(index)}
-                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                >
-                  <X className="w-3 h-3 text-white" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Message Input */}
-      <div className="px-2 sm:px-4 pb-4 sm:pb-6 flex-shrink-0">
-        {replyToMessage && (
-          <div className="mb-2 px-3 py-2 bg-[var(--app-surface)] border border-[var(--app-border)] rounded-lg flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs text-[var(--app-muted)] mb-0.5">
-                Replying to {replyToMessage.author?.displayName || replyToMessage.author?.username || "message"}
-              </p>
-              <p className="text-sm text-[var(--text-primary)] truncate">{replyToMessage.content || "(attachment)"}</p>
-            </div>
-            <button
-              onClick={() => setReplyToMessage(null)}
-              className="text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
-              title="Cancel reply"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-        <div className="relative bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] shadow-[var(--app-elev-1)]">
-          {mentionSuggestions.length > 0 && (
-            <div className="absolute left-2 right-2 bottom-[calc(100%+8px)] z-20 rounded-md border border-[var(--app-border)] bg-[var(--app-surface-alt)] shadow-[var(--app-elev-2)] overflow-hidden">
-              {mentionSuggestions.map((suggestion, index) => (
-                <button
-                  key={`${suggestion.kind}-${suggestion.id}`}
-                  type="button"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    insertMentionFromSuggestion(suggestion);
-                  }}
-                  className={cn(
-                    "w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
-                    index === activeMentionIndex
-                      ? "bg-[var(--app-accent)]/20 text-[var(--text-primary)]"
-                      : "hover:bg-[var(--app-surface)] text-[var(--text-primary)]"
-                  )}
-                >
-                  <span className="truncate text-sm">
-                    @{suggestion.label}
-                  </span>
-                  <span className="text-xs text-[var(--app-muted)] truncate">
-                    {suggestion.kind === "role" ? "Role" : suggestion.description}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-          <input type="file" ref={fileInputRef} onChange={handleFileSelect} multiple accept="*/*" className="hidden" />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
-            title="Upload file"
-          >
-            <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
-          </button>
-          <Textarea
-            ref={textareaRef}
-            value={newMessage}
-            onChange={handleTextareaChange}
-            onKeyDown={handleKeyDown}
-            onClick={(event) => {
-              updateMentionSuggestions(event.currentTarget.value, event.currentTarget.selectionStart);
-            }}
-            onKeyUp={(event) => {
-              updateMentionSuggestions(event.currentTarget.value, event.currentTarget.selectionStart);
-            }}
-            placeholder={`Message #${currentChannel.name}`}
-            className="w-full min-h-[44px] max-h-[300px] py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent border-none text-[var(--text-primary)] placeholder:text-[var(--app-muted-2)] resize-none focus-visible:ring-0 focus-visible:ring-offset-0 text-sm sm:text-base"
-            rows={1}
-            disabled={isSending}
-          />
-          <div className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
-            <button
-              onClick={() => {
-                setComposerPickerTab("gifs");
-                setShowEmojiPicker(true);
-              }}
-              className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
-              title="Open GIF picker"
-            >
-              <Gift className="w-6 h-6" />
-            </button>
-            <button
-              onClick={() => {
-                setComposerPickerTab("stickers");
-                setShowEmojiPicker(true);
-              }}
-              className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
-              title="Open sticker picker"
-            >
-              <Sticker className="w-6 h-6" />
-            </button>
-            <Popover
-              open={showEmojiPicker}
-              onOpenChange={(open) => {
-                setShowEmojiPicker(open);
-                if (!open) {
-                  setComposerPickerTab("emoji");
-                }
-              }}
-            >
-              <PopoverTrigger asChild>
-                <button
-                  className="hover:text-[var(--text-primary)] transition-colors"
-                  onClick={() => setComposerPickerTab("emoji")}
-                >
-                  <Smile className="w-5 sm:w-6 h-5 sm:h-6" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="end"
-                className="w-auto p-0 border-none bg-transparent shadow-xl"
-              >
-                <CustomEmojiPicker
-                  onEmojiSelect={handleEmojiSelect}
-                  onGifSelect={handleGifSelect}
-                  onStickerSelect={handleStickerSelect}
-                  initialTab={composerPickerTab}
-                  serverId={currentServer?.id}
-                  serverEmojis={serverEmojis}
-                  serverName={currentServer?.name}
-                  availableServerEmojis={allServerEmojis}
-                  availableServerStickers={serverStickers}
-                />
-              </PopoverContent>
-            </Popover>
-            {(newMessage.trim() || attachments.length > 0) && (
-              <button
-                onClick={() => {
-                  void handleSendMessage();
-                }}
-                disabled={isSending || isUploading}
-                className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-50"
-              >
-                {isSending || isUploading ? (
-                  <Loader2 className="w-5 sm:w-6 h-5 sm:h-6 animate-spin" />
-                ) : (
-                  <SendHorizontal className="w-5 sm:w-6 h-5 sm:h-6" />
-                )}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      <MessageBar
+        ref={messageBarRef}
+        placeholder={`Message #${currentChannel?.name ?? ""}`}
+        ariaLabel={`Message #${currentChannel?.name ?? ""}`}
+        onSend={() => void handleSendMessage()}
+        onChange={handleComposerChange}
+        onKeyDown={handleKeyDown}
+        onCaretMove={(text, caret) => updateMentionSuggestions(text, caret)}
+        onEmojiSelect={handleEmojiSelect}
+        onGifSelect={handleGifSelect}
+        onStickerSelect={handleStickerSelect}
+        isSending={isSending}
+        serverId={currentServer?.id}
+        serverEmojis={serverEmojis}
+        serverName={currentServer?.name}
+        availableServerEmojis={allServerEmojis}
+        availableServerStickers={serverStickers}
+        replyTo={replyToMessage}
+        onCancelReply={() => setReplyToMessage(null)}
+        mentionSuggestions={mentionSuggestions}
+        onMentionSelect={insertMentionFromSuggestion}
+        activeMentionIndex={activeMentionIndex}
+        channelId={currentChannel?.id}
+      />
 
       <ImageLightbox
         items={standaloneMedia ? [standaloneMedia] : mediaGallery}
@@ -2370,30 +2305,51 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       </Dialog>
 
       <Dialog open={showInbox} onOpenChange={setShowInbox}>
-        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-xl">
+        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
           <DialogHeader>
-            <DialogTitle>Inbox</DialogTitle>
+            <DialogTitle>Inbox — Mentions</DialogTitle>
             <DialogDescription className="text-[var(--text-secondary)]">
-              Recent mentions in this channel.
+              Recent mentions across all your servers (last 7 days).
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[55vh] overflow-y-auto space-y-2 pr-1">
-            {inboxItems.length === 0 ? (
-              <p className="text-sm text-[var(--text-secondary)]">No recent mentions.</p>
+          <div className="max-h-[55vh] overflow-y-auto space-y-1.5 pr-1">
+            {allMentions.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center">
+                <Inbox className="w-12 h-12 text-[var(--text-muted)] mb-3" />
+                <p className="text-sm text-[var(--text-secondary)]">No unread mentions. You're all caught up!</p>
+              </div>
             ) : (
-              inboxItems.map((item) => (
+              allMentions.map((item: MentionData) => (
                 <button
                   key={`inbox-${item.id}`}
                   onClick={() => {
-                    document.getElementById(`message-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    if (item.serverId && item.channelId) {
+                      router.push(`/channels/${item.serverId}/${item.channelId}`);
+                      setTimeout(() => {
+                        document.getElementById(`message-${item.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                      }, 500);
+                    }
                     setShowInbox(false);
                   }}
-                  className="w-full text-left p-3 rounded-md bg-[var(--bg-sidebar-elevated)] hover:bg-[var(--bg-hover)] transition"
+                  className="w-full text-left p-3 rounded-md bg-[var(--bg-sidebar-elevated)] hover:bg-[var(--bg-hover)] transition group"
                 >
-                  <p className="text-xs text-[var(--text-secondary)] mb-1">
-                    {item.author?.displayName || item.author?.username || "Unknown"} • {formatTimestamp(item.createdAt)}
-                  </p>
-                  <p className="text-sm text-[var(--text-primary)] line-clamp-2">{item.content}</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    {item.author?.avatar && (
+                      <Avatar className="w-5 h-5">
+                        <AvatarImage src={item.author.avatar} alt="" />
+                        <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-[10px]">
+                          {item.author.displayName?.charAt(0).toUpperCase() || "?"}
+                        </AvatarFallback>
+                      </Avatar>
+                    )}
+                    <span className="text-xs font-medium text-[var(--text-primary)]">
+                      {item.author?.displayName || item.author?.username || "Unknown"}
+                    </span>
+                    <span className="text-xs text-[var(--text-muted)]">in</span>
+                    <span className="text-xs text-[var(--app-accent)] font-medium">#{item.channelName}</span>
+                    <span className="text-xs text-[var(--text-muted)] ml-auto">{formatTimestamp(item.createdAt)}</span>
+                  </div>
+                  <p className="text-sm text-[var(--text-secondary)] line-clamp-2 group-hover:text-[var(--text-primary)] transition-colors">{item.content}</p>
                 </button>
               ))
             )}
@@ -2416,7 +2372,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             </p>
             <p>Use the pin icon to keep important messages accessible to everyone in the channel.</p>
             <a
-              href="https://serikacord.com"
+              href="https://serika.chat"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-[#8B5CF6] hover:underline"

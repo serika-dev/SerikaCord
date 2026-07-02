@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -91,13 +91,14 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         const data = await response.json();
         setInviteCode(data.invite?.code || data.code || "");
       } else {
-        // Fallback: generate a random code for demo
-        setInviteCode(Math.random().toString(36).substring(2, 10));
+        const data = await response.json().catch(() => null);
+        setInviteCode("");
+        toast.error(data?.error || "Failed to create invite link");
       }
     } catch (error) {
       console.error("Failed to create invite:", error);
-      // Fallback for demo
-      setInviteCode(Math.random().toString(36).substring(2, 10));
+      setInviteCode("");
+      toast.error("Failed to create invite link. Check your connection and try again.");
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +122,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
           url: inviteUrl,
         });
         toast.success("Shared!");
-      } catch (error) {
+      } catch {
         // User cancelled or share failed
       }
     } else {
@@ -140,6 +141,20 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onOpenChange]);
 
+  // Focus management: move focus into the dialog on open, restore on close
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
+      // Focus the dialog container so screen readers announce it
+      requestAnimationFrame(() => dialogRef.current?.focus());
+    } else if (previousFocusRef.current) {
+      previousFocusRef.current.focus();
+      previousFocusRef.current = null;
+    }
+  }, [open]);
+
   if (!open || !currentServer) return null;
 
   const inviteUrl = `serika.cc/${inviteCode}`;
@@ -154,12 +169,19 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
       />
 
       {/* Dialog */}
-      <div className="relative w-full max-w-md mx-4 bg-[#111111] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Invite friends to ${currentServer.name}`}
+        tabIndex={-1}
+        className="relative w-full max-w-md mx-4 bg-[#111111] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-[#222222]">
           <div className="flex items-center gap-3">
             <Avatar className="w-10 h-10">
-              <AvatarImage src={(currentServer as any).icon} />
+              <AvatarImage src={(currentServer as { icon?: string }).icon} />
               <AvatarFallback className="bg-[#8B5CF6] text-white">
                 {currentServer.name.charAt(0)}
               </AvatarFallback>
@@ -208,7 +230,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Input
-                  value={isLoading ? "Generating..." : inviteUrl}
+                  value={isLoading ? "Generating..." : inviteCode ? inviteUrl : "Could not create invite"}
                   readOnly
                   className="bg-[#0a0a0a] border-[#222222] text-white pr-10 font-mono text-sm"
                 />

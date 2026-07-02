@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { getPlatformSettings } from '@/lib/models/PlatformSettings';
 
 interface OEmbedResponse {
   title?: string;
@@ -11,7 +12,6 @@ interface OEmbedResponse {
 
 const FIRST_PARTY_DOMAINS = [
   'serika.dev',
-  'serikacord.com',
   'serika.chat',
   'serika.cc',
   'waifu.ws',
@@ -157,7 +157,6 @@ const OEMBED_WHITELIST = [
   'discord.com',
   'discord.gg',
   'serika.dev',
-  'serikacord.com',
   'serika.chat',
   'serika.cc',
   'waifu.ws',
@@ -172,10 +171,28 @@ function isBlockedDomain(url: string): boolean {
   }
 }
 
-function isWhitelistedDomain(url: string): boolean {
+// Combined whitelist: defaults + admin-configured custom domains
+let cachedCustomWhitelist: string[] | null = null;
+let cacheExpiry = 0;
+
+async function getCustomWhitelist(): Promise<string[]> {
+  if (cachedCustomWhitelist && Date.now() < cacheExpiry) return cachedCustomWhitelist;
+  try {
+    const settings = await getPlatformSettings();
+    cachedCustomWhitelist = settings.oembedWhitelist || [];
+    cacheExpiry = Date.now() + 60_000; // cache for 1 minute
+    return cachedCustomWhitelist;
+  } catch {
+    return [];
+  }
+}
+
+async function isWhitelistedDomainAsync(url: string): Promise<boolean> {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    return OEMBED_WHITELIST.some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
+    const custom = await getCustomWhitelist();
+    const all = [...OEMBED_WHITELIST, ...custom];
+    return all.some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
   } catch {
     return false;
   }
@@ -210,7 +227,7 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       return {};
     }
     
-    const whitelisted = isWhitelistedDomain(url);
+    const whitelisted = await isWhitelistedDomainAsync(url);
     const fetchTimeout = whitelisted ? 5000 : 3000;
     const maxReadBytes = whitelisted ? 50 * 1024 : 20 * 1024;
     

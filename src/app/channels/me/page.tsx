@@ -5,10 +5,7 @@ import {
   Users, 
   Sparkles, 
   Search,
-  Inbox,
   MessageCircle,
-  Video,
-  Phone,
   Check,
   X,
   MoreVertical,
@@ -31,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
+import { SwipeableRow } from "@/components/ui/swipe-actions";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
@@ -308,55 +306,52 @@ export default function DirectMessagesPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-[var(--bg-app)]">
-      {/* Header */}
-      <div className="h-12 min-h-12 px-4 flex items-center gap-4 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-        <div className="flex items-center gap-2 text-[var(--text-primary)]">
-          <Users className="w-6 h-6 text-[#555555]" />
-          <span className="font-semibold">Friends</span>
-        </div>
+      {/* Header — wraps to two rows on small screens; tabs scroll horizontally */}
+      <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+        <div className="min-h-12 px-3 sm:px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="flex items-center gap-2 text-[var(--text-primary)]">
+            <Users className="w-6 h-6 text-[#555555]" />
+            <span className="font-semibold">Friends</span>
+          </div>
 
-        <div className="w-px h-6 bg-[var(--border-subtle)]" />
+          <div className="w-px h-6 bg-[var(--border-subtle)] hidden sm:block" />
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1">
-          {tabs.map((tab) => (
+          {/* Tabs — scrollable strip so they never push content off-screen */}
+          <div className="order-last sm:order-none w-full sm:w-auto -mx-3 px-3 sm:mx-0 sm:px-0 flex items-center gap-1 overflow-x-auto scrollbar-hide">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap shrink-0",
+                  activeTab === tab.id
+                    ? "bg-[var(--bg-active)] text-[var(--app-accent)]"
+                    : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                )}
+              >
+                {tab.label}
+                {tab.count > 0 && (
+                  <span className="ml-1.5 text-xs bg-[var(--border-subtle)] px-1.5 py-0.5 rounded-full text-[var(--text-secondary)]">
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => setActiveTab("add")}
               className={cn(
-                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                activeTab === tab.id
-                  ? "bg-[var(--bg-active)] text-[var(--app-accent)]"
-                  : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                "px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
+                activeTab === "add"
+                  ? "bg-transparent text-[#8B5CF6]"
+                  : "bg-[#8B5CF6] text-white hover:bg-[#7C3AED]"
               )}
             >
-              {tab.label}
-              {tab.count > 0 && (
-                <span className="ml-1.5 text-xs bg-[var(--border-subtle)] px-1.5 py-0.5 rounded-full text-[var(--text-secondary)]">
-                  {tab.count}
-                </span>
-              )}
+              Add Friend
             </button>
-          ))}
-        </div>
-
-        <button
-          onClick={() => setActiveTab("add")}
-          className={cn(
-            "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-            activeTab === "add"
-              ? "bg-transparent text-[#8B5CF6]"
-              : "bg-[#8B5CF6] text-white hover:bg-[#7C3AED]"
-          )}
-        >
-          Add Friend
-        </button>
-
-        {/* Right side actions */}
-        <div className="ml-auto flex items-center gap-2">
-          <button className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]">
-            <Inbox className="w-5 h-5" />
-          </button>
+          </div>
         </div>
       </div>
 
@@ -365,15 +360,15 @@ export default function DirectMessagesPage() {
         {/* Main content area */}
         <div className="flex-1 flex flex-col min-w-0">
           {activeTab === "add" ? (
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <h2 className="text-lg font-semibold text-[var(--text-primary)] uppercase tracking-wide mb-2">
                 Add Friend
               </h2>
               <p className="text-[var(--text-secondary)] text-sm mb-4">
                 You can add friends with their SerikaCord username.
               </p>
-              
-              <div className="relative max-w-xl">
+
+              <div className="flex flex-col sm:relative gap-2 max-w-xl">
                 <Input
                   value={addFriendUsername}
                   onChange={(e) => {
@@ -383,7 +378,7 @@ export default function DirectMessagesPage() {
                   onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
                   placeholder="Enter a username"
                   className={cn(
-                    "h-14 bg-[var(--bg-card)] border-2 text-[var(--text-primary)] placeholder:text-[#555555] pr-32 text-base rounded-lg focus-visible:ring-0",
+                    "h-14 bg-[var(--bg-card)] border-2 text-[var(--text-primary)] placeholder:text-[#555555] sm:pr-48 text-base rounded-lg focus-visible:ring-0",
                     addFriendStatus.type === "success" && "border-green-500/50",
                     addFriendStatus.type === "error" && "border-red-500/50",
                     !addFriendStatus.type && "border-[var(--border-subtle)] focus:border-[#8B5CF6]"
@@ -393,7 +388,7 @@ export default function DirectMessagesPage() {
                   onClick={handleAddFriend}
                   disabled={!addFriendUsername.trim() || isAddingFriend}
                   className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
+                    "sm:absolute sm:right-2 sm:top-1/2 sm:-translate-y-1/2 w-full sm:w-auto justify-center px-4 py-2.5 sm:py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
                     addFriendUsername.trim() && !isAddingFriend
                       ? "bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
                       : "bg-[#8B5CF6]/50 text-white/50 cursor-not-allowed"
@@ -648,85 +643,144 @@ export default function DirectMessagesPage() {
                   ) : filteredFriends.length > 0 ? (
                     <div className="space-y-0.5">
                       {filteredFriends.map((friend) => (
-                        <div
+                        <SwipeableRow
                           key={friend.id}
-                          className="group flex items-center justify-between p-2 rounded-lg hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"
+                          className="rounded-lg"
+                          actions={[
+                            {
+                              icon: MessageCircle,
+                              label: "Message",
+                              className: "bg-[#8B5CF6]",
+                              onAction: () => startDM(friend.id),
+                            },
+                            {
+                              icon: UserX,
+                              label: "Remove",
+                              className: "bg-red-500",
+                              onAction: () => handleRemoveFriend(friend.id),
+                            },
+                          ]}
                         >
-                          <div className="flex items-center gap-3" onClick={() => startDM(friend.id)}>
-                            <div className="relative">
-                              <Avatar className="w-10 h-10">
-                                <AvatarImage src={friend.avatar} />
-                                <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
-                                  {(friend.displayName || friend.username).charAt(0).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div 
-                                className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-[var(--bg-app)]"
-                                style={{ backgroundColor: statusColors[friend.status] }}
-                              />
-                            </div>
-                            
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="font-medium text-[var(--text-primary)] text-sm">
-                                  {friend.displayName || friend.username}
-                                </p>
-                                {friend.isPremium && (
-                                  <Crown className="w-3.5 h-3.5 text-[#8B5CF6]" />
-                                )}
-                              </div>
-                              <p className="text-xs text-[var(--text-muted)]">
-                                {friend.customStatus || statusLabels[friend.status]}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
+                          <div className="group flex items-center justify-between gap-2 p-2 min-h-[56px] rounded-lg hover:bg-[var(--bg-hover)] cursor-pointer transition-colors">
+                            <button
+                              className="flex items-center gap-3 flex-1 min-w-0 text-left"
                               onClick={() => startDM(friend.id)}
-                              className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors"
+                              aria-label={`Message ${friend.displayName || friend.username}`}
                             >
-                              <MessageCircle className="w-5 h-5 text-[var(--text-secondary)]" />
+                              <div className="relative shrink-0">
+                                <Avatar className="w-10 h-10">
+                                  <AvatarImage src={friend.avatar} />
+                                  <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
+                                    {(friend.displayName || friend.username).charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div
+                                  className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-[var(--bg-app)]"
+                                  style={{ backgroundColor: statusColors[friend.status] }}
+                                />
+                              </div>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-[var(--text-primary)] text-sm truncate">
+                                    {friend.displayName || friend.username}
+                                  </p>
+                                  {friend.isPremium && (
+                                    <Crown className="w-3.5 h-3.5 text-[#8B5CF6] shrink-0" />
+                                  )}
+                                </div>
+                                <p className="text-xs text-[var(--text-muted)] truncate">
+                                  {friend.customStatus || statusLabels[friend.status]}
+                                </p>
+                              </div>
                             </button>
-                            <button className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors">
-                              <Phone className="w-5 h-5 text-[var(--text-secondary)]" />
-                            </button>
-                            <button className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors">
-                              <Video className="w-5 h-5 text-[var(--text-secondary)]" />
-                            </button>
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors">
-                                  <MoreVertical className="w-5 h-5 text-[var(--text-secondary)]" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent className="bg-[var(--bg-card)] border-[var(--border-subtle)]">
-                                <DropdownMenuItem 
-                                  onClick={() => startDM(friend.id)}
-                                  className="text-[var(--text-secondary)] focus:text-[var(--text-on-accent)] focus:bg-[#8B5CF6]"
-                                >
-                                  <MessageCircle className="w-4 h-4 mr-2" />
-                                  Message
-                                </DropdownMenuItem>
-                                <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
-                                <DropdownMenuItem 
-                                  onClick={() => handleRemoveFriend(friend.id)}
-                                  className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
-                                >
-                                  <UserX className="w-4 h-4 mr-2" />
-                                  Remove Friend
-                                </DropdownMenuItem>
-                                <DropdownMenuItem 
-                                  onClick={() => handleBlockUser(friend.id)}
-                                  className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
-                                >
-                                  <Shield className="w-4 h-4 mr-2" />
-                                  Block
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+
+                            {/* Desktop hover actions (mobile uses swipe) */}
+                            <div className="hidden sm:flex items-center gap-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                              <button
+                                onClick={() => startDM(friend.id)}
+                                aria-label="Message"
+                                title="Message"
+                                className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors"
+                              >
+                                <MessageCircle className="w-5 h-5 text-[var(--text-secondary)]" />
+                              </button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    aria-label="More options"
+                                    title="More"
+                                    className="p-2 bg-[var(--bg-card)] rounded-full hover:bg-[var(--bg-hover)] transition-colors"
+                                  >
+                                    <MoreVertical className="w-5 h-5 text-[var(--text-secondary)]" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="bg-[var(--bg-card)] border-[var(--border-subtle)]">
+                                  <DropdownMenuItem
+                                    onClick={() => startDM(friend.id)}
+                                    className="text-[var(--text-secondary)] focus:text-[var(--text-on-accent)] focus:bg-[#8B5CF6]"
+                                  >
+                                    <MessageCircle className="w-4 h-4 mr-2" />
+                                    Message
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
+                                  <DropdownMenuItem
+                                    onClick={() => handleRemoveFriend(friend.id)}
+                                    className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
+                                  >
+                                    <UserX className="w-4 h-4 mr-2" />
+                                    Remove Friend
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleBlockUser(friend.id)}
+                                    className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
+                                  >
+                                    <Shield className="w-4 h-4 mr-2" />
+                                    Block
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+
+                            {/* Mobile hint: more menu accessible without swipe too */}
+                            <div className="sm:hidden">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    aria-label="More options"
+                                    className="p-2.5 rounded-full text-[var(--text-muted)] active:bg-[var(--bg-card)] transition-colors"
+                                  >
+                                    <MoreVertical className="w-5 h-5" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="bg-[var(--bg-card)] border-[var(--border-subtle)]">
+                                  <DropdownMenuItem
+                                    onClick={() => startDM(friend.id)}
+                                    className="text-[var(--text-secondary)] focus:text-[var(--text-on-accent)] focus:bg-[#8B5CF6]"
+                                  >
+                                    <MessageCircle className="w-4 h-4 mr-2" />
+                                    Message
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
+                                  <DropdownMenuItem
+                                    onClick={() => handleRemoveFriend(friend.id)}
+                                    className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
+                                  >
+                                    <UserX className="w-4 h-4 mr-2" />
+                                    Remove Friend
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleBlockUser(friend.id)}
+                                    className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
+                                  >
+                                    <Shield className="w-4 h-4 mr-2" />
+                                    Block
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
                           </div>
-                        </div>
+                        </SwipeableRow>
                       ))}
                     </div>
                   ) : (

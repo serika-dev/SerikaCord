@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { NetworkStatus } from "@/components/ui/network-status";
 import "./globals.css";
 
 const inter = Inter({
@@ -31,6 +32,10 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   themeColor: "#8B5CF6",
+  // Required for env(safe-area-inset-*) to be non-zero on notched devices
+  viewportFit: "cover",
+  // Have the on-screen keyboard resize the layout instead of overlaying it
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({
@@ -76,7 +81,8 @@ export default function RootLayout({
       >
         <ThemeProvider>
           {children}
-          <Toaster 
+          <NetworkStatus />
+          <Toaster
             theme="system"
             position="bottom-right"
             toastOptions={{

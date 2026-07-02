@@ -53,10 +53,11 @@ export const config = {
   RATE_LIMIT_WINDOW: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'), // 1 minute
   
   // CORS
-  ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://serika.dev,https://serikacord.com').split(','),
+  ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://serika.dev,https://serika.chat,https://serika.cc').split(','),
   
   // File upload limits
-  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || '10485760'), // 10MB default
+  MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB default (free)
+  MAX_FILE_SIZE_PREMIUM: parseInt(process.env.MAX_FILE_SIZE_PREMIUM || '524288000'), // 500MB (Serika+)
   MAX_AVATAR_SIZE: parseInt(process.env.MAX_AVATAR_SIZE || '5242880'), // 5MB
   MAX_BANNER_SIZE: parseInt(process.env.MAX_BANNER_SIZE || '10485760'), // 10MB
   ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const,

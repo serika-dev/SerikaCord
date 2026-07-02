@@ -133,6 +133,7 @@ function RemoteVideo({ participant }: { participant: VoiceParticipant }) {
       <video
         ref={videoRef}
         autoPlay
+        muted
         playsInline
         className={cn(
           "w-full h-full",

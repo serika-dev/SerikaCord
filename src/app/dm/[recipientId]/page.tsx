@@ -13,22 +13,19 @@ import {
   Users,
   Search,
   Inbox,
-  Plus,
-  Gift,
-  ImageIcon,
-  Smile,
-  Send,
-  Crown,
   Loader2,
   ArrowLeft,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
-import { GifPicker } from "@/components/chat/GifPicker";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
+import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
+import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
+import { InlineBadges } from "@/components/chat/InlineBadges";
+import { StaffPill } from "@/components/chat/StaffPill";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Skeleton, UserProfileSkeleton, MessageSkeleton } from "@/components/ui/skeleton";
 import { buildGalleryFromMessages, findGalleryIndex } from "@/lib/chat/media";
@@ -44,6 +41,7 @@ interface User {
   status: "online" | "idle" | "dnd" | "offline";
   customStatus?: string;
   isPremium?: boolean;
+  badges?: string[];
   bio?: string;
   createdAt?: string;
 }
@@ -61,7 +59,7 @@ interface Message {
     url: string;
     filename: string;
     contentType: string;
-    size: number;
+    size?: number;
   }>;
   customEmojis?: Array<{
     id: string;
@@ -101,8 +99,7 @@ export default function DMConversationPage() {
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [showGifPicker, setShowGifPicker] = useState(false);
+  const messageBarRef = useRef<MessageBarHandle>(null);
   const [availableServerEmojis, setAvailableServerEmojis] = useState<Array<{
     id: string;
     name: string;
@@ -122,6 +119,7 @@ export default function DMConversationPage() {
   const [standaloneMedia, setStandaloneMedia] = useState<{ src: string; alt?: string } | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const activeFetchRecipientRef = useRef<string | null>(null);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const lastTypingSentAtRef = useRef(0);
   const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
@@ -191,8 +189,7 @@ export default function DMConversationPage() {
     const emojiString = isCustom && emojiData
       ? `<${emojiData.animated ? "a" : ""}:${emojiData.name}:${emojiData.id}>`
       : emoji;
-    setNewMessage((prev) => prev + emojiString);
-    setShowEmojiPicker(false);
+    messageBarRef.current?.getComposer()?.insertTextAtCaret(emojiString);
   }, []);
 
   const addTypingUser = useCallback(
@@ -269,10 +266,18 @@ export default function DMConversationPage() {
 
   // Fetch DM messages
   const fetchMessages = useCallback(async () => {
+    // Guard against a slower response from a previously viewed DM overwriting
+    // this conversation after a fast switch.
+    const requestedRecipientId = recipientId;
+    activeFetchRecipientRef.current = requestedRecipientId;
+    setIsLoading(true);
+    setMessages([]);
     try {
-      const response = await fetch(`/api/dms/${recipientId}/messages`);
+      const response = await fetch(`/api/dms/${requestedRecipientId}/messages`);
+      if (activeFetchRecipientRef.current !== requestedRecipientId) return;
       if (response.ok) {
         const data = await response.json();
+        if (activeFetchRecipientRef.current !== requestedRecipientId) return;
         setMessages(data.messages || []);
         // Auto-scroll to bottom after loading messages
         setTimeout(scrollToBottom, 200);
@@ -280,7 +285,9 @@ export default function DMConversationPage() {
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     } finally {
-      setIsLoading(false);
+      if (activeFetchRecipientRef.current === requestedRecipientId) {
+        setIsLoading(false);
+      }
     }
   }, [recipientId, scrollToBottom]);
 
@@ -373,38 +380,51 @@ export default function DMConversationPage() {
   // Send message
   const sendMessage = async (sticker?: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string }) => {
     const isStickerSend = !!sticker;
-    if ((!newMessage.trim() && !isStickerSend) || isSending) return;
+    const pendingAttachments = messageBarRef.current?.getAttachments() ?? [];
+    if ((!newMessage.trim() && !isStickerSend && pendingAttachments.length === 0) || isSending) return;
 
     setIsSending(true);
     const messageContent = newMessage.trim();
     setNewMessage("");
+    messageBarRef.current?.getComposer()?.clear();
     lastTypingSentAtRef.current = 0;
 
-    // Optimistic update
-    const tempId = `temp-${Date.now()}`;
-    const optimisticMessage: Message = {
-      id: tempId,
-      content: messageContent,
-      authorId: user?.id || "",
-      author: {
-        id: user?.id || "",
-        username: user?.username || "",
-        displayName: user?.displayName || "",
-        avatar: user?.avatar,
-        status: user?.status || "online",
-        isPremium: user?.isPremium,
-      },
-      channelId: recipientId,
-      createdAt: new Date().toISOString(),
-      sticker,
-    };
-    setMessages((prev) => [...prev, optimisticMessage]);
-    scrollToBottom();
+    let tempId: string | null = null;
 
     try {
+      let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
+      if (pendingAttachments.length > 0) {
+        uploadedAttachments = await messageBarRef.current?.uploadAttachments() ?? [];
+        messageBarRef.current?.clearAttachments();
+      }
+
+      // Optimistic update — include uploaded attachments so they show immediately
+      tempId = `temp-${Date.now()}`;
+      const optimisticMessage: Message = {
+        id: tempId,
+        content: messageContent,
+        authorId: user?.id || "",
+        author: {
+          id: user?.id || "",
+          username: user?.username || "",
+          displayName: user?.displayName || "",
+          avatar: user?.avatar,
+          status: user?.status || "online",
+          isPremium: user?.isPremium,
+          badges: user?.badges,
+        },
+        channelId: recipientId,
+        createdAt: new Date().toISOString(),
+        sticker,
+        attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
+      };
+      setMessages((prev) => [...prev, optimisticMessage]);
+      scrollToBottom();
+
       const body: Record<string, unknown> = {};
       if (messageContent) body.content = messageContent;
       if (sticker) body.sticker = sticker;
+      if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
 
       const response = await fetch(`/api/dms/${recipientId}/messages`, {
         method: "POST",
@@ -421,19 +441,67 @@ export default function DMConversationPage() {
       } else {
         // Remove optimistic message on error
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
-        if (messageContent) setNewMessage(messageContent);
+        if (messageContent) {
+          setNewMessage(messageContent);
+          messageBarRef.current?.getComposer()?.insertTextAtCaret(messageContent);
+        }
       }
     } catch (error) {
       console.error("Failed to send message:", error);
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      if (messageContent) setNewMessage(messageContent);
+      if (tempId) {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      }
+      if (messageContent) {
+        setNewMessage(messageContent);
+        messageBarRef.current?.getComposer()?.insertTextAtCaret(messageContent);
+      }
     } finally {
       setIsSending(false);
     }
   };
 
+  const handleGifSelect = useCallback(async (gifUrl: string) => {
+    if (!user) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: tempId,
+      content: gifUrl,
+      authorId: user.id,
+      author: {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName,
+        avatar: user.avatar,
+        status: user.status || "online",
+        isPremium: user.isPremium,
+        badges: user.badges,
+      },
+      channelId: recipientId,
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setTimeout(scrollToBottom, 100);
+
+    try {
+      const response = await fetch(`/api/dms/${recipientId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: gifUrl }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMessages((prev) => prev.map((m) => (m.id === tempId ? data : m)));
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      }
+    } catch {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+    }
+  }, [recipientId, scrollToBottom, user]);
+
   const handleStickerSelect = (sticker: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string }) => {
-    setShowEmojiPicker(false);
     void sendMessage(sticker);
   };
 
@@ -445,14 +513,12 @@ export default function DMConversationPage() {
     }
   };
 
-  const handleMessageInputChange = (value: string) => {
+  const handleMessageInputChange = (value: string, _caret: number) => {
     setNewMessage(value);
     if (value.trim()) {
       void sendTypingStatus(value);
     }
   };
-
-  // Format timestamp
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -548,7 +614,7 @@ export default function DMConversationPage() {
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
         {/* Header */}
-        <div className="h-14 sm:h-12 min-h-[56px] sm:min-h-12 px-3 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] bg-[#0a0a0a] safe-area-top">
+        <div className="h-16 px-3 sm:px-4 flex items-center justify-between border-b border-[#1a1a1a] bg-[#0a0a0a] safe-area-top">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
@@ -574,9 +640,7 @@ export default function DMConversationPage() {
               <span className="font-semibold text-white truncate">
                 {recipient?.displayName || recipient?.username || "Loading..."}
               </span>
-              {recipient?.isPremium && (
-                <Crown className="w-4 h-4 text-[#8B5CF6] flex-shrink-0" />
-              )}
+              <StaffPill badges={recipient?.badges} />
             </div>
           </div>
 
@@ -665,20 +729,59 @@ export default function DMConversationPage() {
                       className="chat-message-row -mx-4 group/message hover:bg-[#111111]/50 py-0.5 rounded transition-colors duration-100"
                     >
                       <div className="flex gap-4">
-                        <Avatar className="w-10 h-10 mt-0.5 flex-shrink-0">
-                          <AvatarImage src={group.author.avatar} loading="lazy" />
-                          <AvatarFallback className="bg-[#8B5CF6] text-white">
-                            {(group.author.displayName || group.author.username).charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                      <div className="w-10 flex-shrink-0">
+                        {group.author?.id ? (
+                          <MemberProfilePopup
+                            member={{
+                              id: group.author.id,
+                              username: group.author.username || "unknown",
+                              displayName: group.author.displayName,
+                              avatar: group.author.avatar,
+                            }}
+                            side="right"
+                            align="start"
+                          >
+                            <button className="block rounded-full focus-visible:outline-2 focus-visible:outline-[#8B5CF6]" aria-label={`View profile of ${group.author.displayName || group.author.username}`}>
+                              <Avatar className="w-10 h-10 mt-0.5 cursor-pointer hover:opacity-90 transition-opacity">
+                                <AvatarImage src={group.author.avatar} loading="lazy" />
+                                <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                  {(group.author.displayName || group.author.username).charAt(0).toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                            </button>
+                          </MemberProfilePopup>
+                        ) : (
+                          <Avatar className="w-10 h-10 mt-0.5 flex-shrink-0">
+                            <AvatarImage src={group.author.avatar} loading="lazy" />
+                            <AvatarFallback className="bg-[#8B5CF6] text-white">
+                              {(group.author.displayName || group.author.username).charAt(0).toUpperCase()}
+                            </AvatarFallback>
+                          </Avatar>
+                        )}
+                      </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-baseline gap-2">
-                            <span className="font-medium text-white hover:underline cursor-pointer">
-                              {group.author.displayName || group.author.username}
-                            </span>
-                            {group.author.isPremium && (
-                              <Crown className="w-3.5 h-3.5 text-[#8B5CF6]" />
+                            {group.author?.id ? (
+                              <MemberProfilePopup
+                                member={{
+                                  id: group.author.id,
+                                  username: group.author.username || "unknown",
+                                  displayName: group.author.displayName,
+                                  avatar: group.author.avatar,
+                                }}
+                                side="right"
+                                align="start"
+                              >
+                                <button className="font-medium text-white hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded">
+                                  {group.author.displayName || group.author.username}
+                                </button>
+                              </MemberProfilePopup>
+                            ) : (
+                              <span className="font-medium text-white">
+                                {group.author.displayName || group.author.username}
+                              </span>
                             )}
+                            <StaffPill badges={group.author?.badges} />
                             <span className="text-xs text-[#666666]">
                               {formatTime(group.timestamp)}
                             </span>
@@ -707,16 +810,17 @@ export default function DMConversationPage() {
                                       onClick={() => openMediaViewer(attachment.url, attachment.filename, message.id)}
                                     />
                                   ) : attachment.contentType.startsWith("video/") ? (
-                                    <video
+                                    <VideoMediaPlayer
                                       src={attachment.url}
-                                      controls
-                                      className="max-w-sm max-h-[350px] rounded-md bg-black"
-                                      preload="metadata"
+                                      filename={attachment.filename}
+                                      contentType={attachment.contentType}
+                                      className="max-w-sm rounded-lg overflow-hidden"
                                     />
                                   ) : attachment.contentType.startsWith("audio/") ? (
-                                    <audio
+                                    <AudioMediaPlayer
                                       src={attachment.url}
-                                      controls
+                                      filename={attachment.filename}
+                                      contentType={attachment.contentType}
                                       className="w-full max-w-sm"
                                     />
                                   ) : (
@@ -726,10 +830,10 @@ export default function DMConversationPage() {
                                       rel="noopener noreferrer"
                                       className="flex items-center gap-2 p-3 bg-[#1a1a1a] rounded-md hover:brightness-110 max-w-sm transition"
                                     >
-                                      {/* Using a generic file icon or existing one if available */}
+                                      <FileText className="w-8 h-8 text-[#8B5CF6] flex-shrink-0" />
                                       <div className="min-w-0">
                                         <div className="text-[#8B5CF6] hover:underline truncate">{attachment.filename}</div>
-                                        <div className="text-xs text-[#888888]">{Math.round(attachment.size / 1024)} KB</div>
+                                        <div className="text-xs text-[#888888]">{attachment.size ? Math.round(attachment.size / 1024) : '?'} KB</div>
                                       </div>
                                     </a>
                                   )}
@@ -763,110 +867,20 @@ export default function DMConversationPage() {
 
         {/* Message input */}
         <div className="p-3 sm:p-4 pt-0 safe-area-bottom">
-          <div className="relative bg-[#111111] rounded-xl sm:rounded-lg">
-            <div className="flex items-center px-2 sm:px-4 py-2">
-              <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
-                <Plus className="w-5 h-5" />
-              </button>
-
-              <input
-                value={newMessage}
-                onChange={(e) => handleMessageInputChange(e.target.value)}
-                onKeyDown={handleKeyPress}
-                placeholder={`Message @${recipient?.displayName || recipient?.username || "..."}`}
-                className="flex-1 bg-transparent text-white placeholder:text-[#666666] px-2 sm:px-3 py-2 sm:py-1 focus:outline-none text-base"
-              />
-
-              <div className="flex items-center gap-0.5 sm:gap-1">
-                <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95 hidden sm:block">
-                  <Gift className="w-5 h-5" />
-                </button>
-                <Popover open={showGifPicker} onOpenChange={setShowGifPicker}>
-                  <PopoverTrigger asChild>
-                    <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
-                      <ImageIcon className="w-5 h-5" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent side="top" align="end" className="w-auto p-0 border-none bg-transparent">
-                    <GifPicker
-                      onGifSelect={async (gif: { url: string }) => {
-                        setShowGifPicker(false);
-                        if (!user) return;
-
-                        const tempId = `temp-${Date.now()}`;
-                        const optimisticMessage: Message = {
-                          id: tempId,
-                          content: gif.url,
-                          authorId: user.id,
-                          author: {
-                            id: user.id,
-                            username: user.username,
-                            displayName: user.displayName,
-                            avatar: user.avatar,
-                            status: user.status || "online",
-                            isPremium: user.isPremium,
-                          },
-                          channelId: recipientId,
-                          createdAt: new Date().toISOString(),
-                        };
-                        setMessages((prev) => [...prev, optimisticMessage]);
-                        setTimeout(scrollToBottom, 100);
-
-                        try {
-                          const response = await fetch(`/api/dms/${recipientId}/messages`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ content: gif.url }),
-                          });
-
-                          if (response.ok) {
-                            const data = await response.json();
-                            setMessages((prev) => prev.map((m) => (m.id === tempId ? data : m)));
-                          } else {
-                            setMessages((prev) => prev.filter((m) => m.id !== tempId));
-                          }
-                        } catch {
-                          setMessages((prev) => prev.filter((m) => m.id !== tempId));
-                        }
-                      }}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <Popover open={showEmojiPicker} onOpenChange={setShowEmojiPicker}>
-                  <PopoverTrigger asChild>
-                    <button className="p-2 sm:p-1.5 text-[#888888] hover:text-white transition-colors rounded-lg hover:bg-[#1a1a1a] active:scale-95">
-                      <Smile className="w-5 h-5" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent side="top" align="end" className="w-auto p-0 border-none bg-transparent animate-scale-in">
-                    <CustomEmojiPicker
-                      onEmojiSelect={handleEmojiSelect}
-                      onStickerSelect={handleStickerSelect}
-                      allowServerEmojisInDMs
-                      availableServerEmojis={availableServerEmojis}
-                      availableServerStickers={availableServerStickers}
-                    />
-                  </PopoverContent>
-                </Popover>
-                <button
-                  onClick={() => sendMessage()}
-                  disabled={!newMessage.trim() || isSending}
-                  className={cn(
-                    "p-2 sm:p-1.5 rounded-lg transition-all active:scale-95",
-                    newMessage.trim() && !isSending
-                      ? "text-white bg-[#8B5CF6] hover:bg-[#7C3AED]"
-                      : "text-[#555555] cursor-not-allowed"
-                  )}
-                >
-                  {isSending ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <Send className="w-5 h-5" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
+          <MessageBar
+            ref={messageBarRef}
+            placeholder={`Message @${recipient?.displayName || recipient?.username || "..."}`}
+            ariaLabel={`Message @${recipient?.displayName || recipient?.username || "..."}`}
+            onSend={() => void sendMessage()}
+            onChange={handleMessageInputChange}
+            onKeyDown={handleKeyPress}
+            onEmojiSelect={handleEmojiSelect}
+            onGifSelect={handleGifSelect}
+            onStickerSelect={handleStickerSelect}
+            isSending={isSending}
+            availableServerEmojis={availableServerEmojis}
+            availableServerStickers={availableServerStickers}
+          />
 
           {/* Video Grid for DM calls */}
           <VideoGrid />
@@ -887,7 +901,6 @@ export default function DMConversationPage() {
               <div className="h-[120px] bg-[#8B5CF6] relative">
                 {recipient.isPremium && (
                   <div className="absolute top-2 right-2 px-2 py-1 bg-black/40 rounded-full flex items-center gap-1">
-                    <Crown className="w-3 h-3 text-[#8B5CF6]" />
                     <span className="text-xs text-white font-medium">Serika+</span>
                   </div>
                 )}
@@ -918,9 +931,7 @@ export default function DMConversationPage() {
                     <h3 className="text-xl font-bold text-white">
                       {recipient.displayName || recipient.username}
                     </h3>
-                    {recipient.isPremium && (
-                      <Crown className="w-5 h-5 text-[#8B5CF6]" />
-                    )}
+                    <InlineBadges badges={recipient.badges} size="sm" />
                   </div>
                   <p className="text-sm text-[#888888]">{recipient.username}</p>
 

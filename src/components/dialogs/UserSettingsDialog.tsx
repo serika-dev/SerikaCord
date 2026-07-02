@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -69,6 +70,7 @@ type SettingsTab =
   | "admin-servers"
   | "admin-settings"
   | "admin-logs"
+  | "admin-experiments"
   | "experiments";
 
 const statusOptions = [
@@ -153,6 +155,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     maintenanceMode: boolean;
     allowRegistration: boolean;
     globalAnnouncement?: string;
+    oembedWhitelist?: string[];
+    experiments?: Record<string, boolean>;
   } | null>(null);
   const [selectedUser, setSelectedUser] = useState<{
     id: string;
@@ -175,6 +179,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
   const [announcementText, setAnnouncementText] = useState("");
+  const [oembedDomainInput, setOembedDomainInput] = useState("");
+  const [fontTestText, setFontTestText] = useState("The quick brown fox jumps over the lazy dog");
 
   // Initialize form with user data
   useEffect(() => {
@@ -541,7 +547,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
-  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean }) => {
+  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean; oembedWhitelist?: string[]; experiments?: Record<string, boolean> }) => {
     try {
       const response = await fetch("/api/admin/settings", {
         method: "PATCH",
@@ -696,6 +702,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     if (activeTab === "admin-settings" && !platformSettings) {
       fetchPlatformSettings();
       fetchAdminStats();
+    } else if (activeTab === "admin-experiments" && !platformSettings) {
+      fetchPlatformSettings();
     } else if (activeTab === "admin-logs" && adminLogs.length === 0) {
       fetchAdminLogs();
     }
@@ -774,7 +782,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         { id: "admin-servers" as SettingsTab, label: "Server Management", icon: Database },
         { id: "admin-settings" as SettingsTab, label: "Platform Settings", icon: Settings },
         { id: "admin-logs" as SettingsTab, label: "Activity Logs", icon: Activity },
-        { id: "experiments" as SettingsTab, label: "Experiments", icon: FlaskConical },
+        { id: "admin-experiments" as SettingsTab, label: "Experiments", icon: FlaskConical },
       ],
     });
   }
@@ -1273,12 +1281,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[var(--text-primary)]">Compact mode</span>
-                        <input
-                          type="checkbox"
-                          checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)}
-                          onChange={(e) => saveAppearancePatch({ compactMode: e.target.checked })}
-                          className="w-4 h-4 accent-[#8B5CF6]"
-                        />
+                        <ToggleSwitch size="sm" checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)} onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })} />
                       </div>
                     </div>
                   )}
@@ -1384,12 +1387,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[var(--text-secondary)]">Display messages in a compact format</p>
                         </div>
                         <div className="relative">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={Boolean(userSettings?.appearance?.compactMode ?? themeSettings.compactMode)}
-                            onChange={(e) => saveAppearancePatch({ compactMode: e.target.checked })}
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.compactMode ?? themeSettings.compactMode)} onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })} />
                           <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1400,12 +1398,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[var(--text-secondary)]">Display message timestamps</p>
                         </div>
                         <div className="relative">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={Boolean(themeSettings.showTimestamps)}
-                            onChange={(e) => updateSettings({ showTimestamps: e.target.checked })}
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(themeSettings.showTimestamps)} onCheckedChange={(checked) => updateSettings({ showTimestamps: checked })} />
                           <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1416,12 +1409,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[var(--text-secondary)]">Color usernames by their highest role</p>
                         </div>
                         <div className="relative">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)}
-                            onChange={(e) => saveAppearancePatch({ showRoleColors: e.target.checked })}
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)} onCheckedChange={(checked) => saveAppearancePatch({ showRoleColors: checked })} />
                           <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1439,12 +1427,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[var(--text-secondary)]">Show smooth transitions and animations</p>
                         </div>
                         <div className="relative">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)}
-                            onChange={(e) => saveAppearancePatch({ enableAnimations: e.target.checked })}
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)} onCheckedChange={(checked) => saveAppearancePatch({ enableAnimations: checked })} />
                           <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1455,22 +1438,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[var(--text-secondary)]">Play animated emojis automatically</p>
                         </div>
                         <div className="relative">
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={Boolean(userSettings?.textImages?.gifAutoplay ?? themeSettings.animatedEmojis)}
-                            onChange={(e) => {
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings?.textImages?.gifAutoplay ?? themeSettings.animatedEmojis)} onCheckedChange={(checked) => {
                               setUserSettings((prev) => ({
                                 ...(prev || {}),
-                                textImages: { ...(prev?.textImages || {}), gifAutoplay: e.target.checked },
+                                textImages: { ...(prev?.textImages || {}), gifAutoplay: checked },
                               }));
-                              updateSettings({ animatedEmojis: e.target.checked });
+                              updateSettings({ animatedEmojis: checked });
                               void saveSettingsPatch(
-                                { textImages: { ...(userSettings?.textImages || {}), gifAutoplay: e.target.checked } },
+                                { textImages: { ...(userSettings?.textImages || {}), gifAutoplay: checked } },
                                 "text-images"
                               );
-                            }}
-                          />
+                            }} />
                           <div className="w-11 h-6 bg-[var(--border-subtle)] rounded-full peer peer-checked:bg-[#8B5CF6] transition-colors" />
                           <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full peer-checked:translate-x-5 transition-transform" />
                         </div>
@@ -1498,30 +1476,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <div className="space-y-3">
                         <label className="flex items-center justify-between">
                           <span className="text-white">Noise suppression</span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(userSettings.voiceVideo?.noiseSuppression)}
-                            onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: e.target.checked } }, "voice-video")}
-                            className="w-4 h-4 accent-[#8B5CF6]"
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.noiseSuppression)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")} />
                         </label>
                         <label className="flex items-center justify-between">
                           <span className="text-white">Echo cancellation</span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(userSettings.voiceVideo?.echoCancellation)}
-                            onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: e.target.checked } }, "voice-video")}
-                            className="w-4 h-4 accent-[#8B5CF6]"
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.echoCancellation)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")} />
                         </label>
                         <label className="flex items-center justify-between">
                           <span className="text-white">Push to talk</span>
-                          <input
-                            type="checkbox"
-                            checked={Boolean(userSettings.voiceVideo?.pushToTalk)}
-                            onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: e.target.checked } }, "voice-video")}
-                            className="w-4 h-4 accent-[#8B5CF6]"
-                          />
+                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.pushToTalk)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")} />
                         </label>
                       </div>
                     )}
@@ -1540,36 +1503,21 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white font-medium">Enable Desktop Notifications</p>
                           <p className="text-sm text-[var(--text-secondary)]">Receive notifications on your desktop</p>
                         </div>
-                        <input
-                          type="checkbox"
-                          className="w-5 h-5 accent-[#8B5CF6]"
-                          checked={Boolean(userSettings?.notifications?.desktop)}
-                          onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), desktop: e.target.checked } }, "notifications")}
-                        />
+                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.desktop)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), desktop: checked } }, "notifications")} />
                       </label>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white font-medium">Message Sounds</p>
                           <p className="text-sm text-[var(--text-secondary)]">Play a sound for new messages</p>
                         </div>
-                        <input
-                          type="checkbox"
-                          className="w-5 h-5 accent-[#8B5CF6]"
-                          checked={Boolean(userSettings?.notifications?.sounds)}
-                          onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: e.target.checked } }, "notifications")}
-                        />
+                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.sounds)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: checked } }, "notifications")} />
                       </label>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
                           <p className="text-white font-medium">Mute @everyone and @here</p>
                           <p className="text-sm text-[var(--text-secondary)]">Suppress notifications from @everyone and @here</p>
                         </div>
-                        <input
-                          type="checkbox"
-                          className="w-5 h-5 accent-[#8B5CF6]"
-                          checked={Boolean(userSettings?.notifications?.muteEveryone)}
-                          onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), muteEveryone: e.target.checked } }, "notifications")}
-                        />
+                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.muteEveryone)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), muteEveryone: checked } }, "notifications")} />
                       </label>
                     </div>
                   </div>
@@ -1577,7 +1525,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               )}
 
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "experiments"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 capitalize">
                     {activeTab.replace(/-/g, " ")}
@@ -1687,21 +1635,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           </select>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Show sensitive media</span>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(userSettings.contentSocial?.showSensitiveMedia)}
-                              onChange={(e) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), showSensitiveMedia: e.target.checked } }, "content-social")}
-                              className="w-4 h-4 accent-[#8B5CF6]"
-                            />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.contentSocial?.showSensitiveMedia)} onCheckedChange={(checked) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), showSensitiveMedia: checked } }, "content-social")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Allow data personalization</span>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)}
-                              onChange={(e) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: e.target.checked } }, "data-privacy")}
-                              className="w-4 h-4 accent-[#8B5CF6]"
-                            />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")} />
                           </label>
                         </>
                       )}
@@ -1710,15 +1648,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Allow everyone</span>
-                            <input type="checkbox" checked={Boolean(userSettings.friendRequests?.allowEveryone)} onChange={(e) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowEveryone: e.target.checked } }, "friend-requests")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowEveryone)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowEveryone: checked } }, "friend-requests")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Allow friends of friends</span>
-                            <input type="checkbox" checked={Boolean(userSettings.friendRequests?.allowFriendsOfFriends)} onChange={(e) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowFriendsOfFriends: e.target.checked } }, "friend-requests")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowFriendsOfFriends)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowFriendsOfFriends: checked } }, "friend-requests")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Allow server members</span>
-                            <input type="checkbox" checked={Boolean(userSettings.friendRequests?.allowServerMembers)} onChange={(e) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowServerMembers: e.target.checked } }, "friend-requests")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowServerMembers)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowServerMembers: checked } }, "friend-requests")} />
                           </label>
                         </>
                       )}
@@ -1727,11 +1665,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Reduced motion</span>
-                            <input type="checkbox" checked={Boolean(userSettings.accessibility?.reducedMotion)} onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: e.target.checked } }, "accessibility")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.reducedMotion)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">High contrast</span>
-                            <input type="checkbox" checked={Boolean(userSettings.accessibility?.highContrast)} onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: e.target.checked } }, "accessibility")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.highContrast)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")} />
                           </label>
                         </>
                       )}
@@ -1740,15 +1678,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Inline media</span>
-                            <input type="checkbox" checked={Boolean(userSettings.textImages?.inlineMedia)} onChange={(e) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: e.target.checked } }, "text-images")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineMedia)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">Inline embeds</span>
-                            <input type="checkbox" checked={Boolean(userSettings.textImages?.inlineEmbeds)} onChange={(e) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: e.target.checked } }, "text-images")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineEmbeds)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">GIF autoplay</span>
-                            <input type="checkbox" checked={Boolean(userSettings.textImages?.gifAutoplay)} onChange={(e) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: e.target.checked } }, "text-images")} className="w-4 h-4 accent-[#8B5CF6]" />
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.gifAutoplay)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images")} />
                           </label>
                         </>
                       )}
@@ -2127,12 +2065,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white">Enable Maintenance Mode</p>
                           <p className="text-sm text-[var(--text-muted)]">Restrict access to staff only</p>
                         </div>
-                        <input
-                          type="checkbox"
-                          className="w-5 h-5 accent-[#8B5CF6]"
-                          checked={platformSettings?.maintenanceMode || false}
-                          onChange={(e) => handleUpdatePlatformSettings({ maintenanceMode: e.target.checked })}
-                        />
+                        <ToggleSwitch size="sm" checked={platformSettings?.maintenanceMode || false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ maintenanceMode: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
@@ -2142,12 +2075,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-white">Allow New Registrations</p>
                           <p className="text-sm text-[var(--text-muted)]">Enable new user sign-ups</p>
                         </div>
-                        <input
-                          type="checkbox"
-                          className="w-5 h-5 accent-[#8B5CF6]"
-                          checked={platformSettings?.allowRegistration !== false}
-                          onChange={(e) => handleUpdatePlatformSettings({ allowRegistration: e.target.checked })}
-                        />
+                        <ToggleSwitch size="sm" checked={platformSettings?.allowRegistration !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ allowRegistration: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
@@ -2166,11 +2094,88 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         Publish Announcement
                       </button>
                     </div>
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-3">OEmbed Whitelist</h3>
+                      <p className="text-sm text-[var(--text-muted)] mb-3">Domains allowed for rich link embeds (Spotify, YouTube, etc.)</p>
+                      <div className="flex gap-2 mb-3">
+                        <Input
+                          value={oembedDomainInput}
+                          onChange={(e) => setOembedDomainInput(e.target.value)}
+                          placeholder="example.com"
+                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && oembedDomainInput.trim()) {
+                              e.preventDefault();
+                              const domain = oembedDomainInput.trim().toLowerCase();
+                              const current = platformSettings?.oembedWhitelist || [];
+                              if (!current.includes(domain)) {
+                                void handleUpdatePlatformSettings({ oembedWhitelist: [...current, domain] });
+                              }
+                              setOembedDomainInput("");
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => {
+                            if (!oembedDomainInput.trim()) return;
+                            const domain = oembedDomainInput.trim().toLowerCase();
+                            const current = platformSettings?.oembedWhitelist || [];
+                            if (!current.includes(domain)) {
+                              void handleUpdatePlatformSettings({ oembedWhitelist: [...current, domain] });
+                            }
+                            setOembedDomainInput("");
+                          }}
+                          className="px-3 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded text-sm font-medium"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {(platformSettings?.oembedWhitelist || []).length === 0 ? (
+                          <p className="text-sm text-[var(--text-muted)] italic">No custom domains. Using defaults.</p>
+                        ) : (
+                          (platformSettings?.oembedWhitelist || []).map((domain) => (
+                            <div key={domain} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
+                              <span className="text-white">{domain}</span>
+                              <button
+                                onClick={() => {
+                                  const current = platformSettings?.oembedWhitelist || [];
+                                  void handleUpdatePlatformSettings({ oembedWhitelist: current.filter((d) => d !== domain) });
+                                }}
+                                className="text-red-400 hover:text-red-300 text-xs"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-3">Font Testing</h3>
+                      <p className="text-sm text-[var(--text-muted)] mb-3">Preview how different fonts look across the app.</p>
+                      <Input
+                        value={fontTestText}
+                        onChange={(e) => setFontTestText(e.target.value)}
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-4"
+                        placeholder="Type text to preview..."
+                      />
+                      <div className="space-y-3">
+                        {[
+                          { name: "Inter (Default)", className: "font-sans" },
+                          { name: "Mono", className: "font-mono" },
+                          { name: "Serif", className: "font-serif" },
+                        ].map((font) => (
+                          <div key={font.name} className="p-3 bg-[var(--bg-card)] rounded-lg">
+                            <p className="text-xs text-[var(--text-muted)] mb-1">{font.name}</p>
+                            <p className={cn("text-white text-base", font.className)}>{fontTestText}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
-
-              {/* Admin Panel - Activity Logs */}
               {activeTab === "admin-logs" && isStaff && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
@@ -2243,6 +2248,44 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         ))
                       )}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Admin Panel - Experiments */}
+              {activeTab === "admin-experiments" && isStaff && (
+                <div>
+                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                    <FlaskConical className="w-6 h-6 text-[#8B5CF6]" />
+                    Platform Experiments
+                  </h2>
+                  <p className="text-sm text-[var(--text-muted)] mb-4">Toggle experimental features globally for all users.</p>
+                  <div className="space-y-3">
+                    {[
+                      { id: "new_profile", label: "New Profile Logic", desc: "Enable the experimental profile v2 backend." },
+                      { id: "voice_v2", label: "Voice Engine V2", desc: "Use the new WebRTC implementation." },
+                      { id: "rich_composer", label: "Rich Composer", desc: "Enable rich text composer with custom emoji inline rendering." },
+                      { id: "unified_message_bar", label: "Unified Message Bar", desc: "Use the shared MessageBar component across all chat contexts." },
+                      { id: "staff_pill_badges", label: "Staff Pill Badges", desc: "Show text pill badges (Staff/Developer) next to usernames instead of icon badges." },
+                    ].map((exp) => {
+                      const isEnabled = platformSettings?.experiments?.[exp.id] ?? false;
+                      return (
+                        <div key={exp.id} className="flex items-center justify-between p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+                          <div>
+                            <p className="font-medium text-white">{exp.label}</p>
+                            <p className="text-sm text-[var(--text-muted)]">{exp.desc}</p>
+                          </div>
+                          <ToggleSwitch
+                            size="sm"
+                            checked={isEnabled}
+                            onCheckedChange={(checked) => {
+                              const current = platformSettings?.experiments || {};
+                              void handleUpdatePlatformSettings({ experiments: { ...current, [exp.id]: checked } });
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

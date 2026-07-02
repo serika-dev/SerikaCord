@@ -2,6 +2,8 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Home, MessageSquare, Bell, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +13,8 @@ interface NavItem {
   href: string;
   badge?: number;
   clearServer?: boolean;
+  /** Renders the signed-in user's avatar instead of the icon */
+  isProfile?: boolean;
 }
 
 interface BottomNavigationProps {
@@ -26,6 +30,7 @@ export function BottomNavigation({
   const pathname = usePathname();
   const router = useRouter();
   const { setCurrentServer, setCurrentChannel } = useServer();
+  const { user } = useAuth();
 
   const navItems: NavItem[] = [
     {
@@ -53,6 +58,7 @@ export function BottomNavigation({
       label: "You",
       href: "/channels/profile",
       clearServer: true,
+      isProfile: true,
     },
   ];
 
@@ -106,10 +112,24 @@ export function BottomNavigation({
                 "relative flex items-center justify-center w-10 h-8 rounded-2xl transition-all duration-200",
                 isActive ? "bg-[#8B5CF6]/15" : "bg-transparent"
               )}>
-                <Icon className={cn(
-                  "w-[22px] h-[22px] transition-all duration-200",
-                  isActive ? "text-[#8B5CF6]" : "text-neutral-500"
-                )} />
+                {item.isProfile && user ? (
+                  <Avatar
+                    className={cn(
+                      "w-[24px] h-[24px] ring-2 transition-all duration-200",
+                      isActive ? "ring-[#8B5CF6]" : "ring-transparent"
+                    )}
+                  >
+                    <AvatarImage src={user.avatar || undefined} alt="" />
+                    <AvatarFallback className="bg-[#8B5CF6] text-white text-[10px]">
+                      {(user.displayName || user.username || "?").charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                ) : (
+                  <Icon className={cn(
+                    "w-[22px] h-[22px] transition-all duration-200",
+                    isActive ? "text-[#8B5CF6]" : "text-neutral-500"
+                  )} />
+                )}
                 {item.badge != null && item.badge > 0 && (
                   <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center bg-[#ED4245] text-white text-[9px] font-bold rounded-full border-[2px] border-[#050608]">
                     {item.badge > 99 ? "99+" : item.badge}

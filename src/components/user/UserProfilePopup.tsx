@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -8,12 +8,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   ChevronRight,
   Pencil,
@@ -23,13 +17,10 @@ import {
   EyeOff,
   Copy,
   Users,
-  Crown,
   Check,
-  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getBadgesByPriority, type BadgeId } from "@/lib/constants/badges";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 
 interface UserProfilePopupProps {
   children: React.ReactNode;
@@ -49,7 +40,6 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
   const { user, refresh, updateUser } = useAuth();
   const [open, setOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
-  const [showBadgesDialog, setShowBadgesDialog] = useState(false);
   const [copied, setCopied] = useState(false);
 
   // Use user status directly, fallback to online
@@ -94,72 +84,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
 
   const renderBadges = () => {
     if (!user?.badges || user.badges.length === 0) return null;
-
-    const badges = getBadgesByPriority(user.badges as BadgeId[]);
-    const displayCount = 6;
-    const remaining = badges.length - displayCount;
-
-    return (
-      <>
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {badges.slice(0, displayCount).map((badge) => {
-            const IconComponent = badge.icon;
-            return (
-              <div
-                key={badge.id}
-                className="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer hover:scale-110 transition-transform"
-                style={{ backgroundColor: `${badge.color}20` }}
-                title={`${badge.name}: ${badge.description}`}
-              >
-                <IconComponent className="w-4 h-4" style={{ color: badge.color }} />
-              </div>
-            );
-          })}
-          {remaining > 0 && (
-            <button
-              onClick={() => setShowBadgesDialog(true)}
-              className="h-7 px-2 rounded-md bg-[#222222] hover:bg-[#333333] text-xs text-[#888888] hover:text-white font-medium transition-colors flex items-center gap-1"
-            >
-              +{remaining}
-              <ChevronDown className="w-3 h-3" />
-            </button>
-          )}
-        </div>
-
-        {/* Badges Dialog */}
-        <Dialog open={showBadgesDialog} onOpenChange={setShowBadgesDialog}>
-          <DialogContent className="bg-[#111111] border-[#222222] max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-white">Badges</DialogTitle>
-            </DialogHeader>
-            <ScrollArea className="max-h-[400px]">
-              <div className="grid grid-cols-1 gap-2 pr-4">
-                {badges.map((badge) => {
-                  const IconComponent = badge.icon;
-                  return (
-                    <div
-                      key={badge.id}
-                      className="flex items-center gap-3 p-3 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] transition-colors"
-                    >
-                      <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-                        style={{ backgroundColor: `${badge.color}20` }}
-                      >
-                        <IconComponent className="w-5 h-5" style={{ color: badge.color }} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="font-semibold text-white text-sm">{badge.name}</p>
-                        <p className="text-xs text-[#888888] truncate">{badge.description}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-          </DialogContent>
-        </Dialog>
-      </>
-    );
+    return <BadgeList badges={user.badges as UIBadgeId[]} size="sm" />;
   };
 
   if (!user) return <>{children}</>;

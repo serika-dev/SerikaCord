@@ -270,3 +270,32 @@ export function secureCompare(a: string, b: string): boolean {
 
 // Re-export encryption utilities
 export { encryptMessage, decryptMessage, encryptForStorage, decryptFromStorage, isEncrypted } from './encryption';
+
+// Route param names that must always be Mongo ObjectIds. Composite ids like
+// voice roomIds ("channel-<id>", "dm:<id>") are intentionally excluded.
+const OBJECT_ID_PARAM_NAMES = new Set([
+  'serverId', 'channelId', 'messageId', 'recipientId', 'userId',
+  'roleId', 'stickerId', 'memberUserId', 'emojiId', 'soundId', 'experimentId',
+]);
+
+/**
+ * Elysia beforeHandle guard: rejects requests whose ObjectId-typed route
+ * params are malformed, so handlers never pass garbage to Mongoose (which
+ * would throw a CastError and surface as an unhandled 500).
+ */
+export function rejectInvalidObjectIdParams({
+  params,
+  set,
+}: {
+  params?: Record<string, string | undefined>;
+  set: { status?: number | string };
+}): { error: string } | undefined {
+  if (!params) return undefined;
+  for (const [key, value] of Object.entries(params)) {
+    if (OBJECT_ID_PARAM_NAMES.has(key) && typeof value === 'string' && !isValidObjectId(value)) {
+      set.status = 400;
+      return { error: 'Invalid ID format' };
+    }
+  }
+  return undefined;
+}

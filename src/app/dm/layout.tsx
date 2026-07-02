@@ -6,8 +6,9 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
 import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
 import { BottomNavigation } from "@/components/mobile";
+import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { ServerProvider, useServer } from "@/contexts/ServerContext";
+import { ServerProvider } from "@/contexts/ServerContext";
 
 function DMContent({ children }: { children: React.ReactNode }) {
   const [showCreateServer, setShowCreateServer] = useState(false);
@@ -15,10 +16,11 @@ function DMContent({ children }: { children: React.ReactNode }) {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
+    const query = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(query.matches);
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
   }, []);
 
   useEffect(() => {
@@ -30,7 +32,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="h-screen flex flex-col bg-[#0a0a0a] overflow-hidden">
+      <div className="h-dvh flex flex-col bg-[#0a0a0a] overflow-hidden">
         {/* Main DM Content */}
         <main className="flex-1 flex flex-col min-h-0 pb-16">
           {children}
@@ -48,13 +50,14 @@ function DMContent({ children }: { children: React.ReactNode }) {
           open={showUserSettings}
           onOpenChange={setShowUserSettings}
         />
+        <VoiceAudioSink />
       </div>
     );
   }
 
   // Desktop Layout
   return (
-    <div className="h-screen flex animate-fade-in">
+    <div className="h-dvh flex animate-fade-in">
       <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
       <ChannelSidebar />
       <main className="flex-1 flex min-w-0">{children}</main>
@@ -66,6 +69,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
         open={showUserSettings}
         onOpenChange={setShowUserSettings}
       />
+      <VoiceAudioSink />
     </div>
   );
 }

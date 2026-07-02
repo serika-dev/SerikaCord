@@ -6,9 +6,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Compass, Download, MessageSquare } from "lucide-react";
-import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
+import { useMentions } from "@/hooks/useMentions";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
@@ -32,25 +32,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
   const router = useRouter();
   const { servers, currentServer, setCurrentServer } = useServer();
   const isNative = isNativeApp();
-  const [mentionServers, setMentionServers] = useState<Set<string>>(new Set());
-
-  // Fetch servers with mention indicators
-  useEffect(() => {
-    const fetchMentions = async () => {
-      try {
-        const res = await fetch('/api/users/@me/mentions');
-        if (res.ok) {
-          const data = await res.json();
-          setMentionServers(new Set((data.servers || []).map((s: { id: string }) => s.id)));
-        }
-      } catch {
-        // best-effort
-      }
-    };
-    fetchMentions();
-    const interval = setInterval(fetchMentions, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const { serverMentionCounts } = useMentions();
 
   const handleServerClick = (server: typeof servers[0]) => {
     setCurrentServer(server);
@@ -96,7 +78,8 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
         <div className="flex-1 w-full overflow-y-auto scrollbar-hide">
           <div className="flex flex-col items-center gap-2">
             {servers.map((server) => {
-              const hasMention = mentionServers.has(server.id);
+              const mentionCount = serverMentionCounts.get(server.id) || 0;
+              const hasMention = mentionCount > 0;
               const isActive = currentServer?.id === server.id;
               return (
               <Tooltip key={server.id}>
@@ -129,9 +112,11 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                         isActive ? "h-10" : "h-0 group-hover:h-5"
                       )}
                     />
-                    {/* Purple mention dot */}
+                    {/* Purple mention badge */}
                     {hasMention && !isActive && (
-                      <span className="absolute bottom-0 right-0 w-4 h-4 rounded-full bg-[#8B5CF6] border-[3px] border-[var(--app-bg)]" />
+                      <span className="absolute bottom-0 right-0 min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
+                        {mentionCount > 99 ? "99+" : mentionCount}
+                      </span>
                     )}
                   </motion.button>
                 </TooltipTrigger>

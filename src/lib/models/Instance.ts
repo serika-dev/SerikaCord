@@ -5,7 +5,7 @@ export type InstanceType = 'host' | 'self_hosted';
 export type InstanceStatus = 'active' | 'suspended' | 'pending' | 'offline';
 
 // Official host domains
-export const HOST_DOMAINS = ['serika.chat', 'waifu.ws', 'serikacord.com', 'serika.dev'];
+export const HOST_DOMAINS = ['serika.chat', 'waifu.ws', 'serika.dev'];
 
 export interface IInstanceStats {
   totalUsers: number;

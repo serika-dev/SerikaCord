@@ -39,12 +39,14 @@ import {
   BellOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
-import { voiceService } from "@/lib/services/voiceService";
+import { isChannelMuted, toggleChannelMute } from "@/lib/services/notificationUX";
+import { useMentions } from "@/hooks/useMentions";
+import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { toast } from "sonner";
 
 interface DMChannel {
@@ -78,6 +80,7 @@ export function ChannelSidebar({
 }: ChannelSidebarProps) {
   const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel } = useServer();
   const { user } = useAuth();
+  const { getChannelCount, markChannelRead } = useMentions(currentServer?.id);
   const [activeVoiceChannelName, setActiveVoiceChannelName] = useState<string | undefined>(undefined);
   const [voiceParticipants, setVoiceParticipants] = useState<import("@/lib/services/voiceService").VoiceParticipant[]>([]);
 
@@ -217,12 +220,20 @@ export function ChannelSidebar({
 
   // Group channels by type
   const textChannels = channels.filter(c => c.type === "text");
-  const voiceChannels = channels.filter(c => c.type === "voice");
+  const voiceChannels = useMemo(() => channels.filter(c => c.type === "voice"), [channels]);
   const announcementChannels = channels.filter(c => c.type === "announcement");
+
+  // Mark channel as read when it becomes active
+  useEffect(() => {
+    if (currentChannel?.id) {
+      markChannelRead(currentChannel.id);
+    }
+  }, [currentChannel?.id, markChannelRead]);
 
   // State for collapsed categories
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
+  const [externalVoiceParticipants, setExternalVoiceParticipants] = useState<Map<string, VoiceParticipant[]>>(new Map());
   const pathname = usePathname();
 
   const toggleCategory = (categoryId: string) => {
@@ -236,6 +247,34 @@ export function ChannelSidebar({
       return newSet;
     });
   };
+
+  // Poll voice channel participants for channels we're not connected to
+  useEffect(() => {
+    if (!currentServer) return;
+    const voiceChannelIds = voiceChannels.map(ch => ch.id);
+    const fetchVoiceStates = async () => {
+      const results = new Map<string, VoiceParticipant[]>();
+      await Promise.all(voiceChannelIds.map(async (chId) => {
+        const roomId = `channel-${chId}`;
+        if (voiceService.currentRoomId === roomId) return; // skip active channel
+        try {
+          const res = await fetch(`/api/voice/state/${roomId}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (data.participants?.length > 0) {
+              results.set(chId, data.participants);
+            }
+          }
+        } catch {
+          // best-effort
+        }
+      }));
+      setExternalVoiceParticipants(results);
+    };
+    void fetchVoiceStates();
+    const interval = setInterval(fetchVoiceStates, 5000);
+    return () => clearInterval(interval);
+  }, [currentServer?.id, voiceChannels]);
 
   // Fetch DM channels when no server is selected
   const fetchDMChannels = useCallback(async () => {
@@ -367,14 +406,38 @@ export function ChannelSidebar({
 
   return (
     <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
-      {/* Server Header */}
+      {/* Server Header (banner behind the name when the server has one) */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="h-12 px-4 flex items-center justify-between border-b border-[var(--border-subtle)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors">
-            <span className="font-semibold text-[var(--text-primary)] truncate">
+          <button
+            className={cn(
+              "relative flex items-end justify-between border-b border-[var(--border-subtle)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors overflow-hidden shrink-0",
+              currentServer.banner ? "h-[120px] px-4 pb-2" : "h-12 px-4 items-center"
+            )}
+          >
+            {currentServer.banner && (
+              <>
+                <div
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url(${currentServer.banner})` }}
+                  aria-hidden="true"
+                />
+                <div
+                  className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent"
+                  aria-hidden="true"
+                />
+              </>
+            )}
+            <span className={cn(
+              "relative font-semibold truncate",
+              currentServer.banner ? "text-white drop-shadow" : "text-[var(--text-primary)]"
+            )}>
               {currentServer.name}
             </span>
-            <ChevronDown className="w-5 h-5 text-[var(--text-primary)]" />
+            <ChevronDown className={cn(
+              "relative w-5 h-5 shrink-0",
+              currentServer.banner ? "text-white drop-shadow" : "text-[var(--text-primary)]"
+            )} />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
@@ -453,21 +516,30 @@ export function ChannelSidebar({
                   </span>
                 </button>
               </div>
-              {!collapsedCategories.has('announcements') && announcementChannels.map((channel) => (
+              {!collapsedCategories.has('announcements') && announcementChannels.map((channel) => {
+                const mentionCount = getChannelCount(channel.id);
+                return (
                 <button
                   key={channel.id}
-                  onClick={() => setCurrentChannel(channel)}
+                  onClick={() => { setCurrentChannel(channel); markChannelRead(channel.id); }}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
-                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
+                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]",
+                    mentionCount > 0 && currentChannel?.id !== channel.id && "text-[var(--text-primary)]"
                   )}
                   style={{ width: "calc(100% - 16px)" }}
                 >
                   {getChannelIcon(channel.type)}
-                  <span className="truncate text-sm font-medium">{channel.name}</span>
+                  <span className="truncate text-sm font-medium flex-1 text-left">{channel.name}</span>
+                  {mentionCount > 0 && currentChannel?.id !== channel.id && (
+                    <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
+                      {mentionCount > 99 ? "99+" : mentionCount}
+                    </span>
+                  )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -517,16 +589,25 @@ export function ChannelSidebar({
               ) : (
                 <button
                   key={channel.id}
-                  onClick={() => setCurrentChannel(channel)}
+                  onClick={() => { setCurrentChannel(channel); markChannelRead(channel.id); }}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
-                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]"
+                    currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]",
+                    getChannelCount(channel.id) > 0 && currentChannel?.id !== channel.id && "text-[var(--text-primary)]"
                   )}
                   style={{ width: "calc(100% - 16px)" }}
                 >
                   {getChannelIcon(channel.type)}
-                  <span className="truncate text-sm">{channel.name}</span>
+                  <span className="truncate text-sm flex-1 text-left">{channel.name}</span>
+                  {(() => {
+                    const count = getChannelCount(channel.id);
+                    return count > 0 && currentChannel?.id !== channel.id ? (
+                      <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
               )
             ))}
@@ -561,7 +642,7 @@ export function ChannelSidebar({
             </div>
             {!collapsedCategories.has('voice') && voiceChannels.map((channel) => {
               const isActive = voiceService.currentRoomId === `channel-${channel.id}`;
-              const channelParticipants = isActive ? voiceParticipants : [];
+              const channelParticipants = isActive ? voiceParticipants : (externalVoiceParticipants.get(channel.id) || []);
               return (
                 <div key={channel.id} className="mb-0.5">
                   <button
@@ -580,12 +661,10 @@ export function ChannelSidebar({
                       isActive ? "text-green-400" : "text-[var(--text-muted)]"
                     )} />
                     <span className="truncate text-sm flex-1 text-left">{channel.name}</span>
-                    {isActive && (
+                    {channelParticipants.length > 0 && (
                       <span className="flex items-center gap-1 shrink-0">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                        {channelParticipants.length > 0 && (
-                          <span className="text-[10px] text-green-400">{channelParticipants.length}</span>
-                        )}
+                        <span className={cn("inline-block w-1.5 h-1.5 rounded-full", isActive ? "bg-green-500 animate-pulse" : "bg-green-500/60")} />
+                        <span className={cn("text-[10px]", isActive ? "text-green-400" : "text-green-400/70")}>{channelParticipants.length}</span>
                       </span>
                     )}
                   </button>
@@ -664,11 +743,21 @@ export function ChannelSidebar({
           </button>
           <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
-            onClick={() => { closeContextMenu(); /* TODO: Mute channel */ }}
+            onClick={() => {
+              if (contextMenu?.channel) {
+                const nowMuted = toggleChannelMute(contextMenu.channel.id);
+                toast.success(
+                  nowMuted
+                    ? `#${contextMenu.channel.name} muted`
+                    : `#${contextMenu.channel.name} unmuted`
+                );
+              }
+              closeContextMenu();
+            }}
             className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <BellOff className="w-4 h-4" />
-            Mute Channel
+            {contextMenu?.channel && isChannelMuted(contextMenu.channel.id) ? "Unmute Channel" : "Mute Channel"}
           </button>
           <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
@@ -695,20 +784,26 @@ interface UserPanelProps {
 }
 
 function UserPanel({ user }: UserPanelProps) {
-  const [isMuted, setIsMuted] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
+  const [isMuted, setIsMuted] = useState(voiceService.muted);
+  const [isDeafened, setIsDeafened] = useState(voiceService.deafened);
+
+  // Stay in sync with mute/deafen changes made elsewhere (VoiceBar, shortcuts)
+  useEffect(() => {
+    const unsubscribe = voiceService.subscribe((event) => {
+      if (event.type === "mute_toggled") setIsMuted(event.muted);
+      if (event.type === "deafen_toggled") setIsDeafened(event.deafened);
+    });
+    return unsubscribe;
+  }, []);
 
   const handleMuteToggle = () => {
-    setIsMuted(!isMuted);
-    // TODO: Implement actual mute functionality
+    setIsMuted(voiceService.toggleMute());
   };
 
   const handleDeafenToggle = () => {
-    setIsDeafened(!isDeafened);
-    if (!isDeafened) {
-      setIsMuted(true); // Deafening also mutes
-    }
-    // TODO: Implement actual deafen functionality
+    const deafened = voiceService.toggleDeafen();
+    setIsDeafened(deafened);
+    setIsMuted(voiceService.muted);
   };
 
   const handleSettingsClick = () => {

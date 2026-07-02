@@ -194,7 +194,11 @@ export function ImageCropper({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isProcessing}>
+          <Button
+            onClick={handleSave}
+            disabled={isProcessing}
+            className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white disabled:opacity-60"
+          >
             {isProcessing ? "Processing..." : "Apply"}
           </Button>
         </DialogFooter>

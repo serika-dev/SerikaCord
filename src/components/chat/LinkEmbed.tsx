@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import { ExternalLink, Play, X } from "lucide-react";
 
 interface LinkEmbedProps {
@@ -9,7 +9,6 @@ interface LinkEmbedProps {
 
 const FIRST_PARTY_DOMAINS = [
   "serika.dev",
-  "serikacord.com",
   "serika.chat",
   "serika.cc",
   "waifu.ws",
@@ -362,7 +361,9 @@ function KlipyEmbed({ url, preview }: { url: string; preview?: { title?: string;
   );
 }
 
-export function LinkEmbed({ content }: LinkEmbedProps) {
+// Memoized: embeds fetch previews and must not re-run while unrelated chat
+// state (composer text, typing indicators) changes.
+export const LinkEmbed = memo(function LinkEmbed({ content }: LinkEmbedProps) {
   const urls = extractUrls(content);
   const url = urls[0] || "";
   const [preview, setPreview] = useState<{ title?: string; description?: string; thumbnail?: string; siteName?: string } | null>(null);
@@ -441,4 +442,4 @@ export function LinkEmbed({ content }: LinkEmbedProps) {
   }
 
   return <GenericEmbed url={url} preview={preview || undefined} />;
-}
+});

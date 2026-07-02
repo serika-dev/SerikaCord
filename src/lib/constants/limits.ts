@@ -3,8 +3,8 @@
 export const UPLOAD_LIMITS = {
   // Regular users
   FREE: {
-    maxFileSize: 8 * 1024 * 1024, // 8MB
-    maxFileSizeDisplay: '8MB',
+    maxFileSize: 20 * 1024 * 1024, // 20MB
+    maxFileSizeDisplay: '20MB',
     maxAvatarSize: 2 * 1024 * 1024, // 2MB
     maxBannerSize: 5 * 1024 * 1024, // 5MB
     allowedFormats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],

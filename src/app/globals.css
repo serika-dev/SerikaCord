@@ -248,6 +248,22 @@ html.theme-midnight body {
     @apply border-border outline-ring/50;
   }
 
+  /* Consistent, visible keyboard focus for every interactive element that
+     doesn't declare its own focus-visible styling. Outline doesn't affect
+     layout and composes with transforms. */
+  :is(button, a, [role="button"], [role="switch"], [role="tab"], summary):focus-visible {
+    outline: 2px solid var(--app-accent, #8b5cf6);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Remove the mobile double-tap zoom delay so taps feel immediate */
+  button,
+  [role="button"],
+  a {
+    touch-action: manipulation;
+  }
+
   body {
     @apply bg-background text-foreground;
     background:
@@ -445,4 +461,16 @@ html.theme-midnight body {
 /* Mirror self-view video */
 .video-mirror {
   transform: scaleX(-1);
+}
+
+/* Reduced motion: collapse animations/transitions for users who ask for it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

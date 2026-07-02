@@ -145,6 +145,9 @@ export class StorageService {
 
     const hash = await calculateHash(buffer);
 
+    // S3 metadata values must be ASCII — encode non-ASCII filenames
+    const safeFilename = encodeURIComponent(filename || 'unknown');
+
     // Upload using multipart for larger files
     if (size > 5 * 1024 * 1024) { // 5MB threshold
       const upload = new Upload({
@@ -156,7 +159,7 @@ export class StorageService {
           ContentType: contentType,
           CacheControl: 'public, max-age=31536000', // 1 year cache
           Metadata: {
-            'original-filename': filename,
+            'original-filename': safeFilename,
             'upload-hash': hash,
           },
         },
@@ -171,7 +174,7 @@ export class StorageService {
         ContentType: contentType,
         CacheControl: 'public, max-age=31536000',
         Metadata: {
-          'original-filename': filename,
+          'original-filename': safeFilename,
           'upload-hash': hash,
         },
       }));

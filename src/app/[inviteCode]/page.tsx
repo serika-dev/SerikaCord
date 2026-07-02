@@ -45,16 +45,7 @@ function formatExpiry(expiresAt: string | undefined): string | null {
   return `Expires in ${mins} minute${mins > 1 ? "s" : ""}`;
 }
 
-// Names that cannot be used as invite codes (they are real routes or reserved slugs)
-const RESERVED_NAMES = new Set([
-  "login", "register", "logout", "signup", "sign-up", "sign-in",
-  "channels", "me", "messages", "notifications", "profile", "settings",
-  "explore", "discover", "download", "widget", "dm", "api",
-  "terms", "privacy", "legal", "about", "careers", "blog",
-  "admin", "staff", "system", "serika", "serikacord", "support",
-  "help", "status", "cdn", "static", "assets", "favicon",
-  "404", "500", "robots", "sitemap", "manifest",
-]);
+import { isReservedSlug } from "@/lib/constants/reserved";
 
 export default function InvitePage() {
   const router = useRouter();
@@ -66,18 +57,6 @@ export default function InvitePage() {
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [isAllowed, setIsAllowed] = useState<boolean | null>(null);
-
-  // Check hostname — invite pages only work when accessed from serika.cc
-  useEffect(() => {
-    const host = window.location.hostname;
-    const allowed =
-      host === "serika.cc" ||
-      host === "www.serika.cc" ||
-      host === "localhost" ||
-      host === "127.0.0.1";
-    setIsAllowed(allowed);
-  }, []);
 
   const fetchInvite = useCallback(async () => {
     try {
@@ -151,8 +130,8 @@ export default function InvitePage() {
   const expiry = invite?.expiresAt ? formatExpiry(invite.expiresAt) : null;
   const isExpired = expiry === "Expired";
 
-  // Show 404 if: hostname not allowed OR slug is a reserved name
-  if (isAllowed === false || RESERVED_NAMES.has(inviteCode?.toLowerCase())) {
+  // Show 404 for reserved slugs (real routes / branding names)
+  if (inviteCode && isReservedSlug(inviteCode)) {
     return (
       <div className="min-h-screen bg-[#05060a] flex flex-col items-center justify-center px-4 text-center">
         <p className="text-8xl font-extrabold text-white/5 select-none mb-6">404</p>
@@ -164,9 +143,6 @@ export default function InvitePage() {
       </div>
     );
   }
-
-  // Waiting for hostname check
-  if (isAllowed === null) return null;
 
   return (
     <div className="min-h-screen bg-[#05060a] flex flex-col items-center justify-center px-4 relative overflow-hidden">

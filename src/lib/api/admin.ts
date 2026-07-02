@@ -511,10 +511,12 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: error || 'Admin access required' };
     }
 
-    const { maintenanceMode, allowRegistration, globalAnnouncement } = body as {
+    const { maintenanceMode, allowRegistration, globalAnnouncement, oembedWhitelist, experiments } = body as {
       maintenanceMode?: boolean;
       allowRegistration?: boolean;
       globalAnnouncement?: string;
+      oembedWhitelist?: string[];
+      experiments?: Record<string, boolean>;
     };
 
     const updates: Record<string, unknown> = {};
@@ -524,6 +526,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       updates.globalAnnouncement = globalAnnouncement || null;
       updates.announcementUpdatedAt = new Date();
     }
+    if (oembedWhitelist !== undefined) updates.oembedWhitelist = oembedWhitelist;
+    if (experiments !== undefined) updates.experiments = experiments;
 
     const settings = await updatePlatformSettings(updates);
 
@@ -541,6 +545,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       maintenanceMode: t.Optional(t.Boolean()),
       allowRegistration: t.Optional(t.Boolean()),
       globalAnnouncement: t.Optional(t.String()),
+      oembedWhitelist: t.Optional(t.Array(t.String())),
+      experiments: t.Optional(t.Record(t.String(), t.Boolean())),
     }),
   })
 

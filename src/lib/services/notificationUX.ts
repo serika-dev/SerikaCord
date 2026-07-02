@@ -75,3 +75,30 @@ export function isNotificationSoundEnabled(): boolean {
 export function setNotificationSoundEnabled(enabled: boolean) {
   localStorage.setItem("serika-notif-sound", enabled ? "true" : "false");
 }
+
+// Channel mutes – persisted locally (same `channel-muted:<id>` keys the chat
+// header bell toggle uses); muted channels never badge, chime, or toast.
+const muteListeners = new Set<(channelId: string, muted: boolean) => void>();
+
+export function isChannelMuted(channelId: string): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(`channel-muted:${channelId}`) === "1";
+}
+
+export function setChannelMuted(channelId: string, muted: boolean) {
+  localStorage.setItem(`channel-muted:${channelId}`, muted ? "1" : "0");
+  muteListeners.forEach((listener) => listener(channelId, muted));
+}
+
+export function toggleChannelMute(channelId: string): boolean {
+  const nowMuted = !isChannelMuted(channelId);
+  setChannelMuted(channelId, nowMuted);
+  return nowMuted;
+}
+
+export function subscribeChannelMutes(listener: (channelId: string, muted: boolean) => void): () => void {
+  muteListeners.add(listener);
+  return () => {
+    muteListeners.delete(listener);
+  };
+}

@@ -371,10 +371,12 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'File type not allowed' };
     }
 
-    // Validate file size
-    if (file.size > config.MAX_FILE_SIZE) {
+    // Validate file size — premium users get higher limit
+    const maxSize = user.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
+    if (file.size > maxSize) {
       set.status = 400;
-      return { error: `File too large. Maximum size is ${config.MAX_FILE_SIZE / 1024 / 1024}MB.` };
+      const maxMB = maxSize / 1024 / 1024;
+      return { error: `File too large. Maximum size is ${maxMB}MB${user.isPremium ? ' (Serika+)' : ''}.` };
     }
 
     try {
@@ -553,9 +555,9 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'File must be an audio file' };
     }
 
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > 20 * 1024 * 1024) {
       set.status = 400;
-      return { error: 'Audio file must be less than 2MB' };
+      return { error: 'Audio file must be less than 20MB' };
     }
 
     try {

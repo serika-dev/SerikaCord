@@ -3,7 +3,7 @@ import { Channel, Message, User, ServerMember, ServerSticker } from '@/lib/model
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, normalizeEmojiFormat } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
-import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage } from '@/lib/security';
+import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams } from '@/lib/security';
 import { cache, getPublisher } from '@/lib/db';
 import { Types } from 'mongoose';
 
@@ -77,6 +77,7 @@ async function getOrCreateDMChannel(userId: string, recipientId: string) {
 }
 
 export const dmRoutes = new Elysia({ prefix: '/dms' })
+  .onBeforeHandle(rejectInvalidObjectIdParams)
   // Get all DM channels for user
   .get('/', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -223,7 +224,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const messages = await Message.find(messageQuery)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('authorId', 'username displayName avatar status customStatus isPremium presenceLastHeartbeatAt');
+      .populate('authorId', 'username displayName avatar status customStatus isPremium badges presenceLastHeartbeatAt');
 
     // Decrypt messages
     const decryptedMessages = await Promise.all(messages.reverse().map(async (msg) => {
@@ -236,6 +237,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         presenceLastHeartbeatAt?: Date;
         customStatus?: string;
         isPremium?: boolean;
+        badges?: string[];
       };
       const decryptedContent = await decryptFromStorage(msg.content);
       const emojiResult = await parseCustomEmojis(decryptedContent);
@@ -257,6 +259,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           status: getPublicPresenceStatus(author),
           customStatus: author.customStatus,
           isPremium: author.isPremium,
+          badges: author.badges || [],
         },
         channelId: msg.channelId,
         attachments: msg.attachments,
@@ -321,7 +324,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
 
     // Validate content
-    const { content, sticker } = body;
+    const { content, sticker, attachments } = body;
     let sanitizedContent = content ? sanitizeInput(content) : '';
 
     // Validate sticker if provided
@@ -347,7 +350,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
 
     const validation = validateMessageContent(sanitizedContent);
-    if (!validation.valid && !stickerData) {
+    if (!validation.valid && !stickerData && (!attachments || attachments.length === 0)) {
       set.status = 400;
       return { error: validation.error };
     }
@@ -383,6 +386,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       content: encryptedContent,
       type: 'default',
       sticker: stickerData,
+      attachments: attachments || [],
     });
     await message.save();
 
@@ -403,9 +407,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         status: getPublicPresenceStatus(user),
         customStatus: user.customStatus,
         isPremium: user.isPremium,
+        badges: user.badges || [],
       },
       channelId: channel._id,
       createdAt: message.createdAt,
+      attachments: message.attachments || undefined,
       customEmojis: customEmojis.length > 0 ? customEmojis : undefined,
       sticker: message.sticker || undefined,
     };
@@ -466,6 +472,13 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         serverId: t.Optional(t.String()),
         serverName: t.Optional(t.String()),
       })),
+      attachments: t.Optional(t.Array(t.Object({
+        id: t.String(),
+        url: t.String(),
+        filename: t.String(),
+        contentType: t.String(),
+        size: t.Optional(t.Number()),
+      }))),
     }),
   })
   // SSE stream for real-time messages

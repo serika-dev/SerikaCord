@@ -3,6 +3,12 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
+
+  // Allow large file uploads through middleware and internal proxy (500MB max for Serika+)
+  ...({
+    middlewareClientMaxBodySize: 500 * 1024 * 1024,
+    proxyClientMaxBodySize: 500 * 1024 * 1024,
+  } as Record<string, unknown>),
   
   // Skip type checking during build for faster builds
   typescript: {
@@ -13,6 +19,9 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', '@radix-ui/react-icons', 'date-fns'],
   },
+
+  // Transpile serika-dev-player for proper CSS/ESM handling
+  transpilePackages: ['serika-dev-player'],
   
   // Security headers
   async headers() {
@@ -38,7 +47,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(*), geolocation=()',
+            value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
           },
         ],
       },
