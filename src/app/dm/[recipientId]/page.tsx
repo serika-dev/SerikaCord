@@ -11,6 +11,7 @@ import Link from "next/link";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { InlineBadges } from "@/components/chat/InlineBadges";
 import { StaffPill } from "@/components/chat/StaffPill";
+import { SystemPill } from "@/components/chat/SystemPill";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Skeleton, UserProfileSkeleton } from "@/components/ui/skeleton";
 import { voiceService } from "@/lib/services/voiceService";
@@ -225,6 +226,7 @@ export default function DMConversationPage() {
               <span className="font-semibold text-[var(--text-primary)] truncate">
                 {recipientName || "Loading..."}
               </span>
+              <SystemPill isSystem={recipient?.isSystem} />
               <StaffPill badges={recipient?.badges} />
             </div>
           </div>

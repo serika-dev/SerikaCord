@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown } from "lucide-react";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { StaffPill } from "@/components/chat/StaffPill";
+import { SystemPill } from "@/components/chat/SystemPill";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
 import { useTheme } from "@/contexts/ThemeContext";
 import type { MessageAuthor } from "@/lib/chat/types";
@@ -86,6 +87,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
       ) : (
         <span className="font-medium text-[var(--text-primary)]" style={effectiveColor ? { color: effectiveColor } : undefined}>{name}</span>
       )}
+      <SystemPill isSystem={author.isSystem} />
       <StaffPill badges={author.badges} />
       <span className="text-xs text-[var(--text-muted)]">{formatMessageTimestamp(timestamp)}</span>
     </div>

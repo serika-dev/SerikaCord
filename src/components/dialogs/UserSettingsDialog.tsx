@@ -620,11 +620,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       const settingsData = await settingsResponse.json().catch(() => null);
       if (settingsData) setPlatformSettings(settingsData);
 
-      // Also broadcast as DMs
+      // Also broadcast as DMs from Serika system user
       const broadcastResponse = await fetch("/api/admin/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: announcementText.trim(), sendDMs: false }),
+        body: JSON.stringify({ message: announcementText.trim(), sendDMs: true }),
       });
       if (broadcastResponse.ok) {
         toast.success("Announcement published");

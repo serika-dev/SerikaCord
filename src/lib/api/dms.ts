@@ -133,7 +133,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             (id: Types.ObjectId) => !id.equals(user._id)
           );
           const recipients = await User.find({ _id: { $in: recipientIds } }).select(
-            'username displayName avatar status customStatus isPremium presenceLastHeartbeatAt'
+            'username displayName avatar status customStatus isPremium isSystem presenceLastHeartbeatAt'
           );
 
           return {
@@ -257,7 +257,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const messages = await Message.find(messageQuery)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('authorId', 'username displayName avatar status customStatus isPremium badges presenceLastHeartbeatAt')
+      .populate('authorId', 'username displayName avatar status customStatus isPremium badges isSystem presenceLastHeartbeatAt')
       .populate({
         path: 'referencedMessageId',
         select: '_id content authorId createdAt',
@@ -279,6 +279,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         customStatus?: string;
         isPremium?: boolean;
         badges?: string[];
+        isSystem?: boolean;
       };
       const decryptedContent = await decryptFromStorage(msg.content);
       const emojiResult = await parseCustomEmojis(decryptedContent);
@@ -322,6 +323,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           customStatus: author.customStatus,
           isPremium: author.isPremium,
           badges: author.badges || [],
+          isSystem: author.isSystem || false,
         },
         channelId: msg.channelId.toString(),
         attachments: msg.attachments,
@@ -503,6 +505,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         customStatus: user.customStatus,
         isPremium: user.isPremium,
         badges: user.badges || [],
+        isSystem: user.isSystem || false,
       },
       channelId: channel._id.toString(),
       createdAt: message.createdAt,

@@ -422,13 +422,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const messages = await Message.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('authorId', 'username displayName avatar status badges')
+      .populate('authorId', 'username displayName avatar status badges isSystem')
       .populate({
         path: 'referencedMessageId',
         select: '_id content authorId createdAt',
         populate: {
           path: 'authorId',
-          select: 'username displayName avatar badges',
+          select: 'username displayName avatar badges isSystem',
         },
       })
       .lean();
@@ -500,6 +500,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           status: populatedAuthor.status,
           badges: (populatedAuthor as PopulatedAuthor & { badges?: string[] }).badges || [],
           isOwner: serverOwnerId ? serverOwnerId.equals(populatedAuthor._id as unknown as Types.ObjectId) : false,
+          isSystem: (populatedAuthor as PopulatedAuthor & { isSystem?: boolean }).isSystem || false,
         } : null,
         channelId: msg.channelId.toString(),
         serverId: msg.serverId?.toString(),
@@ -757,7 +758,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     await channel.save();
 
     // Populate author for response
-    await message.populate('authorId', 'username displayName avatar status badges');
+    await message.populate('authorId', 'username displayName avatar status badges isSystem');
 
     // Transform message for frontend (return original sanitized content, not encrypted)
     const author = message.authorId as PopulatedAuthor | Types.ObjectId | string | null;
@@ -813,6 +814,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         status: populatedAuthor.status,
         badges: (populatedAuthor as PopulatedAuthor & { badges?: string[] }).badges || [],
         isOwner: serverOwnerId ? serverOwnerId.equals(populatedAuthor._id as unknown as Types.ObjectId) : false,
+        isSystem: (populatedAuthor as PopulatedAuthor & { isSystem?: boolean }).isSystem || false,
       } : null,
       channelId: message.channelId.toString(),
       serverId: message.serverId?.toString(),

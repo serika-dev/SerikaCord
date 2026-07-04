@@ -17,8 +17,8 @@ export interface ISerikaBroadcast {
 
 export const SERIKA_BROADCAST_USER: ISerikaBroadcast = {
   id: SERIKA_BROADCAST_ID.toString(),
-  username: 'serika-broadcast',
-  displayName: 'Serika Broadcast',
+  username: 'serika',
+  displayName: 'Serika',
   avatar: '/serika-broadcast.svg', // System avatar
   isSystem: true,
   isBot: true,
@@ -38,8 +38,8 @@ export async function ensureSerikaBroadcastUser(): Promise<void> {
       try {
         await User.create({
           _id: SERIKA_BROADCAST_ID,
-          username: 'serika-broadcast',
-          displayName: 'Serika Broadcast',
+          username: 'serika',
+          displayName: 'Serika',
           avatar: '/serika-broadcast.svg',
           isSystem: true,
           isBot: true,
@@ -68,6 +68,25 @@ export async function ensureSerikaBroadcastUser(): Promise<void> {
         } else {
           throw createError;
         }
+      }
+    } else {
+      // Update existing user if name changed
+      let needsUpdate = false;
+      if (existingUser.displayName !== 'Serika') {
+        existingUser.displayName = 'Serika';
+        needsUpdate = true;
+      }
+      if (existingUser.username !== 'serika') {
+        existingUser.username = 'serika';
+        needsUpdate = true;
+      }
+      if (!existingUser.isSystem) {
+        existingUser.isSystem = true;
+        needsUpdate = true;
+      }
+      if (needsUpdate) {
+        await existingUser.save();
+        console.log('✅ Serika Broadcast system user updated');
       }
     }
   } catch (error) {

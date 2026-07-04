@@ -865,6 +865,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       status: getPublicPresenceStatus(targetUser),
       customStatus: targetUser.customStatus,
       isPremium: targetUser.isPremium,
+      isSystem: targetUser.isSystem || false,
       createdAt: targetUser.createdAt,
       isFriend,
       friendRequestSent,

@@ -62,6 +62,7 @@ interface DMChannel {
     avatar?: string;
     status: string;
     isPremium?: boolean;
+    isSystem?: boolean;
   }[];
   lastMessageId?: string;
   updatedAt?: string;
@@ -403,8 +404,13 @@ export function ChannelSidebar({
                           style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
                         />
                       </div>
-                      <span className="flex-1 truncate text-sm">
+                      <span className="flex-1 truncate text-sm flex items-center gap-1.5">
                         {recipient.displayName || recipient.username}
+                        {recipient.isSystem && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none bg-blue-500/20 text-blue-400 whitespace-nowrap">
+                            System
+                          </span>
+                        )}
                       </span>
                       <button
                         className="p-1 opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-opacity"

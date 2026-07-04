@@ -11,6 +11,7 @@ export interface MessageAuthor {
   status?: "online" | "idle" | "dnd" | "offline";
   isPremium?: boolean;
   isOwner?: boolean;
+  isSystem?: boolean;
 }
 
 export interface MessageAttachment {
