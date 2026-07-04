@@ -611,15 +611,18 @@ export default function ChannelPage() {
     }
   }, [serverId, servers, isLoading, setCurrentServer, router, fetchChannels, currentServer]);
 
-  // Set current channel when channels load
+  // Set current channel when channels load. If the URL points to a channel
+  // that isn't in the loaded list yet (mid server-switch), clear the stale
+  // selection so the previous server's chat doesn't stick.
   useEffect(() => {
-    if (channels.length > 0 && channelId) {
-      const channel = channels.find((c) => c.id === channelId);
-      if (channel) {
-        setCurrentChannel(channel);
-      }
+    if (!channelId) return;
+    const channel = channels.find((c) => c.id === channelId);
+    if (channel) {
+      setCurrentChannel(channel);
+    } else if (currentChannel && currentChannel.id !== channelId) {
+      setCurrentChannel(null);
     }
-  }, [channelId, channels, setCurrentChannel]);
+  }, [channelId, channels, currentChannel, setCurrentChannel]);
 
   // Voice channel experience
   if (currentChannel?.type === "voice") {

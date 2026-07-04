@@ -46,6 +46,7 @@ import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { isChannelMuted, toggleChannelMute } from "@/lib/services/notificationUX";
 import { useMentions } from "@/hooks/useMentions";
+import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { toast } from "sonner";
@@ -81,6 +82,11 @@ export function ChannelSidebar({
 }: ChannelSidebarProps) {
   const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel } = useServer();
   const { user } = useAuth();
+  const { can, isAdmin } = usePermissions(currentServer?.id);
+  const canManageChannels = can("MANAGE_CHANNELS");
+  const canManageServer = can("MANAGE_SERVER");
+  const canInvite = can("CREATE_INVITE");
+  const canManageAny = canManageChannels || canManageServer || isAdmin;
   const { getChannelCount, markChannelRead } = useMentions(currentServer?.id);
   const [activeVoiceChannelName, setActiveVoiceChannelName] = useState<string | undefined>(undefined);
   const [voiceParticipants, setVoiceParticipants] = useState<import("@/lib/services/voiceService").VoiceParticipant[]>([]);
@@ -447,36 +453,46 @@ export function ChannelSidebar({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent className="w-56 bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
-          <DropdownMenuItem
-            onClick={onInvitePeople}
-            className="text-[var(--app-accent)] focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
-          >
-            <UserPlus className="w-4 h-4 mr-2" />
-            Invite People
-          </DropdownMenuItem>
-          <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
-          <DropdownMenuItem
-            onClick={onServerSettings}
-            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
-          >
-            <Settings className="w-4 h-4 mr-2" />
-            Server Settings
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={onCreateChannel}
-            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
-          >
-            <PlusCircle className="w-4 h-4 mr-2" />
-            Create Channel
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={onCreateCategory || onCreateChannel}
-            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
-          >
-            <Folder className="w-4 h-4 mr-2" />
-            Create Category
-          </DropdownMenuItem>
-          <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
+          {canInvite && (
+            <>
+              <DropdownMenuItem
+                onClick={onInvitePeople}
+                className="text-[var(--app-accent)] focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4 mr-2" />
+                Invite People
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
+            </>
+          )}
+          {canManageServer && (
+            <DropdownMenuItem
+              onClick={onServerSettings}
+              className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
+            >
+              <Settings className="w-4 h-4 mr-2" />
+              Server Settings
+            </DropdownMenuItem>
+          )}
+          {canManageChannels && (
+            <>
+              <DropdownMenuItem
+                onClick={onCreateChannel}
+                className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4 mr-2" />
+                Create Channel
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={onCreateCategory || onCreateChannel}
+                className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
+              >
+                <Folder className="w-4 h-4 mr-2" />
+                Create Category
+              </DropdownMenuItem>
+            </>
+          )}
+          {canManageAny && <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />}
           <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
             <Bell className="w-4 h-4 mr-2" />
             Notification Settings
@@ -567,13 +583,15 @@ export function ChannelSidebar({
                     Text Channels
                   </span>
                 </div>
-                <PlusCircle
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateChannel?.();
-                  }}
-                  className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
-                />
+                {canManageChannels && (
+                  <PlusCircle
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCreateChannel?.();
+                    }}
+                    className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                  />
+                )}
               </button>
             </div>
             {!collapsedCategories.has('text') && textChannels.map((channel) => (
@@ -637,13 +655,15 @@ export function ChannelSidebar({
                     Voice Channels
                   </span>
                 </div>
-                <PlusCircle
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCreateChannel?.();
-                  }}
-                  className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
-                />
+                {canManageChannels && (
+                  <PlusCircle
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCreateChannel?.();
+                    }}
+                    className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                  />
+                )}
               </button>
             </div>
             {!collapsedCategories.has('voice') && voiceChannels.map((channel) => {
@@ -718,21 +738,25 @@ export function ChannelSidebar({
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          <button
-            onClick={handleEditChannel}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
-          >
-            <Edit2 className="w-4 h-4" />
-            Edit Channel
-          </button>
-          <button
-            onClick={onInvitePeople}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
-          >
-            <UserPlus className="w-4 h-4" />
-            Invite People
-          </button>
-          <div className="h-px bg-[var(--border-subtle)] my-1" />
+          {canManageChannels && (
+            <button
+              onClick={handleEditChannel}
+              className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
+            >
+              <Edit2 className="w-4 h-4" />
+              Edit Channel
+            </button>
+          )}
+          {canInvite && (
+            <button
+              onClick={onInvitePeople}
+              className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Invite People
+            </button>
+          )}
+          {(canManageChannels || canInvite) && <div className="h-px bg-[var(--border-subtle)] my-1" />}
           <button
             onClick={handleCopyChannelLink}
             className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
@@ -765,14 +789,18 @@ export function ChannelSidebar({
             <BellOff className="w-4 h-4" />
             {contextMenu?.channel && isChannelMuted(contextMenu.channel.id) ? "Unmute Channel" : "Mute Channel"}
           </button>
-          <div className="h-px bg-[var(--border-subtle)] my-1" />
-          <button
-            onClick={handleDeleteChannel}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-red-400 hover:bg-red-500 hover:text-[var(--text-primary)] transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            Delete Channel
-          </button>
+          {canManageChannels && (
+            <>
+              <div className="h-px bg-[var(--border-subtle)] my-1" />
+              <button
+                onClick={handleDeleteChannel}
+                className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-red-400 hover:bg-red-500 hover:text-[var(--text-primary)] transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Channel
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -1153,6 +1153,47 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       serverId: t.String(),
     }),
   })
+  // Current user's effective permissions in this server (for client-side UI gating).
+  // Authoritative checks still run on each mutating endpoint; this only drives
+  // whether controls are shown.
+  .get('/:serverId/members/@me/permissions', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const server = await Server.findById(params.serverId).select('ownerId');
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    const isOwner = server.ownerId.equals(user._id);
+    if (isOwner) {
+      // Owner implicitly has every permission.
+      return { isOwner: true, permissions: (~0n & ((1n << 48n) - 1n)).toString() };
+    }
+
+    const member = await ServerMember.findOne({ serverId: server._id, userId: user._id })
+      .populate('roles', 'permissions');
+    if (!member) {
+      set.status = 403;
+      return { error: 'Not a member of this server' };
+    }
+
+    const roles = member.roles as unknown as { permissions: string }[];
+    let effective = 0n;
+    for (const role of roles) {
+      effective |= BigInt(role.permissions || '0');
+    }
+
+    return { isOwner: false, permissions: effective.toString() };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+    }),
+  })
   // Create invite
   .post('/:serverId/invites', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);

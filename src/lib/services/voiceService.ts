@@ -614,6 +614,9 @@ class VoiceService {
   }
 
   get muted() { return this.isMuted; }
+  get myId() { return this.getMyUserId(); }
+  /** Snapshot of who is currently speaking (userId -> speaking). */
+  get speakingSnapshot(): Map<string, boolean> { return new Map(this.speakingState); }
   get deafened() { return this.isDeafened; }
   get videoOn() { return this.isVideoOn; }
   get screenSharing() { return this.isScreenSharing; }

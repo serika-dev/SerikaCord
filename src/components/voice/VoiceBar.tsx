@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Headphones, PhoneOff, Volume2, VolumeX, Video, VideoOff, Monitor, MonitorOff } from "lucide-react";
+import { Mic, MicOff, Headphones, HeadphoneOff, PhoneOff, Video, VideoOff, Monitor, MonitorOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
+import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
+import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
 
 interface VoiceBarProps {
   channelName?: string;
@@ -20,6 +22,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
   const [currentChannel, setCurrentChannel] = useState<string | null>(null);
+  const speakingUsers = useSpeakingUsers();
 
   useEffect(() => {
     // Sync from service on mount
@@ -106,48 +109,52 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
           )}
         >
           {/* Status row */}
-          <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-1.5">
-              <div className="relative flex items-center gap-1">
-                <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-xs font-medium text-green-400">Voice Connected</span>
-              </div>
-            </div>
-            {(channelName || currentChannel) && (
-              <span className="text-[10px] text-[#6b7387] truncate max-w-[120px]">
-                #{channelName || currentChannel}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="relative flex h-2 w-2 flex-shrink-0">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-60 animate-ping" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
               </span>
-            )}
-          </div>
-
-          {/* Participants */}
-          {participants.length > 0 && (
-            <div className="flex items-center gap-1 mb-2 flex-wrap">
-              {participants.slice(0, 6).map((p) => (
-                <div
-                  key={p.userId}
-                  className={cn(
-                    "flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px]",
-                    "bg-[#131a28] border border-[#1e2637]",
-                    !p.audio && "opacity-60"
-                  )}
-                  title={p.displayName || p.username}
-                >
-                  {p.audio ? (
-                    <Volume2 className="w-2.5 h-2.5 text-green-400" />
-                  ) : (
-                    <VolumeX className="w-2.5 h-2.5 text-[#ef4444]" />
-                  )}
-                  <span className="text-[#d5d9e8] max-w-[60px] truncate">
-                    {p.displayName || p.username}
-                  </span>
-                </div>
-              ))}
-              {participants.length > 6 && (
-                <span className="text-[10px] text-[#6b7387]">+{participants.length - 6}</span>
+              <span className="text-xs font-semibold text-green-400 flex-shrink-0">Voice Connected</span>
+              {(channelName || currentChannel) && (
+                <span className="text-[11px] text-[#6b7387] truncate">
+                  — {channelName || currentChannel}
+                </span>
               )}
             </div>
-          )}
+            <span className="text-[10px] text-[#6b7387] flex-shrink-0">
+              {participants.length + 1} in call
+            </span>
+          </div>
+
+          {/* Participant avatars with speaking rings */}
+          <div className="flex items-center gap-3 mb-3 flex-wrap">
+            <div className="flex flex-col items-center gap-1">
+              <VoiceParticipantAvatar
+                participant={{
+                  userId: voiceService.myId,
+                  username: "You",
+                  displayName: "You",
+                  audio: !isMuted,
+                }}
+                speaking={speakingUsers.has(voiceService.myId)}
+                size="md"
+              />
+              <span className="text-[10px] text-[#8d97ad] max-w-[56px] truncate">You</span>
+            </div>
+            {participants.map((p) => (
+              <div key={p.userId} className="flex flex-col items-center gap-1">
+                <VoiceParticipantAvatar
+                  participant={p}
+                  speaking={speakingUsers.has(p.userId)}
+                  size="md"
+                />
+                <span className="text-[10px] text-[#8d97ad] max-w-[56px] truncate">
+                  {p.displayName || p.username}
+                </span>
+              </div>
+            ))}
+          </div>
 
           {/* Controls */}
           <div className="flex items-center gap-1">
@@ -174,7 +181,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                   : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
               )}
             >
-              <Headphones className="w-4 h-4" />
+              {isDeafened ? <HeadphoneOff className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
             </button>
 
             <button

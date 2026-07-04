@@ -2,6 +2,8 @@
 
 import { useEffect, useState, memo } from "react";
 import { ExternalLink, Play, X } from "lucide-react";
+import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 interface LinkEmbedProps {
   content: string;
@@ -124,6 +126,8 @@ function YouTubeEmbed({ videoId, url }: { videoId: string; url: string }) {
       <img
         src={imgSrc}
         alt="YouTube thumbnail"
+        loading="lazy"
+        decoding="async"
         className="w-full aspect-video object-cover"
         onError={() => setImgSrc(fallbackThumbnail)}
       />
@@ -364,7 +368,8 @@ function KlipyEmbed({ url, preview }: { url: string; preview?: { title?: string;
 // Memoized: embeds fetch previews and must not re-run while unrelated chat
 // state (composer text, typing indicators) changes.
 export const LinkEmbed = memo(function LinkEmbed({ content }: LinkEmbedProps) {
-  const urls = extractUrls(content);
+  // Decode entities (e.g. `&amp;` in query strings) so URLs resolve correctly.
+  const urls = extractUrls(decodeHtmlEntities(content));
   const url = urls[0] || "";
   const [preview, setPreview] = useState<{ title?: string; description?: string; thumbnail?: string; siteName?: string } | null>(null);
 
@@ -401,6 +406,12 @@ export const LinkEmbed = memo(function LinkEmbed({ content }: LinkEmbedProps) {
   }, [url]);
 
   if (!url) return null;
+
+  // Server invites get a rich join card instead of a generic link preview.
+  const inviteCode = parseInviteCode(url);
+  if (inviteCode) {
+    return <InviteEmbed code={inviteCode} />;
+  }
 
   // MessageContent already handles direct image/GIF URLs.
   if (isImageUrl(url)) {

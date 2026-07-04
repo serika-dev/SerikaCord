@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MicOff, Monitor, VideoOff } from "lucide-react";
+import { MicOff, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
+import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
+import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
 
 export function VideoGrid() {
   const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
@@ -13,6 +15,7 @@ export function VideoGrid() {
   const [isConnected, setIsConnected] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const speakingUsers = useSpeakingUsers();
 
   useEffect(() => {
     const unsub = voiceService.subscribe((event) => {
@@ -111,7 +114,7 @@ export function VideoGrid() {
 
           {/* Remote participants */}
           {videoParticipants.map((p) => (
-            <RemoteVideo key={p.userId} participant={p} />
+            <RemoteVideo key={p.userId} participant={p} speaking={speakingUsers.has(p.userId)} />
           ))}
         </div>
       </motion.div>
@@ -119,8 +122,9 @@ export function VideoGrid() {
   );
 }
 
-function RemoteVideo({ participant }: { participant: VoiceParticipant }) {
+function RemoteVideo({ participant, speaking }: { participant: VoiceParticipant; speaking?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const hasVideo = participant.video || participant.screenShare;
 
   useEffect(() => {
     if (videoRef.current && participant.stream) {
@@ -129,29 +133,32 @@ function RemoteVideo({ participant }: { participant: VoiceParticipant }) {
   }, [participant.stream]);
 
   return (
-    <div className="relative rounded-lg overflow-hidden bg-[#131a28] aspect-video min-h-[120px]">
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        className={cn(
-          "w-full h-full",
-          participant.screenShare ? "object-contain col-span-full" : "object-cover"
-        )}
-      />
-      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white flex items-center gap-1">
-        {participant.screenShare && <Monitor className="w-3 h-3" />}
-        {participant.displayName || participant.username}
-        {!participant.audio && <MicOff className="w-3 h-3 text-red-400" />}
-      </div>
-      {!participant.video && !participant.screenShare && (
+    <div
+      className={cn(
+        "relative rounded-lg overflow-hidden bg-[#131a28] aspect-video min-h-[120px] transition-shadow duration-100",
+        participant.screenShare && "col-span-full",
+        speaking && participant.audio && "ring-2 ring-[#22c55e] shadow-[0_0_16px_rgba(34,197,94,0.4)]"
+      )}
+    >
+      {hasVideo ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className={cn("w-full h-full", participant.screenShare ? "object-contain" : "object-cover")}
+        />
+      ) : (
+        // No camera: show the avatar with a speaking ring instead of a blank tile.
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full bg-[#1e2637] flex items-center justify-center">
-            <VideoOff className="w-5 h-5 text-[#6b7387]" />
-          </div>
+          <VoiceParticipantAvatar participant={participant} speaking={speaking} size="lg" />
         </div>
       )}
+      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white flex items-center gap-1 max-w-[calc(100%-8px)]">
+        {participant.screenShare && <Monitor className="w-3 h-3 flex-shrink-0" />}
+        <span className="truncate">{participant.displayName || participant.username}</span>
+        {!participant.audio && <MicOff className="w-3 h-3 text-red-400 flex-shrink-0" />}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,47 @@
-import type { ChatMessage, MessageGroupData, MessageReaction } from "./types";
+import type { ChatMessage, MessageAuthor, MessageGroupData, MessageReaction } from "./types";
+
+/** Raw message payload as it arrives from the REST API or SSE stream. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type RawMessagePayload = Record<string, any>;
+
+/**
+ * Normalizes a raw API/SSE message payload into a ChatMessage. Handles the
+ * quirks of both channel and DM payloads: `_id` vs `id`, `authorId` arriving
+ * as a populated object, and missing author objects.
+ */
+export function normalizeIncomingMessage<M extends ChatMessage>(raw: RawMessagePayload): M {
+  const rawAuthorId = raw.authorId;
+  const authorId: string =
+    typeof rawAuthorId === "object" && rawAuthorId !== null
+      ? rawAuthorId._id || rawAuthorId.id || ""
+      : rawAuthorId || raw.author?.id || "";
+
+  const author: MessageAuthor =
+    raw.author ||
+    (typeof rawAuthorId === "object" && rawAuthorId !== null
+      ? {
+          id: rawAuthorId._id || rawAuthorId.id,
+          username: rawAuthorId.username,
+          displayName: rawAuthorId.displayName || rawAuthorId.username,
+          avatar: rawAuthorId.avatar,
+        }
+      : { id: authorId || "unknown", username: "unknown", displayName: "Unknown" });
+
+  return {
+    ...raw,
+    id: raw.id || raw._id,
+    content: raw.content ?? "",
+    authorId,
+    author,
+    attachments: raw.attachments || [],
+    reactions: raw.reactions || [],
+    customEmojis: raw.customEmojis || [],
+    mentionEveryone: Boolean(raw.mentionEveryone),
+    mentionedUserIds: raw.mentionedUserIds || [],
+    mentionedRoleIds: raw.mentionedRoleIds || [],
+    mentionedChannelIds: raw.mentionedChannelIds || [],
+  } as M;
+}
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -125,4 +168,23 @@ export function applyReactionToMessages<M extends ChatMessage>(
 
     return { ...msg, reactions: nextReactions };
   });
+}
+
+/**
+ * Decodes the HTML entities that server-side sanitization leaves in stored
+ * message content (e.g. `&amp;`, `&lt;`). Chat content is rendered as React
+ * text nodes (never via dangerouslySetInnerHTML), so React re-escapes on
+ * render — decoding here is safe and just restores what the user typed.
+ * `&amp;` is handled last so pre-encoded entities aren't double-decoded.
+ */
+export function decodeHtmlEntities(input: string): string {
+  if (!input || input.indexOf("&") === -1) return input;
+  return input
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&#x0*2f;|&#0*47;/gi, "/")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&");
 }

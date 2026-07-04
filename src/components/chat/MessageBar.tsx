@@ -150,13 +150,14 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const [attachments, setAttachments] = useState<File[]>([]);
     const [attachmentPreviews, setAttachmentPreviews] = useState<string[]>([]);
     const [isUploading, setIsUploading] = useState(false);
+    /** Per-attachment upload progress (0-100), keyed by attachment index. */
+    const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [pickerTab, setPickerTab] = useState<"emoji" | "gifs" | "stickers">("emoji");
     const [hasText, setHasText] = useState(false);
 
     // ---- File upload ----
-    const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []);
+    const addFiles = useCallback((files: File[]) => {
       if (files.length === 0) return;
 
       const maxFree = 100 * 1024 * 1024; // 100MB
@@ -175,33 +176,54 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         validFiles.push(file);
       }
 
-      if (validFiles.length === 0) {
-        if (fileInputRef.current) fileInputRef.current.value = "";
-        return;
+      if (validFiles.length === 0) return;
+
+      const remainingSlots = 10 - attachments.length;
+      if (validFiles.length > remainingSlots) {
+        toast.error("Attachment limit reached", { description: "You can attach up to 10 files per message." });
+      }
+      const newFiles = validFiles.slice(0, Math.max(0, remainingSlots));
+      if (newFiles.length === 0) return;
+      setAttachments((prev) => [...prev, ...newFiles]);
+      if (newFiles.length === 1) {
+        toast.success(`Attached ${newFiles[0].name}`);
+      } else {
+        toast.success(`Attached ${newFiles.length} files`);
       }
 
-      const newFiles = validFiles.slice(0, 10 - attachments.length);
-      setAttachments((prev) => [...prev, ...newFiles]);
+      // Previews are index-aligned with attachments, so use object URLs
+      // synchronously (FileReader callbacks could land out of order).
+      const newPreviews = newFiles.map((file) =>
+        file.type.startsWith("image/") || file.type.startsWith("video/")
+          ? URL.createObjectURL(file)
+          : ""
+      );
+      setAttachmentPreviews((prev) => [...prev, ...newPreviews]);
+    }, [attachments.length]);
 
-      newFiles.forEach((file) => {
-        if (file.type.startsWith("image/")) {
-          const reader = new FileReader();
-          reader.onload = () => {
-            setAttachmentPreviews((prev) => [...prev, reader.result as string]);
-          };
-          reader.readAsDataURL(file);
-        } else if (file.type.startsWith("video/")) {
-          const url = URL.createObjectURL(file);
-          setAttachmentPreviews((prev) => [...prev, url]);
-        } else {
-          setAttachmentPreviews((prev) => [...prev, ""]);
-        }
-      });
-
+    const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+      addFiles(Array.from(e.target.files || []));
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
-    }, [attachments.length]);
+    }, [addFiles]);
+
+    // Paste-to-attach (screenshots, copied images)
+    const handlePaste = useCallback((e: React.ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files || []);
+      if (files.length > 0) {
+        e.preventDefault();
+        addFiles(files);
+      }
+    }, [addFiles]);
+
+    // Drag & drop attach
+    const [isDragOver, setIsDragOver] = useState(false);
+    const handleDrop = useCallback((e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      addFiles(Array.from(e.dataTransfer?.files || []));
+    }, [addFiles]);
 
     const removeAttachment = useCallback((index: number) => {
       const preview = attachmentPreviews[index];
@@ -212,35 +234,68 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       setAttachmentPreviews((prev) => prev.filter((_, i) => i !== index));
     }, [attachmentPreviews]);
 
-    // ---- Upload attachments to server ----
-    const uploadAttachments = useCallback(async (): Promise<MessageBarAttachment[]> => {
-      const uploaded: MessageBarAttachment[] = [];
-      for (const file of attachments) {
-        const formData = new FormData();
-        formData.append("file", file);
-        if (channelId) {
-          formData.append("channelId", channelId);
-        }
-        try {
-          const response = await fetch(uploadEndpoint, {
-            method: "POST",
-            body: formData,
-          });
-          if (response.ok) {
-            const data = await response.json();
-            uploaded.push(data.attachment);
-          } else {
-            const data = await response.json().catch(() => null);
-            const errorMsg = data?.error || `Failed to upload ${file.name}`;
-            toast.error(errorMsg, { description: file.name });
+    // ---- Upload attachments to server (XHR for real progress events) ----
+    const uploadSingleFile = useCallback(
+      (file: File, index: number): Promise<MessageBarAttachment | null> =>
+        new Promise((resolve) => {
+          const formData = new FormData();
+          formData.append("file", file);
+          if (channelId) {
+            formData.append("channelId", channelId);
           }
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Network error";
-          toast.error(`Failed to upload ${file.name}`, { description: msg });
-        }
+
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", uploadEndpoint);
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              setUploadProgress((prev) => ({ ...prev, [index]: percent }));
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const data = JSON.parse(xhr.responseText);
+                setUploadProgress((prev) => ({ ...prev, [index]: 100 }));
+                resolve(data.attachment ?? null);
+                return;
+              } catch {
+                // fall through to error toast
+              }
+            }
+            let errorMsg = `Failed to upload ${file.name}`;
+            try {
+              const data = JSON.parse(xhr.responseText);
+              if (data?.error) errorMsg = data.error;
+            } catch {
+              // keep default message
+            }
+            toast.error(errorMsg, { description: file.name });
+            resolve(null);
+          };
+          xhr.onerror = () => {
+            toast.error(`Failed to upload ${file.name}`, { description: "Network error — check your connection." });
+            resolve(null);
+          };
+          xhr.send(formData);
+        }),
+      [channelId, uploadEndpoint]
+    );
+
+    const uploadAttachments = useCallback(async (): Promise<MessageBarAttachment[]> => {
+      if (attachments.length === 0) return [];
+      setIsUploading(true);
+      setUploadProgress({});
+      try {
+        const results = await Promise.all(
+          attachments.map((file, index) => uploadSingleFile(file, index))
+        );
+        return results.filter((r): r is MessageBarAttachment => r !== null);
+      } finally {
+        setIsUploading(false);
+        setUploadProgress({});
       }
-      return uploaded;
-    }, [attachments, channelId, uploadEndpoint]);
+    }, [attachments, uploadSingleFile]);
 
     // Expose uploadAttachments via a stable callback on the ref
     // We store it on a ref so the parent can call it
@@ -331,13 +386,30 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       <span className="text-xs text-[var(--app-muted)] truncate w-full text-center">{file.name.slice(0, 10)}</span>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(index)}
-                    className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <X className="w-3 h-3 text-white" />
-                  </button>
+                  {/* Upload progress overlay */}
+                  {isUploading && (
+                    <div className="absolute inset-0 rounded-md bg-black/50 flex flex-col items-center justify-center gap-1">
+                      <span className="text-[10px] font-semibold text-white">
+                        {uploadProgress[index] ?? 0}%
+                      </span>
+                      <div className="w-14 h-1 rounded-full bg-white/30 overflow-hidden">
+                        <div
+                          className="h-full bg-[#8B5CF6] transition-[width] duration-200"
+                          style={{ width: `${uploadProgress[index] ?? 0}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {!isUploading && (
+                    <button
+                      type="button"
+                      onClick={() => removeAttachment(index)}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                      aria-label={`Remove ${file.name}`}
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -345,7 +417,21 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         )}
 
         {/* Message Input */}
-        <div className="px-2 sm:px-4 pb-2 sm:pb-3 flex-shrink-0">
+        <div
+          className={cn(
+            "px-2 sm:px-4 pb-2 sm:pb-3 flex-shrink-0 relative",
+            isDragOver && "after:absolute after:inset-1 after:rounded-lg after:border-2 after:border-dashed after:border-[#8B5CF6] after:bg-[#8B5CF6]/10 after:pointer-events-none"
+          )}
+          onPaste={handlePaste}
+          onDragOver={(e) => {
+            if (e.dataTransfer?.types?.includes("Files")) {
+              e.preventDefault();
+              setIsDragOver(true);
+            }
+          }}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={handleDrop}
+        >
           {/* Reply preview */}
           {replyTo && (
             <div className="mb-2 px-3 py-2 bg-[var(--app-surface)] border border-[var(--app-border)] rounded-lg flex items-start justify-between gap-3">
@@ -500,13 +586,14 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 </PopoverContent>
               </Popover>
 
-              {/* Send button */}
-              {canSend && (
+              {/* Send button (stays visible with a spinner while sending/uploading) */}
+              {(canSend || isSending || isUploading) && (
                 <button
                   type="button"
                   onClick={onSend}
                   disabled={isSending || isUploading}
-                  className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-50"
+                  aria-label={isUploading ? "Uploading attachments" : isSending ? "Sending" : "Send message"}
+                  className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-70"
                 >
                   {isSending || isUploading ? (
                     <Loader2 className="w-5 sm:w-6 h-5 sm:h-6 animate-spin" />

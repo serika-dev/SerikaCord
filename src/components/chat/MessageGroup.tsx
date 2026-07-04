@@ -1,9 +1,11 @@
 "use client";
 
+import { memo } from "react";
 import { Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
 import { MessageContent } from "@/components/chat/MessageContent";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";
@@ -68,7 +70,7 @@ export interface MessageGroupProps<M extends ChatMessage> {
  * avatar and header, follow-up rows reuse the gutter. Each row (including the
  * avatar/username/timestamp area) is swipeable on touch devices.
  */
-export function MessageGroup<M extends ChatMessage>({
+function MessageGroupInner<M extends ChatMessage>({
   group,
   currentUserId,
   serverId,
@@ -209,7 +211,7 @@ export function MessageGroup<M extends ChatMessage>({
                     )}
 
                     <MessageContent
-                      content={message.content}
+                      content={decodeHtmlEntities(message.content)}
                       serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
                       mentionUsers={mentionUsers}
                       mentionRoles={mentionRoles}
@@ -269,3 +271,10 @@ export function MessageGroup<M extends ChatMessage>({
     </div>
   );
 }
+
+/**
+ * Memoized: with stable handler props from the chat session, a group only
+ * re-renders when its own messages (or edit/reaction-picker targeting it)
+ * change — instead of the whole list re-rendering on every keystroke.
+ */
+export const MessageGroup = memo(MessageGroupInner) as typeof MessageGroupInner;

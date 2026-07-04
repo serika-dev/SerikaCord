@@ -33,12 +33,12 @@ function DMContent({ children }: { children: React.ReactNode }) {
   if (isMobile) {
     return (
       <div className="h-dvh flex flex-col bg-[#0a0a0a] overflow-hidden">
-        {/* Main DM Content */}
-        <main className="flex-1 flex flex-col min-h-0 pb-16">
+        {/* Main DM Content — full height; the bottom nav hides itself
+            inside open conversations, so no space is reserved for it. */}
+        <main className="flex-1 flex flex-col min-h-0">
           {children}
         </main>
 
-        {/* Bottom Navigation */}
         <BottomNavigation />
 
         {/* Dialogs */}

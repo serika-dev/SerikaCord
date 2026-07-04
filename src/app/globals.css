@@ -294,6 +294,35 @@ html.theme-midnight body {
 .chat-scroller {
   min-width: 0;
   min-height: 0;
+  /* Momentum scrolling + contain overscroll so the chat doesn't drag the
+     whole page/keyboard on touch devices. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  /* Keep newly-appended messages from yanking the viewport around. */
+  overflow-anchor: none;
+}
+
+/* Thin, unobtrusive scrollbar shared by chat + dialog scroll areas. */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-border, rgba(255, 255, 255, 0.12)) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--app-border, rgba(255, 255, 255, 0.14));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--app-muted, rgba(255, 255, 255, 0.28));
+  background-clip: padding-box;
 }
 
 .chat-message-row {

@@ -1,0 +1,459 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { toast } from "sonner";
+import type { MessageBarHandle } from "@/components/chat/MessageBar";
+import { useChatStream, useTypingSignal, type ChatStreamEvent } from "@/hooks/useChatStream";
+import { useMessageActions } from "@/hooks/useMessageActions";
+import {
+  groupMessages,
+  normalizeIncomingMessage,
+  type EmojiLookupEntry,
+} from "@/lib/chat/messages";
+import { buildGalleryFromMessages } from "@/lib/chat/media";
+import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
+
+const PAGE_SIZE = 50;
+// Keeps the DOM light (no virtualization needed) while allowing deep scrollback.
+const MAX_LOADED_MESSAGES = 200;
+
+export interface ChatSessionUser {
+  id: string;
+  username: string;
+  displayName?: string;
+  avatar?: string;
+  status?: "online" | "idle" | "dnd" | "offline";
+  isPremium?: boolean;
+  badges?: string[];
+}
+
+export interface SendMessageInput {
+  /** Overrides the composer content (e.g. GIF url). Composer is untouched. */
+  contentOverride?: string;
+  sticker?: MessageSticker;
+}
+
+interface UseChatSessionOptions<M extends ChatMessage> {
+  /** REST base, e.g. `/api/channels/{id}` or `/api/dms/{id}`. Null disables. */
+  apiBase: string | null;
+  /** Identifier stored on optimistic messages as channelId. */
+  contextId: string | null;
+  user: ChatSessionUser | null | undefined;
+  messageBarRef: RefObject<MessageBarHandle | null>;
+  emojiLookup?: EmojiLookupEntry[];
+  /** Whether the backend supports `before=` pagination (channels do). */
+  paginated?: boolean;
+  /** Transform draft content before sending (e.g. mention normalization). */
+  normalizeContent?: (content: string) => string;
+  /**
+   * Called for incoming SSE messages authored by someone else, after they are
+   * applied to state — hook for notification / unread UX.
+   */
+  onIncomingMessage?: (message: M) => void;
+  /** Extra SSE event types the caller wants to handle (e.g. voice events). */
+  onOtherEvent?: (event: ChatStreamEvent) => void;
+  /** Called right after a send/receive that should scroll to bottom. */
+  onShouldScrollToBottom?: () => void;
+}
+
+/**
+ * The single chat engine shared by server channels and DMs: message state,
+ * initial fetch + `before` pagination, SSE application, optimistic sends with
+ * rollback, pins, per-message actions, and typing signals.
+ */
+export function useChatSession<M extends ChatMessage>({
+  apiBase,
+  contextId,
+  user,
+  messageBarRef,
+  emojiLookup,
+  paginated = true,
+  normalizeContent,
+  onIncomingMessage,
+  onOtherEvent,
+  onShouldScrollToBottom,
+}: UseChatSessionOptions<M>) {
+  const [messages, setMessages] = useState<M[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState<M[]>([]);
+  const [isLoadingPins, setIsLoadingPins] = useState(false);
+
+  // Guard against a slow response from a previously viewed context
+  // overwriting the current one after a fast switch.
+  const activeFetchContextRef = useRef<string | null>(null);
+
+  const latestRef = useRef({ normalizeContent, onIncomingMessage, onOtherEvent, onShouldScrollToBottom });
+  useEffect(() => {
+    latestRef.current = { normalizeContent, onIncomingMessage, onOtherEvent, onShouldScrollToBottom };
+  });
+
+  const fetchPinnedMessages = useCallback(async () => {
+    if (!apiBase) return;
+    setIsLoadingPins(true);
+    try {
+      const response = await fetch(`${apiBase}/pins?limit=50`);
+      if (response.ok) {
+        const data = await response.json();
+        setPinnedMessages(((data.messages || []) as M[]).map((m) => normalizeIncomingMessage<M>(m)));
+      }
+    } catch {
+      // best-effort UI
+    } finally {
+      setIsLoadingPins(false);
+    }
+  }, [apiBase]);
+
+  const actions = useMessageActions<M>({
+    apiBase,
+    setMessages,
+    userId: user?.id,
+    emojiLookup,
+    onPinsChanged: fetchPinnedMessages,
+  });
+
+  const { signalTyping, resetTyping } = useTypingSignal(apiBase ? `${apiBase}/typing` : null);
+
+  const fetchMessages = useCallback(async () => {
+    if (!apiBase) return;
+    const requestedContext = apiBase;
+    activeFetchContextRef.current = requestedContext;
+
+    setIsLoading(true);
+    setHasMoreOlder(false);
+    setMessages([]);
+    try {
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      if (activeFetchContextRef.current !== requestedContext) return;
+      if (response.ok) {
+        const data = await response.json();
+        if (activeFetchContextRef.current !== requestedContext) return;
+        const raw = Array.isArray(data) ? data : data.messages || [];
+        const seen = new Set<string>();
+        const deduped: M[] = [];
+        for (const item of raw) {
+          const normalized = normalizeIncomingMessage<M>(item);
+          if (seen.has(normalized.id)) continue;
+          seen.add(normalized.id);
+          deduped.push(normalized);
+        }
+        setMessages(deduped);
+        setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
+        latestRef.current.onShouldScrollToBottom?.();
+      } else {
+        toast.error("Failed to load messages");
+      }
+    } catch (error) {
+      if (activeFetchContextRef.current !== requestedContext) return;
+      console.error("Failed to fetch messages:", error);
+      toast.error("Failed to load messages");
+    } finally {
+      if (activeFetchContextRef.current === requestedContext) {
+        setIsLoading(false);
+      }
+    }
+  }, [apiBase, paginated]);
+
+  const loadOlderMessages = useCallback(async (): Promise<boolean> => {
+    if (!apiBase || isLoadingMore || !hasMoreOlder || messages.length === 0) return false;
+    const oldestId = messages[0]?.id;
+    if (!oldestId || oldestId.startsWith("temp-")) return false;
+
+    setIsLoadingMore(true);
+    try {
+      const response = await fetch(`${apiBase}/messages?before=${oldestId}&limit=${PAGE_SIZE}`);
+      if (response.ok) {
+        const data = await response.json();
+        const raw = Array.isArray(data) ? data : data.messages || [];
+        if (raw.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const seenOlder = new Set<string>();
+            const filtered: M[] = [];
+            for (const item of raw) {
+              const normalized = normalizeIncomingMessage<M>(item);
+              if (seenOlder.has(normalized.id) || existingIds.has(normalized.id)) continue;
+              seenOlder.add(normalized.id);
+              filtered.push(normalized);
+            }
+            const combined = [...filtered, ...prev];
+            return combined.length > MAX_LOADED_MESSAGES
+              ? combined.slice(0, MAX_LOADED_MESSAGES)
+              : combined;
+          });
+          setHasMoreOlder(raw.length >= PAGE_SIZE);
+          return true;
+        }
+        setHasMoreOlder(false);
+      }
+    } catch (error) {
+      console.error("Failed to load older messages:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+    return false;
+  }, [apiBase, isLoadingMore, hasMoreOlder, messages]);
+
+  useEffect(() => {
+    if (apiBase && user) {
+      void fetchMessages();
+      void fetchPinnedMessages();
+    }
+  }, [apiBase, user, fetchMessages, fetchPinnedMessages]);
+
+  // Real-time updates over SSE (connection + typing handled by the stream hook)
+  const { typingStatusText, typingUsers } = useChatStream({
+    url: apiBase && user ? `${apiBase}/stream` : null,
+    currentUsername: user?.username,
+    onEvent: (data) => {
+      if (data.type === "message") {
+        const incoming = normalizeIncomingMessage<M>(data.message);
+        const isOwnMessage = incoming.authorId === user?.id || incoming.author?.id === user?.id;
+
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === incoming.id)) return prev;
+          if (isOwnMessage) {
+            const ownTempIndex = prev.findIndex(
+              (m) => m.id.startsWith("temp-") && m.authorId === user?.id && m.content === incoming.content
+            );
+            if (ownTempIndex !== -1) {
+              return prev.map((m, index) => (index === ownTempIndex ? incoming : m));
+            }
+          }
+          return [...prev, incoming];
+        });
+
+        if (!isOwnMessage) {
+          latestRef.current.onIncomingMessage?.(incoming);
+        }
+        latestRef.current.onShouldScrollToBottom?.();
+        return;
+      }
+
+      if (data.type === "edit") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === data.messageId
+              ? {
+                  ...m,
+                  content: data.content ?? m.content,
+                  pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
+                  edited: data.content !== undefined ? true : m.edited,
+                  updatedAt: new Date().toISOString(),
+                }
+              : m
+          )
+        );
+        return;
+      }
+
+      if (data.type === "delete") {
+        setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+        return;
+      }
+
+      if (data.type === "reaction_add" || data.type === "reaction_remove") {
+        // Own reactions are already applied optimistically.
+        if (data.userId !== user?.id) {
+          actions.applyReactionEvent(
+            String(data.messageId),
+            String(data.emoji),
+            String(data.userId),
+            data.type === "reaction_add"
+          );
+        }
+        return;
+      }
+
+      if (data.type === "pin_update") {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === data.messageId ? { ...m, pinned: Boolean(data.pinned) } : m))
+        );
+        void fetchPinnedMessages();
+        return;
+      }
+
+      latestRef.current.onOtherEvent?.(data);
+    },
+  });
+
+  /**
+   * Optimistic send with rollback. Handles text, replies, stickers, GIF
+   * overrides, and pending attachments (uploaded via the MessageBar).
+   */
+  const sendMessage = useCallback(
+    async ({ contentOverride, sticker }: SendMessageInput = {}) => {
+      if (!apiBase || !contextId || isSending || !user) return;
+
+      const isOverrideSend = typeof contentOverride === "string";
+      const composer = messageBarRef.current?.getComposer();
+      const rawContent = isOverrideSend ? contentOverride : (composer?.getText() ?? "");
+      const messageContent = latestRef.current.normalizeContent
+        ? latestRef.current.normalizeContent(rawContent)
+        : rawContent;
+      const pendingAttachments = isOverrideSend ? [] : (messageBarRef.current?.getAttachments() ?? []);
+
+      if (!messageContent.trim() && pendingAttachments.length === 0 && !sticker) return;
+
+      const replyReference = actions.replyToMessage;
+      if (!isOverrideSend) {
+        composer?.clear();
+      }
+      resetTyping();
+      setIsSending(true);
+
+      let tempId: string | null = null;
+      const restoreDraft = () => {
+        if (!isOverrideSend && messageContent.trim()) {
+          messageBarRef.current?.getComposer()?.insertTextAtCaret(messageContent);
+        }
+      };
+
+      try {
+        let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
+        if (pendingAttachments.length > 0) {
+          uploadedAttachments = (await messageBarRef.current?.uploadAttachments()) ?? [];
+          messageBarRef.current?.clearAttachments();
+        }
+
+        tempId = `temp-${Date.now()}`;
+        const optimisticMessage = {
+          id: tempId,
+          content: messageContent,
+          type: replyReference ? "reply" : "default",
+          authorId: user.id,
+          author: {
+            id: user.id,
+            username: user.username,
+            displayName: user.displayName || user.username,
+            avatar: user.avatar,
+            status: user.status || "online",
+            isPremium: user.isPremium,
+            badges: user.badges,
+          },
+          channelId: contextId,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          sticker,
+          attachments: uploadedAttachments,
+          referencedMessageId: replyReference?.id,
+          referencedMessage: replyReference
+            ? {
+                id: replyReference.id,
+                content: replyReference.content,
+                author: replyReference.author,
+                createdAt: replyReference.createdAt,
+              }
+            : undefined,
+          reactions: [],
+          customEmojis: [],
+        } as unknown as M;
+
+        setMessages((prev) => [...prev, optimisticMessage]);
+        latestRef.current.onShouldScrollToBottom?.();
+
+        const body: Record<string, unknown> = {};
+        if (messageContent) body.content = messageContent;
+        if (sticker) body.sticker = sticker;
+        if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
+        if (replyReference) body.replyTo = replyReference.id;
+
+        const response = await fetch(`${apiBase}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+
+        if (response.ok) {
+          const payload = await response.json().catch(() => null);
+          const raw = payload?.message || payload;
+          if (raw && (raw.id || raw._id)) {
+            const confirmed = normalizeIncomingMessage<M>(raw);
+            setMessages((prev) =>
+              prev.map((m) => (m.id === tempId ? { ...m, ...confirmed } : m))
+            );
+          }
+        } else {
+          const data = await response.json().catch(() => null);
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          restoreDraft();
+          toast.error(data?.error || "Failed to send message");
+        }
+      } catch (error) {
+        console.error("Failed to send message:", error);
+        if (tempId) {
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        }
+        restoreDraft();
+        toast.error("Failed to send message. Check your connection.");
+      } finally {
+        setIsSending(false);
+        actions.setReplyToMessage(null);
+      }
+    },
+    [apiBase, contextId, isSending, user, messageBarRef, actions, resetTyping]
+  );
+
+  const handleGifSelect = useCallback(
+    (gifUrl: string) => void sendMessage({ contentOverride: gifUrl }),
+    [sendMessage]
+  );
+
+  const handleStickerSelect = useCallback(
+    (sticker: MessageSticker) => void sendMessage({ sticker }),
+    [sendMessage]
+  );
+
+  /** Inserts a picked emoji (unicode or custom) into the composer. */
+  const handleEmojiSelect = useCallback(
+    (emoji: string, isCustom?: boolean, emojiData?: { id: string; name: string; animated?: boolean; url?: string }) => {
+      const composer = messageBarRef.current?.getComposer();
+      if (!composer) return;
+      if (isCustom && emojiData?.url) {
+        composer.insertEmojiAtCaret({
+          id: emojiData.id,
+          name: emojiData.name,
+          url: emojiData.url,
+          animated: emojiData.animated,
+        });
+      } else if (isCustom && emojiData) {
+        composer.insertTextAtCaret(`<${emojiData.animated ? "a" : ""}:${emojiData.name}:${emojiData.id}>`);
+      } else {
+        composer.insertTextAtCaret(emoji);
+      }
+      signalTyping(composer.getText());
+      composer.focus();
+    },
+    [messageBarRef, signalTyping]
+  );
+
+  const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
+  const mediaGallery = useMemo(() => buildGalleryFromMessages(messages), [messages]);
+
+  return {
+    messages,
+    setMessages,
+    isLoading,
+    isSending,
+    hasMoreOlder,
+    isLoadingMore,
+    fetchMessages,
+    loadOlderMessages,
+    pinnedMessages,
+    isLoadingPins,
+    fetchPinnedMessages,
+    actions,
+    typingStatusText,
+    typingUsers,
+    signalTyping,
+    resetTyping,
+    sendMessage,
+    handleGifSelect,
+    handleStickerSelect,
+    handleEmojiSelect,
+    groupedMessages,
+    mediaGallery,
+  };
+}

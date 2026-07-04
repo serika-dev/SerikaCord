@@ -78,20 +78,34 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Tracks the active server id so switches can be detected without a stale
+  // closure (setCurrentServer is a stable callback).
+  const activeServerIdRef = useRef<string | null>(null);
+
   // Set current server with transition
   const setCurrentServer = useCallback((server: Server | null) => {
     startTransition(() => {
       if (!server) {
+        activeServerIdRef.current = null;
         setCurrentServerState(null);
         setChannels([]);
         setCurrentChannel(null);
-      } else {
-        setCurrentServerState(server);
-        // Load cached channels immediately if available
-        const cachedChannels = channelCacheRef.current.get(server.id);
-        if (cachedChannels) {
-          setChannels(cachedChannels);
-        }
+        return;
+      }
+
+      const isSwitch = activeServerIdRef.current !== server.id;
+      activeServerIdRef.current = server.id;
+      setCurrentServerState(server);
+
+      const cached = channelCacheRef.current.get(server.id);
+      if (cached) {
+        setChannels(cached);
+      } else if (isSwitch) {
+        // Switching to a server whose channels aren't cached yet: clear the
+        // old server's channels/selection so its chat doesn't linger. The
+        // context effect below refetches channels for the new server.
+        setChannels([]);
+        setCurrentChannel(null);
       }
     });
   }, []);
@@ -182,8 +196,14 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     }
 
     const data = await response.json();
-    const server = data.server || data;
-    setServers((prev) => [...prev, server]);
+    const raw = data.server || data;
+    // The create response may carry `_id` rather than `id`; normalize it so
+    // the new server has a stable key and is clickable/navigable immediately.
+    const server: Server = { ...raw, id: raw.id || raw._id };
+    setServers((prev) => {
+      if (prev.some((s) => s.id === server.id)) return prev;
+      return [...prev, server];
+    });
     return server;
   };
 

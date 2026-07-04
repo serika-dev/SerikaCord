@@ -23,6 +23,8 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
             <img
               src={attachment.url}
               alt={attachment.filename}
+              loading="lazy"
+              decoding="async"
               className="chat-media cursor-pointer hover:opacity-90 max-w-sm max-h-[350px] object-contain rounded-md"
               onClick={() => onMediaClick(attachment.url, attachment.filename, messageId)}
             />

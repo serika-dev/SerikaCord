@@ -34,6 +34,20 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
   const isNative = isNativeApp();
   const { serverMentionCounts } = useMentions();
 
+  // Defensive: drop any entries without an id and de-duplicate by id so the
+  // list keys are always unique (guards against races in server add/refetch).
+  const uniqueServers = (() => {
+    const seen = new Set<string>();
+    const out: typeof servers = [];
+    for (const s of servers) {
+      const id = s?.id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      out.push(s);
+    }
+    return out;
+  })();
+
   const handleServerClick = (server: typeof servers[0]) => {
     setCurrentServer(server);
     router.push(`/channels/${server.id}`);
@@ -77,7 +91,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
         {/* Server List */}
         <div className="flex-1 w-full overflow-y-auto scrollbar-hide">
           <div className="flex flex-col items-center gap-2">
-            {servers.map((server) => {
+            {uniqueServers.map((server) => {
               const mentionCount = serverMentionCounts.get(server.id) || 0;
               const hasMention = mentionCount > 0;
               const isActive = currentServer?.id === server.id;

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import type { ChatMessage } from "@/lib/chat/types";
-import { applyReactionToMessages, type EmojiLookupEntry } from "@/lib/chat/messages";
+import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
   message: M;
@@ -60,7 +60,8 @@ export function useMessageActions<M extends ChatMessage>({
 
   const startEditing = useCallback((message: M) => {
     setEditingMessage(message);
-    setEditContent(message.content);
+    // Decode stored entities so editing doesn't re-encode them (e.g. `&amp;`).
+    setEditContent(decodeHtmlEntities(message.content));
   }, []);
 
   const cancelEditing = useCallback(() => {

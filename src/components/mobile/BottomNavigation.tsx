@@ -32,6 +32,12 @@ export function BottomNavigation({
   const { setCurrentServer, setCurrentChannel } = useServer();
   const { user } = useAuth();
 
+  // Hide inside an open conversation (channel chat or DM) so the composer
+  // gets the full viewport and the keyboard doesn't fight the nav.
+  const isInConversation =
+    /^\/dm\/[^/]+/.test(pathname || "") || /^\/channels\/[^/]+\/[^/]+$/.test(pathname || "");
+  if (isInConversation) return null;
+
   const navItems: NavItem[] = [
     {
       icon: Home,

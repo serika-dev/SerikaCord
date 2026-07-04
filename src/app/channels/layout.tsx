@@ -201,7 +201,8 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
               </motion.main>
             </AnimatePresence>
           ) : isInChannel ? (
-            // When in a specific channel, render the chat
+            // When in a specific channel, render the chat full-height —
+            // the bottom nav hides itself inside conversations.
             <AnimatePresence mode="wait" initial={false}>
               <motion.main
                 key={contentKey}
@@ -209,7 +210,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pb-[var(--mobile-content-pb)]"
+                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]"
               >
                 {children}
               </motion.main>

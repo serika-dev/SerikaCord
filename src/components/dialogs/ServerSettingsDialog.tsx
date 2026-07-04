@@ -88,6 +88,18 @@ type SettingsTab =
   | "members"
   | "channels";
 
+/** Tabs whose content is a multi-column / table layout and needs full width. */
+const WIDE_SETTINGS_TABS = new Set<SettingsTab>([
+  "roles",
+  "members",
+  "bans",
+  "audit-log",
+  "channels",
+  "emoji",
+  "stickers",
+  "soundboard",
+]);
+
 interface Role {
   id: string;
   name: string;
@@ -1485,7 +1497,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 xl:grid-cols-[300px_1fr] gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
           {/* Role list sidebar */}
           <div className="space-y-2">
             {roles.length > 0 && (
@@ -2728,9 +2740,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </button>
         </div>
 
-        {/* Content */}
+        {/* Content — wide tabs (roles, members, bans) use the full container;
+            form-style tabs stay comfortably readable at a narrower width. */}
         <ScrollArea className="flex-1">
-          <div className="max-w-2xl mx-auto p-6 md:p-8 pb-24">
+          <div
+            className={cn(
+              "mx-auto p-6 md:p-8 pb-24",
+              WIDE_SETTINGS_TABS.has(activeTab) ? "max-w-6xl" : "max-w-2xl"
+            )}
+          >
             {renderContent()}
           </div>
         </ScrollArea>

@@ -28,9 +28,9 @@ export interface AccountsResult<T> {
   data: T & { error?: string; message?: string };
 }
 
-async function accountsFetch<T = Record<string, unknown>>(
+async function accountsFetchOnce<T>(
   path: string,
-  init: RequestInit & { internal?: boolean } = {}
+  init: RequestInit & { internal?: boolean }
 ): Promise<AccountsResult<T>> {
   const { internal, ...requestInit } = init;
   const headers: Record<string, string> = {
@@ -54,6 +54,33 @@ async function accountsFetch<T = Record<string, unknown>>(
     return { ok: response.ok, status: response.status, data };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+/**
+ * Fetch with transient-failure handling: network errors / timeouts are
+ * retried once, and if they persist a normalized 503 result is returned so
+ * routes surface "accounts service unavailable" instead of a raw 500.
+ */
+async function accountsFetch<T = Record<string, unknown>>(
+  path: string,
+  init: RequestInit & { internal?: boolean } = {}
+): Promise<AccountsResult<T>> {
+  try {
+    return await accountsFetchOnce<T>(path, init);
+  } catch {
+    try {
+      return await accountsFetchOnce<T>(path, init);
+    } catch (error) {
+      console.error(`Accounts service unreachable (${path}):`, error);
+      return {
+        ok: false,
+        status: 503,
+        data: { error: 'Accounts service is temporarily unavailable. Please try again.' } as T & {
+          error?: string;
+        },
+      };
+    }
   }
 }
 
