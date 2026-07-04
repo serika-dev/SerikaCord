@@ -4,6 +4,7 @@ import { useEffect, useState, memo } from "react";
 import { ExternalLink, Play, X } from "lucide-react";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 
 interface LinkEmbedProps {
   content: string;
@@ -227,22 +228,27 @@ function SpotifyEmbed({ type, id, url }: { type: string; id: string; url: string
 function GiphyEmbed({ gifId, url }: { gifId: string; url: string }) {
   const gifUrl = `https://media.giphy.com/media/${gifId}/giphy.gif`;
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]"
-    >
-      <img
-        src={gifUrl}
-        alt="Giphy GIF"
-        className="rounded-lg max-h-[300px] w-auto"
-        loading="lazy"
-      />
-      <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-        GIPHY
+    <div className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block"
+      >
+        <img
+          src={gifUrl}
+          alt="Giphy GIF"
+          className="rounded-lg max-h-[300px] w-auto"
+          loading="lazy"
+        />
+        <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+          GIPHY
+        </div>
+      </a>
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <GifFavoriteButton url={url} title="Giphy GIF" source="giphy" />
       </div>
-    </a>
+    </div>
   );
 }
 
@@ -287,22 +293,27 @@ function TenorEmbed({ gifId, url, preview }: { gifId: string; url: string; previ
   }
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]"
-    >
-      <img
-        src={gifSrc}
-        alt={preview?.title || "Tenor GIF"}
-        className="rounded-lg max-h-[300px] w-auto"
-        loading="lazy"
-      />
-      <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-        Tenor
+    <div className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block"
+      >
+        <img
+          src={gifSrc}
+          alt={preview?.title || "Tenor GIF"}
+          className="rounded-lg max-h-[300px] w-auto"
+          loading="lazy"
+        />
+        <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+          Tenor
+        </div>
+      </a>
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <GifFavoriteButton url={url} title={preview?.title} source="tenor" />
       </div>
-    </a>
+    </div>
   );
 }
 
@@ -346,22 +357,27 @@ function KlipyEmbed({ url, preview }: { url: string; preview?: { title?: string;
   }
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]"
-    >
-      <img
-        src={gifSrc}
-        alt={preview?.title || "Klipy GIF"}
-        className="rounded-lg max-h-[300px] w-auto"
-        loading="lazy"
-      />
-      <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-        Klipy
+    <div className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]">
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block"
+      >
+        <img
+          src={gifSrc}
+          alt={preview?.title || "Klipy GIF"}
+          className="rounded-lg max-h-[300px] w-auto"
+          loading="lazy"
+        />
+        <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+          Klipy
+        </div>
+      </a>
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <GifFavoriteButton url={url} title={preview?.title} source="klipy" />
       </div>
-    </a>
+    </div>
   );
 }
 

@@ -3,8 +3,9 @@
 import { useEffect, useRef, useMemo, memo } from "react";
 import twemoji from "twemoji";
 import { cn } from "@/lib/utils";
-import { isImageLikeUrl } from "@/lib/chat/media";
+import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 
 interface CustomEmoji {
   id: string;
@@ -272,15 +273,23 @@ export const MessageContent = memo(function MessageContent({
 
   // If the message is just an image URL, render it as a large image
   if (imageOnlyUrl) {
+    const onlyGif = isGifUrl(imageOnlyUrl);
     return (
       <div className={className}>
-        <img
-          src={imageOnlyUrl}
-          alt="Image"
-          className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
-          onClick={() => handleMediaClick(imageOnlyUrl, "Image")}
-          loading="lazy"
-        />
+        <div className={cn("inline-block relative group", onlyGif && "rounded-lg overflow-hidden")}>
+          <img
+            src={imageOnlyUrl}
+            alt="Image"
+            className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
+            onClick={() => handleMediaClick(imageOnlyUrl, "Image")}
+            loading="lazy"
+          />
+          {onlyGif && (
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+              <GifFavoriteButton url={imageOnlyUrl} />
+            </div>
+          )}
+        </div>
         {edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
       </div>
     );
@@ -312,15 +321,23 @@ export const MessageContent = memo(function MessageContent({
           );
         }
         if (part.type === "image" && part.url) {
+          const inlineGif = isGifUrl(part.url);
           return (
             <span key={`image-${index}`} className="block my-2">
-              <img
-                src={part.url}
-                alt="Image"
-                className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => handleMediaClick(part.url!, "Image")}
-                loading="lazy"
-              />
+              <span className={cn("inline-block relative group", inlineGif && "rounded-lg overflow-hidden")}>
+                <img
+                  src={part.url}
+                  alt="Image"
+                  className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
+                  onClick={() => handleMediaClick(part.url!, "Image")}
+                  loading="lazy"
+                />
+                {inlineGif && (
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <GifFavoriteButton url={part.url} />
+                  </div>
+                )}
+              </span>
             </span>
           );
         }

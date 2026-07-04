@@ -1,4 +1,5 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto';
+import { createCipheriv, createDecipheriv, randomBytes, scrypt } from 'crypto';
+import { promisify } from 'util';
 import { getEncryptionKey } from '@/lib/models/PlatformSettings';
 import { connectDB } from '@/lib/db';
 
@@ -7,9 +8,11 @@ const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 const SALT_LENGTH = 32;
 
-// Derive a key from the platform encryption key
-function deriveKey(platformKey: string, salt: Buffer): Buffer {
-  return scryptSync(platformKey, salt, 32);
+const scryptAsync = promisify(scrypt);
+
+// Derive a key from the platform encryption key (async so batches can use the worker pool)
+async function deriveKey(platformKey: string, salt: Buffer): Promise<Buffer> {
+  return scryptAsync(platformKey, salt, 32) as Promise<Buffer>;
 }
 
 /**
@@ -29,7 +32,7 @@ export async function encryptMessage(plaintext: string): Promise<string> {
     const iv = randomBytes(IV_LENGTH);
     
     // Derive key from platform key
-    const key = deriveKey(platformKey, salt);
+    const key = await deriveKey(platformKey, salt);
     
     // Create cipher
     const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -76,7 +79,7 @@ export async function decryptMessage(encryptedBase64: string): Promise<string> {
     const ciphertext = combined.subarray(SALT_LENGTH + IV_LENGTH + AUTH_TAG_LENGTH);
     
     // Derive key
-    const key = deriveKey(platformKey, salt);
+    const key = await deriveKey(platformKey, salt);
     
     // Create decipher
     const decipher = createDecipheriv(ALGORITHM, key, iv);

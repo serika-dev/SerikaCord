@@ -500,7 +500,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     }
 
     const settings = await getPlatformSettings();
-    return settings;
+    return settings.toObject();
   })
 
   // Update platform settings
@@ -539,7 +539,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       updates
     );
 
-    return settings;
+    return settings.toObject();
   }, {
     body: t.Object({
       maintenanceMode: t.Optional(t.Boolean()),

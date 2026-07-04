@@ -157,7 +157,7 @@ export default function DMConversationPage() {
   if (authLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[var(--bg-app)]">
-        <Loader2 className="w-8 h-8 text-[var(--accent-primary)] animate-spin" />
+        <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
       </div>
     );
   }
@@ -180,7 +180,7 @@ export default function DMConversationPage() {
         <>
           <Avatar className="w-20 h-20">
             <AvatarImage src={recipient?.avatar} />
-            <AvatarFallback className="bg-[var(--accent-primary)] text-white text-2xl">
+            <AvatarFallback className="bg-[var(--accent-color)] text-white text-2xl">
               {(recipientName || "?").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
@@ -211,7 +211,7 @@ export default function DMConversationPage() {
             <div className="relative flex-shrink-0">
               <Avatar className="w-8 h-8">
                 <AvatarImage src={recipient?.avatar} />
-                <AvatarFallback className="bg-[var(--accent-primary)] text-white text-sm">
+                <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
                   {(recipientName || "?").charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
@@ -318,7 +318,7 @@ export default function DMConversationPage() {
             <UserProfileSkeleton />
           ) : recipient ? (
             <>
-              <div className="h-[120px] bg-[var(--accent-primary)] relative">
+              <div className="h-[120px] bg-[var(--accent-color)] relative">
                 {recipient.isPremium && (
                   <div className="absolute top-2 right-2 px-2 py-1 bg-black/40 rounded-full flex items-center gap-1">
                     <span className="text-xs text-white font-medium">Serika+</span>
@@ -331,7 +331,7 @@ export default function DMConversationPage() {
                   <div className="relative">
                     <Avatar className="w-24 h-24 border-[6px] border-[var(--bg-app)]">
                       <AvatarImage src={recipient.avatar} />
-                      <AvatarFallback className="bg-[var(--accent-primary)] text-white text-2xl">
+                      <AvatarFallback className="bg-[var(--accent-color)] text-white text-2xl">
                         {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>

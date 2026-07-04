@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
-import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog } from '@/lib/models';
+import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
+import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { cache } from '@/lib/db';
 import { nanoid } from 'nanoid';
 import { config } from '@/lib/config';
@@ -1612,9 +1612,41 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       .limit(10);
 
     const widgetChannelId = server.settings?.widget?.channelId?.toString();
-    
+    const messageChannelId = widgetChannelId || channels.find(c => c.type === 'text')?._id?.toString();
+
+    let recentMessages: Array<{
+      id: string;
+      content: string;
+      author: { id: string; username: string; displayName?: string; avatar?: string };
+      createdAt: Date;
+    }> = [];
+    if (messageChannelId) {
+      const rawMessages = await Message.find({ channelId: messageChannelId, isDeleted: false })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate('authorId', 'username displayName avatar')
+        .lean();
+      const decrypted = await Promise.all(
+        rawMessages.map(async (msg) => {
+          const author = (msg.authorId as unknown as { _id: Types.ObjectId; username: string; displayName?: string; avatar?: string }) || {};
+          return {
+            id: (msg._id as Types.ObjectId).toString(),
+            content: await decryptFromStorage(msg.content || ''),
+            author: {
+              id: author._id?.toString() || '',
+              username: author.username || '',
+              displayName: author.displayName,
+              avatar: author.avatar,
+            },
+            createdAt: msg.createdAt as Date,
+          };
+        })
+      );
+      recentMessages = decrypted.reverse();
+    }
+
     // Get an active invite
-    const invite = await Invite.findOne({ 
+    const invite = await Invite.findOne({
       serverId: params.serverId,
       $or: [
         { expiresAt: { $gt: new Date() } },
@@ -1642,6 +1674,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       id: server._id.toString(),
       name: server.name,
       icon: server.icon,
+      isPartnered: server.isPartnered,
       memberCount: server.memberCount || members.length,
       onlineCount,
       inviteCode: invite?.code,
@@ -1652,6 +1685,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         isWidgetChannel: widgetChannelId ? c._id.toString() === widgetChannelId : false,
       })),
       members: transformedMembers,
+      recentMessages,
     };
   }, {
     params: t.Object({

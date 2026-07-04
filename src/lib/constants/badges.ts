@@ -13,6 +13,8 @@ import {
   Zap,
   Flame,
   Scale,
+  HandHeart,
+  FlaskConical,
   type LucideIcon,
 } from "lucide-react";
 
@@ -34,6 +36,22 @@ export const BADGES: Record<string, Badge> = {
     icon: Code,
     color: '#e2b714',
     priority: 150,
+  },
+  SERIKACORD_CONTRIBUTOR: {
+    id: 'serikacord_contributor',
+    name: 'SerikaCord Contributor',
+    description: 'Contributed to SerikaCord',
+    icon: HandHeart,
+    color: '#A78BFA',
+    priority: 145,
+  },
+  SERIKACORD_TESTER: {
+    id: 'serikacord_tester',
+    name: 'SerikaCord Tester',
+    description: 'Helped test SerikaCord',
+    icon: FlaskConical,
+    color: '#23A55A',
+    priority: 140,
   },
   STAFF: {
     id: 'staff',

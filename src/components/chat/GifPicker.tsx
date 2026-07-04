@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Loader2, ChevronLeft, TrendingUp, Grid3X3, Tag as TagIcon, X, Flame } from "lucide-react";
+import { Search, Loader2, ChevronLeft, TrendingUp, Grid3X3, Tag as TagIcon, X, Flame, Star, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useGifFavorites } from "@/hooks/useGifFavorites";
 
 interface Gif {
   id: string;
@@ -45,9 +46,10 @@ const TAG_PAGE_SIZE = 10;
 const MAX_PAGES = 50; // Safety cap to prevent infinite loading
 
 type ViewMode = "home" | "trending" | "category" | "search";
-type HomeTab = "trending" | "tags" | "collections";
+type HomeTab = "trending" | "tags" | "collections" | "favorites";
 
 export function GifPicker({ onGifSelect, className }: GifPickerProps) {
+  const { favorites, removeFavorite } = useGifFavorites();
   const [search, setSearch] = useState("");
   const [gifs, setGifs] = useState<Gif[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -360,13 +362,14 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     if (isLoadingMore || noNewItemsRef.current) return;
 
     if (viewMode === "home") {
+      if (homeTab === "favorites") return;
       if (homeTab === "trending") {
         if (currentPage >= totalPages) return;
         fetchTrending(currentPage + 1, true);
       } else if (homeTab === "tags") {
         if (tagsPage >= tagsTotalPages) return;
         fetchTags(tagsPage + 1, true);
-      } else {
+      } else if (homeTab === "collections") {
         if (collectionsPage >= collectionsTotalPages) return;
         fetchCollections(collectionsPage + 1, true);
       }
@@ -438,7 +441,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   }, [loadMore, isLoading, isLoadingMore, viewMode, homeTab]);
 
   const canLoadMore = viewMode === "home"
-    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : collectionsPage < collectionsTotalPages)
+    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : homeTab === "collections" ? collectionsPage < collectionsTotalPages : false)
     : currentPage < totalPages;
 
   // Navigation handlers
@@ -521,6 +524,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             { id: "trending", label: "Trending", icon: <Flame className="w-3.5 h-3.5" /> },
             { id: "tags",     label: "Tags",     icon: <TagIcon className="w-3.5 h-3.5" /> },
             { id: "collections", label: "Collections", icon: <Grid3X3 className="w-3.5 h-3.5" /> },
+            { id: "favorites", label: "Favorites", icon: <Star className="w-3.5 h-3.5" /> },
           ] as { id: HomeTab; label: string; icon: React.ReactNode }[]).map((tab) => (
             <button
               key={tab.id}
@@ -592,7 +596,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                       title={gif.title}
                       className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                     >
-                      <img src={gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                      <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
                     </button>
                   ))}
@@ -602,6 +606,57 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                     {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
                   </div>
                 )}
+              </div>
+            )
+          ) : homeTab === "favorites" ? (
+            favorites.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+                <Star className="w-10 h-10 mb-3 opacity-30" />
+                <p className="text-sm">No favorite GIFs yet</p>
+                <p className="text-xs text-[#6b7387] mt-1">Star GIFs in chat to save them here</p>
+              </div>
+            ) : (
+              <div className="p-2">
+                <div className="columns-2 gap-2">
+                  {favorites.map((fav) => (
+                    <div
+                      key={fav.url}
+                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
+                    >
+                      <button
+                        onClick={() =>
+                          onGifSelect({
+                            id: fav.url,
+                            slug: "",
+                            title: fav.title || "Favorite",
+                            url: fav.url,
+                            thumbnailUrl: fav.url,
+                          })
+                        }
+                        title={fav.title || "Favorite GIF"}
+                        className="w-full"
+                      >
+                        <img
+                          src={fav.url}
+                          alt={fav.title || "Favorite GIF"}
+                          className="w-full h-auto block"
+                          loading="lazy"
+                        />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          removeFavorite(fav.url);
+                        }}
+                        className="absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/60 hover:bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove from favorites"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )
           ) : (
@@ -670,7 +725,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                   title={gif.title}
                   className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                 >
-                  <img src={gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                  <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
                   <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <p className="text-[10px] text-white leading-tight line-clamp-1">{gif.title}</p>
                   </div>

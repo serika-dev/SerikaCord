@@ -4,7 +4,7 @@
   "description": "SerikaCord mobile app",
   "main": "index.js",
   "scripts": {
-    "build:web": "cd .. && bun run build && cp -r out/* mobile/www/",
+    "build:web": "cd .. && rm -rf mobile/www && MOBILE_BUILD=1 bun run build && cp -r out/* mobile/www/",
     "cap:init": "bunx cap init SerikaCord dev.serika.serikacord --web-dir www",
     "cap:add:ios": "bunx cap add ios",
     "cap:add:android": "bunx cap add android",

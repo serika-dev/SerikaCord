@@ -1,8 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   MessageSquare,
   UserPlus,
@@ -10,11 +15,14 @@ import {
   Check,
   CalendarDays,
   Crown,
+  Plus,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getBadgesByPriority } from "@/lib/constants/badges";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import { hasPermissionBit } from "@/lib/roles/bitfield";
 
 export interface ProfileCardUser {
   id: string;
@@ -60,6 +68,8 @@ interface ProfileCardProps {
   className?: string;
   /** Whether the current user is already friends with this user */
   isFriend?: boolean;
+  /** Server context for role management */
+  serverId?: string;
 }
 
 /**
@@ -73,10 +83,55 @@ export function ProfileCard({
   onNavigate,
   className,
   isFriend = false,
+  serverId,
 }: ProfileCardProps) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [friendRequestSent, setFriendRequestSent] = useState(user.friendRequestSent ?? false);
+  const [memberRoles, setMemberRoles] = useState(user.roles || []);
+  const [serverRoles, setServerRoles] = useState<Array<{ id: string; name: string; color?: string; isDefault?: boolean }>>([]);
+  const [canManageRoles, setCanManageRoles] = useState(false);
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false);
+  const [isUpdatingRoles, setIsUpdatingRoles] = useState(false);
+
+  const MANAGE_ROLES_BIT = 1n << 28n;
+
+  useEffect(() => {
+    setMemberRoles(user.roles || []);
+  }, [user.roles]);
+
+  useEffect(() => {
+    if (!serverId) return;
+    let active = true;
+    const fetchServer = async () => {
+      try {
+        const [serverRes, permRes] = await Promise.all([
+          fetch(`/api/servers/${serverId}`),
+          fetch(`/api/servers/${serverId}/members/@me/permissions`),
+        ]);
+        if (!active) return;
+        if (serverRes.ok) {
+          const serverData = await serverRes.json();
+          const roles = (serverData.server?.roles || []).map((r: { _id?: string; id?: string; name: string; color?: string; isDefault?: boolean }) => ({
+            id: r._id || r.id || "",
+            name: r.name,
+            color: r.color,
+            isDefault: r.isDefault,
+          }));
+          setServerRoles(roles);
+        }
+        if (permRes.ok) {
+          const permData = await permRes.json();
+          const can = permData.isOwner || hasPermissionBit(permData.permissions, MANAGE_ROLES_BIT);
+          setCanManageRoles(can);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchServer();
+    return () => { active = false; };
+  }, [serverId, MANAGE_ROLES_BIT]);
 
   const status = user.status ?? "offline";
   const displayName = user.displayName || user.username;
@@ -94,6 +149,36 @@ export function ProfileCard({
   const handleSendMessage = () => {
     onNavigate?.();
     router.push(`/dm/${user.id}`);
+  };
+
+  const updateMemberRoles = async (nextRoleIds: string[]) => {
+    if (!serverId || !user.id) return;
+    setIsUpdatingRoles(true);
+    try {
+      const res = await fetch(`/api/servers/${serverId}/members/${user.id}/roles`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleIds: nextRoleIds }),
+      });
+      if (!res.ok) throw new Error("Failed to update roles");
+      setMemberRoles(serverRoles.filter((r) => nextRoleIds.includes(r.id) || r.isDefault));
+      toast.success("Roles updated");
+    } catch {
+      toast.error("Failed to update roles");
+    } finally {
+      setIsUpdatingRoles(false);
+    }
+  };
+
+  const addRole = (roleId: string) => {
+    const next = Array.from(new Set([...memberRoles.map((r) => r.id), roleId]));
+    void updateMemberRoles(next.filter((id) => !serverRoles.find((r) => r.id === id)?.isDefault));
+    setRoleMenuOpen(false);
+  };
+
+  const removeRole = (roleId: string) => {
+    const next = memberRoles.filter((r) => r.id !== roleId).map((r) => r.id);
+    void updateMemberRoles(next);
   };
 
   const handleAddFriend = async () => {
@@ -220,12 +305,12 @@ export function ProfileCard({
         {/* Badges */}
         {badges.length > 0 && (
           <div className="mt-3">
-            <BadgeList badges={badges.map((b) => b.id) as UIBadgeId[]} size="sm" />
+            <BadgeList badges={badges.map((b) => b.id) as UIBadgeId[]} size="sm" maxDisplay={badges.length} expandable={false} />
           </div>
         )}
 
         {/* Details card */}
-        {(user.bio || (user.roles?.length ?? 0) > 0 || user.joinedAt || user.createdAt) && (
+        {(user.bio || (memberRoles.length > 0 || canManageRoles) || user.joinedAt || user.createdAt) && (
           <div className="mt-4 rounded-lg bg-white/[0.03] border border-white/[0.05] p-3 space-y-3">
             {user.bio && (
               <div>
@@ -234,14 +319,17 @@ export function ProfileCard({
               </div>
             )}
 
-            {user.roles && user.roles.length > 0 && (
+            {(memberRoles.length > 0 || canManageRoles) && serverId && (
               <div>
                 <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1.5">Roles</h4>
                 <div className="flex flex-wrap gap-1">
-                  {user.roles.map((role) => (
+                  {memberRoles.map((role) => (
                     <span
                       key={role.id}
-                      className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border border-white/[0.06]"
+                      className={cn(
+                        "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-white/[0.06]",
+                        canManageRoles && !serverRoles.find((r) => r.id === role.id)?.isDefault && "group pr-1"
+                      )}
                       style={{
                         backgroundColor: role.color ? `${role.color}1a` : "rgba(255,255,255,0.04)",
                         color: role.color || "#b8b8c8",
@@ -252,8 +340,61 @@ export function ProfileCard({
                         style={{ backgroundColor: role.color || "#888888" }}
                       />
                       {role.name}
+                      {canManageRoles &&
+                        serverRoles.length > 0 &&
+                        !serverRoles.find((r) => r.id === role.id)?.isDefault && (
+                          <button
+                            onClick={() => removeRole(role.id)}
+                            disabled={isUpdatingRoles}
+                            className="ml-0.5 p-0.5 rounded-full hover:bg-white/20 text-current opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Remove role"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
                     </span>
                   ))}
+                  {canManageRoles && (
+                    <Popover open={roleMenuOpen} onOpenChange={setRoleMenuOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          disabled={isUpdatingRoles}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-white/[0.06] bg-white/[0.04] hover:bg-white/[0.10] text-white transition-colors"
+                          title="Add role"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Add Role
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent
+                        align="start"
+                        className="w-52 p-1 bg-[#1e1f22] border-[#2b2d31] text-white shadow-xl"
+                      >
+                        {(() => {
+                          const assignable = serverRoles.filter(
+                            (r) => !r.isDefault && !memberRoles.some((m) => m.id === r.id)
+                          );
+                          return assignable.length === 0 ? (
+                            <p className="px-2 py-1.5 text-xs text-[#949ba4]">No roles to assign</p>
+                          ) : (
+                            assignable.map((role) => (
+                              <button
+                                key={role.id}
+                                onClick={() => addRole(role.id)}
+                                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-[#2b2d31] text-left text-sm transition-colors"
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: role.color || "#888888" }}
+                                />
+                                <span className="truncate">{role.name}</span>
+                              </button>
+                            ))
+                          );
+                        })()}
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </div>
               </div>
             )}

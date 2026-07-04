@@ -126,9 +126,9 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                         isActive ? "h-10" : "h-0 group-hover:h-5"
                       )}
                     />
-                    {/* Purple mention badge */}
+                    {/* Accent mention badge */}
                     {hasMention && !isActive && (
-                      <span className="absolute bottom-0 right-0 min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
+                      <span className="absolute bottom-0 right-0 min-w-[20px] h-[20px] px-1 flex items-center justify-center rounded-full bg-[var(--accent-color)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
                         {mentionCount > 99 ? "99+" : mentionCount}
                       </span>
                     )}

@@ -71,6 +71,7 @@ function getDefaultUserSettings() {
       highContrast: false,
       dyslexicFont: false,
       messageSpacing: 'cozy',
+      tts: false,
     },
     voiceVideo: {
       inputVolume: 100,
@@ -80,6 +81,7 @@ function getDefaultUserSettings() {
       autoGainControl: true,
       pushToTalk: false,
       pushToTalkKey: 'V',
+      streamPreview: true,
     },
     textImages: {
       inlineMedia: true,
@@ -109,6 +111,9 @@ function getDefaultUserSettings() {
     dataPrivacy: {
       allowPersonalization: true,
       allowCrashReports: true,
+    },
+    advanced: {
+      developerMode: false,
     },
   } as Record<string, any>;
 }

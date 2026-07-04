@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/contexts/AuthContext";
 import { 
   X, 
   MessageCircle, 
@@ -77,6 +78,7 @@ const statusLabels = {
 export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurrentUser = false }: UserProfileProps) {
   const [copiedId, setCopiedId] = useState(false);
   const router = useRouter();
+  const { user: currentUser } = useAuth();
 
   const copyUserId = () => {
     navigator.clipboard.writeText(user.id);
@@ -291,13 +293,16 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
           {/* Name & Badges */}
           <div className="flex items-start justify-between mb-1">
             <div>
-              <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <h2 className="text-xl font-bold text-white flex items-center gap-2 flex-wrap">
                 {user.displayName}
                 {user.badges && user.badges.length > 0 && (
-                  <BadgeList badges={user.badges} size="md" />
+                  <BadgeList badges={user.badges} size="md" maxDisplay={user.badges.length} expandable={false} />
                 )}
               </h2>
               <p className="text-sm text-[#b5bac1]">@{user.username}</p>
+              {currentUser?.settings?.advanced?.developerMode && (
+                <p className="text-[10px] font-mono text-[#666666] mt-0.5">ID: {user.id}</p>
+              )}
               {user.pronouns && (
                 <p className="text-xs text-[#949ba4] mt-0.5">{user.pronouns}</p>
               )}

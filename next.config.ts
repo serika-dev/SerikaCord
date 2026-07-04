@@ -1,8 +1,10 @@
 import type { NextConfig } from "next";
 
+const isMobileBuild = process.env.MOBILE_BUILD === '1';
+
 const nextConfig: NextConfig = {
-  // Enable standalone output for Docker
-  output: 'standalone',
+  // Standalone output for Docker; static export for mobile builds
+  output: isMobileBuild ? 'export' : 'standalone',
 
   // Allow large file uploads through middleware and internal proxy (500MB max for Serika+)
   ...({
@@ -23,7 +25,26 @@ const nextConfig: NextConfig = {
   // Transpile serika-dev-player for proper CSS/ESM handling
   transpilePackages: ['serika-dev-player'],
   
-  // Security headers
+  // Image optimization requires a server, so disable it for mobile static export
+  images: {
+    unoptimized: isMobileBuild,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '*.backblazeb2.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'cdn.serika.dev',
+      },
+      {
+        protocol: 'https',
+        hostname: 'cdn.discordapp.com',
+      },
+    ],
+  },
+  
+  // Security headers (server-only, ignored during static export)
   async headers() {
     return [
       {
@@ -54,24 +75,6 @@ const nextConfig: NextConfig = {
     ];
   },
   
-  // Image domains for avatars/banners
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.backblazeb2.com',
-      },
-      {
-        protocol: 'https',
-        hostname: 'cdn.serika.dev',
-      },
-      {
-        protocol: 'https',
-        hostname: 'cdn.discordapp.com',
-      },
-    ],
-  },
-
   // URL rewrites for Discord-like @me route
   async rewrites() {
     return [

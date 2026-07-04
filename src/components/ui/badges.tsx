@@ -16,6 +16,8 @@ import {
   Flame,
   Scale,
   ChevronDown,
+  HandHeart,
+  FlaskConical,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -112,6 +114,29 @@ const BADGE_CONFIG = {
     icon: Code,
     color: '#8B5CF6',
     bgColor: 'bg-[#8B5CF6]/20',
+  },
+
+  // SerikaCord badges
+  serikacord_developer: {
+    name: 'SerikaCord Developer',
+    description: 'Core developer of SerikaCord',
+    icon: Code,
+    color: '#e2b714',
+    bgColor: 'bg-[#e2b714]/20',
+  },
+  serikacord_contributor: {
+    name: 'SerikaCord Contributor',
+    description: 'Contributed to SerikaCord',
+    icon: HandHeart,
+    color: '#A78BFA',
+    bgColor: 'bg-[#A78BFA]/20',
+  },
+  serikacord_tester: {
+    name: 'SerikaCord Tester',
+    description: 'Helped test SerikaCord',
+    icon: FlaskConical,
+    color: '#23A55A',
+    bgColor: 'bg-[#23A55A]/20',
   },
   
   // HypeSquad Badges

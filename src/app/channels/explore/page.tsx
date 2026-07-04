@@ -18,7 +18,6 @@ import {
   Film,
   Sparkles,
   Globe,
-  ChevronRight,
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -45,6 +44,103 @@ const categories = [
   { id: "education", name: "Education", icon: BookOpen },
   { id: "entertainment", name: "Entertainment", icon: Film },
 ];
+
+function formatMemberCount(count: number) {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return count.toString();
+}
+
+function ServerCard({
+  server,
+  featured,
+  onJoin,
+  joining,
+}: {
+  server: Server;
+  featured?: boolean;
+  onJoin: () => void;
+  joining: boolean;
+}) {
+  return (
+    <div
+      className="group bg-[#111214] rounded-xl overflow-hidden border border-[#1f1f22] hover:border-[#404249] hover:shadow-xl transition-all cursor-pointer"
+      onClick={onJoin}
+    >
+      {/* Banner */}
+      <div className={cn("relative", featured ? "h-32" : "h-24")}>
+        {server.banner ? (
+          <img src={server.banner} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-[#5865F2]/40 to-[#EB459E]/40" />
+        )}
+      </div>
+
+      <div className="p-4 relative">
+        <div className="flex gap-3">
+          <Avatar
+            className={cn(
+              "flex-shrink-0 border-4 border-[#111214] -mt-10",
+              featured ? "w-20 h-20" : "w-16 h-16"
+            )}
+          >
+            <AvatarImage src={server.icon} />
+            <AvatarFallback className="bg-[#5865F2] text-white text-lg">
+              {server.name.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+
+          <div className="min-w-0 flex-1 pt-1">
+            <div className="flex items-center gap-1.5">
+              {server.isPartnered && <ServerBadge type="partnered" size="sm" />}
+              <h3 className="text-white font-bold truncate">{server.name}</h3>
+            </div>
+            <p className="text-[#949ba4] text-sm line-clamp-2 mt-1">
+              {server.description || "No description"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center gap-3 text-xs text-[#949ba4]">
+            <span className="flex items-center gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-[#23A55A]" />
+              {formatMemberCount(server.onlineCount || 0)} Online
+            </span>
+            <span className="flex items-center gap-1">
+              <Users className="w-3.5 h-3.5" />
+              {formatMemberCount(server.memberCount)} Members
+            </span>
+          </div>
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onJoin();
+            }}
+            disabled={joining}
+            className="px-4 py-1.5 rounded-full bg-[#5865F2] hover:bg-[#4752c4] text-white text-sm font-medium transition-colors disabled:opacity-60"
+          >
+            {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : "Join"}
+          </button>
+        </div>
+
+        {server.tags && server.tags.length > 0 && (
+          <div className="flex gap-1.5 mt-3 flex-wrap">
+            {server.tags.slice(0, 3).map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 bg-[#1f1f22] text-[#949ba4] text-xs rounded-full"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ExplorePage() {
   const router = useRouter();
@@ -89,31 +185,59 @@ export default function ExplorePage() {
     }
   };
 
-  const formatMemberCount = (count: number) => {
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-    return count.toString();
-  };
+  const filteredServers = debouncedSearch
+    ? servers
+    : servers.filter((s) => !s.isPartnered || selectedCategory !== "all");
+
+  const featuredServers = servers.filter((s) => s.isPartnered).slice(0, 4);
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0a0a] min-h-0">
-      {/* Hero Section */}
-      <div className="relative h-[200px] md:h-[280px] bg-gradient-to-br from-[#8B5CF6] via-[#6366F1] to-[#8B5CF6] overflow-hidden flex-shrink-0">
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-20" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
-        
-        <div className="relative h-full flex flex-col items-center justify-center px-4 text-center">
-          <div className="flex items-center gap-2 mb-3">
-            <Sparkles className="w-6 h-6 md:w-8 md:h-8 text-white" />
-            <h1 className="text-2xl md:text-4xl font-bold text-white">Discover Communities</h1>
-          </div>
-          <p className="text-white/80 text-sm md:text-lg max-w-xl mb-6">
-            Find your people. From gaming to art, there&apos;s a place for everyone.
-          </p>
-          
-          {/* Search Bar */}
-          <div className="w-full max-w-xl">
-            <div className="relative">
+    <div className="flex-1 flex min-h-0 bg-[#0a0a0a]">
+      {/* Sidebar */}
+      <aside className="w-60 hidden md:flex flex-col border-r border-[#1f1f22] bg-[#111214]">
+        <div className="p-4">
+          <h2 className="text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-3">
+            Discover
+          </h2>
+          <nav className="space-y-1">
+            {categories.map((category) => {
+              const Icon = category.icon;
+              return (
+                <button
+                  key={category.id}
+                  onClick={() => setSelectedCategory(category.id)}
+                  className={cn(
+                    "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    selectedCategory === category.id
+                      ? "bg-[#404249] text-white"
+                      : "text-[#b5bac1] hover:bg-[#2b2d31] hover:text-white"
+                  )}
+                >
+                  <Icon className="w-4 h-4" />
+                  {category.name}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <ScrollArea className="flex-1 min-h-0">
+        {/* Hero */}
+        <div className="relative h-[220px] md:h-[300px] bg-gradient-to-br from-[#5865F2] via-[#8B5CF6] to-[#EB459E] overflow-hidden flex-shrink-0">
+          <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-20" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] to-transparent" />
+
+          <div className="relative h-full flex flex-col items-center justify-center px-4 text-center">
+            <h1 className="text-3xl md:text-5xl font-extrabold text-white mb-2">
+              Find your community
+            </h1>
+            <p className="text-white/80 text-sm md:text-lg max-w-xl mb-6">
+              From gaming, to music, to learning, there&apos;s a place for you.
+            </p>
+
+            <div className="w-full max-w-xl relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#888888]" />
               <Input
                 value={searchQuery}
@@ -124,173 +248,66 @@ export default function ExplorePage() {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Content */}
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          {/* Categories */}
-          <div className="flex gap-2 overflow-x-auto pb-4 mb-6 scrollbar-hide">
-            {categories.map((category) => {
-              const Icon = category.icon;
-              return (
-                <button
-                  key={category.id}
-                  onClick={() => setSelectedCategory(category.id)}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all",
-                    selectedCategory === category.id
-                      ? "bg-[#8B5CF6] text-white"
-                      : "bg-[#111111] text-[#b5bac1] hover:bg-[#1a1a1a] hover:text-white"
-                  )}
-                >
-                  <Icon className="w-4 h-4" />
-                  <span className="text-sm font-medium">{category.name}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Featured Section */}
-          {selectedCategory === "all" && !debouncedSearch && (
-            <div className="mb-8">
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          {/* Featured */}
+          {selectedCategory === "all" && !debouncedSearch && featuredServers.length > 0 && (
+            <section className="mb-10">
               <div className="flex items-center gap-2 mb-4">
-                <TrendingUp className="w-5 h-5 text-[#8B5CF6]" />
+                <TrendingUp className="w-5 h-5 text-[var(--accent-color)]" />
                 <h2 className="text-lg font-bold text-white">Featured Communities</h2>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {servers.filter(s => s.isPartnered).slice(0, 2).map((server) => (
-                  <div
+                {featuredServers.map((server) => (
+                  <ServerCard
                     key={server.id}
-                    className="group relative bg-[#111111] rounded-xl overflow-hidden hover:ring-2 hover:ring-[#8B5CF6] transition-all cursor-pointer"
-                    onClick={() => handleJoinServer(server.id)}
-                  >
-                    {/* Banner */}
-                    <div 
-                      className="h-24 bg-gradient-to-br from-[#8B5CF6]/30 to-[#6366F1]/30"
-                      style={server.banner ? { backgroundImage: `url(${server.banner})`, backgroundSize: 'cover' } : undefined}
-                    />
-                    
-                    {/* Content */}
-                    <div className="p-4 relative">
-                      {/* Server Icon */}
-                      <div className="absolute -top-8 left-4">
-                        <Avatar className="w-16 h-16 border-4 border-[#111111]">
-                          <AvatarImage src={server.icon} />
-                          <AvatarFallback className="bg-[#8B5CF6] text-white text-xl">
-                            {server.name.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                      </div>
-
-                      <div className="ml-20">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="text-white font-bold text-lg">{server.name}</h3>
-                          {server.isPartnered && <ServerBadge type="partnered" size="sm" />}
-                        </div>
-                        <p className="text-[#b5bac1] text-sm line-clamp-2 mb-3">
-                          {server.description}
-                        </p>
-                        <div className="flex items-center gap-4 text-sm">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full bg-[#8B5CF6]" />
-                            <span className="text-[#b5bac1]">{formatMemberCount(server.onlineCount || 0)} Online</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <Users className="w-4 h-4 text-[#888888]" />
-                            <span className="text-[#b5bac1]">{formatMemberCount(server.memberCount)} Members</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Join indicator */}
-                      <div className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {joiningServerId === server.id ? (
-                          <Loader2 className="w-5 h-5 text-[#8B5CF6] animate-spin" />
-                        ) : (
-                          <ChevronRight className="w-5 h-5 text-[#8B5CF6]" />
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                    server={server}
+                    featured
+                    onJoin={() => handleJoinServer(server.id)}
+                    joining={joiningServerId === server.id}
+                  />
                 ))}
               </div>
-            </div>
+            </section>
           )}
 
-          {/* All Servers Grid */}
-          <div>
+          {/* All / Popular */}
+          <section>
             <h2 className="text-lg font-bold text-white mb-4">
-              {searchQuery ? `Search Results for "${searchQuery}"` : "All Communities"}
+              {searchQuery
+                ? `Results for "${searchQuery}"`
+                : selectedCategory === "all"
+                ? "Popular Communities"
+                : `${categories.find((c) => c.id === selectedCategory)?.name} Communities`}
             </h2>
-            
+
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+                <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
               </div>
-            ) : servers.length === 0 ? (
+            ) : filteredServers.length === 0 ? (
               <div className="text-center py-12">
                 <Search className="w-12 h-12 text-[#555555] mx-auto mb-3" />
-                <h3 className="text-lg font-bold text-white mb-2">No communities found</h3>
+                <h3 className="text-lg font-bold text-white mb-2">
+                  No communities found
+                </h3>
                 <p className="text-[#888888] text-sm">
                   Try a different search term or browse categories
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {servers.map((server) => (
-                  <div
+                {filteredServers.map((server) => (
+                  <ServerCard
                     key={server.id}
-                    className="group bg-[#111111] rounded-xl p-4 hover:bg-[#1a1a1a] transition-all cursor-pointer"
-                    onClick={() => handleJoinServer(server.id)}
-                  >
-                    <div className="flex gap-3">
-                      <Avatar className="w-12 h-12 flex-shrink-0">
-                        <AvatarImage src={server.icon} />
-                        <AvatarFallback className="bg-[#8B5CF6] text-white">
-                          {server.name.charAt(0)}
-                        </AvatarFallback>
-                      </Avatar>
-                      
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 mb-0.5">
-                          <h3 className="text-white font-semibold truncate">{server.name}</h3>
-                          {server.isPartnered && <ServerBadge type="partnered" size="sm" />}
-                        </div>
-                        <p className="text-[#888888] text-sm line-clamp-2 mb-2">
-                          {server.description || "No description"}
-                        </p>
-                        <div className="flex items-center gap-3 text-xs text-[#666666]">
-                          <span className="flex items-center gap-1">
-                            <div className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6]" />
-                            {formatMemberCount(server.onlineCount || 0)}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Users className="w-3 h-3" />
-                            {formatMemberCount(server.memberCount)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Tags */}
-                    {server.tags && server.tags.length > 0 && (
-                      <div className="flex gap-1.5 mt-3 flex-wrap">
-                        {server.tags.slice(0, 3).map((tag) => (
-                          <span
-                            key={tag}
-                            className="px-2 py-0.5 bg-[#222222] text-[#888888] text-xs rounded-full"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                    server={server}
+                    onJoin={() => handleJoinServer(server.id)}
+                    joining={joiningServerId === server.id}
+                  />
                 ))}
               </div>
             )}
-          </div>
+          </section>
         </div>
       </ScrollArea>
     </div>

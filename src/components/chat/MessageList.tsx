@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   forwardRef,
+  memo,
   type ReactNode,
   type Ref,
 } from "react";
@@ -226,7 +227,7 @@ function MessageListInner<M extends ChatMessage>(
                         });
                       });
                     }}
-                    className="px-4 py-1.5 rounded-full text-sm text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 hover:bg-[var(--accent-primary)]/20 transition-colors"
+                    className="px-4 py-1.5 rounded-full text-sm text-[var(--accent-color)] bg-[var(--accent-color)]/10 hover:bg-[var(--accent-color)]/20 transition-colors"
                   >
                     Load older messages
                   </button>
@@ -291,7 +292,7 @@ function MessageListInner<M extends ChatMessage>(
             isAtBottomRef.current = true;
             scrollToBottom();
           }}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--accent-primary)] text-white text-sm shadow-lg hover:opacity-90 transition-opacity animate-fade-in-up"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--accent-color)] text-white text-sm shadow-lg hover:opacity-90 transition-opacity animate-fade-in-up"
         >
           <ArrowDown className="w-4 h-4" />
           {newMessagesCount} new message{newMessagesCount === 1 ? "" : "s"}
@@ -306,6 +307,6 @@ function MessageListInner<M extends ChatMessage>(
  * bottom-pinned auto-scroll, top pagination with position restore,
  * "new messages" pill, and stable handlers for memoized rows.
  */
-export const MessageList = forwardRef(MessageListInner) as <M extends ChatMessage>(
+export const MessageList = memo(forwardRef(MessageListInner) as <M extends ChatMessage>(
   props: MessageListProps<M> & { ref?: Ref<MessageListHandle> }
-) => ReactNode;
+) => ReactNode);

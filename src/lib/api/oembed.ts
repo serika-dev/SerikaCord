@@ -17,6 +17,7 @@ const FIRST_PARTY_DOMAINS = [
   'waifu.ws',
   'gifs.serika.dev',
   'accounts.serika.dev',
+  'music.serika.dev',
   'cdn.ado.wtf',
 ];
 
@@ -159,6 +160,7 @@ const OEMBED_WHITELIST = [
   'serika.dev',
   'serika.chat',
   'serika.cc',
+  'music.serika.dev',
   'waifu.ws',
 ];
 
@@ -168,6 +170,60 @@ function isBlockedDomain(url: string): boolean {
     return BLOCKED_DOMAINS.some(blocked => hostname === blocked || hostname.endsWith(`.${blocked}`));
   } catch {
     return true;
+  }
+}
+
+// Use the official YouTube oEmbed endpoint for YouTube / YouTube Music links.
+// Regular HTML meta scraping returns a "browser not supported" description,
+// while the provider oEmbed returns a clean title + thumbnail for playlists,
+// albums and videos.
+async function fetchYouTubeProviderOEmbed(url: string): Promise<OEmbedResponse | null> {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname !== 'youtube.com' &&
+      hostname !== 'www.youtube.com' &&
+      hostname !== 'youtu.be' &&
+      hostname !== 'music.youtube.com' &&
+      !hostname.endsWith('.youtube.com')
+    ) {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`,
+      {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+    const data = await response.json() as {
+      title?: string;
+      author_name?: string;
+      provider_name?: string;
+      thumbnail_url?: string;
+      type?: string;
+    };
+
+    const isYouTubeMusic = hostname === 'music.youtube.com' || url.includes('music.youtube.com');
+    return {
+      url,
+      title: data.title,
+      description: isYouTubeMusic
+        ? 'Listen on YouTube Music'
+        : (data.author_name || data.provider_name || 'YouTube'),
+      thumbnail: data.thumbnail_url,
+      siteName: isYouTubeMusic ? 'YouTube Music' : (data.provider_name || 'YouTube'),
+      type: data.type || 'video',
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -225,6 +281,13 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
     // Link previews for these should be handled directly by the client renderer.
     if (isFirstPartyDomain(url) || isDirectMediaUrl(url)) {
       return {};
+    }
+
+    // Provider-specific oEmbed endpoints give much better previews than
+    // scraping HTML meta tags (e.g. YouTube Music).
+    const providerOEmbed = await fetchYouTubeProviderOEmbed(url);
+    if (providerOEmbed) {
+      return providerOEmbed;
     }
     
     const whitelisted = await isWhitelistedDomainAsync(url);

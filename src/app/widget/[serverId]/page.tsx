@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Users, MessageCircle, Loader2 } from "lucide-react";
+import { ServerBadge } from "@/components/ui/badges";
 
 interface ServerWidget {
   id: string;
@@ -11,6 +12,7 @@ interface ServerWidget {
   icon?: string;
   memberCount: number;
   onlineCount: number;
+  isPartnered?: boolean;
   inviteCode?: string;
   channels: Array<{
     id: string;
@@ -23,6 +25,17 @@ interface ServerWidget {
     displayName?: string;
     avatar?: string;
     status: "online" | "idle" | "dnd" | "offline";
+  }>;
+  recentMessages: Array<{
+    id: string;
+    content: string;
+    author: {
+      id: string;
+      username: string;
+      displayName?: string;
+      avatar?: string;
+    };
+    createdAt: string;
   }>;
 }
 
@@ -60,7 +73,7 @@ export default function WidgetPage() {
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[#111111] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+        <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
       </div>
     );
   }
@@ -84,16 +97,19 @@ export default function WidgetPage() {
     <div className="min-h-screen bg-[#111111] p-4">
       <div className="max-w-sm mx-auto bg-[#0a0a0a] rounded-lg border border-[#222222] overflow-hidden">
         {/* Header */}
-        <div className="p-4 bg-gradient-to-r from-[#8B5CF6] to-[#6366F1]">
+        <div className="p-4 bg-gradient-to-r from-[var(--accent-color)] to-[var(--accent-color)]/80">
           <div className="flex items-center gap-3">
             <Avatar className="w-12 h-12 border-2 border-white/20">
               <AvatarImage src={widget.icon} />
-              <AvatarFallback className="bg-[#8B5CF6] text-white text-lg">
+              <AvatarFallback className="bg-white/20 text-white text-lg">
                 {widget.name.charAt(0)}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h1 className="font-bold text-white text-lg">{widget.name}</h1>
+              <div className="flex items-center gap-2">
+                {widget.isPartnered && <ServerBadge type="partnered" size="sm" />}
+                <h1 className="font-bold text-white text-lg">{widget.name}</h1>
+              </div>
               <div className="flex items-center gap-3 text-white/80 text-sm">
                 <span className="flex items-center gap-1">
                   <div className="w-2 h-2 rounded-full bg-[#23A559]" />
@@ -120,7 +136,7 @@ export default function WidgetPage() {
                   <div className="relative">
                     <Avatar className="w-8 h-8">
                       <AvatarImage src={member.avatar} />
-                      <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                      <AvatarFallback className="bg-[var(--accent-color)] text-white text-xs">
                         {(member.displayName || member.username).charAt(0)}
                       </AvatarFallback>
                     </Avatar>
@@ -152,6 +168,38 @@ export default function WidgetPage() {
           </div>
         )}
 
+        {/* Recent Messages */}
+        {widget.recentMessages && widget.recentMessages.length > 0 && (
+          <div className="p-4 border-b border-[#222222]">
+            <h2 className="text-xs font-semibold uppercase text-[#666666] mb-3">
+              Recent Messages
+            </h2>
+            <div className="space-y-3">
+              {widget.recentMessages.map((msg) => (
+                <div key={msg.id} className="flex gap-2">
+                  <Avatar className="w-7 h-7 shrink-0">
+                    <AvatarImage src={msg.author.avatar} />
+                    <AvatarFallback className="bg-[var(--accent-color)] text-white text-[10px]">
+                      {(msg.author.displayName || msg.author.username).charAt(0)}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-medium text-[#dcddde] truncate">
+                        {msg.author.displayName || msg.author.username}
+                      </span>
+                      <span className="text-[10px] text-[#666666]">
+                        {new Date(msg.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <p className="text-sm text-[#b5bac1] line-clamp-2">{msg.content}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Join Button */}
         {widget.inviteCode && (
           <div className="p-4">
@@ -159,7 +207,7 @@ export default function WidgetPage() {
               href={`https://serika.cc/${widget.inviteCode}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="block w-full py-2.5 px-4 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium text-center rounded-md transition-colors"
+              className="block w-full py-2.5 px-4 bg-[var(--accent-color)] hover:brightness-110 text-white font-medium text-center rounded-md transition-all"
             >
               Join Server
             </a>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
 import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
@@ -239,29 +239,56 @@ export function useMessageActions<M extends ChatMessage>({
     [addReaction, removeReaction]
   );
 
-  return {
-    editingMessage,
-    editContent,
-    setEditContent,
-    startEditing,
-    cancelEditing,
-    submitEdit,
-    handleEditKeyDown,
-    deleteConfirmMessage,
-    setDeleteConfirmMessage,
-    confirmDelete,
-    contextMenu,
-    setContextMenu,
-    openContextMenu,
-    reactionPickerMessage,
-    setReactionPickerMessage,
-    replyToMessage,
-    setReplyToMessage,
-    copyMessage,
-    togglePin,
-    applyReactionEvent,
-    addReaction,
-    removeReaction,
-    toggleReaction,
-  };
+  return useMemo(
+    () => ({
+      editingMessage,
+      editContent,
+      setEditContent,
+      startEditing,
+      cancelEditing,
+      submitEdit,
+      handleEditKeyDown,
+      deleteConfirmMessage,
+      setDeleteConfirmMessage,
+      confirmDelete,
+      contextMenu,
+      setContextMenu,
+      openContextMenu,
+      reactionPickerMessage,
+      setReactionPickerMessage,
+      replyToMessage,
+      setReplyToMessage,
+      copyMessage,
+      togglePin,
+      applyReactionEvent,
+      addReaction,
+      removeReaction,
+      toggleReaction,
+    }),
+    [
+      editingMessage,
+      editContent,
+      setEditContent,
+      startEditing,
+      cancelEditing,
+      submitEdit,
+      handleEditKeyDown,
+      deleteConfirmMessage,
+      setDeleteConfirmMessage,
+      confirmDelete,
+      contextMenu,
+      setContextMenu,
+      openContextMenu,
+      reactionPickerMessage,
+      setReactionPickerMessage,
+      replyToMessage,
+      setReplyToMessage,
+      copyMessage,
+      togglePin,
+      applyReactionEvent,
+      addReaction,
+      removeReaction,
+      toggleReaction,
+    ]
+  );
 }

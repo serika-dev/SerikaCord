@@ -1,8 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import { Toaster } from "sonner";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { NetworkStatus } from "@/components/ui/network-status";
+import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
 import "./globals.css";
 
 const inter = Inter({
@@ -82,17 +82,7 @@ export default function RootLayout({
         <ThemeProvider>
           {children}
           <NetworkStatus />
-          <Toaster
-            theme="system"
-            position="bottom-right"
-            toastOptions={{
-              style: {
-                background: 'var(--app-surface)',
-                border: '1px solid var(--app-border)',
-                color: 'var(--app-text)',
-              },
-            }}
-          />
+          <ToasterWrapper />
         </ThemeProvider>
       </body>
     </html>

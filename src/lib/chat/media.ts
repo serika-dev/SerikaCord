@@ -39,8 +39,11 @@ export interface GalleryMessageLike {
 }
 
 const IMAGE_EXTENSIONS = /\.(gif|jpg|jpeg|png|webp|svg|bmp|avif)(?:$|[?#])/i;
+const GIF_EXTENSIONS = /\.gif(?:$|[?#])/i;
 const IMAGE_HOSTS =
   /^https?:\/\/(gifs\.serika\.dev|cdn\.ado\.wtf|i\.imgur\.com|media\d*\.tenor\.com|media\.giphy\.com|i\.giphy\.com|cdn\.discordapp\.com|images-ext-\d+\.discordapp\.net|cdn\.discordapp\.net)/i;
+const GIF_HOSTS =
+  /^https?:\/\/(gifs\.serika\.dev|media\d*\.tenor\.com|media\.giphy\.com|i\.giphy\.com|klipy\.com|klipy\.dev)/i;
 const URL_REGEX = /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/gi;
 
 const IMAGE_QUERY_HINTS = ["gif", "jpg", "jpeg", "png", "webp", "svg", "bmp", "avif", "image/"];
@@ -76,6 +79,21 @@ export function isImageLikeUrl(url: string): boolean {
     return false;
   }
 
+  return false;
+}
+
+export function isGifUrl(url: string): boolean {
+  if (!url) return false;
+  if (GIF_EXTENSIONS.test(url) || GIF_HOSTS.test(url)) return true;
+  try {
+    const parsed = new URL(url);
+    if (GIF_EXTENSIONS.test(parsed.pathname)) return true;
+    if (GIF_HOSTS.test(url)) return true;
+    const format = parsed.searchParams.get("format") || parsed.searchParams.get("fm") || "";
+    if (format.toLowerCase().includes("gif")) return true;
+  } catch {
+    return false;
+  }
   return false;
 }
 

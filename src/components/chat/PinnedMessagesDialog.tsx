@@ -38,7 +38,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
       <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Pin className="w-5 h-5 text-[var(--accent-primary)]" />
+            <Pin className="w-5 h-5 text-[var(--accent-color)]" />
             Pinned Messages
           </DialogTitle>
           <DialogDescription className="text-[var(--text-secondary)]">
@@ -72,7 +72,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
                 <div className="flex items-center gap-2 mb-1">
                   <Avatar className="w-6 h-6">
                     <AvatarImage src={message.author?.avatar} />
-                    <AvatarFallback className="bg-[var(--accent-primary)] text-white text-xs">
+                    <AvatarFallback className="bg-[var(--accent-color)] text-white text-xs">
                       {(message.author?.displayName || message.author?.username || "?")
                         .charAt(0)
                         .toUpperCase()}
@@ -93,7 +93,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
                       className="ml-auto p-1 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
                       title="Unpin"
                     >
-                      <Pin className="w-4 h-4 text-[var(--accent-primary)]" />
+                      <Pin className="w-4 h-4 text-[var(--accent-color)]" />
                     </button>
                   )}
                 </div>

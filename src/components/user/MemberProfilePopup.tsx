@@ -98,6 +98,7 @@ export function MemberProfilePopup({
           isFriend={fullProfile.isFriend}
           showOwnerCrown={Boolean(serverId)}
           onNavigate={() => setOpen(false)}
+          serverId={serverId}
         />
       </PopoverContent>
     </Popover>

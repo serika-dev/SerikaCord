@@ -17,6 +17,10 @@ import {
   ChevronLeft,
 } from "lucide-react";
 
+import { ServerBadge } from "@/components/ui/badges";
+import { ShareInviteButton } from "@/components/invite/ShareInviteButton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
 interface InviteInfo {
   code: string;
   server: {
@@ -27,8 +31,27 @@ interface InviteInfo {
     memberCount?: number;
     onlineCount?: number;
     description?: string;
+    isPartnered?: boolean;
   };
   expiresAt?: string;
+}
+
+interface ServerWidget {
+  id: string;
+  name: string;
+  icon?: string;
+  memberCount: number;
+  onlineCount: number;
+  isPartnered?: boolean;
+  inviteCode?: string;
+  channels: Array<{ id: string; name: string; type: string }>;
+  members: Array<{ id: string; username: string; displayName?: string; avatar?: string; status: string }>;
+  recentMessages: Array<{
+    id: string;
+    content: string;
+    author: { id: string; username: string; displayName?: string; avatar?: string };
+    createdAt: string;
+  }>;
 }
 
 function formatExpiry(expiresAt: string | undefined): string | null {
@@ -53,6 +76,7 @@ export default function InvitePage() {
   const inviteCode = params.inviteCode as string;
 
   const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const [widget, setWidget] = useState<ServerWidget | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +112,22 @@ export default function InvitePage() {
     fetchInvite();
     checkAuth();
   }, [fetchInvite, checkAuth]);
+
+  useEffect(() => {
+    if (!invite?.server._id) return;
+    const fetchWidget = async () => {
+      try {
+        const res = await fetch(`/api/servers/${invite.server._id}/widget`);
+        if (res.ok) {
+          const data = await res.json();
+          setWidget(data);
+        }
+      } catch {
+        // best-effort: widget preview is optional
+      }
+    };
+    fetchWidget();
+  }, [invite?.server._id]);
 
   const handleJoin = async () => {
     if (!isAuthenticated) {
@@ -137,7 +177,7 @@ export default function InvitePage() {
         <p className="text-8xl font-extrabold text-white/5 select-none mb-6">404</p>
         <h1 className="text-2xl font-bold text-white mb-2">Page Not Found</h1>
         <p className="text-[#8d97ad] text-sm mb-8">This page doesn&apos;t exist or you don&apos;t have access to it.</p>
-        <Link href="/" className="px-6 py-3 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium rounded-lg transition-colors text-sm">
+        <Link href="/" className="px-6 py-3 bg-[var(--accent-color)] hover:brightness-110 text-white font-medium rounded-lg transition-all text-sm">
           Go Home
         </Link>
       </div>
@@ -208,7 +248,7 @@ export default function InvitePage() {
             </div>
             <Link
               href="/channels/me"
-              className="px-6 py-3 bg-[#7c8cff] hover:bg-[#6a7aef] text-white font-medium rounded-lg transition-colors text-sm"
+              className="px-6 py-3 bg-[var(--accent-color)] hover:brightness-110 text-white font-medium rounded-lg transition-all text-sm"
             >
               Open SerikaCord
             </Link>
@@ -271,9 +311,12 @@ export default function InvitePage() {
                   <p className="text-xs font-semibold uppercase tracking-wider text-[#7c8cff] mb-1">
                     You&apos;ve been invited to join
                   </p>
-                  <h1 className="text-2xl font-bold text-[#d5d9e8] leading-tight">
-                    {invite.server.name}
-                  </h1>
+                  <div className="flex items-center gap-2">
+                    {invite.server.isPartnered && <ServerBadge type="partnered" size="md" />}
+                    <h1 className="text-2xl font-bold text-[#d5d9e8] leading-tight">
+                      {invite.server.name}
+                    </h1>
+                  </div>
                 </div>
 
                 {/* Description */}
@@ -334,7 +377,7 @@ export default function InvitePage() {
                   <button
                     onClick={handleJoin}
                     disabled={isJoining || isExpired}
-                    className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[#7c8cff] hover:bg-[#6a7aef] disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all active:scale-[0.98] text-sm"
+                    className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all active:scale-[0.98] text-sm"
                   >
                     {isJoining ? (
                       <>
@@ -356,12 +399,20 @@ export default function InvitePage() {
                     )}
                   </button>
 
+                  {!isExpired && (
+                    <ShareInviteButton
+                      inviteCode={inviteCode}
+                      serverId={invite.server._id}
+                      serverName={invite.server.name}
+                    />
+                  )}
+
                   {!isAuthenticated && !isExpired && (
                     <p className="text-center text-xs text-[#6b7387]">
                       Don&apos;t have an account?{" "}
                       <Link
                         href={`/register?redirect=/${inviteCode}`}
-                        className="text-[#7c8cff] hover:underline"
+                        className="text-[var(--accent-color)] hover:underline"
                       >
                         Create one free
                       </Link>
@@ -381,6 +432,61 @@ export default function InvitePage() {
               <Shield className="w-3.5 h-3.5" />
               <span>Safe & Secure</span>
             </div>
+
+            {/* Widget Preview */}
+            {widget && !isExpired && (
+              <div className="mt-4 bg-[#0a0a0a]/80 border border-[#222222] rounded-xl p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-white">Server Preview</h2>
+                  <Link
+                    href={`/widget/${widget.id}`}
+                    className="text-xs text-[var(--accent-color)] hover:underline"
+                  >
+                    Open widget
+                  </Link>
+                </div>
+
+                {widget.channels.length > 0 && (
+                  <div className="mb-3">
+                    <h3 className="text-xs uppercase text-[#6b7387] mb-1.5">Channels</h3>
+                    <div className="flex flex-wrap gap-1.5">
+                      {widget.channels.slice(0, 5).map((channel) => (
+                        <span
+                          key={channel.id}
+                          className="px-2 py-1 text-xs bg-[#1a1a1a] rounded text-[#b5bac1]"
+                        >
+                          #{channel.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {widget.recentMessages && widget.recentMessages.length > 0 && (
+                  <div>
+                    <h3 className="text-xs uppercase text-[#6b7387] mb-1.5">Recent Messages</h3>
+                    <div className="space-y-2">
+                      {widget.recentMessages.slice(0, 5).map((msg) => (
+                        <div key={msg.id} className="flex gap-2">
+                          <Avatar className="w-6 h-6 shrink-0">
+                            <AvatarImage src={msg.author.avatar} />
+                            <AvatarFallback className="bg-[var(--accent-color)] text-white text-[10px]">
+                              {(msg.author.displayName || msg.author.username).charAt(0)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <span className="text-xs font-medium text-[#dcddde]">
+                              {msg.author.displayName || msg.author.username}
+                            </span>
+                            <p className="text-xs text-[#b5bac1] line-clamp-1">{msg.content}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </motion.div>
         ) : null}
       </AnimatePresence>

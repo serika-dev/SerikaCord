@@ -44,6 +44,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
+import { ServerBadge } from "@/components/ui/badges";
 import { isChannelMuted, toggleChannelMute } from "@/lib/services/notificationUX";
 import { useMentions } from "@/hooks/useMentions";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -440,11 +441,14 @@ export function ChannelSidebar({
                 />
               </>
             )}
-            <span className={cn(
-              "relative font-semibold truncate",
-              currentServer.banner ? "text-white drop-shadow" : "text-[var(--text-primary)]"
-            )}>
-              {currentServer.name}
+            <span className="relative flex items-center gap-1.5 min-w-0">
+              {currentServer.isPartnered && <ServerBadge type="partnered" size="sm" />}
+              <span className={cn(
+                "font-semibold truncate",
+                currentServer.banner ? "text-white drop-shadow" : "text-[var(--text-primary)]"
+              )}>
+                {currentServer.name}
+              </span>
             </span>
             <ChevronDown className={cn(
               "relative w-5 h-5 shrink-0",

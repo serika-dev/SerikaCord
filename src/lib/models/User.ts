@@ -111,6 +111,7 @@ export interface IUser extends Document {
       highContrast: boolean;
       dyslexicFont: boolean;
       messageSpacing: 'compact' | 'cozy';
+      tts: boolean;
     };
     voiceVideo: {
       inputVolume: number;
@@ -120,6 +121,7 @@ export interface IUser extends Document {
       autoGainControl: boolean;
       pushToTalk: boolean;
       pushToTalkKey: string;
+      streamPreview: boolean;
     };
     textImages: {
       inlineMedia: boolean;
@@ -149,6 +151,9 @@ export interface IUser extends Document {
     dataPrivacy: {
       allowPersonalization: boolean;
       allowCrashReports: boolean;
+    };
+    advanced: {
+      developerMode: boolean;
     };
   };
   
@@ -427,6 +432,7 @@ const UserSchema = new Schema<IUser>({
         enum: ['compact', 'cozy'],
         default: 'cozy',
       },
+      tts: { type: Boolean, default: false },
     },
     voiceVideo: {
       inputVolume: { type: Number, default: 100 },
@@ -436,6 +442,7 @@ const UserSchema = new Schema<IUser>({
       autoGainControl: { type: Boolean, default: true },
       pushToTalk: { type: Boolean, default: false },
       pushToTalkKey: { type: String, default: 'V' },
+      streamPreview: { type: Boolean, default: true },
     },
     textImages: {
       inlineMedia: { type: Boolean, default: true },
@@ -476,6 +483,9 @@ const UserSchema = new Schema<IUser>({
     dataPrivacy: {
       allowPersonalization: { type: Boolean, default: true },
       allowCrashReports: { type: Boolean, default: true },
+    },
+    advanced: {
+      developerMode: { type: Boolean, default: false },
     },
   },
 }, {

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Loader2, Check } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { ServerBadge } from "@/components/ui/badges";
 
 /** Serika domains whose root/`/invite` paths carry server invite codes. */
 const INVITE_HOSTS = ["serika.cc", "serika.chat", "serika.dev"];
@@ -159,7 +160,7 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
       ) : data ? (
         <div className="flex items-center gap-3">
           {/* Server icon */}
-          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-[var(--accent-primary)] flex items-center justify-center flex-shrink-0">
+          <div className="w-12 h-12 rounded-2xl overflow-hidden bg-[var(--accent-color)] flex items-center justify-center flex-shrink-0">
             {data.server.icon ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -179,14 +180,10 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
           {/* Name + counts */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
+              {data.server.isPartnered && <ServerBadge type="partnered" size="sm" />}
               <span className="font-semibold text-[var(--text-primary)] truncate">
                 {data.server.name}
               </span>
-              {data.server.isPartnered && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] font-medium flex-shrink-0">
-                  Partner
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--app-muted)]">
               <span className="flex items-center gap-1.5">
@@ -205,10 +202,10 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
             onClick={handleJoin}
             disabled={isJoining || joined}
             className={cn(
-              "flex-shrink-0 px-4 h-9 rounded-md text-sm font-semibold transition-colors flex items-center gap-1.5",
+              "flex-shrink-0 px-4 h-9 rounded-md text-sm font-semibold transition-all flex items-center gap-1.5",
               joined
                 ? "bg-[var(--app-surface)] text-[var(--app-muted)] cursor-default"
-                : "bg-[#22c55e] hover:bg-[#1ea951] text-white disabled:opacity-70"
+                : "bg-[var(--accent-color)] hover:brightness-110 text-white disabled:opacity-70"
             )}
           >
             {isJoining ? (
