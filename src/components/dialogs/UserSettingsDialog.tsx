@@ -131,7 +131,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     memberCount: number;
     owner: { username: string; displayName?: string };
     isDiscoverable: boolean;
-    isPartner: boolean;
+    isPartnered: boolean;
     createdAt: string;
   }>>([]);
   const [adminLogs, setAdminLogs] = useState<Array<{
@@ -156,7 +156,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     allowRegistration: boolean;
     globalAnnouncement?: string;
     oembedWhitelist?: string[];
-    experiments?: Record<string, boolean>;
   } | null>(null);
   const [selectedUser, setSelectedUser] = useState<{
     id: string;
@@ -174,7 +173,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     name: string;
     owner?: { username: string; displayName?: string };
     isDiscoverable: boolean;
-    isPartner: boolean;
+    isPartnered: boolean;
   } | null>(null);
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
@@ -560,7 +559,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
-  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean; oembedWhitelist?: string[]; experiments?: Record<string, boolean> }) => {
+  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean; oembedWhitelist?: string[] }) => {
     try {
       const response = await fetch("/api/admin/settings", {
         method: "PATCH",
@@ -1887,14 +1886,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   {s.memberCount} members • Owner: {s.owner?.displayName || s.owner?.username}
                                 </p>
                               </div>
-                              {s.isPartner && (
+                              {s.isPartnered && (
                                 <span className="px-2 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-xs rounded">Partner</span>
                               )}
                               {s.isDiscoverable && (
                                 <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">Discoverable</span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-3">
                               <button
                                 onClick={() => setSelectedServer(s)}
                                 className={cn(
@@ -1906,18 +1905,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               >
                                 {selectedServer?.id === s.id ? "Selected" : "Select"}
                               </button>
-                              <button
-                                onClick={() => handleTogglePartner(s.id)}
-                                className="px-3 py-1.5 bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30 rounded text-sm"
-                              >
-                                {s.isPartner ? "Remove Partner" : "Make Partner"}
-                              </button>
-                              <button
-                                onClick={() => handleToggleDiscovery(s.id)}
-                                className="px-3 py-1.5 bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 rounded text-sm"
-                              >
-                                {s.isDiscoverable ? "Hide" : "Show"}
-                              </button>
+                              <label className="flex items-center gap-2 text-sm text-[#cccccc]">
+                                Partner
+                                <ToggleSwitch
+                                  size="sm"
+                                  checked={Boolean(s.isPartnered)}
+                                  onCheckedChange={() => handleTogglePartner(s.id)}
+                                />
+                              </label>
+                              <label className="flex items-center gap-2 text-sm text-[#cccccc]">
+                                Discoverable
+                                <ToggleSwitch
+                                  size="sm"
+                                  checked={Boolean(s.isDiscoverable)}
+                                  onCheckedChange={() => handleToggleDiscovery(s.id)}
+                                />
+                              </label>
                               <button
                                 onClick={() => handleDeleteServer(s.id)}
                                 className="px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-sm"
@@ -2212,10 +2215,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
               {/* Admin Panel - Experiments */}
               {activeTab === "admin-experiments" && isStaff && (
-                <AdminExperimentsPanel
-                  platformSettings={platformSettings ?? undefined}
-                  onUpdatePlatformSettings={handleUpdatePlatformSettings}
-                />
+                <AdminExperimentsPanel />
               )}
             </div>
           </ScrollArea>

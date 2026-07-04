@@ -78,7 +78,6 @@ const statusLabels = {
 export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurrentUser = false }: UserProfileProps) {
   const [copiedId, setCopiedId] = useState(false);
   const router = useRouter();
-  const { user: currentUser } = useAuth();
 
   const copyUserId = () => {
     navigator.clipboard.writeText(user.id);
@@ -166,6 +165,7 @@ interface ProfileContentProps {
 }
 
 function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expanded, isCurrentUser, openSettings }: ProfileContentProps) {
+  const currentUser = useAuth().user;
   return (
     <div className="relative">
       {/* Banner */}

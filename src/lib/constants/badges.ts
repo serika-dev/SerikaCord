@@ -4,15 +4,12 @@ import {
   Shield,
   ShieldAlert,
   Handshake,
-  Sparkles,
+  UserStar,
   Heart,
   Bot,
   Bug,
   Crown,
   Code,
-  Zap,
-  Flame,
-  Scale,
   HandHeart,
   FlaskConical,
   type LucideIcon,
@@ -91,7 +88,7 @@ export const BADGES: Record<string, Badge> = {
     id: 'serika_plus',
     name: 'Serika+',
     description: 'Serika+ subscriber',
-    icon: Sparkles,
+    icon: UserStar,
     color: '#F47FFF',
     priority: 85,
   },
@@ -148,31 +145,6 @@ export const BADGES: Record<string, Badge> = {
     priority: 55,
   },
   
-  // Special Event Badges
-  HYPESQUAD_BRAVERY: {
-    id: 'hypesquad_bravery',
-    name: 'HypeSquad Bravery',
-    description: 'Member of HypeSquad Bravery',
-    icon: Zap,
-    color: '#9C84EF',
-    priority: 40,
-  },
-  HYPESQUAD_BRILLIANCE: {
-    id: 'hypesquad_brilliance',
-    name: 'HypeSquad Brilliance',
-    description: 'Member of HypeSquad Brilliance',
-    icon: Flame,
-    color: '#F47B67',
-    priority: 40,
-  },
-  HYPESQUAD_BALANCE: {
-    id: 'hypesquad_balance',
-    name: 'HypeSquad Balance',
-    description: 'Member of HypeSquad Balance',
-    icon: Scale,
-    color: '#45DDC0',
-    priority: 40,
-  },
 };
 
 // BadgeKey is the uppercase key like 'STAFF'

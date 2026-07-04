@@ -41,7 +41,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { ServerBadge } from "@/components/ui/badges";
@@ -83,6 +83,7 @@ export function ChannelSidebar({
 }: ChannelSidebarProps) {
   const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel } = useServer();
   const { user } = useAuth();
+  const router = useRouter();
   const { can, isAdmin } = usePermissions(currentServer?.id);
   const canManageChannels = can("MANAGE_CHANNELS");
   const canManageServer = can("MANAGE_SERVER");
@@ -127,10 +128,14 @@ export function ChannelSidebar({
     return unsub;
   }, [channels]);
 
-  const handleVoiceChannelClick = async (channel: typeof channels[0]) => {
-    // Just navigate to the voice channel page
-    // The VoiceChannelView will handle joining
+  const navigateToChannel = (channel: typeof channels[0]) => {
+    if (!currentServer) return;
     setCurrentChannel(channel);
+    router.push(`/channels/${currentServer.id}/${channel.id}`);
+  };
+
+  const handleVoiceChannelClick = (channel: typeof channels[0]) => {
+    navigateToChannel(channel);
   };
 
   // Context menu state
@@ -243,6 +248,18 @@ export function ChannelSidebar({
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
   const [externalVoiceParticipants, setExternalVoiceParticipants] = useState<Map<string, VoiceParticipant[]>>(new Map());
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (!currentServer || !channels.length || !pathname) return;
+    const match = pathname.match(/^\/channels\/[^/]+\/([^/]+)$/);
+    if (match) {
+      const channelId = match[1];
+      const channel = channels.find((c) => c.id === channelId);
+      if (channel && currentChannel?.id !== channel.id) {
+        setCurrentChannel(channel);
+      }
+    }
+  }, [pathname, channels, currentServer, setCurrentChannel, currentChannel?.id]);
 
   const toggleCategory = (categoryId: string) => {
     setCollapsedCategories(prev => {
@@ -547,7 +564,7 @@ export function ChannelSidebar({
                 return (
                 <button
                   key={channel.id}
-                  onClick={() => { setCurrentChannel(channel); markChannelRead(channel.id); }}
+                  onClick={() => { navigateToChannel(channel); markChannelRead(channel.id); }}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
@@ -617,7 +634,7 @@ export function ChannelSidebar({
               ) : (
                 <button
                   key={channel.id}
-                  onClick={() => { setCurrentChannel(channel); markChannelRead(channel.id); }}
+                  onClick={() => { navigateToChannel(channel); markChannelRead(channel.id); }}
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   className={cn(
                     "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",

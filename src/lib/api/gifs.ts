@@ -175,27 +175,29 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
 
     const rawTags = tagsData.tags || [];
 
-    // Fetch one preview GIF per tag in parallel
+    // Fetch up to 4 preview GIFs per tag in parallel so tag tiles can show varied previews
     const tagsWithPreviews = await Promise.all(
       rawTags.map(async (t) => {
         const slug = String(t.slug ?? t.name ?? '');
-        let previewUrl: string | undefined;
+        const previewGifs: { url: string; thumbnailUrl?: string }[] = [];
         try {
           const previewRes = await fetch(
-            serikaUrl('/gifs', { tag: slug, limit: '1', page: '1' }),
+            serikaUrl('/gifs', { tag: slug, limit: '4', page: '1' }),
             { headers: getSerikaGifAuthHeaders() }
           );
           if (previewRes.ok) {
             const previewData = await previewRes.json() as { gifs?: Array<{ url?: string; thumbnailUrl?: string }> };
-            const firstGif = previewData.gifs?.[0];
-            if (firstGif) {
-              previewUrl = firstGif.thumbnailUrl || firstGif.url;
+            for (const gif of previewData.gifs || []) {
+              if (gif.url) {
+                previewGifs.push({ url: gif.url, thumbnailUrl: gif.thumbnailUrl });
+              }
             }
           }
         } catch {
           // ignore — preview is optional
         }
-        return { ...t, previewUrl };
+        const first = previewGifs[0];
+        return { ...t, previewUrl: first ? (first.thumbnailUrl || first.url) : undefined, previewGifs };
       })
     );
 

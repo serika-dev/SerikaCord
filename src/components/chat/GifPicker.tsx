@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Loader2, ChevronLeft, TrendingUp, Grid3X3, Tag as TagIcon, X, Flame, Star, Trash2 } from "lucide-react";
+import { Search, Loader2, ChevronLeft, Grid3X3, Tag as TagIcon, X, Flame, Star, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useGifFavorites } from "@/hooks/useGifFavorites";
@@ -32,6 +32,63 @@ interface Tag {
   slug: string;
   count: number;
   previewUrl?: string;
+  previewGifs?: { url: string; thumbnailUrl?: string }[];
+}
+
+function GifThumbnail({ gif, className, alt }: { gif: Gif; className?: string; alt?: string }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <img
+      src={hovered ? gif.url : gif.thumbnailUrl || gif.url}
+      alt={alt || gif.title}
+      className={className}
+      loading="lazy"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    />
+  );
+}
+
+function TagTile({ tag, onClick }: { tag: Tag; onClick: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  const [index, setIndex] = useState(0);
+  const previews = tag.previewGifs && tag.previewGifs.length > 0
+    ? tag.previewGifs
+    : tag.previewUrl
+      ? [{ url: tag.previewUrl }]
+      : [];
+  useEffect(() => {
+    if (!hovered || previews.length <= 1) {
+      setIndex(0);
+      return;
+    }
+    const interval = setInterval(() => setIndex((i) => (i + 1) % previews.length), 700);
+    return () => clearInterval(interval);
+  }, [hovered, previews.length]);
+  const active = previews[index] || previews[0];
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="relative aspect-[16/9] rounded-lg overflow-hidden group"
+    >
+      {active ? (
+        <img src={active.url} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
+      )}
+      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
+      <div className="absolute inset-0 flex items-end p-2">
+        <div className="flex flex-col items-start">
+          <span className="text-xs font-bold text-white drop-shadow-md capitalize leading-tight line-clamp-2">
+            {tag.name}
+          </span>
+          <span className="text-[10px] text-white/70 drop-shadow-md">{tag.count} GIFs</span>
+        </div>
+      </div>
+    </button>
+  );
 }
 
 interface GifPickerProps {
@@ -57,7 +114,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("home");
-  const [homeTab, setHomeTab] = useState<HomeTab>("trending");
+  const [homeTab, setHomeTab] = useState<HomeTab>("tags");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [collectionsPage, setCollectionsPage] = useState(1);
@@ -181,6 +238,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
           slug: String(t.slug ?? t.name ?? ""),
           count: Number(t.count ?? 0),
           previewUrl: (t.previewUrl as string) || (t.preview_url as string) || (t.preview as string) || undefined,
+          previewGifs: (t.previewGifs as { url: string; thumbnailUrl?: string }[]) || undefined,
         }));
         
         if (append) {
@@ -414,6 +472,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     fetchCollectionGifs,
   ]);
 
+  const canLoadMore = viewMode === "home"
+    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : homeTab === "collections" ? collectionsPage < collectionsTotalPages : false)
+    : currentPage < totalPages;
+
   // Intersection observer for infinite scroll
   useEffect(() => {
     if (observerRef.current) {
@@ -422,7 +484,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && !isLoading && !isLoadingMore) {
+        if (entries[0].isIntersecting && !isLoading && !isLoadingMore && canLoadMore) {
           loadMore();
         }
       },
@@ -438,11 +500,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         observerRef.current.disconnect();
       }
     };
-  }, [loadMore, isLoading, isLoadingMore, viewMode, homeTab]);
-
-  const canLoadMore = viewMode === "home"
-    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : homeTab === "collections" ? collectionsPage < collectionsTotalPages : false)
-    : currentPage < totalPages;
+  }, [loadMore, isLoading, isLoadingMore, viewMode, homeTab, canLoadMore]);
 
   // Navigation handlers
   const goToTrending = () => {
@@ -521,7 +579,6 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
       ) : (
         <div className="flex gap-0.5 px-3 pt-2.5 pb-0 border-b border-[#2b2d31] flex-shrink-0">
           {([
-            { id: "trending", label: "Trending", icon: <Flame className="w-3.5 h-3.5" /> },
             { id: "tags",     label: "Tags",     icon: <TagIcon className="w-3.5 h-3.5" /> },
             { id: "collections", label: "Collections", icon: <Grid3X3 className="w-3.5 h-3.5" /> },
             { id: "favorites", label: "Favorites", icon: <Star className="w-3.5 h-3.5" /> },
@@ -580,35 +637,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
           )
         ) : viewMode === "home" && !search ? (
           /* Home tabs: trending gifs grid OR category tiles */
-          homeTab === "trending" ? (
-            gifs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
-                <Flame className="w-10 h-10 mb-3 opacity-30" />
-                <p className="text-sm">No trending GIFs right now</p>
-              </div>
-            ) : (
-              <div className="p-2">
-                <div className="columns-2 gap-2">
-                  {gifs.map((gif) => (
-                    <button
-                      key={gif.id}
-                      onClick={() => onGifSelect(gif)}
-                      title={gif.title}
-                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
-                    >
-                      <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                    </button>
-                  ))}
-                </div>
-                {canLoadMore && (
-                  <div ref={loadMoreRef} className="flex justify-center py-3">
-                    {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
-                  </div>
-                )}
-              </div>
-            )
-          ) : homeTab === "favorites" ? (
+          homeTab === "favorites" ? (
             favorites.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
                 <Star className="w-10 h-10 mb-3 opacity-30" />
@@ -636,11 +665,9 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                         title={fav.title || "Favorite GIF"}
                         className="w-full"
                       >
-                        <img
-                          src={fav.url}
-                          alt={fav.title || "Favorite GIF"}
+                        <GifThumbnail
+                          gif={{ id: fav.url, slug: "", title: fav.title || "Favorite", url: fav.url, thumbnailUrl: fav.url }}
                           className="w-full h-auto block"
-                          loading="lazy"
                         />
                       </button>
                       <button
@@ -661,32 +688,46 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             )
           ) : (
             <div className="p-2 grid grid-cols-2 gap-2">
-              {(homeTab === "collections" ? collections : tags).map((item) => {
-                const isCollection = homeTab === "collections";
-                const col = item as Collection;
-                const tag = item as Tag;
-                const bgImg = isCollection
-                  ? col.previewGifs?.[0]?.thumbnailUrl || col.previewGifs?.[0]?.url
-                  : tag.previewUrl;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => goToCategory(isCollection ? "collection" : "tag", item)}
-                    className="relative aspect-[16/9] rounded-lg overflow-hidden group"
-                  >
-                    {bgImg ? (
-                      <img src={bgImg} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
-                    )}
-                    <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
-                    <div className="absolute inset-0 flex items-end p-2">
-                      <span className="text-xs font-bold text-white drop-shadow-md capitalize leading-tight line-clamp-2">
-                        {item.name}
-                      </span>
+              {homeTab === "tags" && (
+                <button
+                  onClick={goToTrending}
+                  className="relative aspect-[16/9] rounded-lg overflow-hidden group"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#f97316] to-[#dc2626]" />
+                  <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <Flame className="w-6 h-6 text-white" />
+                      <span className="text-xs font-bold text-white drop-shadow-md">Trending</span>
                     </div>
-                  </button>
-                );
+                  </div>
+                </button>
+              )}
+              {(homeTab === "collections" ? collections : tags).map((item) => {
+                if (homeTab === "collections") {
+                  const col = item as Collection;
+                  const bgImg = col.previewGifs?.[0]?.thumbnailUrl || col.previewGifs?.[0]?.url;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => goToCategory("collection", item)}
+                      className="relative aspect-[16/9] rounded-lg overflow-hidden group"
+                    >
+                      {bgImg ? (
+                        <img src={bgImg} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
+                      )}
+                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
+                      <div className="absolute inset-0 flex items-end p-2">
+                        <span className="text-xs font-bold text-white drop-shadow-md capitalize leading-tight line-clamp-2">
+                          {item.name}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                }
+                return <TagTile key={item.id} tag={item as Tag} onClick={() => goToCategory("tag", item)} />;
               })}
               {(homeTab === "collections" ? collections.length : tags.length) === 0 && (
                 <div className="col-span-2 flex flex-col items-center justify-center py-12 text-[#949ba4]">
@@ -725,7 +766,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                   title={gif.title}
                   className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                 >
-                  <img src={gif.thumbnailUrl || gif.url} alt={gif.title} className="w-full h-auto block" loading="lazy" />
+                  <GifThumbnail gif={gif} className="w-full h-auto block" />
                   <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <p className="text-[10px] text-white leading-tight line-clamp-1">{gif.title}</p>
                   </div>

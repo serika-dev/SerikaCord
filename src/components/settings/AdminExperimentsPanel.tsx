@@ -3,14 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Plus, Trash2, Loader2, Play, Pause } from "lucide-react";
 import { toast } from "sonner";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { cn } from "@/lib/utils";
-
-interface PlatformFeatureFlag {
-  id: string;
-  label: string;
-  description: string;
-}
 
 interface Experiment {
   _id: string;
@@ -23,28 +16,7 @@ interface Experiment {
   createdAt: string;
 }
 
-interface AdminExperimentsPanelProps {
-  platformSettings?: {
-    experiments?: Record<string, boolean>;
-  };
-  onUpdatePlatformSettings: (updates: { experiments?: Record<string, boolean> }) => void;
-}
-
-const PLATFORM_FLAGS: PlatformFeatureFlag[] = [
-  { id: "new_profile", label: "New Profile Logic", description: "Enable the experimental profile v2 backend." },
-  { id: "voice_v2", label: "Voice Engine V2", description: "Use the new WebRTC implementation." },
-  { id: "rich_composer", label: "Rich Composer", description: "Enable rich text composer with custom emoji inline rendering." },
-  { id: "unified_message_bar", label: "Unified Message Bar", description: "Use the shared MessageBar component across all chat contexts." },
-  { id: "staff_pill_badges", label: "Staff Pill Badges", description: "Show text pill badges (Staff/Developer) next to usernames instead of icon badges." },
-  { id: "new_emoji_picker", label: "New Emoji Picker", description: "Experimental emoji picker with category search and recents." },
-  { id: "thread_view", label: "Thread View", description: "Enable threaded reply support in text channels." },
-  { id: "mobile_bottom_sheet", label: "Mobile Bottom Sheets", description: "Use bottom-sheet style profile views on mobile." },
-];
-
-export function AdminExperimentsPanel({
-  platformSettings,
-  onUpdatePlatformSettings,
-}: AdminExperimentsPanelProps) {
+export function AdminExperimentsPanel() {
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -164,34 +136,6 @@ export function AdminExperimentsPanel({
         <FlaskConical className="w-6 h-6 text-[var(--accent-color)]" />
         Platform Experiments
       </h2>
-
-      {/* Platform feature flags */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm text-[var(--text-muted)]">Toggle global feature flags for all users.</p>
-        </div>
-        <div className="space-y-3">
-          {PLATFORM_FLAGS.map((exp) => {
-            const isEnabled = platformSettings?.experiments?.[exp.id] ?? false;
-            return (
-              <div key={exp.id} className="flex items-center justify-between p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                <div>
-                  <p className="font-medium text-white">{exp.label}</p>
-                  <p className="text-sm text-[var(--text-muted)]">{exp.description}</p>
-                </div>
-                <ToggleSwitch
-                  size="sm"
-                  checked={isEnabled}
-                  onCheckedChange={(checked) => {
-                    const current = platformSettings?.experiments || {};
-                    onUpdatePlatformSettings({ experiments: { ...current, [exp.id]: checked } });
-                  }}
-                />
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
       {/* Create experiment */}
       <div className="mb-6 p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">

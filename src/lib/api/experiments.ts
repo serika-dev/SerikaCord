@@ -1,6 +1,5 @@
 import { Elysia, t } from 'elysia';
 import { Experiment, getUserVariant } from '@/lib/models/Experiment';
-import { getPlatformSettings } from '@/lib/models/PlatformSettings';
 import { Instance, isHostDomain, getCurrentInstance, verifyInstanceApiKey, generateInstanceApiKey, generateSecretKey } from '@/lib/models/Instance';
 
 export const experimentRoutes = new Elysia({ prefix: '/experiments' })
@@ -117,19 +116,6 @@ export const experimentRoutes = new Elysia({ prefix: '/experiments' })
     // Find the experiment
     const experiment = await Experiment.findOne({ key: params.featureKey, status: 'running' });
     if (!experiment) {
-      // Fallback to global platform feature flags toggled in the admin panel
-      try {
-        const platformSettings = await getPlatformSettings();
-        if (platformSettings.experiments?.[params.featureKey]) {
-          return {
-            featureKey: params.featureKey,
-            enabled: true,
-            variant: { id: 'enabled', name: 'Enabled', weight: 100, config: {} },
-          };
-        }
-      } catch {
-        // ignore platform settings errors
-      }
       return {
         featureKey: params.featureKey,
         enabled: false,

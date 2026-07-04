@@ -20,9 +20,6 @@ const ALL_BADGES = [
   'bug_hunter_gold',
   'server_owner',
   'active_developer',
-  'hypesquad_bravery',
-  'hypesquad_brilliance',
-  'hypesquad_balance',
 ] as const;
 
 const MONGODB_URI = process.env.MONGO_URI || 'mongodb://localhost:3233/serikacord';

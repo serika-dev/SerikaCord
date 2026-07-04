@@ -5,7 +5,6 @@ export type BadgeId =
   | 'partner' | 'serika_plus' | 'early_supporter'
   | 'verified_bot_developer' | 'bug_hunter' | 'bug_hunter_gold'
   | 'server_owner' | 'active_developer'
-  | 'hypesquad_bravery' | 'hypesquad_brilliance' | 'hypesquad_balance'
   | 'serikacord_developer' | 'serikacord_contributor' | 'serikacord_tester';
 
 export interface IUserCustomization {
@@ -265,7 +264,6 @@ const UserSchema = new Schema<IUser>({
       'partner', 'serika_plus', 'early_supporter',
       'verified_bot_developer', 'bug_hunter', 'bug_hunter_gold',
       'server_owner', 'active_developer',
-      'hypesquad_bravery', 'hypesquad_brilliance', 'hypesquad_balance',
       'serikacord_developer', 'serikacord_contributor', 'serikacord_tester',
     ],
   }],

@@ -6,18 +6,19 @@ import {
   ShieldCheck, 
   ShieldHalf, 
   Handshake, 
-  Sparkles, 
+  UserStar, 
   Heart, 
   Bot, 
   Bug, 
   Crown, 
   Code,
-  Zap,
-  Flame,
-  Scale,
   ChevronDown,
   HandHeart,
   FlaskConical,
+  Badge as BadgeOutline,
+  Check,
+  UsersRound,
+  type LucideIcon,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -65,9 +66,9 @@ const BADGE_CONFIG = {
   serika_plus: {
     name: 'Serika+',
     description: 'Serika+ subscriber',
-    icon: Sparkles,
-    color: '#8B5CF6',
-    bgColor: 'bg-[#8B5CF6]/20',
+    icon: UserStar,
+    color: '#F47FFF',
+    bgColor: 'bg-[#F47FFF]/20',
   },
   early_supporter: {
     name: 'Early Supporter',
@@ -139,44 +140,29 @@ const BADGE_CONFIG = {
     bgColor: 'bg-[#23A55A]/20',
   },
   
-  // HypeSquad Badges
-  hypesquad_bravery: {
-    name: 'HypeSquad Bravery',
-    description: 'Member of HypeSquad Bravery',
-    icon: Zap,
-    color: '#9C84EF',
-    bgColor: 'bg-[#9C84EF]/20',
-  },
-  hypesquad_brilliance: {
-    name: 'HypeSquad Brilliance',
-    description: 'Member of HypeSquad Brilliance',
-    icon: Flame,
-    color: '#A78BFA',
-    bgColor: 'bg-[#A78BFA]/20',
-  },
-  hypesquad_balance: {
-    name: 'HypeSquad Balance',
-    description: 'Member of HypeSquad Balance',
-    icon: Scale,
-    color: '#7C3AED',
-    bgColor: 'bg-[#7C3AED]/20',
-  },
 } as const;
 
 export type BadgeId = keyof typeof BADGE_CONFIG;
 
 interface BadgeProps {
   id: BadgeId;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'xs' | 'sm' | 'md' | 'lg';
   showTooltip?: boolean;
   className?: string;
 }
 
-const sizeMap = {
-  sm: 14,
-  md: 18,
-  lg: 22,
-};
+const badgeIconSizes = { xs: 12, sm: 14, md: 18, lg: 22 };
+
+function BadgeIcon({ icon: Icon, color, size = 'md' }: { icon: LucideIcon; color: string; size?: 'xs' | 'sm' | 'md' | 'lg' }) {
+  const outer = badgeIconSizes[size];
+  const inner = Math.round(outer * 0.55);
+  return (
+    <div className="relative inline-flex items-center justify-center" style={{ width: outer, height: outer }}>
+      <BadgeOutline className="absolute inset-0" width={outer} height={outer} color={color} strokeWidth={2} />
+      <Icon className="relative z-10" width={inner} height={inner} color={color} strokeWidth={2} />
+    </div>
+  );
+}
 
 export function Badge({ id, size = 'md', showTooltip = true, className }: BadgeProps) {
   const config = BADGE_CONFIG[id];
@@ -184,12 +170,12 @@ export function Badge({ id, size = 'md', showTooltip = true, className }: BadgeP
   if (!config) return null;
   
   const Icon = config.icon;
-  const iconSize = sizeMap[size];
   
   const badge = (
     <div 
       className={cn(
         "flex items-center justify-center rounded-md transition-transform hover:scale-110",
+        size === 'xs' && "w-4 h-4",
         size === 'sm' && "w-5 h-5",
         size === 'md' && "w-6 h-6",
         size === 'lg' && "w-8 h-8",
@@ -197,12 +183,7 @@ export function Badge({ id, size = 'md', showTooltip = true, className }: BadgeP
         className
       )}
     >
-      <Icon 
-        className="flex-shrink-0" 
-        style={{ color: config.color }} 
-        width={iconSize} 
-        height={iconSize} 
-      />
+      <BadgeIcon icon={Icon} color={config.color} size={size} />
     </div>
   );
   
@@ -232,10 +213,10 @@ interface BadgeListProps {
   expandable?: boolean;
 }
 
-export function BadgeList({ badges, size = 'md', maxDisplay = 5, className, expandable = true }: BadgeListProps) {
+export function BadgeList({ badges, size = 'md', maxDisplay, className, expandable = false }: BadgeListProps) {
   const [showAllBadges, setShowAllBadges] = useState(false);
-  const displayBadges = badges.slice(0, maxDisplay);
-  const remaining = badges.length - maxDisplay;
+  const displayBadges = badges.slice(0, maxDisplay ?? badges.length);
+  const remaining = badges.length - (maxDisplay ?? badges.length);
   
   return (
     <TooltipProvider delayDuration={0}>
@@ -279,7 +260,7 @@ export function BadgeList({ badges, size = 'md', maxDisplay = 5, className, expa
                               className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                               style={{ backgroundColor: `${config.color}20` }}
                             >
-                              <Icon className="w-5 h-5" style={{ color: config.color }} />
+                              <BadgeIcon icon={Icon} color={config.color} size="lg" />
                             </div>
                             <div className="min-w-0">
                               <p className="font-semibold text-white text-sm">{config.name}</p>
@@ -332,24 +313,25 @@ interface ServerBadgeProps {
 const SERVER_BADGE_CONFIG = {
   partnered: {
     name: 'Partnered',
-    icon: Handshake,
+    innerIcon: Handshake,
     color: '#8B5CF6',
   },
   verified: {
     name: 'Verified',
-    icon: ShieldCheck,
-    color: '#8B5CF6',
+    innerIcon: Check,
+    color: '#5865F2',
   },
   discoverable: {
     name: 'Discoverable',
-    icon: Sparkles,
-    color: '#7C3AED',
+    innerIcon: UsersRound,
+    color: '#23A55A',
   },
 };
 
 export function ServerBadge({ type, size = 'md' }: ServerBadgeProps) {
   const config = SERVER_BADGE_CONFIG[type];
-  const Icon = config.icon;
+  const Icon = config.innerIcon;
+  const iconSize = size === 'sm' ? 'xs' : 'sm';
   
   return (
     <TooltipProvider delayDuration={0}>
@@ -365,7 +347,7 @@ export function ServerBadge({ type, size = 'md' }: ServerBadgeProps) {
               color: config.color 
             }}
           >
-            <Icon width={size === 'sm' ? 10 : 12} height={size === 'sm' ? 10 : 12} />
+            <BadgeIcon icon={Icon} color={config.color} size={iconSize} />
             {config.name}
           </div>
         </TooltipTrigger>

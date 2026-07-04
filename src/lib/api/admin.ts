@@ -320,7 +320,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
         memberCount: s.memberCount,
         owner: s.ownerId,
         isDiscoverable: s.isDiscoverable,
-        isPartner: s.isPartner,
+        isPartnered: s.isPartnered,
         createdAt: s.createdAt,
       })),
       pagination: {
@@ -388,18 +388,20 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: 'Server not found' };
     }
 
-    server.isPartner = !server.isPartner;
+    const newPartnerStatus = !server.isPartnered;
+    server.isPartnered = newPartnerStatus;
+    server.partneredAt = newPartnerStatus ? new Date() : undefined;
     await server.save();
 
     await logAdminAction(
       user._id.toString(),
-      server.isPartner ? 'grant_partner' : 'revoke_partner',
+      newPartnerStatus ? 'grant_partner' : 'revoke_partner',
       'server',
       server._id.toString(),
       { name: server.name }
     );
 
-    return { success: true, isPartner: server.isPartner };
+    return { success: true, isPartnered: server.isPartnered };
   }, {
     params: t.Object({
       serverId: t.String(),
@@ -500,7 +502,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     }
 
     const settings = await getPlatformSettings();
-    return settings.toObject();
+    return (settings as any).toObject();
   })
 
   // Update platform settings
@@ -511,12 +513,11 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: error || 'Admin access required' };
     }
 
-    const { maintenanceMode, allowRegistration, globalAnnouncement, oembedWhitelist, experiments } = body as {
+    const { maintenanceMode, allowRegistration, globalAnnouncement, oembedWhitelist } = body as {
       maintenanceMode?: boolean;
       allowRegistration?: boolean;
       globalAnnouncement?: string;
       oembedWhitelist?: string[];
-      experiments?: Record<string, boolean>;
     };
 
     const updates: Record<string, unknown> = {};
@@ -527,7 +528,6 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       updates.announcementUpdatedAt = new Date();
     }
     if (oembedWhitelist !== undefined) updates.oembedWhitelist = oembedWhitelist;
-    if (experiments !== undefined) updates.experiments = experiments;
 
     const settings = await updatePlatformSettings(updates);
 
@@ -539,14 +539,13 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       updates
     );
 
-    return settings.toObject();
+    return (settings as any).toObject();
   }, {
     body: t.Object({
       maintenanceMode: t.Optional(t.Boolean()),
       allowRegistration: t.Optional(t.Boolean()),
       globalAnnouncement: t.Optional(t.String()),
       oembedWhitelist: t.Optional(t.Array(t.String())),
-      experiments: t.Optional(t.Record(t.String(), t.Boolean())),
     }),
   })
 
