@@ -7,6 +7,7 @@ import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
 import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
+import { GlobalAnnouncementBanner } from "@/components/ui/global-announcement-banner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ServerProvider } from "@/contexts/ServerContext";
 
@@ -60,7 +61,10 @@ function DMContent({ children }: { children: React.ReactNode }) {
     <div className="h-dvh flex animate-fade-in">
       <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
       <ChannelSidebar />
-      <main className="flex-1 flex min-w-0">{children}</main>
+      <div className="flex-1 flex flex-col min-w-0">
+        <GlobalAnnouncementBanner />
+        <main className="flex-1 flex min-w-0">{children}</main>
+      </div>
       <CreateServerDialog
         open={showCreateServer}
         onOpenChange={setShowCreateServer}

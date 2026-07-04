@@ -1404,6 +1404,15 @@ export const api = new Elysia({ prefix: '/api' })
     service: 'serikacord',
     timestamp: new Date().toISOString(),
   }))
+  .get('/platform/announcement', async () => {
+    const { getPlatformSettings } = await import('@/lib/models/PlatformSettings');
+    const settings = await getPlatformSettings();
+    return {
+      announcement: settings.globalAnnouncement || null,
+      updatedAt: settings.announcementUpdatedAt || null,
+      maintenanceMode: settings.maintenanceMode,
+    };
+  })
   .use(authRoutes)
   .use(userRoutes)
   .use(friendsRoutes)

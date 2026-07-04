@@ -179,9 +179,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const [selectedServer, setSelectedServer] = useState<{
     id: string;
     name: string;
-    owner?: { username: string; displayName?: string };
+    description?: string;
+    icon?: string;
+    memberCount?: number;
+    owner: { username: string; displayName?: string };
     isDiscoverable: boolean;
     isPartnered: boolean;
+    createdAt: string;
   } | null>(null);
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
@@ -603,16 +607,29 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const handlePublishAnnouncement = async () => {
     if (!announcementText.trim()) return;
     try {
-      const response = await fetch("/api/admin/broadcast", {
+      // Save announcement to platform settings
+      const settingsResponse = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ globalAnnouncement: announcementText.trim() }),
+      });
+      if (!settingsResponse.ok) {
+        toast.error("Failed to publish announcement");
+        return;
+      }
+      const settingsData = await settingsResponse.json().catch(() => null);
+      if (settingsData) setPlatformSettings(settingsData);
+
+      // Also broadcast as DMs
+      const broadcastResponse = await fetch("/api/admin/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: announcementText }),
+        body: JSON.stringify({ message: announcementText.trim(), sendDMs: false }),
       });
-      if (response.ok) {
+      if (broadcastResponse.ok) {
         toast.success("Announcement published");
-        fetchPlatformSettings();
       } else {
-        toast.error("Failed to publish announcement");
+        toast.success("Announcement saved (broadcast failed)");
       }
     } catch (error) {
       toast.error("Failed to publish announcement");
@@ -953,7 +970,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           </button>
 
           <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
-            <div className="max-w-[740px] py-6 px-4 md:py-10 md:px-10 mx-auto pb-24">
+            <div className={cn("py-6 px-4 md:py-10 md:px-10 mx-auto pb-24", activeTab.startsWith("admin-") ? "max-w-[1100px]" : "max-w-[740px]")}>
               {/* Admin Logs Tab */}
               {activeTab === "admin-logs" && (
                 <div>
@@ -1730,13 +1747,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Two-column layout: user list + detail panel */}
                   {adminUsers.length > 0 && (
-                    <div className="flex gap-4 min-h-[400px]">
+                    <div className="flex gap-4 h-[600px]">
                       {/* Left: User list */}
-                      <div className="w-[280px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden">
-                        <div className="px-3 py-2 border-b border-[var(--border-subtle)]">
+                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                        <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
                           <p className="text-white font-semibold text-sm">Results ({adminUsers.length})</p>
                         </div>
-                        <ScrollArea className="h-[500px]">
+                        <ScrollArea className="flex-1 min-h-0">
                           <div className="p-1.5 space-y-1">
                             {adminUsers.map((u) => (
                               <button
@@ -1746,13 +1763,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   void selectUserDetail(u.id);
                                 }}
                                 className={cn(
-                                  "w-full flex items-center gap-2.5 p-2 rounded-lg transition-colors text-left",
+                                  "w-full flex items-center gap-2.5 p-2.5 rounded-lg transition-colors text-left",
                                   selectedUser?.id === u.id
                                     ? "bg-[#8B5CF6]/15 ring-1 ring-[#8B5CF6]/40"
                                     : "hover:bg-[var(--bg-card)]"
                                 )}
                               >
-                                <Avatar className="w-8 h-8 flex-shrink-0">
+                                <Avatar className="w-9 h-9 flex-shrink-0">
                                   <AvatarImage src={u.avatar} />
                                   <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
                                     {u.displayName?.charAt(0) || u.username.charAt(0)}
@@ -1777,10 +1794,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
 
                       {/* Right: Detail panel */}
-                      <div className="flex-1 bg-[var(--bg-app)] rounded-lg overflow-hidden">
+                      <div className="flex-1 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
                         {selectedUser ? (
-                          <ScrollArea className="h-[500px]">
-                            <div className="p-4 space-y-4">
+                          <ScrollArea className="flex-1 min-h-0">
+                            <div className="p-5 space-y-5">
                               {/* User header */}
                               <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-subtle)]">
                                 <Avatar className="w-12 h-12">
@@ -1962,8 +1979,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <Database className="w-6 h-6 text-[#8B5CF6]" />
                     Server Management
                   </h2>
+
+                  {/* Search bar */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
-                    <div className="flex gap-4 mb-4">
+                    <div className="flex gap-4">
                       <Input
                         value={adminServerSearch}
                         onChange={(e) => setAdminServerSearch(e.target.value)}
@@ -1982,133 +2001,168 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </div>
                   </div>
 
-                  {/* Search Results */}
+                  {/* Two-column layout: server list + detail panel */}
                   {adminServers.length > 0 && (
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
-                      <h3 className="text-white font-semibold mb-3">Search Results</h3>
-                      <div className="space-y-2">
-                        {adminServers.map((s) => (
-                          <div
-                            key={s.id}
-                            className={cn(
-                              "flex items-center justify-between p-3 rounded-lg border",
-                              selectedServer?.id === s.id
-                                ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/40"
-                                : "bg-[var(--bg-card)] border-transparent"
-                            )}
-                          >
-                            <div className="flex items-center gap-3">
-                              <Avatar className="w-10 h-10">
-                                <AvatarImage src={s.icon} />
-                                <AvatarFallback className="bg-[#8B5CF6] text-white">
-                                  {s.name.charAt(0)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <p className="text-white font-medium">{s.name}</p>
-                                <p className="text-sm text-[var(--text-muted)]">
-                                  {s.memberCount} members • Owner: {s.owner?.displayName || s.owner?.username}
-                                </p>
-                              </div>
-                              {s.isPartnered && (
-                                <span className="px-2 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-xs rounded">Partner</span>
-                              )}
-                              {s.isDiscoverable && (
-                                <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">Discoverable</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-3">
+                    <div className="flex gap-4 h-[600px]">
+                      {/* Left: Server list */}
+                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                        <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
+                          <p className="text-white font-semibold text-sm">Results ({adminServers.length})</p>
+                        </div>
+                        <ScrollArea className="flex-1 min-h-0">
+                          <div className="p-1.5 space-y-1">
+                            {adminServers.map((s) => (
                               <button
+                                key={s.id}
                                 onClick={() => setSelectedServer(s)}
                                 className={cn(
-                                  "px-3 py-1.5 rounded text-sm",
+                                  "w-full flex items-center gap-2.5 p-2.5 rounded-lg transition-colors text-left",
                                   selectedServer?.id === s.id
-                                    ? "bg-[#8B5CF6] text-white"
-                                    : "bg-[var(--border-subtle)] text-[#cccccc] hover:bg-[#2a2a2a]"
+                                    ? "bg-[#8B5CF6]/15 ring-1 ring-[#8B5CF6]/40"
+                                    : "hover:bg-[var(--bg-card)]"
                                 )}
                               >
-                                {selectedServer?.id === s.id ? "Selected" : "Select"}
+                                <Avatar className="w-9 h-9 flex-shrink-0 rounded-lg">
+                                  <AvatarImage src={s.icon} />
+                                  <AvatarFallback className="bg-[#8B5CF6] text-white text-xs rounded-lg">
+                                    {s.name.charAt(0)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-white font-medium truncate">{s.name}</p>
+                                  <p className="text-xs text-[var(--text-muted)] truncate">{s.memberCount} members</p>
+                                </div>
+                                <div className="flex flex-col items-end gap-0.5">
+                                  {s.isPartnered && (
+                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">Partner</span>
+                                  )}
+                                  {s.isDiscoverable && (
+                                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] rounded">Visible</span>
+                                  )}
+                                </div>
                               </button>
-                              <label className="flex items-center gap-2 text-sm text-[#cccccc]">
-                                Partner
-                                <ToggleSwitch
-                                  size="sm"
-                                  checked={Boolean(s.isPartnered)}
-                                  onCheckedChange={() => handleTogglePartner(s.id)}
-                                />
-                              </label>
-                              <label className="flex items-center gap-2 text-sm text-[#cccccc]">
-                                Discoverable
-                                <ToggleSwitch
-                                  size="sm"
-                                  checked={Boolean(s.isDiscoverable)}
-                                  onCheckedChange={() => handleToggleDiscovery(s.id)}
-                                />
-                              </label>
-                              <button
-                                onClick={() => handleDeleteServer(s.id)}
-                                className="px-3 py-1.5 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-sm"
-                              >
-                                Delete
-                              </button>
+                            ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+
+                      {/* Right: Detail panel */}
+                      <div className="flex-1 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                        {selectedServer ? (
+                          <ScrollArea className="flex-1 min-h-0">
+                            <div className="p-5 space-y-5">
+                              {/* Server header */}
+                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-subtle)]">
+                                <Avatar className="w-12 h-12 rounded-xl">
+                                  <AvatarImage src={selectedServer.icon || undefined} />
+                                  <AvatarFallback className="bg-[#8B5CF6] text-white rounded-xl">
+                                    {selectedServer.name.charAt(0)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-white font-semibold text-lg">{selectedServer.name}</p>
+                                  <p className="text-sm text-[var(--text-muted)]">
+                                    Owner: {selectedServer.owner?.displayName || selectedServer.owner?.username || "Unknown"}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Server info */}
+                              <div>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Info</p>
+                                <div className="bg-[var(--bg-card)] rounded-lg p-3 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm text-[var(--text-muted)]">Server ID</span>
+                                    <span className="text-sm text-white font-mono">{selectedServer.id}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm text-[var(--text-muted)]">Created</span>
+                                    <span className="text-sm text-white">{new Date(selectedServer.createdAt).toLocaleDateString()}</span>
+                                  </div>
+                                  {selectedServer.description && (
+                                    <div>
+                                      <span className="text-sm text-[var(--text-muted)]">Description</span>
+                                      <p className="text-sm text-white mt-1">{selectedServer.description}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Server toggles */}
+                              <div>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Server Status</p>
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
+                                    <div>
+                                      <p className="text-sm text-white font-medium">Partnered</p>
+                                      <p className="text-xs text-[var(--text-muted)]">Grant partner badge and perks</p>
+                                    </div>
+                                    <ToggleSwitch
+                                      size="sm"
+                                      checked={selectedServer.isPartnered}
+                                      onCheckedChange={() => void handleTogglePartner(selectedServer.id)}
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
+                                    <div>
+                                      <p className="text-sm text-white font-medium">Discoverable</p>
+                                      <p className="text-xs text-[var(--text-muted)]">Show in server discovery page</p>
+                                    </div>
+                                    <ToggleSwitch
+                                      size="sm"
+                                      checked={selectedServer.isDiscoverable}
+                                      onCheckedChange={() => void handleToggleDiscovery(selectedServer.id)}
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Danger zone */}
+                              <div>
+                                <p className="text-xs text-red-400 uppercase font-semibold mb-2">Danger Zone</p>
+                                <div className="space-y-2">
+                                  <button
+                                    onClick={handleTransferOwnership}
+                                    className="w-full flex items-center justify-between p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors text-left"
+                                  >
+                                    <div>
+                                      <p className="text-sm text-white font-medium">Transfer Ownership</p>
+                                      <p className="text-xs text-[var(--text-muted)]">Change the server owner</p>
+                                    </div>
+                                    <ExternalLink className="w-4 h-4 text-[var(--text-muted)]" />
+                                  </button>
+                                  <button
+                                    onClick={() => void handleDeleteServer(selectedServer.id)}
+                                    className="w-full flex items-center justify-between p-3 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors text-left"
+                                  >
+                                    <div>
+                                      <p className="text-sm text-red-400 font-medium">Delete Server</p>
+                                      <p className="text-xs text-red-400/60">Permanently remove this server</p>
+                                    </div>
+                                    <X className="w-4 h-4 text-red-400" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </ScrollArea>
+                        ) : (
+                          <div className="flex items-center justify-center h-full p-8">
+                            <div className="text-center">
+                              <Database className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
+                              <p className="text-[var(--text-muted)]">Select a server from the list to view details and manage settings</p>
                             </div>
                           </div>
-                        ))}
+                        )}
                       </div>
                     </div>
                   )}
 
-                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                    <h3 className="text-white font-semibold mb-3">Server Actions</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => {
-                          if (!selectedServer) {
-                            toast.info("Select a server first");
-                            return;
-                          }
-                          void handleTogglePartner(selectedServer.id);
-                        }}
-                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
-                      >
-                        <p className="text-white font-medium">Partner Server</p>
-                        <p className="text-sm text-[var(--text-muted)]">Grant partner status</p>
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (!selectedServer) {
-                            toast.info("Select a server first");
-                            return;
-                          }
-                          void handleDeleteServer(selectedServer.id);
-                        }}
-                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
-                      >
-                        <p className="text-white font-medium">Delete Server</p>
-                        <p className="text-sm text-[var(--text-muted)]">Remove server permanently</p>
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (!selectedServer) {
-                            toast.info("Select a server first");
-                            return;
-                          }
-                          void handleToggleDiscovery(selectedServer.id);
-                        }}
-                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
-                      >
-                        <p className="text-white font-medium">Toggle Discovery</p>
-                        <p className="text-sm text-[var(--text-muted)]">Enable/disable discoverability</p>
-                      </button>
-                      <button
-                        onClick={handleTransferOwnership}
-                        className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
-                      >
-                        <p className="text-white font-medium">Transfer Ownership</p>
-                        <p className="text-sm text-[var(--text-muted)]">Change server owner</p>
-                      </button>
+                  {adminServers.length === 0 && !isLoadingAdmin && (
+                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
+                      <Database className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
+                      <p className="text-[var(--text-muted)]">Search for servers to view details, toggle partner/discovery status, or take moderation actions.</p>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -2172,12 +2226,38 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-3"
                         rows={3}
                       />
-                      <button
-                        onClick={handlePublishAnnouncement}
-                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium"
-                      >
-                        Publish Announcement
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handlePublishAnnouncement}
+                          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium"
+                        >
+                          Publish Announcement
+                        </button>
+                        {announcementText && (
+                          <button
+                            onClick={async () => {
+                              setAnnouncementText("");
+                              try {
+                                const res = await fetch("/api/admin/settings", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ globalAnnouncement: "" }),
+                                });
+                                if (res.ok) {
+                                  const data = await res.json();
+                                  setPlatformSettings(data);
+                                  toast.success("Announcement cleared");
+                                }
+                              } catch {
+                                toast.error("Failed to clear announcement");
+                              }
+                            }}
+                            className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded font-medium"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">OEmbed Whitelist</h3>

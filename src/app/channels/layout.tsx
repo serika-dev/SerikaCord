@@ -10,6 +10,7 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
+import { GlobalAnnouncementBanner } from "@/components/ui/global-announcement-banner";
 import { Loader2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -286,18 +287,21 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Main Content */}
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.main
-          key={contentKey}
-          initial={{ opacity: 0, x: 6 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -6 }}
-          transition={{ duration: 0.12, ease: "easeOut" }}
-          className="flex-1 flex min-w-0 min-h-0 overflow-hidden"
-        >
-          {children}
-        </motion.main>
-      </AnimatePresence>
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+        <GlobalAnnouncementBanner />
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.main
+            key={contentKey}
+            initial={{ opacity: 0, x: 6 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -6 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+            className="flex-1 flex min-w-0 min-h-0 overflow-hidden"
+          >
+            {children}
+          </motion.main>
+        </AnimatePresence>
+      </div>
 
       {/* Dialogs */}
       <CreateServerDialog
