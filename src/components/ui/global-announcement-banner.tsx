@@ -49,7 +49,7 @@ export function GlobalAnnouncementBanner() {
   };
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/10 border-b border-[#8B5CF6]/20 text-sm">
+    <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-[#8B5CF6]/10 border-b border-[#8B5CF6]/20 text-sm">
       <Megaphone className="w-4 h-4 text-[#8B5CF6] flex-shrink-0" />
       <span className="flex-1 text-[var(--text-primary)] truncate">{data.announcement}</span>
       <button

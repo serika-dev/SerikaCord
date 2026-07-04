@@ -627,9 +627,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({ message: announcementText.trim(), sendDMs: true }),
       });
       if (broadcastResponse.ok) {
-        toast.success("Announcement published");
+        const broadcastData = await broadcastResponse.json().catch(() => null);
+        const dmCount = broadcastData?.dmsSent ?? 0;
+        toast.success(`Announcement published${dmCount > 0 ? ` (${dmCount} DMs sent)` : ""}`);
       } else {
-        toast.success("Announcement saved (broadcast failed)");
+        toast.error("Announcement saved but broadcast failed");
       }
     } catch (error) {
       toast.error("Failed to publish announcement");

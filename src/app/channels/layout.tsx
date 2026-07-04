@@ -187,7 +187,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Mobile Content Area */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
           {isSettingsRoute ? (
             <AnimatePresence mode="wait" initial={false}>
               <motion.main

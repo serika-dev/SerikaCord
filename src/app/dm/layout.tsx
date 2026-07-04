@@ -36,7 +36,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
       <div className="h-dvh flex flex-col bg-[#0a0a0a] overflow-hidden">
         {/* Main DM Content — full height; the bottom nav hides itself
             inside open conversations, so no space is reserved for it. */}
-        <main className="flex-1 flex flex-col min-h-0">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
           {children}
         </main>
 
@@ -61,9 +61,9 @@ function DMContent({ children }: { children: React.ReactNode }) {
     <div className="h-dvh flex animate-fade-in">
       <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
       <ChannelSidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         <GlobalAnnouncementBanner />
-        <main className="flex-1 flex min-w-0">{children}</main>
+        <main className="flex-1 flex min-w-0 min-h-0 overflow-hidden">{children}</main>
       </div>
       <CreateServerDialog
         open={showCreateServer}

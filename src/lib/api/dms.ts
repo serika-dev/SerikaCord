@@ -54,7 +54,7 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
 const activeConnections = new Map<string, Set<ReadableStreamDefaultController>>();
 const activeDmListConnections = new Map<string, Set<ReadableStreamDefaultController>>();
 
-function emitDmListUpdate(userIds: string[], payload: Record<string, unknown>) {
+export function emitDmListUpdate(userIds: string[], payload: Record<string, unknown>) {
   const data = new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
   userIds.forEach((userId) => {
     const streams = activeDmListConnections.get(userId);
@@ -147,6 +147,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               status: getPublicPresenceStatus(r),
               customStatus: r.customStatus,
               isPremium: r.isPremium,
+              isSystem: r.isSystem || false,
             })),
             lastMessageId: channel.lastMessageId,
             updatedAt: channel.updatedAt,

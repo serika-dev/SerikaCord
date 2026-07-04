@@ -579,6 +579,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
         const { Message } = await import('@/lib/models/Message');
         const { encryptForStorage } = await import('@/lib/security/encryption');
         const { Types } = await import('mongoose');
+        const { emitDmListUpdate } = await import('@/lib/api/dms');
         
         await ensureSerikaBroadcastUser();
         
@@ -608,7 +609,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
               if (!channel) {
                 channel = new Channel({
                   type: 'dm',
+                  name: 'Direct Message',
                   recipientIds: [broadcastUserId, targetUser._id],
+                  position: 0,
                 });
                 await channel.save();
               }
@@ -627,6 +630,19 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
               channel.lastMessageId = dmMessage._id;
               channel.updatedAt = new Date();
               await channel.save();
+              
+              // Emit real-time DM list update to the target user
+              emitDmListUpdate([targetUser._id.toString()], {
+                type: 'dm:list:update',
+                channelId: channel._id.toString(),
+                recipientId: SERIKA_BROADCAST_ID.toString(),
+                message: {
+                  id: dmMessage._id.toString(),
+                  content: message.trim().slice(0, 180),
+                  authorId: broadcastUserId.toString(),
+                  createdAt: dmMessage.createdAt,
+                },
+              });
               
               dmCount++;
             } catch (err) {
