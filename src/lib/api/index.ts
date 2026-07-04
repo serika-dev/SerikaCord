@@ -165,10 +165,11 @@ function mergeDeep<T extends Record<string, any>>(base: T, patch: Record<string,
   return output as T;
 }
 
-function getPublicPresenceStatus(user: { status?: string | null; presenceLastHeartbeatAt?: Date | string | number | null }) {
+function getPublicPresenceStatus(user: { status?: string | null; presenceLastHeartbeatAt?: Date | string | number | null; isSystem?: boolean }) {
   return resolveEffectiveStatus({
     status: user.status,
     presenceLastHeartbeatAt: user.presenceLastHeartbeatAt ?? null,
+    isSystem: user.isSystem,
   });
 }
 

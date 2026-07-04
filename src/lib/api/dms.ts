@@ -32,10 +32,11 @@ function sanitizeMessageContent(content: string): string {
   return sanitized;
 }
 
-function getPublicPresenceStatus(user: { status?: string | null; presenceLastHeartbeatAt?: Date | string | number | null }) {
+function getPublicPresenceStatus(user: { status?: string | null; presenceLastHeartbeatAt?: Date | string | number | null; isSystem?: boolean }) {
   return resolveEffectiveStatus({
     status: user.status,
     presenceLastHeartbeatAt: user.presenceLastHeartbeatAt ?? null,
+    isSystem: user.isSystem,
   });
 }
 

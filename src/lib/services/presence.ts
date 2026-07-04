@@ -6,6 +6,7 @@ export type PublicPresenceStatus = "online" | "idle" | "dnd" | "offline";
 interface PresenceInput {
   status?: string | null;
   presenceLastHeartbeatAt?: Date | string | number | null;
+  isSystem?: boolean;
 }
 
 function toTimestamp(value: PresenceInput["presenceLastHeartbeatAt"]): number | null {
@@ -25,6 +26,10 @@ export function isPresenceStale(
 }
 
 export function resolveEffectiveStatus(input: PresenceInput, nowMs: number = Date.now()): PublicPresenceStatus {
+  if (input.isSystem) {
+    return "online";
+  }
+
   const status = (input.status || "offline").toLowerCase();
 
   if (status === "offline" || status === "invisible") {
