@@ -17,6 +17,33 @@ const PAGE_SIZE = 50;
 // Keeps the DOM light (no virtualization needed) while allowing deep scrollback.
 const MAX_LOADED_MESSAGES = 200;
 
+/**
+ * Module-level stale-while-revalidate cache keyed by REST base (apiBase).
+ * Re-opening a channel/DM paints the last-seen messages instantly while a
+ * fresh fetch revalidates in the background, so switching feels near-instant
+ * instead of clearing to a spinner on every visit. Lives for the tab session.
+ */
+const MAX_CACHED_CONTEXTS = 50;
+const messageCache = new Map<string, ChatMessage[]>();
+
+function readCache<M extends ChatMessage>(key: string): M[] | undefined {
+  const cached = messageCache.get(key);
+  if (!cached) return undefined;
+  // Refresh LRU recency.
+  messageCache.delete(key);
+  messageCache.set(key, cached);
+  return cached as M[];
+}
+
+function writeCache<M extends ChatMessage>(key: string, messages: M[]): void {
+  messageCache.delete(key);
+  messageCache.set(key, messages);
+  if (messageCache.size > MAX_CACHED_CONTEXTS) {
+    const oldest = messageCache.keys().next().value;
+    if (oldest !== undefined) messageCache.delete(oldest);
+  }
+}
+
 export interface ChatSessionUser {
   id: string;
   username: string;
@@ -121,9 +148,19 @@ export function useChatSession<M extends ChatMessage>({
     const requestedContext = apiBase;
     activeFetchContextRef.current = requestedContext;
 
-    setIsLoading(true);
-    setHasMoreOlder(false);
-    setMessages([]);
+    // Stale-while-revalidate: paint cached messages immediately (no spinner)
+    // and revalidate below. Only fall back to the loading state on a cold open.
+    const cached = readCache<M>(requestedContext);
+    if (cached && cached.length > 0) {
+      setMessages(cached);
+      setHasMoreOlder(paginated && cached.length >= PAGE_SIZE);
+      setIsLoading(false);
+      latestRef.current.onShouldScrollToBottom?.();
+    } else {
+      setIsLoading(true);
+      setHasMoreOlder(false);
+      setMessages([]);
+    }
     try {
       const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
       if (activeFetchContextRef.current !== requestedContext) return;
@@ -139,6 +176,7 @@ export function useChatSession<M extends ChatMessage>({
           seen.add(normalized.id);
           deduped.push(normalized);
         }
+        writeCache(requestedContext, deduped);
         setMessages(deduped);
         setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
         latestRef.current.onShouldScrollToBottom?.();
@@ -202,6 +240,16 @@ export function useChatSession<M extends ChatMessage>({
       void fetchPinnedMessages();
     }
   }, [apiBase, user, fetchMessages, fetchPinnedMessages]);
+
+  // Keep the SWR cache current with live updates (SSE, optimistic sends, edits,
+  // deletes, scrollback). Guarded by activeFetchContextRef so a mid-switch render
+  // — where `messages` still holds the previous context — never corrupts the new
+  // context's cache entry.
+  useEffect(() => {
+    if (apiBase && activeFetchContextRef.current === apiBase) {
+      writeCache(apiBase, messages);
+    }
+  }, [apiBase, messages]);
 
   // Real-time updates over SSE (connection + typing handled by the stream hook)
   const { typingStatusText, typingUsers } = useChatStream({

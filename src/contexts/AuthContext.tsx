@@ -89,15 +89,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         setUser(data);
-        
-        // Set user online when refreshing auth
+
+        // Set user online when refreshing auth. Fire-and-forget so the app shell
+        // paints as soon as we know who the user is, rather than blocking first
+        // render on a second serial round-trip.
         if (data && data.status !== "dnd" && data.status !== "invisible") {
-          await fetch("/api/users/me", {
+          setUser(prev => prev ? { ...prev, status: "online" } : null);
+          void fetch("/api/users/me", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ status: "online" }),
+          }).catch(() => {
+            // Presence update is best-effort.
           });
-          setUser(prev => prev ? { ...prev, status: "online" } : null);
         }
       } else {
         setUser(null);

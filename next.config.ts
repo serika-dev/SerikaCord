@@ -19,7 +19,7 @@ const nextConfig: NextConfig = {
   
   // Experimental optimizations
   experimental: {
-    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons', 'date-fns'],
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons', 'date-fns', 'framer-motion', 'emoji-picker-react'],
   },
 
   // Transpile serika-dev-player for proper CSS/ESM handling
