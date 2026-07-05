@@ -557,7 +557,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
         user.customization = mergeDeep((user.customization || {}) as Record<string, any>, customization) as any;
       }
       if (gifFavorites !== undefined && Array.isArray(gifFavorites)) {
-        user.gifFavorites = gifFavorites.slice(0, 100).map((url: unknown) => String(url || '')).filter(Boolean);
+        user.gifFavorites = gifFavorites.slice(0, 200).map((f: any) => ({
+          url: String(f?.url || ''),
+          title: String(f?.title || ''),
+          source: String(f?.source || ''),
+          addedAt: Number(f?.addedAt) || Date.now(),
+        })).filter((f: any) => f.url);
       }
 
       await user.save();
@@ -598,7 +603,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
       ])),
       settings: t.Optional(t.Object({}, { additionalProperties: true })),
       customization: t.Optional(t.Object({}, { additionalProperties: true })),
-      gifFavorites: t.Optional(t.Array(t.String())),
+      gifFavorites: t.Optional(t.Array(t.Object({
+        url: t.String(),
+        title: t.Optional(t.String()),
+        source: t.Optional(t.String()),
+        addedAt: t.Optional(t.Number()),
+      }))),
     }),
   })
   .post('/me/presence/heartbeat', async ({ headers, cookie, set }) => {

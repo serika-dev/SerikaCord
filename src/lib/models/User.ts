@@ -64,7 +64,7 @@ export interface IUser extends Document {
   customization: IUserCustomization;
   
   // GIF favorites
-  gifFavorites: string[];
+  gifFavorites: Array<{ url: string; title?: string; source?: string; addedAt: number }>;
   
   // Flags
   isBot: boolean;
@@ -311,8 +311,10 @@ const UserSchema = new Schema<IUser>({
     },
   },
   gifFavorites: [{
-    type: String,
-    default: [],
+    url: { type: String, required: true },
+    title: { type: String, default: '' },
+    source: { type: String, default: '' },
+    addedAt: { type: Number, default: 0 },
   }],
   isBot: {
     type: Boolean,

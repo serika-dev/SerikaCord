@@ -37,7 +37,7 @@ interface User {
       gradient?: string[];
     };
   };
-  gifFavorites?: string[];
+  gifFavorites?: Array<{ url: string; title?: string; source?: string; addedAt: number }>;
 }
 
 interface AuthContextType {

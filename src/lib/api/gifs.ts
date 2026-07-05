@@ -223,7 +223,7 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 401;
       return { error: error || 'Unauthorized' };
     }
-    const { url } = body as { url: string };
+    const { url, title, source } = body as { url: string; title?: string; source?: string };
     if (!url || typeof url !== 'string') {
       set.status = 400;
       return { error: 'GIF URL is required' };
@@ -234,15 +234,19 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 404;
       return { error: 'User not found' };
     }
-    const favorites = new Set(dbUser.gifFavorites || []);
-    favorites.add(url);
-    dbUser.gifFavorites = Array.from(favorites).slice(0, 100);
-    await dbUser.save();
-    await invalidateUserCache(userId.toString());
+    const favorites = dbUser.gifFavorites || [];
+    if (!favorites.some((f: { url: string }) => f.url === url)) {
+      favorites.push({ url, title: title || '', source: source || '', addedAt: Date.now() });
+      dbUser.gifFavorites = favorites.slice(-200);
+      await dbUser.save();
+      await invalidateUserCache(userId.toString());
+    }
     return { favorites: dbUser.gifFavorites };
   }, {
     body: t.Object({
       url: t.String(),
+      title: t.Optional(t.String()),
+      source: t.Optional(t.String()),
     }),
   })
   .delete('/favorites', async ({ headers, cookie, body, set }) => {
@@ -262,7 +266,7 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 404;
       return { error: 'User not found' };
     }
-    dbUser.gifFavorites = (dbUser.gifFavorites || []).filter((item: string) => item !== url);
+    dbUser.gifFavorites = (dbUser.gifFavorites || []).filter((f: { url: string }) => f.url !== url);
     await dbUser.save();
     await invalidateUserCache(userId.toString());
     return { favorites: dbUser.gifFavorites };

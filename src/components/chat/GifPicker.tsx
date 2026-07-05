@@ -115,7 +115,7 @@ type ViewMode = "home" | "trending" | "category" | "search";
 type HomeTab = "trending" | "tags" | "collections" | "favorites";
 
 export function GifPicker({ onGifSelect, className }: GifPickerProps) {
-  const { favorites, removeFavorite } = useGifFavorites();
+  const { favorites, removeFavorite, isReady: favoritesReady } = useGifFavorites();
   const [search, setSearch] = useState("");
   const [gifs, setGifs] = useState<Gif[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -706,7 +706,11 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         ) : viewMode === "home" && !search ? (
           /* Home tabs: tags / collections / favorites */
           homeTab === "favorites" ? (
-            favorites.length === 0 ? (
+            !favoritesReady ? (
+              <div className="p-2 columns-2 gap-2">
+                {Array.from({ length: 8 }).map((_, i) => <SkeletonGif key={i} tall={i % 3 === 0} />)}
+              </div>
+            ) : favorites.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
                 <Star className="w-10 h-10 mb-3 opacity-30" />
                 <p className="text-sm">No favorite GIFs yet</p>
