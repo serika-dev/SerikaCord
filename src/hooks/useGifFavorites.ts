@@ -119,8 +119,12 @@ export function useGifFavorites(): UseGifFavoritesReturn {
         if (!cancelled) setIsReady(true);
       });
     } else {
-      setFavorites(readLocalFavorites());
-      setIsReady(true);
+      // Defer to avoid synchronous setState in effect
+      Promise.resolve().then(() => {
+        if (cancelled) return;
+        setFavorites(readLocalFavorites());
+        setIsReady(true);
+      });
     }
 
     return () => {
