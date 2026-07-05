@@ -1,7 +1,7 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-    
+
     repositories {
         google()
         mavenCentral()
@@ -21,6 +21,12 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+    }
+
+    // Force Java 17 for all projects (overrides capacitor-android's Java 21 requirement)
+    tasks.withType(JavaCompile).configureEach {
+        sourceCompatibility = '17'
+        targetCompatibility = '17'
     }
 }
 
