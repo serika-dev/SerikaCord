@@ -169,44 +169,20 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       return { error: error || 'Unauthorized' };
     }
 
-    const tagsData = await proxySerikaJson('/tags', {
+    // Note: the upstream /tags endpoint has no pagination support (no `page`
+    // param, no pagination metadata) — passing `page` is silently ignored and
+    // always returns the same slice, which used to break "load more". We
+    // fetch the full tag list (max 100) once and paginate client-side.
+    // Per-tag preview GIFs are fetched lazily by the client (with a random
+    // sort) instead of N+1 fetching every tag here.
+    return proxySerikaJson('/tags', {
+      search: query.search,
       limit: query.limit,
-      page: query.page,
-    }, set) as { tags?: Array<Record<string, unknown>> };
-
-    const rawTags = tagsData.tags || [];
-
-    // Fetch up to 4 preview GIFs per tag in parallel so tag tiles can show varied previews
-    const tagsWithPreviews = await Promise.all(
-      rawTags.map(async (t) => {
-        const slug = String(t.slug ?? t.name ?? '');
-        const previewGifs: { url: string; thumbnailUrl?: string }[] = [];
-        try {
-          const previewRes = await fetch(
-            serikaUrl('/gifs', { tag: slug, limit: '4', page: '1' }),
-            { headers: getSerikaGifAuthHeaders() }
-          );
-          if (previewRes.ok) {
-            const previewData = await previewRes.json() as { gifs?: Array<{ url?: string; thumbnailUrl?: string }> };
-            for (const gif of previewData.gifs || []) {
-              if (gif.url) {
-                previewGifs.push({ url: gif.url, thumbnailUrl: gif.thumbnailUrl });
-              }
-            }
-          }
-        } catch {
-          // ignore — preview is optional
-        }
-        const first = previewGifs[0];
-        return { ...t, previewUrl: first ? (first.thumbnailUrl || first.url) : undefined, previewGifs };
-      })
-    );
-
-    return { ...tagsData, tags: tagsWithPreviews };
+    }, set);
   }, {
     query: t.Object({
+      search: t.Optional(t.String()),
       limit: t.Optional(t.String()),
-      page: t.Optional(t.String()),
     }),
   })
   .get('/search', async ({ headers, cookie, query, set }) => {

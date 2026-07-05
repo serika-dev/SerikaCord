@@ -49,19 +49,27 @@ function GifThumbnail({ gif, className, alt }: { gif: Gif; className?: string; a
   );
 }
 
-function TagTile({ tag, onClick }: { tag: Tag; onClick: () => void }) {
+/** Shared tile for tags/trending/collections: cycles between a few preview
+ * GIFs on hover, falling back to a gradient while previews are loading. */
+function PreviewTile({
+  label,
+  subLabel,
+  previews,
+  onClick,
+  icon,
+  gradientClassName = "from-[#2b2d31] to-[#1e1f22]",
+}: {
+  label: string;
+  subLabel?: string;
+  previews: { url: string; thumbnailUrl?: string }[];
+  onClick: () => void;
+  icon?: React.ReactNode;
+  gradientClassName?: string;
+}) {
   const [hovered, setHovered] = useState(false);
   const [index, setIndex] = useState(0);
-  const previews = tag.previewGifs && tag.previewGifs.length > 0
-    ? tag.previewGifs
-    : tag.previewUrl
-      ? [{ url: tag.previewUrl }]
-      : [];
   useEffect(() => {
-    if (!hovered || previews.length <= 1) {
-      setIndex(0);
-      return;
-    }
+    if (!hovered || previews.length <= 1) return;
     const interval = setInterval(() => setIndex((i) => (i + 1) % previews.length), 700);
     return () => clearInterval(interval);
   }, [hovered, previews.length]);
@@ -74,17 +82,18 @@ function TagTile({ tag, onClick }: { tag: Tag; onClick: () => void }) {
       className="relative aspect-[16/9] rounded-lg overflow-hidden group"
     >
       {active ? (
-        <img src={active.url} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+        <img src={active.thumbnailUrl || active.url} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
       ) : (
-        <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
+        <div className={cn("absolute inset-0 bg-gradient-to-br", gradientClassName)} />
       )}
       <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
       <div className="absolute inset-0 flex items-end p-2">
-        <div className="flex flex-col items-start">
+        <div className="flex flex-col items-start gap-0.5">
+          {icon}
           <span className="text-xs font-bold text-white drop-shadow-md capitalize leading-tight line-clamp-2">
-            {tag.name}
+            {label}
           </span>
-          <span className="text-[10px] text-white/70 drop-shadow-md">{tag.count} GIFs</span>
+          {subLabel && <span className="text-[10px] text-white/70 drop-shadow-md">{subLabel}</span>}
         </div>
       </div>
     </button>
@@ -110,7 +119,14 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const [search, setSearch] = useState("");
   const [gifs, setGifs] = useState<Gif[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
-  const [tags, setTags] = useState<Tag[]>([]);
+  const [collectionsError, setCollectionsError] = useState(false);
+  // Tags: the upstream API has no pagination for /tags, so we fetch the full
+  // list once (max 100) and reveal more locally on "load more".
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [tagsError, setTagsError] = useState(false);
+  const [visibleTagCount, setVisibleTagCount] = useState(TAG_PAGE_SIZE);
+  const [tagPreviews, setTagPreviews] = useState<Record<string, { url: string; thumbnailUrl?: string }[]>>({});
+  const [trendingPreview, setTrendingPreview] = useState<Gif[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("home");
@@ -119,14 +135,16 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const [totalPages, setTotalPages] = useState(1);
   const [collectionsPage, setCollectionsPage] = useState(1);
   const [collectionsTotalPages, setCollectionsTotalPages] = useState(1);
-  const [tagsPage, setTagsPage] = useState(1);
-  const [tagsTotalPages, setTagsTotalPages] = useState(1);
   const [selectedCategory, setSelectedCategory] = useState<{ type: "tag" | "collection"; item: Tag | Collection } | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const gifsRef = useRef<Gif[]>([]);
   const noNewItemsRef = useRef(false);
+  const tagPreviewsRef = useRef<Record<string, { url: string; thumbnailUrl?: string }[]>>({});
+  useEffect(() => {
+    tagPreviewsRef.current = tagPreviews;
+  }, [tagPreviews]);
 
   // Format GIF response
   const formatGifs = (data: Record<string, unknown>[]): Gif[] => {
@@ -198,7 +216,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     if (append) setIsLoadingMore(true);
     try {
       const response = await fetch(`${SERIKA_GIFS_API}/collections?limit=${COLLECTION_PAGE_SIZE}&page=${page}`);
-      
+
       if (response.ok) {
         const data = await response.json();
         const nextCollections = data.collections || [];
@@ -215,50 +233,99 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
           resolveTotalPages(data.pagination?.totalPages, page, nextCollections.length, COLLECTION_PAGE_SIZE)
         );
         setCollectionsPage(page);
+        setCollectionsError(false);
+      } else {
+        if (!append) setCollectionsError(true);
       }
     } catch (error) {
       console.error("Failed to fetch collections:", error);
+      if (!append) setCollectionsError(true);
     } finally {
       if (append) setIsLoadingMore(false);
     }
   }, []);
 
-  // Fetch tags with preview images
-  const fetchTags = useCallback(async (page = 1, append = false) => {
-    if (append) setIsLoadingMore(true);
+  // Fetch the full tag list once. The upstream /tags endpoint has no
+  // pagination support (no `page` param, no pagination metadata — passing
+  // `page` is silently ignored and always returns the same slice), so we
+  // fetch up to the max (100) here and reveal more locally.
+  const fetchTags = useCallback(async () => {
     try {
-      const response = await fetch(`${SERIKA_GIFS_API}/tags?limit=${TAG_PAGE_SIZE}&page=${page}`);
-      
+      const response = await fetch(`${SERIKA_GIFS_API}/tags?limit=100`);
+
       if (response.ok) {
         const data = await response.json();
         const rawTags: Record<string, unknown>[] = data.tags || [];
-        const tagsWithPreviews: Tag[] = rawTags.map((t) => ({
+        const mapped: Tag[] = rawTags.map((t) => ({
           id: String(t.id ?? t.slug ?? t.name ?? ""),
           name: String(t.name ?? t.slug ?? ""),
           slug: String(t.slug ?? t.name ?? ""),
           count: Number(t.count ?? 0),
-          previewUrl: (t.previewUrl as string) || (t.preview_url as string) || (t.preview as string) || undefined,
-          previewGifs: (t.previewGifs as { url: string; thumbnailUrl?: string }[]) || undefined,
         }));
-        
-        if (append) {
-          setTags((prev) => {
-            const seen = new Set(prev.map((item) => item.id));
-            const uniqueNew = tagsWithPreviews.filter((item: Tag) => !seen.has(item.id));
-            return [...prev, ...uniqueNew];
-          });
-        } else {
-          setTags(tagsWithPreviews);
-        }
-        setTagsTotalPages(resolveTotalPages(data.pagination?.totalPages, page, tagsWithPreviews.length, TAG_PAGE_SIZE));
-        setTagsPage(page);
+        setAllTags(mapped);
+        setTagsError(false);
+      } else {
+        setTagsError(true);
       }
     } catch (error) {
       console.error("Failed to fetch tags:", error);
-    } finally {
-      if (append) setIsLoadingMore(false);
+      setTagsError(true);
     }
   }, []);
+
+  // Fetch a small trending sample to use as the "Trending" home tile preview.
+  const fetchTrendingPreview = useCallback(async () => {
+    try {
+      const response = await fetch(`${SERIKA_GIFS_API}/gifs?sort=trending&limit=4&page=1`);
+      if (response.ok) {
+        const data = await response.json();
+        setTrendingPreview(formatGifs(data.gifs || []));
+      }
+    } catch (error) {
+      console.error("Failed to fetch trending preview:", error);
+    }
+  }, []);
+
+  const revealMoreTags = useCallback(() => {
+    setVisibleTagCount((c) => Math.min(c + TAG_PAGE_SIZE, allTags.length));
+  }, [allTags.length]);
+
+  // Lazily fetch preview GIFs (randomized, so different tags don't all show
+  // the same viral trending gif) for whichever tags are currently visible.
+  useEffect(() => {
+    const visible = allTags.slice(0, visibleTagCount);
+    const missing = visible.filter((t) => !tagPreviewsRef.current[t.slug]);
+    if (missing.length === 0) return;
+
+    let cancelled = false;
+
+    Promise.all(
+      missing.map(async (tag): Promise<[string, { url: string; thumbnailUrl?: string }[]]> => {
+        try {
+          const res = await fetch(`${SERIKA_GIFS_API}/gifs?tag=${encodeURIComponent(tag.slug)}&sort=random&limit=4&page=1`);
+          if (!res.ok) return [tag.slug, []];
+          const data = await res.json();
+          const previews = ((data.gifs || []) as Array<{ url?: string; thumbnailUrl?: string }>)
+            .filter((g) => g.url)
+            .map((g) => ({ url: g.url as string, thumbnailUrl: g.thumbnailUrl }));
+          return [tag.slug, previews];
+        } catch {
+          return [tag.slug, []];
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) return;
+      setTagPreviews((prev) => {
+        const next = { ...prev };
+        for (const [slug, previews] of entries) next[slug] = previews;
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [allTags, visibleTagCount]);
 
   // Fetch GIFs by tag
   const fetchByTag = useCallback(async (tagSlug: string, page = 1, append = false) => {
@@ -390,12 +457,13 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     }
   }, []);
 
-  // Initial load
+  // Initial load — fetch tags, collections, and a trending preview sample.
+  // Full trending GIFs are fetched on demand when the user clicks the tile.
   useEffect(() => {
-    fetchTrending(1, false);
-    fetchTags(1, false);
+    fetchTrendingPreview();
+    fetchTags();
     fetchCollections(1, false);
-  }, [fetchTrending, fetchTags, fetchCollections]);
+  }, [fetchTrendingPreview, fetchTags, fetchCollections]);
 
   // Handle search input change with debounce
   const handleSearchChange = (value: string) => {
@@ -425,8 +493,8 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         if (currentPage >= totalPages) return;
         fetchTrending(currentPage + 1, true);
       } else if (homeTab === "tags") {
-        if (tagsPage >= tagsTotalPages) return;
-        fetchTags(tagsPage + 1, true);
+        if (visibleTagCount >= allTags.length) return;
+        revealMoreTags();
       } else if (homeTab === "collections") {
         if (collectionsPage >= collectionsTotalPages) return;
         fetchCollections(collectionsPage + 1, true);
@@ -457,14 +525,14 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
     homeTab,
     currentPage,
     totalPages,
-    tagsPage,
-    tagsTotalPages,
+    visibleTagCount,
+    allTags.length,
     collectionsPage,
     collectionsTotalPages,
     isLoadingMore,
     search,
     selectedCategory,
-    fetchTags,
+    revealMoreTags,
     fetchCollections,
     fetchTrending,
     searchGifs,
@@ -473,7 +541,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   ]);
 
   const canLoadMore = viewMode === "home"
-    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? tagsPage < tagsTotalPages : homeTab === "collections" ? collectionsPage < collectionsTotalPages : false)
+    ? (homeTab === "trending" ? currentPage < totalPages : homeTab === "tags" ? visibleTagCount < allTags.length : homeTab === "collections" ? collectionsPage < collectionsTotalPages : false)
     : currentPage < totalPages;
 
   // Intersection observer for infinite scroll
@@ -636,7 +704,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             </div>
           )
         ) : viewMode === "home" && !search ? (
-          /* Home tabs: trending gifs grid OR category tiles */
+          /* Home tabs: tags / collections / favorites */
           homeTab === "favorites" ? (
             favorites.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
@@ -686,62 +754,79 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                 </div>
               </div>
             )
-          ) : (
-            <div className="p-2 grid grid-cols-2 gap-2">
-              {homeTab === "tags" && (
-                <button
-                  onClick={goToTrending}
-                  className="relative aspect-[16/9] rounded-lg overflow-hidden group"
-                >
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#f97316] to-[#dc2626]" />
-                  <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="flex flex-col items-center gap-1">
-                      <Flame className="w-6 h-6 text-white" />
-                      <span className="text-xs font-bold text-white drop-shadow-md">Trending</span>
-                    </div>
-                  </div>
+          ) : homeTab === "tags" ? (
+            tagsError ? (
+              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+                <TagIcon className="w-10 h-10 mb-3 opacity-30" />
+                <p className="text-sm">Failed to load tags</p>
+                <button onClick={fetchTags} className="mt-3 px-4 py-1.5 text-xs font-medium bg-[#5865f2]/20 hover:bg-[#5865f2]/30 text-[#7289da] rounded-full transition-colors">
+                  Retry
                 </button>
-              )}
-              {(homeTab === "collections" ? collections : tags).map((item) => {
-                if (homeTab === "collections") {
-                  const col = item as Collection;
-                  const bgImg = col.previewGifs?.[0]?.thumbnailUrl || col.previewGifs?.[0]?.url;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => goToCategory("collection", item)}
-                      className="relative aspect-[16/9] rounded-lg overflow-hidden group"
-                    >
-                      {bgImg ? (
-                        <img src={bgImg} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
-                      ) : (
-                        <div className="absolute inset-0 bg-gradient-to-br from-[#2b2d31] to-[#1e1f22]" />
-                      )}
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/55 transition-colors" />
-                      <div className="absolute inset-0 flex items-end p-2">
-                        <span className="text-xs font-bold text-white drop-shadow-md capitalize leading-tight line-clamp-2">
-                          {item.name}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                }
-                return <TagTile key={item.id} tag={item as Tag} onClick={() => goToCategory("tag", item)} />;
-              })}
-              {(homeTab === "collections" ? collections.length : tags.length) === 0 && (
-                <div className="col-span-2 flex flex-col items-center justify-center py-12 text-[#949ba4]">
-                  <Grid3X3 className="w-10 h-10 mb-3 opacity-30" />
-                  <p className="text-sm">Nothing here yet</p>
-                </div>
-              )}
-              {canLoadMore && (
-                <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
-                  {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
-                </div>
-              )}
-            </div>
-          )
+              </div>
+            ) : allTags.length === 0 ? (
+              <div className="p-2 grid grid-cols-2 gap-2">
+                {Array.from({ length: 8 }).map((_, i) => <SkeletonTile key={i} />)}
+              </div>
+            ) : (
+              <div className="p-2 grid grid-cols-2 gap-2">
+                {/* Trending tile with live preview */}
+                <PreviewTile
+                  label="Trending"
+                  icon={<Flame className="w-4 h-4 text-orange-400" />}
+                  previews={trendingPreview.map((g) => ({ url: g.url, thumbnailUrl: g.thumbnailUrl }))}
+                  onClick={goToTrending}
+                  gradientClassName="from-[#f97316] to-[#dc2626]"
+                />
+                {allTags.slice(0, visibleTagCount).map((tag) => (
+                  <PreviewTile
+                    key={tag.id}
+                    label={tag.name}
+                    subLabel={tag.count > 0 ? `${tag.count} GIFs` : undefined}
+                    icon={<TagIcon className="w-3.5 h-3.5 text-[#b5bac1]" />}
+                    previews={tagPreviews[tag.slug] || []}
+                    onClick={() => goToCategory("tag", tag)}
+                  />
+                ))}
+                {canLoadMore && (
+                  <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
+                    {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                  </div>
+                )}
+              </div>
+            )
+          ) : homeTab === "collections" ? (
+            collectionsError ? (
+              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+                <Grid3X3 className="w-10 h-10 mb-3 opacity-30" />
+                <p className="text-sm">Failed to load collections</p>
+                <button onClick={() => fetchCollections(1, false)} className="mt-3 px-4 py-1.5 text-xs font-medium bg-[#5865f2]/20 hover:bg-[#5865f2]/30 text-[#7289da] rounded-full transition-colors">
+                  Retry
+                </button>
+              </div>
+            ) : collections.length === 0 ? (
+              <div className="p-2 grid grid-cols-2 gap-2">
+                {Array.from({ length: 6 }).map((_, i) => <SkeletonTile key={i} />)}
+              </div>
+            ) : (
+              <div className="p-2 grid grid-cols-2 gap-2">
+                {collections.map((col) => (
+                  <PreviewTile
+                    key={col.id}
+                    label={col.name}
+                    subLabel={col.gifCount > 0 ? `${col.gifCount} GIFs` : undefined}
+                    icon={<Grid3X3 className="w-3.5 h-3.5 text-[#b5bac1]" />}
+                    previews={col.previewGifs || []}
+                    onClick={() => goToCategory("collection", col)}
+                  />
+                ))}
+                {canLoadMore && (
+                  <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
+                    {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                  </div>
+                )}
+              </div>
+            )
+          ) : null
         ) : gifs.length === 0 && !isLoading ? (
           <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
             <Search className="w-10 h-10 mb-3 opacity-30" />
