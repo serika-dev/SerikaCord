@@ -17,7 +17,7 @@ export default function WebhookResourceDoc() {
   "name": "My Webhook",
   "avatar": null,
   "token": "webhook_token",
-  "url": "https://serika.dev/api/webhooks/123/abc",
+  "url": "https://api.serika.chat/api/webhooks/123/abc",
   "application_id": null,
   "source_channel": null,
   "source_guild": null

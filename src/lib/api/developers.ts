@@ -3,6 +3,7 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { Application, DeveloperTeam, AppWebhook, AppEmoji, User } from '@/lib/models';
 import { Types } from 'mongoose';
 import * as crypto from 'crypto';
+import { config } from '@/lib/config';
 
 // ─── Helpers ───────────────────────────────────────────────
 
@@ -59,6 +60,8 @@ function sanitizeApp(app: any) {
     privacyPolicyUrl: app.privacyPolicyUrl,
     flags: app.flags,
     gatewayIntents: app.gatewayIntents,
+    interactionsEndpointUrl: app.interactionsEndpointUrl ?? null,
+    publicKey: app.publicKey ?? null,
     createdAt: app.createdAt,
     updatedAt: app.updatedAt,
   };
@@ -194,6 +197,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     'name', 'description', 'icon', 'coverImage', 'botPublic', 'botRequireCodeGrant',
     'redirectUris', 'scopes', 'installParams', 'customInstallUrl', 'tags',
     'termsOfServiceUrl', 'privacyPolicyUrl', 'rpcOrigins', 'gatewayIntents',
+    'interactionsEndpointUrl',
   ];
 
   for (const key of allowed) {
@@ -247,6 +251,10 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   app.botToken = newToken;
   await app.save();
 
+  // Ensure the bot User + keypair exist so the new token actually authenticates.
+  const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+  await ensureBotProvisioned(app as any);
+
   return { token: newToken };
 })
 
@@ -264,12 +272,57 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Only the owner can enable the bot' };
   }
 
-  if (!app.botToken) {
-    app.botToken = generateBotToken(app.clientId);
-    await app.save();
-  }
+  // Provision the backing bot User, token, and Ed25519 keypair. Without the bot
+  // User, gateway/REST authentication would fail (botId would stay null).
+  const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+  await ensureBotProvisioned(app as any);
 
   return { application: sanitizeApp(app) };
+})
+
+// Set / verify the interactions endpoint URL. Discord-style: we send a signed
+// PING and only save the URL if the endpoint acknowledges with { type: 1 }.
+.post('/applications/:id/bot/interactions-endpoint', async ({ headers, cookie, params, body, set }) => {
+  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+
+  if (!Types.ObjectId.isValid(params.id)) { set.status = 404; return { error: 'Application not found' }; }
+  const app = await Application.findById(params.id).select('+privateKeyPem');
+  if (!app) { set.status = 404; return { error: 'Application not found' }; }
+  if (app.ownerId.toString() !== user._id.toString()) {
+    set.status = 403; return { error: 'Only the owner can change the interactions endpoint' };
+  }
+
+  const url = (body as any)?.url?.trim() || null;
+
+  if (!url) {
+    app.interactionsEndpointUrl = null;
+    await app.save();
+    return { interactionsEndpointUrl: null };
+  }
+
+  try { new URL(url); } catch { set.status = 400; return { error: 'Invalid URL' }; }
+
+  // Make sure the app has a keypair to sign with.
+  const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+  await ensureBotProvisioned(app as any);
+
+  const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
+  const ok = await verifyInteractionEndpoint({
+    interactionsEndpointUrl: url,
+    privateKeyPem: app.privateKeyPem,
+    clientId: app.clientId,
+  });
+  if (!ok) {
+    set.status = 400;
+    return { error: 'The interactions endpoint did not respond to our PING with a valid PONG.' };
+  }
+
+  app.interactionsEndpointUrl = url;
+  await app.save();
+  return { interactionsEndpointUrl: url };
+}, {
+  body: t.Object({ url: t.Optional(t.Union([t.String(), t.Null()])) }),
 })
 
 // Reset client secret
@@ -782,7 +835,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 // ─── Gateway URL ───────────────────────────────────────────
 
 .get('/gateway', () => ({
-  url: 'wss://serika.dev/api/v10/gateway',
+  url: config.GATEWAY_URL,
 }))
 
 .get('/gateway/bot', async ({ headers, set }) => {
@@ -794,7 +847,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   if (!app) { set.status = 401; return { error: 'Invalid token' }; }
 
   return {
-    url: 'wss://serika.dev/api/v10/gateway',
+    url: config.GATEWAY_URL,
     shards: 1,
     session_start_limit: {
       total: 1000,

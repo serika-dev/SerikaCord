@@ -3,6 +3,7 @@ import { Application } from '@/lib/models';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan } from '@/lib/models';
 import { Types } from 'mongoose';
 import * as crypto from 'crypto';
+import { config } from '@/lib/config';
 
 // ─── Webhook Model (inline, lightweight) ───────────────────
 import mongoose, { Schema, Document } from 'mongoose';
@@ -32,35 +33,8 @@ const ChannelWebhookSchema = new Schema<IChannelWebhook>({
 
 const ChannelWebhook = mongoose.models.ChannelWebhook || mongoose.model<IChannelWebhook>('ChannelWebhook', ChannelWebhookSchema);
 
-// ─── Application Command Model (inline) ────────────────────
-interface IAppCommand extends Document {
-  _id: Types.ObjectId;
-  applicationId: Types.ObjectId;
-  guildId?: Types.ObjectId | null;
-  name: string;
-  description: string;
-  options: any[];
-  defaultPermission: boolean;
-  type: number;
-  version: string;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const AppCommandSchema = new Schema<IAppCommand>({
-  applicationId: { type: Schema.Types.ObjectId, ref: 'Application', required: true, index: true },
-  guildId: { type: Schema.Types.ObjectId, ref: 'Server', default: null, index: true },
-  name: { type: String, required: true, trim: true, maxlength: 32 },
-  description: { type: String, required: true, maxlength: 100 },
-  options: { type: Schema.Types.Mixed, default: [] },
-  defaultPermission: { type: Boolean, default: true },
-  type: { type: Number, default: 1 },
-  version: { type: String, default: '1' },
-}, { timestamps: true });
-
-AppCommandSchema.index({ applicationId: 1, guildId: 1, name: 1 }, { unique: true });
-
-const AppCommand = mongoose.models.AppCommand || mongoose.model<IAppCommand>('AppCommand', AppCommandSchema);
+// ─── Application Command Model (shared) ────────────────────
+import { AppCommand } from '@/lib/models/AppCommand';
 
 // ─── Bot Auth Helper ───────────────────────────────────────
 
@@ -268,12 +242,12 @@ function formatInvite(invite: any) {
 export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
 // ─── Gateway ───────────────────────────────────────────────
-.get('/gateway', () => ({ url: 'wss://serika.dev/api/v10/gateway' }))
+.get('/gateway', () => ({ url: config.GATEWAY_URL }))
 .get('/gateway/bot', async ({ headers, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   return {
-    url: 'wss://serika.dev/api/v10/gateway',
+    url: config.GATEWAY_URL,
     shards: 1,
     session_start_limit: { total: 1000, remaining: 1000, reset_after: 86400000, max_concurrency: 1 },
   };
@@ -506,20 +480,34 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     reactions: [],
   });
 
-  // Publish to Redis for real-time delivery
+  const populated = await Message.findById(msg._id).populate('authorId').lean();
+
+  // Deliver to the web client SSE streams and the bot gateway.
   try {
-    const { getPublisher } = await import('@/lib/db');
-    const pub = getPublisher();
-    if (pub) {
-      const populated = await Message.findById(msg._id).populate('authorId').lean();
-      pub.publish(`channel:${params.channelId}:messages`, JSON.stringify({
-        type: 'message_create',
-        message: formatMessage(populated),
-      }));
-    }
+    const { publishToChannel } = await import('@/lib/api/channels');
+    publishToChannel(params.channelId, { type: 'message', message: formatMessage(populated) });
+  } catch {}
+  try {
+    const { emitMessageCreate } = await import('@/lib/services/gatewayEvents');
+    const author = populated?.authorId as any;
+    await emitMessageCreate({
+      id: msg._id.toString(),
+      content: msg.content ?? '',
+      channelId: params.channelId,
+      serverId: channel.serverId?.toString() ?? null,
+      createdAt: (populated as any)?.createdAt,
+      author: author && author._id ? {
+        id: author._id.toString(),
+        username: author.username,
+        displayName: author.displayName,
+        avatar: author.avatar,
+        isBot: author.isBot,
+        isSystem: author.isSystem,
+      } : null,
+      attachments: (msg.attachments ?? []) as any,
+    });
   } catch {}
 
-  const populated = await Message.findById(msg._id).populate('authorId').lean();
   return formatMessage(populated);
 })
 .patch('/channels/:channelId/messages/:messageId', async ({ headers, params, body, set }) => {
@@ -708,14 +696,45 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .get('/applications/:appId/commands', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  // Return empty array — commands stored in separate collection in production
-  return [];
+  const cmds = await AppCommand.find({ applicationId: params.appId, guildId: null }).lean();
+  return cmds.map((c: any) => ({
+    id: c._id.toString(),
+    application_id: params.appId,
+    name: c.name,
+    description: c.description,
+    options: c.options ?? [],
+    default_permission: c.defaultPermission,
+    type: c.type,
+    version: c.version,
+  }));
 })
 .put('/applications/:appId/commands', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  // Bulk overwrite commands
-  return body;
+  // Bulk overwrite global commands.
+  const commands = (body as any[]) ?? [];
+  await AppCommand.deleteMany({ applicationId: params.appId, guildId: null });
+  const created = commands.length
+    ? await AppCommand.insertMany(commands.map((c: any) => ({
+        applicationId: new Types.ObjectId(params.appId),
+        guildId: null,
+        name: c.name,
+        description: c.description ?? '',
+        options: c.options ?? [],
+        defaultPermission: c.default_permission ?? true,
+        type: c.type ?? 1,
+      })))
+    : [];
+  return created.map((c: any) => ({
+    id: c._id.toString(),
+    application_id: params.appId,
+    name: c.name,
+    description: c.description,
+    options: c.options,
+    default_permission: c.defaultPermission,
+    type: c.type,
+    version: c.version,
+  }));
 })
 .post('/interactions/:interactionId/:interactionToken/callback', async ({ params, body, set }) => {
   // Interaction callback — no auth needed, token in URL
@@ -1103,7 +1122,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     name,
     avatar: avatar ?? null,
     token,
-    url: `https://serika.chat/api/webhooks/${params.channelId}/${token}`,
+    url: `${config.API_BASE_URL}/api/webhooks/${params.channelId}/${token}`,
     creatorId: auth.botUser._id,
   });
   return {

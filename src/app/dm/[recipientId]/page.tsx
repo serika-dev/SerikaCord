@@ -97,6 +97,9 @@ export default function DMConversationPage() {
         if (result.ttsText) {
           composer?.clear();
           await chat.sendMessage({ contentOverride: result.ttsText });
+        } else if (result.sendAsMessage) {
+          composer?.clear();
+          await chat.sendMessage({ contentOverride: result.sendAsMessage });
         } else {
           composer?.clear();
           chat.resetTyping();

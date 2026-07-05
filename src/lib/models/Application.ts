@@ -30,6 +30,12 @@ export interface IApplication extends Document {
   privacyPolicyUrl?: string | null;
   flags: number;
   gatewayIntents: number;
+  // Interactions (HTTP) — bot receives signed POSTs at this URL for slash commands.
+  interactionsEndpointUrl?: string | null;
+  // Ed25519 keypair. `publicKey` is shown to the developer so they can verify our
+  // request signatures; `privateKeyPem` is used server-side to sign interaction POSTs.
+  publicKey?: string | null;
+  privateKeyPem?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -63,6 +69,9 @@ const ApplicationSchema = new Schema<IApplication>({
   privacyPolicyUrl: { type: String, default: null },
   flags: { type: Number, default: 0 },
   gatewayIntents: { type: Number, default: 0 },
+  interactionsEndpointUrl: { type: String, default: null },
+  publicKey: { type: String, default: null },
+  privateKeyPem: { type: String, default: null, select: false },
 }, {
   timestamps: true,
 });

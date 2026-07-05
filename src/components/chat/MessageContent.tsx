@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
+import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 
 interface CustomEmoji {
   id: string;
@@ -35,6 +36,7 @@ interface MessageContentProps {
   mentionUsers?: MentionUser[];
   mentionRoles?: MentionRole[];
   currentUserId?: string;
+  serverId?: string;
   className?: string;
   edited?: boolean;
   sticker?: {
@@ -76,6 +78,7 @@ export const MessageContent = memo(function MessageContent({
   mentionUsers = [],
   mentionRoles = [],
   currentUserId,
+  serverId,
   className,
   edited,
   sticker,
@@ -356,19 +359,51 @@ export const MessageContent = memo(function MessageContent({
         }
         if (part.type === "mention-user" && part.mentionId) {
           const mentionUser = mentionUserMap.get(part.mentionId);
-          const mentionLabel = mentionUser?.displayName || mentionUser?.username || "unknown";
+          const isResolved = Boolean(mentionUser);
+          const mentionLabel = mentionUser?.displayName || mentionUser?.username || "Unknown User";
           const isSelfMention = Boolean(currentUserId && currentUserId === part.mentionId);
-          return (
+          const mentionSpan = (
             <span
-              key={`mention-user-${index}-${part.mentionId}`}
+              title={isResolved ? undefined : `User ID: ${part.mentionId}`}
               className={cn(
-                "inline-block px-1 py-0.5 rounded font-medium",
+                "inline-block px-1 py-0.5 rounded font-medium cursor-pointer",
                 isSelfMention
                   ? "bg-yellow-500/25 text-yellow-200"
-                  : "bg-[var(--app-accent)]/20 text-[var(--app-accent)]"
+                  : isResolved
+                    ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)] hover:bg-[var(--app-accent)]/30"
+                    : "bg-[var(--app-surface-alt)] text-[var(--app-muted)] hover:bg-[var(--app-border)]"
               )}
             >
               @{mentionLabel}
+            </span>
+          );
+          // Wrap in MemberProfilePopup if we have enough info to show the card
+          if (mentionUser && mentionUser.id && mentionUser.id !== "unknown") {
+            return (
+              <MemberProfilePopup
+                key={`mention-user-${index}-${part.mentionId}`}
+                member={{
+                  id: mentionUser.id,
+                  username: mentionUser.username || "unknown",
+                  displayName: mentionUser.displayName,
+                }}
+                serverId={serverId}
+                side="top"
+                align="center"
+              >
+                <button
+                  type="button"
+                  className="inline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {mentionSpan}
+                </button>
+              </MemberProfilePopup>
+            );
+          }
+          return (
+            <span key={`mention-user-${index}-${part.mentionId}`}>
+              {mentionSpan}
             </span>
           );
         }

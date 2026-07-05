@@ -1,3 +1,15 @@
+/** Canonical bot API endpoints, referenced across the docs. */
+export const API = {
+  /** REST base, versioned like Discord. */
+  rest: "https://api.serika.chat/api/v10",
+  /** Bare REST host (no version). */
+  host: "https://api.serika.chat/api",
+  /** Gateway WebSocket URL. */
+  gateway: "wss://api.serika.chat/api/v10/gateway",
+  /** OAuth2 authorize endpoint. */
+  authorize: "https://api.serika.chat/api/oauth2/authorize",
+} as const;
+
 export interface DocNavItem {
   label: string;
   slug: string;
@@ -14,8 +26,18 @@ export const docNav: DocNavSection[] = [
     title: "Getting Started",
     items: [
       { label: "Introduction", slug: "intro" },
+      { label: "Getting Started", slug: "getting-started" },
       { label: "Quick Start", slug: "quick-start" },
       { label: "Reference", slug: "reference" },
+    ],
+  },
+  {
+    title: "Bots",
+    items: [
+      { label: "Overview", slug: "bots/overview" },
+      { label: "Gateway", slug: "topics/gateway" },
+      { label: "Slash Commands", slug: "bots/slash-commands" },
+      { label: "Interactions", slug: "bots/interactions" },
     ],
   },
   {

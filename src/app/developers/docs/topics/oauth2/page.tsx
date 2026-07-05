@@ -9,7 +9,7 @@ export default function OAuth2Doc() {
       </P>
 
       <H2 id="oauth2-url">Authorization URL</H2>
-      <CodeBlock lang="text">{`https://serika.dev/api/oauth2/authorize?response_type=code&client_id=YOUR_CLIENT_ID&scope=identify&redirect_uri=YOUR_REDIRECT_URI&state=RANDOM_STATE`}</CodeBlock>
+      <CodeBlock lang="text">{`https://api.serika.chat/api/oauth2/authorize?response_type=code&client_id=YOUR_CLIENT_ID&scope=identify&redirect_uri=YOUR_REDIRECT_URI&state=RANDOM_STATE`}</CodeBlock>
 
       <H2 id="scopes">Scopes</H2>
       <Table
@@ -34,7 +34,7 @@ export default function OAuth2Doc() {
 
       <H2 id="authorization-code">Authorization Code Flow</H2>
       <H3 id="step-1">Step 1: Redirect user to authorization URL</H3>
-      <CodeBlock lang="text">{`GET https://serika.dev/api/oauth2/authorize
+      <CodeBlock lang="text">{`GET https://api.serika.chat/api/oauth2/authorize
   ?response_type=code
   &client_id=YOUR_CLIENT_ID
   &scope=identify%20email
@@ -46,7 +46,7 @@ export default function OAuth2Doc() {
       <CodeBlock lang="text">{`https://your-site.com/callback?code=AUTHORIZATION_CODE&state=random_state_string`}</CodeBlock>
 
       <H3 id="step-3">Step 3: Exchange code for access token</H3>
-      <CodeBlock lang="bash">{`POST https://serika.dev/api/oauth2/token
+      <CodeBlock lang="bash">{`POST https://api.serika.chat/api/oauth2/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=authorization_code
@@ -64,11 +64,11 @@ grant_type=authorization_code
 }`}</CodeBlock>
 
       <H3 id="step-4">Step 4: Use the access token</H3>
-      <CodeBlock lang="bash">{`GET https://serika.dev/api/v10/users/@me
+      <CodeBlock lang="bash">{`GET https://api.serika.chat/api/v10/users/@me
 Authorization: Bearer YOUR_ACCESS_TOKEN`}</CodeBlock>
 
       <H2 id="refresh-token">Refreshing Tokens</H2>
-      <CodeBlock lang="bash">{`POST https://serika.dev/api/oauth2/token
+      <CodeBlock lang="bash">{`POST https://api.serika.chat/api/oauth2/token
 Content-Type: application/x-www-form-urlencoded
 
 grant_type=refresh_token
@@ -78,13 +78,13 @@ grant_type=refresh_token
 
       <H2 id="implicit">Implicit Grant Flow</H2>
       <P>For client-side apps that can't store a client secret:</P>
-      <CodeBlock lang="text">{`https://serika.dev/api/oauth2/authorize?response_type=token&client_id=YOUR_CLIENT_ID&scope=identify&redirect_uri=YOUR_REDIRECT_URI`}</CodeBlock>
+      <CodeBlock lang="text">{`https://api.serika.chat/api/oauth2/authorize?response_type=token&client_id=YOUR_CLIENT_ID&scope=identify&redirect_uri=YOUR_REDIRECT_URI`}</CodeBlock>
       <P>Returns the access token directly in the URL fragment:</P>
       <CodeBlock lang="text">{`https://your-site.com/callback#access_token=YOUR_TOKEN&token_type=Bearer&expires_in=604800&scope=identify`}</CodeBlock>
 
       <H2 id="bot-authorization">Bot Authorization</H2>
       <P>To add a bot to a server, include the <InlineCode>bot</InlineCode> scope:</P>
-      <CodeBlock lang="text">{`https://serika.dev/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot&permissions=8`}</CodeBlock>
+      <CodeBlock lang="text">{`https://api.serika.chat/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot&permissions=8`}</CodeBlock>
       <P>The <InlineCode>permissions</InlineCode> parameter is a bitwise combination of permission flags. See <Link2 href="/developers/docs/topics/permissions">Permissions</Link2>.</P>
 
       <Callout type="warning" title="Redirect URI Matching">

@@ -188,7 +188,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const memberships = await ServerMember.find({ userId: user._id })
       .populate({
         path: 'serverId',
-        select: 'name icon banner ownerId memberCount onlineCount features premiumTier',
+        select: 'name icon banner ownerId memberCount onlineCount features premiumTier isAgeGated isPartnered',
       });
 
     const servers = memberships

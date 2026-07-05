@@ -24,6 +24,8 @@ services:
       - B2_ENDPOINT=${B2_ENDPOINT}
       - CDN_URL=${CDN_URL}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
+      - GATEWAY_URL=${GATEWAY_URL:-wss://api.serika.chat/api/v10/gateway}
+      - API_BASE_URL=${API_BASE_URL:-https://api.serika.chat}
       - AWS_EMAIL_ENDPOINT=${AWS_EMAIL_ENDPOINT}
       - AWS_EMAIL_SMTP_PORT=${AWS_EMAIL_SMTP_PORT}
       - AWS_EMAIL_SMTP_USERNAME=${AWS_EMAIL_SMTP_USERNAME}

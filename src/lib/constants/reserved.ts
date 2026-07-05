@@ -6,7 +6,7 @@ export const RESERVED_SLUGS = new Set([
   'channels', 'me', 'messages', 'notifications', 'profile', 'settings',
   'explore', 'discover', 'download', 'widget', 'dm', 'api',
   'terms', 'privacy', 'legal', 'guidelines', 'about', 'careers', 'blog',
-  'admin', 'staff', 'system', 'serika', 'serikacord', 'support',
+  'admin', 'staff', 'system', 'support',
   'help', 'status', 'cdn', 'static', 'assets', 'favicon',
   'developers', 'docs',
   '404', '500', 'robots', 'sitemap', 'manifest',

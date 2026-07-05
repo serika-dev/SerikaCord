@@ -63,7 +63,7 @@ export default function WebhooksDoc() {
   "avatar": null,
   "token": "webhook_token_here",
   "application_id": null,
-  "url": "https://serika.dev/api/webhooks/123/abc"
+  "url": "https://api.serika.chat/api/webhooks/123/abc"
 }`}</CodeBlock>
 
       <H2 id="webhook-types">Webhook Types</H2>

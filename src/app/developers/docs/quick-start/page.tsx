@@ -32,7 +32,7 @@ export default function QuickStartDoc() {
         install link. Open it in your browser to add the bot to your server.
       </P>
       <P>A typical install URL looks like:</P>
-      <CodeBlock lang="bash">https://serika.dev/api/oauth2/authorize?client_id=YOUR_APP_ID&amp;scope=bot+applications.commands&amp;permissions=8</CodeBlock>
+      <CodeBlock lang="bash">https://api.serika.chat/api/oauth2/authorize?client_id=YOUR_APP_ID&amp;scope=bot+applications.commands&amp;permissions=8</CodeBlock>
 
       <H2 id="first-bot">Step 4: Write Your First Bot</H2>
 
@@ -48,8 +48,8 @@ const client = new Client({
 });
 
 // Point to SerikaCord's API
-client.rest.setBaseURL("https://serika.dev/api/v10");
-client.options.ws.url = "wss://serika.dev/api/v10/gateway";
+client.rest.setBaseURL("https://api.serika.chat/api/v10");
+client.options.ws.url = "wss://api.serika.chat/api/v10/gateway";
 
 client.on("ready", () => {
   console.log(\`Logged in as \${client.user.tag}\`);
@@ -79,13 +79,13 @@ async def on_message(message):
         await message.reply("Pong!")
 
 # Set custom API base URL
-discord.http.Route.BASE = "https://serika.dev/api/v10"
+discord.http.Route.BASE = "https://api.serika.chat/api/v10"
 client.run("YOUR_BOT_TOKEN")`}</CodeBlock>
 
       <H3 id="raw-http">Raw HTTP / cURL</H3>
       <P>You can also make direct REST API calls:</P>
       <CodeBlock lang="bash">{`curl -H "Authorization: Bot YOUR_TOKEN" \\
-  https://serika.dev/api/v10/users/@me`}</CodeBlock>
+  https://api.serika.chat/api/v10/users/@me`}</CodeBlock>
 
       <Callout type="warning" title="Token Security">
         Never commit your bot token to version control. Use environment variables and add it to your{" "}

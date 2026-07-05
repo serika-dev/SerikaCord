@@ -17,6 +17,14 @@ export interface ComposerEmoji {
   animated?: boolean;
 }
 
+export interface ComposerMention {
+  id: string;
+  label: string;
+  /** "user" | "role" | "everyone" | "here" */
+  kind: "user" | "role" | "everyone" | "here";
+  color?: string;
+}
+
 export interface RichComposerHandle {
   focus: () => void;
   clear: () => void;
@@ -28,6 +36,8 @@ export interface RichComposerHandle {
   replaceRange: (start: number, end: number, replacement: string) => void;
   /** Replace [start, end) in token-string coordinates with an emoji image */
   replaceRangeWithEmoji: (start: number, end: number, emoji: ComposerEmoji) => void;
+  /** Replace [start, end) in token-string coordinates with a mention pill */
+  replaceRangeWithMention: (start: number, end: number, mention: ComposerMention) => void;
 }
 
 interface RichComposerProps {
@@ -44,6 +54,34 @@ interface RichComposerProps {
 
 function emojiToken(emoji: ComposerEmoji): string {
   return `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
+}
+
+function mentionToken(mention: ComposerMention): string {
+  if (mention.kind === "role") return `<@&${mention.id}>`;
+  if (mention.kind === "everyone") return "@everyone";
+  if (mention.kind === "here") return "@here";
+  return `<@${mention.id}>`;
+}
+
+function makeMentionSpan(mention: ComposerMention): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.contentEditable = "false";
+  span.dataset.mentionKind = mention.kind;
+  span.dataset.mentionId = mention.id;
+  span.dataset.mentionToken = mentionToken(mention);
+  span.className =
+    "inline-block px-1 py-0.5 rounded font-medium cursor-pointer select-none mx-px " +
+    (mention.kind === "everyone" || mention.kind === "here"
+      ? "bg-yellow-500/20 text-yellow-200"
+      : mention.color
+        ? ""
+        : "bg-[var(--app-accent)]/20 text-[var(--app-accent)]");
+  if (mention.color && mention.kind !== "everyone" && mention.kind !== "here") {
+    span.style.backgroundColor = mention.color + "22";
+    span.style.color = mention.color;
+  }
+  span.textContent = `@${mention.label}`;
+  return span;
 }
 
 function makeEmojiImg(emoji: ComposerEmoji): HTMLImageElement {
@@ -63,6 +101,9 @@ function nodeTokenLength(node: Node): number {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent?.length ?? 0;
   if (node.nodeName === "IMG") {
     return (node as HTMLElement).dataset.emojiToken?.length ?? 0;
+  }
+  if (node.nodeName === "SPAN" && (node as HTMLElement).dataset.mentionToken) {
+    return (node as HTMLElement).dataset.mentionToken?.length ?? 0;
   }
   if (node.nodeName === "BR") return 1;
   return 0;
@@ -99,6 +140,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
             out += child.textContent ?? "";
           } else if (child.nodeName === "IMG") {
             out += (child as HTMLElement).dataset.emojiToken ?? "";
+          } else if (child.nodeName === "SPAN" && (child as HTMLElement).dataset.mentionToken) {
+            out += (child as HTMLElement).dataset.mentionToken ?? "";
           } else if (child.nodeName === "BR") {
             out += "\n";
           } else if (child.nodeType === Node.ELEMENT_NODE) {
@@ -190,7 +233,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
               return { node: child, offset: remaining };
             }
             remaining -= len;
-          } else if (child.nodeName === "IMG" || child.nodeName === "BR") {
+          } else if (child.nodeName === "IMG" || child.nodeName === "BR" ||
+            (child.nodeName === "SPAN" && (child as HTMLElement).dataset.mentionToken)) {
             const len = nodeTokenLength(child);
             if (remaining < len) {
               return { node, offset: i };
@@ -296,6 +340,9 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       },
       replaceRangeWithEmoji: (start: number, end: number, emoji: ComposerEmoji) => {
         domReplaceRange(start, end, makeEmojiImg(emoji));
+      },
+      replaceRangeWithMention: (start: number, end: number, mention: ComposerMention) => {
+        domReplaceRange(start, end, makeMentionSpan(mention));
       },
     }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange]);
 

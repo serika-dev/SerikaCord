@@ -47,7 +47,15 @@ import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
-import { getCommandSuggestions, type SlashCommand } from "@/lib/chat/slashCommands";
+import {
+  getCommandSuggestions,
+  parseCommandContext,
+  DURATION_PRESETS,
+  CATEGORY_ORDER,
+  getCategoryLabel,
+  type SlashCommand,
+  type SlashCommandParam,
+} from "@/lib/chat/slashCommands";
 import type { ChatMessage } from "@/lib/chat/types";
 
 type Message = ChatMessage;
@@ -68,13 +76,20 @@ interface MentionRole {
 
 interface MentionSuggestion {
   id: string;
-  kind: "user" | "role" | "everyone" | "here" | "emoji" | "command";
+  kind: "user" | "role" | "everyone" | "here" | "emoji" | "command" | "param-user" | "param-duration" | "param-choice" | "param-hint";
   label: string;
   description?: string;
   color?: string;
   imageUrl?: string;
   animated?: boolean;
   usage?: string;
+  // Param suggestion fields
+  paramName?: string;
+  paramRequired?: boolean;
+  paramValue?: string;
+  commandName?: string;
+  commandHint?: string;
+  category?: string;
 }
 
 function escapeRegex(input: string): string {
@@ -431,6 +446,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           // TTS: speak then send the text as a normal message
           composer?.clear();
           await chat.sendMessage({ contentOverride: result.ttsText });
+        } else if (result.sendAsMessage) {
+          // Commands like /me, /shrug, /8ball, /roll produce a message
+          composer?.clear();
+          await chat.sendMessage({ contentOverride: result.sendAsMessage });
         } else {
           composer?.clear();
           chat.resetTyping();
@@ -508,10 +527,131 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               label: cmd.name,
               description: cmd.description,
               usage: cmd.usage,
+              category: cmd.category,
+              commandHint: cmd.hint,
             })),
           );
           setActiveMentionIndex(0);
           return;
+        }
+      }
+
+      // Slash command param autocomplete: `/command args...`
+      // Detect when the user has typed a full command name followed by a space
+      // and is now filling in parameters.
+      const paramMatch = beforeCursor.match(/^\/(\S+)(\s+.*)$/);
+      if (paramMatch) {
+        const ctx = parseCommandContext(beforeCursor);
+        if (ctx && ctx.param) {
+          const param = ctx.param;
+          const argQuery = ctx.currentArg.toLowerCase();
+
+          // User target params: show member list
+          if (param.isUserTarget && mentionUsers.length > 0) {
+            const userSuggestions = mentionUsers
+              .filter((entry) => {
+                const username = (entry.username || "").toLowerCase();
+                const displayName = (entry.displayName || "").toLowerCase();
+                return username.includes(argQuery) || displayName.includes(argQuery);
+              })
+              .slice(0, 8)
+              .map((entry) => ({
+                id: entry.id,
+                kind: "param-user" as const,
+                label: entry.displayName || entry.username,
+                description: entry.username,
+                color: userRoleColorMap[entry.id],
+                paramName: param.name,
+                paramRequired: param.required,
+                commandName: ctx.command.name,
+              }));
+            if (userSuggestions.length > 0 || argQuery === "") {
+              mentionRangeRef.current = {
+                start: caretPosition - ctx.currentArg.length,
+                end: caretPosition,
+              };
+              setMentionSuggestions(userSuggestions.length > 0 ? userSuggestions : [{
+                id: "__param-hint__",
+                kind: "param-hint" as const,
+                label: param.name,
+                description: param.description,
+                paramName: param.name,
+                paramRequired: param.required,
+                commandName: ctx.command.name,
+              }]);
+              setActiveMentionIndex(0);
+              return;
+            }
+          }
+
+          // Duration params: show preset choices
+          if (param.isDuration) {
+            const presets = DURATION_PRESETS.filter(
+              (p) => !argQuery || p.value.toLowerCase().includes(argQuery) || p.label.toLowerCase().includes(argQuery)
+            );
+            mentionRangeRef.current = {
+              start: caretPosition - ctx.currentArg.length,
+              end: caretPosition,
+            };
+            setMentionSuggestions(
+              presets.map((p) => ({
+                id: p.value,
+                kind: "param-duration" as const,
+                label: p.label,
+                description: p.value,
+                paramName: param.name,
+                paramRequired: param.required,
+                commandName: ctx.command.name,
+              })),
+            );
+            setActiveMentionIndex(0);
+            return;
+          }
+
+          // Choice params: show predefined choices
+          if (param.choices && param.choices.length > 0) {
+            const choices = param.choices.filter(
+              (c) => !argQuery || c.value.toLowerCase().includes(argQuery) || c.label.toLowerCase().includes(argQuery)
+            );
+            mentionRangeRef.current = {
+              start: caretPosition - ctx.currentArg.length,
+              end: caretPosition,
+            };
+            setMentionSuggestions(
+              choices.map((c) => ({
+                id: c.value,
+                kind: "param-choice" as const,
+                label: c.label,
+                description: c.description || c.value,
+                paramName: param.name,
+                paramRequired: param.required,
+                commandName: ctx.command.name,
+              })),
+            );
+            setActiveMentionIndex(0);
+            return;
+          }
+
+          // Free-text params: show a hint card
+          if (param.isFreeText || (!param.isUserTarget && !param.isDuration && !param.choices)) {
+            mentionRangeRef.current = {
+              start: caretPosition - ctx.currentArg.length,
+              end: caretPosition,
+            };
+            setMentionSuggestions([
+              {
+                id: "__param-hint__",
+                kind: "param-hint" as const,
+                label: param.name,
+                description: param.description,
+                paramName: param.name,
+                paramRequired: param.required,
+                commandName: ctx.command.name,
+              },
+            ]);
+            setActiveMentionIndex(0);
+            return;
+          }
         }
       }
 
@@ -615,7 +755,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       setMentionSuggestions(nextSuggestions);
       setActiveMentionIndex(0);
     },
-    [mentionRoles, mentionUsers, allServerEmojis, currentServer]
+    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer]
   );
 
   const insertMentionFromSuggestion = useCallback(
@@ -639,16 +779,38 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       } else if (suggestion.kind === "command") {
         // Replace /query with /command + space
         composer.replaceRange(0, activeRange.end, `/${suggestion.label} `);
+      } else if (suggestion.kind === "param-user") {
+        // Insert user mention pill for command param
+        composer.replaceRangeWithMention(activeRange.start, activeRange.end, {
+          id: suggestion.id,
+          label: suggestion.label,
+          kind: "user",
+          color: suggestion.color,
+        });
+        // Add trailing space as text
+        composer.insertTextAtCaret(" ");
+      } else if (suggestion.kind === "param-duration" || suggestion.kind === "param-choice") {
+        // Insert the value for duration/choice params
+        composer.replaceRange(activeRange.start, activeRange.end, `${suggestion.id} `);
+      } else if (suggestion.kind === "param-hint") {
+        // Just dismiss the hint — user continues typing
+        mentionRangeRef.current = null;
+        setMentionSuggestions([]);
+        return;
       } else {
-        const mentionToken =
-          suggestion.kind === "user"
-            ? `<@${suggestion.id}>`
-            : suggestion.kind === "role"
-              ? `<@&${suggestion.id}>`
-              : suggestion.kind === "everyone"
-                ? "@everyone"
-                : "@here";
-        composer.replaceRange(activeRange.start, activeRange.end, `${mentionToken} `);
+        // User, role, everyone, here — insert as mention pill
+        const mentionKind =
+          suggestion.kind === "user" ? "user" :
+          suggestion.kind === "role" ? "role" :
+          suggestion.kind === "everyone" ? "everyone" : "here";
+        composer.replaceRangeWithMention(activeRange.start, activeRange.end, {
+          id: suggestion.id,
+          label: suggestion.label,
+          kind: mentionKind,
+          color: suggestion.color,
+        });
+        // Add trailing space as text
+        composer.insertTextAtCaret(" ");
       }
 
       chat.signalTyping(composer.getText());

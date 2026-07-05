@@ -30,6 +30,8 @@ export interface ApplicationData {
   emojiCount?: number;
   webhookCount?: number;
   gatewayIntents?: number;
+  interactionsEndpointUrl?: string | null;
+  publicKey?: string | null;
 }
 
 export function useApplication(appId: string) {

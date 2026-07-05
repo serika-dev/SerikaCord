@@ -890,6 +890,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       message: messageResponse,
     });
 
+    // Fan out to connected bots via the gateway bus.
+    try {
+      const { emitMessageCreate } = await import('@/lib/services/gatewayEvents');
+      await emitMessageCreate(messageResponse as never);
+    } catch {}
+
+    // If the message invokes a registered slash command, dispatch an interaction.
+    try {
+      const { maybeDispatchSlashInteraction } = await import('@/lib/services/interactions');
+      await maybeDispatchSlashInteraction(messageResponse as never);
+    } catch {}
+
     return { message: messageResponse };
   }, {
     params: t.Object({

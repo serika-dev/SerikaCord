@@ -227,3 +227,65 @@ export function Link2({ href, children }: { href: string; children: React.ReactN
     </Link>
   );
 }
+
+export function CardGrid({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-5">{children}</div>;
+}
+
+export function Card({
+  href,
+  title,
+  children,
+  icon,
+  external,
+}: {
+  href: string;
+  title: string;
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  external?: boolean;
+}) {
+  const inner = (
+    <div className="group h-full rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] hover:border-[#8B5CF6]/30 p-4 transition-colors">
+      <div className="flex items-center gap-2.5 mb-1.5">
+        {icon && (
+          <span className="size-8 rounded-lg bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 flex items-center justify-center text-[#a78bfa] shrink-0">
+            {icon}
+          </span>
+        )}
+        <h3 className="text-sm font-semibold text-white group-hover:text-[#a78bfa] transition-colors">
+          {title}
+        </h3>
+      </div>
+      <p className="text-[13px] text-[#949ba4] leading-relaxed">{children}</p>
+    </div>
+  );
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer" className="block h-full">
+        {inner}
+      </a>
+    );
+  }
+  return (
+    <Link href={href} className="block h-full">
+      {inner}
+    </Link>
+  );
+}
+
+export function Steps({ children }: { children: React.ReactNode }) {
+  return <ol className="my-5 space-y-4 counter-reset-step">{children}</ol>;
+}
+
+export function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+  return (
+    <li className="relative pl-11">
+      <span className="absolute left-0 top-0 size-8 rounded-full bg-[#8B5CF6]/15 border border-[#8B5CF6]/30 text-[#a78bfa] text-sm font-bold flex items-center justify-center">
+        {n}
+      </span>
+      <h3 className="text-base font-semibold text-white mb-1 pt-1">{title}</h3>
+      <div className="text-[14px] text-[#dbdee1] leading-relaxed space-y-2">{children}</div>
+    </li>
+  );
+}

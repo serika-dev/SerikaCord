@@ -90,7 +90,7 @@ const permissions = (1n << 10n) | (1n << 11n) | (1n << 16n);
         When inviting a bot via OAuth2, pass permissions as the <InlineCode>permissions</InlineCode>{" "}
         parameter in the authorize URL:
       </P>
-      <CodeBlock lang="text">{`https://serika.dev/api/oauth2/authorize?client_id=ID&scope=bot&permissions=8`}</CodeBlock>
+      <CodeBlock lang="text">{`https://api.serika.chat/api/oauth2/authorize?client_id=ID&scope=bot&permissions=8`}</CodeBlock>
       <P>
         <InlineCode>permissions=8</InlineCode> is the Administrator permission. Use a{" "}
         <Link2 href="/developers/applications">permissions calculator</Link2> to generate the right value.

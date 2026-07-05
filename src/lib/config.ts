@@ -57,7 +57,7 @@ export const config = {
   RATE_LIMIT_WINDOW: parseInt(process.env.RATE_LIMIT_WINDOW || '60000'), // 1 minute
   
   // CORS
-  ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://serika.dev,https://serika.chat,https://serika.cc').split(','),
+  ALLOWED_ORIGINS: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://serika.dev,https://serika.chat,https://api.serika.chat,https://serika.cc').split(','),
   
   // File upload limits
   MAX_FILE_SIZE: parseInt(process.env.MAX_FILE_SIZE || '104857600'), // 100MB default (free)
@@ -77,6 +77,13 @@ export const config = {
   MAX_MESSAGE_LENGTH: parseInt(process.env.MAX_MESSAGE_LENGTH || '4000'),
   MAX_MESSAGES_PER_FETCH: parseInt(process.env.MAX_MESSAGES_PER_FETCH || '100'),
   
+  // Bot Gateway (standalone Bun WebSocket process — see scripts/gateway.ts)
+  GATEWAY_PORT: parseInt(process.env.GATEWAY_PORT || '3001'),
+  // Public wss:// URL bots connect to (behind nginx). Falls back to the loopback port in dev.
+  GATEWAY_URL: process.env.GATEWAY_URL || 'wss://api.serika.chat/api/v10/gateway',
+  // Base URL bots use for REST + the domain returned in webhook/link payloads.
+  API_BASE_URL: process.env.API_BASE_URL || 'https://api.serika.chat',
+
   // Server limits
   MAX_SERVERS_PER_USER: parseInt(process.env.MAX_SERVERS_PER_USER || '100'),
   MAX_CHANNELS_PER_SERVER: parseInt(process.env.MAX_CHANNELS_PER_SERVER || '500'),

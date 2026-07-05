@@ -24,6 +24,9 @@ export default function BotPage() {
   const [resetting, setResetting] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const [intents, setIntents] = useState(0);
+  const [interactionsUrl, setInteractionsUrl] = useState("");
+  const [savingInteractions, setSavingInteractions] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
 
   useEffect(() => {
     if (app) {
@@ -31,8 +34,31 @@ export default function BotPage() {
       setBotRequireCodeGrant(app.botRequireCodeGrant ?? false);
       setToken(app.botToken || "");
       setIntents(app.gatewayIntents || 0);
+      setInteractionsUrl(app.interactionsEndpointUrl || "");
     }
   }, [app]);
+
+  const handleSaveInteractions = async () => {
+    setSavingInteractions(true);
+    try {
+      const res = await fetch(`/api/developers/applications/${appId}/bot/interactions-endpoint`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: interactionsUrl.trim() || null }),
+      });
+      if (res.ok) {
+        toast.success(interactionsUrl.trim() ? "Interactions endpoint verified & saved" : "Interactions endpoint cleared");
+        refetch();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || "Failed to verify endpoint");
+      }
+    } catch {
+      toast.error("Failed to verify endpoint");
+    } finally {
+      setSavingInteractions(false);
+    }
+  };
 
   const handleTogglePublic = async (value: boolean) => {
     setBotPublic(value);
@@ -271,6 +297,58 @@ export default function BotPage() {
           })}
         </div>
       </div>
+
+      {/* Public Key */}
+      {hasBot && app?.publicKey && (
+        <div className="mb-8">
+          <h3 className="text-sm font-semibold mb-2">Public Key</h3>
+          <p className="text-xs text-[#666] mb-3">
+            Used to verify the signatures on interaction requests we send to your endpoint.
+          </p>
+          <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
+            <code className="text-sm text-[#ccc] flex-1 truncate font-mono">{app.publicKey}</code>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(app.publicKey!);
+                setCopiedKey(true);
+                setTimeout(() => setCopiedKey(false), 2000);
+              }}
+              className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
+            >
+              {copiedKey ? <Check className="size-4 text-green-400" /> : <Copy className="size-4" />}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Interactions Endpoint URL */}
+      {hasBot && (
+        <div className="mb-8">
+          <h3 className="text-sm font-semibold mb-2">Interactions Endpoint URL</h3>
+          <p className="text-xs text-[#666] mb-3">
+            Optional. If set, we POST interaction (slash command) events here with an
+            Ed25519 signature instead of only delivering them over the gateway. We verify
+            the URL with a PING before saving.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="url"
+              value={interactionsUrl}
+              onChange={(e) => setInteractionsUrl(e.target.value)}
+              placeholder="https://example.com/interactions"
+              className="flex-1 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-[#ccc] font-mono outline-none focus:border-[#8B5CF6]/50"
+            />
+            <button
+              onClick={handleSaveInteractions}
+              disabled={savingInteractions}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
+            >
+              {savingInteractions ? <Loader2 className="size-4 animate-spin" /> : null}
+              Save
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

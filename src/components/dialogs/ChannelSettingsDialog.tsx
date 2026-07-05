@@ -32,7 +32,7 @@ export function ChannelSettingsDialog({
   onOpenChange,
   channelId,
 }: ChannelSettingsDialogProps) {
-  const { channels, updateChannel, deleteChannel, currentServer, fetchChannels } = useServer();
+  const { channels, updateChannel, deleteChannel, currentServer } = useServer();
 
   const channel = useMemo(
     () => channels.find((c) => c.id === channelId),
@@ -61,7 +61,7 @@ export function ChannelSettingsDialog({
       setTopic(channel.topic || "");
       setNsfw(channel.isNsfw || false);
       setParentId(channel.parentId || null);
-      setSlowmode(0);
+      setSlowmode(channel.rateLimitPerUser || 0);
       setActiveTab("overview");
       setHasChanges(false);
       setDeleteConfirmText("");
@@ -75,9 +75,10 @@ export function ChannelSettingsDialog({
       name !== channel.name ||
       topic !== (channel.topic || "") ||
       nsfw !== (channel.isNsfw || false) ||
-      parentId !== (channel.parentId || null);
+      parentId !== (channel.parentId || null) ||
+      slowmode !== (channel.rateLimitPerUser || 0);
     setHasChanges(changed);
-  }, [name, topic, nsfw, parentId, channel]);
+  }, [name, topic, nsfw, parentId, slowmode, channel]);
 
   const handleSave = async () => {
     if (!channel || !hasChanges) return;
@@ -88,6 +89,7 @@ export function ChannelSettingsDialog({
       if (topic !== (channel.topic || "")) updates.topic = topic;
       if (nsfw !== (channel.isNsfw || false)) updates.nsfw = nsfw;
       if (parentId !== (channel.parentId || null)) updates.parentId = parentId;
+      if (slowmode !== (channel.rateLimitPerUser || 0)) updates.rateLimitPerUser = slowmode;
 
       await updateChannel(channel.id, updates as any);
       toast.success("Channel settings saved");
@@ -359,6 +361,7 @@ export function ChannelSettingsDialog({
                       setTopic(channel.topic || "");
                       setNsfw(channel.isNsfw || false);
                       setParentId(channel.parentId || null);
+                      setSlowmode(channel.rateLimitPerUser || 0);
                     }
                   }}
                   className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:underline transition-colors"

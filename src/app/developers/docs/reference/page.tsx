@@ -10,7 +10,7 @@ export default function ReferenceDoc() {
       </P>
 
       <H2 id="base-url">Base URL</H2>
-      <CodeBlock lang="bash">https://serika.dev/api/v10</CodeBlock>
+      <CodeBlock lang="bash">https://api.serika.chat/api/v10</CodeBlock>
 
       <H2 id="authentication">Authentication</H2>
       <P>There are two types of authentication:</P>
@@ -89,7 +89,7 @@ export default function ReferenceDoc() {
       <P>
         Connect to the Gateway via WebSocket to receive real-time events:
       </P>
-      <CodeBlock lang="bash">wss://serika.dev/api/v10/gateway</CodeBlock>
+      <CodeBlock lang="bash">wss://api.serika.chat/api/v10/gateway</CodeBlock>
       <P>
         See <Link2 href="/developers/docs/topics/gateway">Gateway</Link2> for connection details and
         event reference.

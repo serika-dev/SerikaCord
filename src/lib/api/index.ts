@@ -298,7 +298,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const memberships = await ServerMember.find({ userId: user._id })
       .populate({
         path: 'serverId',
-        select: 'name icon banner description memberCount isOfficial isVerified isPartnered vanityUrlCode ownerId systemChannelId rulesChannelId afkChannelId afkTimeout',
+        select: 'name icon banner description memberCount isOfficial isVerified isPartnered vanityUrlCode ownerId systemChannelId rulesChannelId afkChannelId afkTimeout isAgeGated',
       });
 
     const servers = memberships
@@ -322,6 +322,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
           rulesChannelId: server.rulesChannelId?.toString() ?? null,
           afkChannelId: server.afkChannelId?.toString() ?? null,
           afkTimeout: server.afkTimeout ?? 300,
+          isAgeGated: server.isAgeGated ?? false,
           joinedAt: m.joinedAt,
           roles: m.roles,
           nickname: m.nickname,

@@ -302,7 +302,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
             );
           default:
             return (
-              <span key={key} className="block">
+              <span key={key} className="inline">
                 {block.inline && renderInlineNodes(block.inline, key)}
               </span>
             );

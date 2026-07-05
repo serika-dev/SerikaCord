@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -657,47 +657,123 @@ export default function ChannelPage() {
   const isNsfw = currentChannel?.isNsfw;
   const isConfirmed = currentChannel ? confirmedNsfwChannels.has(currentChannel.id) : false;
 
+  // iOS detection (or ?platform=ios query param for testing)
+  const isIOS = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("platform") === "ios") return true;
+    const ua = navigator.userAgent;
+    return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }, []);
+
+  // Age-gated server block for iOS
+  if (isIOS && currentServer?.isAgeGated) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--bg-primary)] text-[var(--text-primary)] p-6 text-center select-none">
+        {/* TV Static Icon */}
+        <div className="relative mb-6">
+          {/* Decorative sparkles */}
+          <span className="absolute -top-3 -left-4 text-[var(--text-muted)] text-xs select-none">✦</span>
+          <span className="absolute -top-1 right-0 text-[var(--text-muted)] text-[10px] select-none">✧</span>
+          <span className="absolute bottom-0 -left-2 text-[var(--text-muted)] text-[8px] select-none">+</span>
+          <span className="absolute bottom-2 -right-3 text-[var(--text-muted)] text-xs select-none">·</span>
+
+          <svg width="120" height="90" viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+            {/* TV Body */}
+            <rect x="10" y="8" width="100" height="70" rx="6" fill="#3a3a3a" stroke="#555" strokeWidth="2"/>
+            {/* Screen */}
+            <rect x="18" y="16" width="84" height="50" rx="3" fill="#2a2a2a"/>
+            {/* Static zigzag lines */}
+            <path d="M18 30 L30 25 L42 35 L54 22 L66 38 L78 20 L90 32 L102 28" stroke="#555" strokeWidth="2" fill="none"/>
+            <path d="M18 42 L28 48 L40 38 L52 50 L64 36 L76 45 L88 40 L102 44" stroke="#4a4a4a" strokeWidth="2" fill="none"/>
+            <path d="M18 55 L32 50 L44 58 L56 48 L68 56 L80 52 L102 54" stroke="#555" strokeWidth="1.5" fill="none"/>
+            {/* Stand */}
+            <rect x="45" y="78" width="30" height="4" rx="2" fill="#444"/>
+            {/* Exclamation badge */}
+            <circle cx="98" cy="20" r="14" fill="white" stroke="#ddd" strokeWidth="1.5"/>
+            <text x="98" y="26" textAnchor="middle" fontSize="18" fontWeight="bold" fill="#333">!</text>
+          </svg>
+        </div>
+
+        <p className="text-base text-[var(--text-muted)] max-w-xs leading-relaxed">
+          This server&apos;s content is unavailable on iOS
+        </p>
+      </div>
+    );
+  }
+
+  // NSFW channel age gate (redesigned)
   if (isNsfw && !isConfirmed && currentChannel) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#09090b] text-[#fafafa] p-6 text-center select-none">
-        <div className="max-w-md w-full p-8 rounded-2xl border border-red-500/10 bg-red-950/5 backdrop-blur-md shadow-2xl space-y-6">
-          <div className="mx-auto w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center border border-red-500/20 animate-pulse">
-            <span className="text-xl font-bold text-red-500">18+</span>
+      <div className="flex-1 flex flex-col items-center justify-center bg-[var(--bg-primary)] text-[var(--text-primary)] p-6 text-center select-none">
+        {/* Warning Triangle with cloud bubbles (matching reference) */}
+        <div className="relative mb-8">
+          {/* Background cloud bubbles */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+            <svg width="240" height="180" viewBox="0 0 240 180" fill="none">
+              {/* Large cloud/blob shapes behind triangle */}
+              <ellipse cx="120" cy="110" rx="90" ry="40" fill="var(--bg-sidebar)" opacity="0.6"/>
+              <ellipse cx="80" cy="90" rx="30" ry="25" fill="var(--bg-sidebar)" opacity="0.4"/>
+              <ellipse cx="160" cy="85" rx="25" ry="20" fill="var(--bg-sidebar)" opacity="0.4"/>
+              {/* Small decorative dots */}
+              <circle cx="45" cy="60" r="2" fill="var(--text-muted)" opacity="0.3"/>
+              <circle cx="195" cy="55" r="1.5" fill="var(--text-muted)" opacity="0.3"/>
+              <circle cx="50" cy="95" r="1" fill="var(--text-muted)" opacity="0.4"/>
+              <circle cx="190" cy="100" r="1.5" fill="var(--text-muted)" opacity="0.3"/>
+              {/* Cross sparkles */}
+              <path d="M40 50 L40 56 M37 53 L43 53" stroke="var(--text-muted)" strokeWidth="1" opacity="0.3"/>
+              <path d="M198 70 L198 74 M196 72 L200 72" stroke="var(--text-muted)" strokeWidth="1" opacity="0.3"/>
+            </svg>
           </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold tracking-tight text-red-400">
-              Age-Restricted Channel
-            </h2>
-            <p className="text-sm text-zinc-400 leading-relaxed font-sans">
-              This channel has been marked as NSFW (Not Safe For Work). You must be 18 years or older to view the content inside.
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 pt-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (currentServer) {
-                  const safeChannel = channels.find((c) => !c.isNsfw && c.type !== "category");
-                  if (safeChannel) {
-                    router.push(`/channels/${currentServer.id}/${safeChannel.id}`);
-                  } else {
-                    router.push(`/channels/${currentServer.id}`);
-                  }
+
+          {/* Main warning triangle */}
+          <svg width="140" height="130" viewBox="0 0 140 130" fill="none" className="relative z-10">
+            {/* Triangle shadow */}
+            <path d="M70 18 L128 118 H12Z" fill="rgba(0,0,0,0.15)" transform="translate(2, 3)"/>
+            {/* Triangle body */}
+            <path d="M70 15 L130 120 H10Z" fill="#d4a017" stroke="#b8940f" strokeWidth="3" strokeLinejoin="round"/>
+            {/* Inner triangle highlight */}
+            <path d="M70 30 L115 110 H25Z" fill="#c49515" opacity="0.5"/>
+            {/* Exclamation mark */}
+            <rect x="64" y="50" width="12" height="35" rx="4" fill="#3a3018"/>
+            <circle cx="70" cy="100" r="7" fill="#3a3018"/>
+          </svg>
+        </div>
+
+        {/* Text */}
+        <h2 className="text-2xl font-extrabold text-[var(--text-primary)] mb-3">
+          Age-Restricted Channel
+        </h2>
+        <p className="text-base text-[var(--text-muted)] max-w-md leading-relaxed mb-8">
+          This channel contains adult content marked as age-restricted. Do you wish to proceed?
+        </p>
+
+        {/* Buttons */}
+        <div className="flex items-center gap-4">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (currentServer) {
+                const safeChannel = channels.find((c) => !c.isNsfw && c.type !== "category");
+                if (safeChannel) {
+                  router.push(`/channels/${currentServer.id}/${safeChannel.id}`);
                 } else {
-                  router.push("/channels/me");
+                  router.push(`/channels/${currentServer.id}`);
                 }
-              }}
-              className="flex-1 bg-transparent hover:bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white"
-            >
-              No, Go Back
-            </Button>
-            <Button
-              onClick={() => confirmChannel(currentChannel.id)}
-              className="flex-1 bg-red-600 hover:bg-red-500 text-white font-medium shadow-lg shadow-red-600/20"
-            >
-              Yes, I am 18 or older
-            </Button>
-          </div>
+              } else {
+                router.push("/channels/me");
+              }
+            }}
+            className="min-w-[160px] h-11 bg-[var(--bg-sidebar)] hover:bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-medium text-base rounded-md"
+          >
+            No, take me back
+          </Button>
+          <Button
+            onClick={() => confirmChannel(currentChannel.id)}
+            className="min-w-[180px] h-11 bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] font-medium text-base shadow-lg rounded-md"
+          >
+            Yes, I am 18 or older
+          </Button>
         </div>
       </div>
     );

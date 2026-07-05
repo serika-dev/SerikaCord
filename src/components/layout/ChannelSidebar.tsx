@@ -40,7 +40,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
@@ -51,6 +51,7 @@ import { useMentions } from "@/hooks/useMentions";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
+import { ChannelSettingsDialog } from "@/components/dialogs/ChannelSettingsDialog";
 import { toast } from "sonner";
 
 interface DMChannel {
@@ -93,7 +94,7 @@ export function ChannelSidebar({
   onServerSettings,
   onCreateChannel,
 }: ChannelSidebarProps) {
-  const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel } = useServer();
+  const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel, reorderChannels } = useServer();
   const { user } = useAuth();
   const router = useRouter();
   const { can, isAdmin } = usePermissions(currentServer?.id);
@@ -155,8 +156,14 @@ export function ChannelSidebar({
     y: number;
     channel: typeof channels[0];
   } | null>(null);
-  const [editingChannel, setEditingChannel] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
+
+  // Channel Settings Dialog state
+  const [settingsChannelId, setSettingsChannelId] = useState<string | null>(null);
+
+  // Drag and Drop state
+  const [draggedChannel, setDraggedChannel] = useState<typeof channels[0] | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
+  const dragCounterRef = useRef(0);
 
   const handleContextMenu = (e: React.MouseEvent, channel: typeof channels[0]) => {
     e.preventDefault();
@@ -176,24 +183,79 @@ export function ChannelSidebar({
 
   const handleEditChannel = () => {
     if (contextMenu?.channel) {
-      setEditingChannel(contextMenu.channel.id);
-      setEditName(contextMenu.channel.name);
+      setSettingsChannelId(contextMenu.channel.id);
       closeContextMenu();
     }
   };
 
-  const handleSaveEdit = async (channelId: string) => {
-    if (editName.trim()) {
-      try {
-        await updateChannel(channelId, { name: editName.trim() });
-        toast.success("Channel updated");
-      } catch (error) {
-        console.error("Failed to update channel:", error);
-        toast.error("Failed to update channel");
-      }
+  // Drag and Drop handlers
+  const handleDragStart = (e: React.DragEvent, channel: typeof channels[0]) => {
+    if (!canManageChannels) return;
+    setDraggedChannel(channel);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", channel.id);
+    // Make the drag image semi-transparent
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "0.4";
     }
-    setEditingChannel(null);
-    setEditName("");
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "1";
+    }
+    setDraggedChannel(null);
+    setDragOverTarget(null);
+    dragCounterRef.current = 0;
+  };
+
+  const handleDragEnter = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    setDragOverTarget(targetId);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setDragOverTarget(null);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDropOnCategory = async (e: React.DragEvent, categoryId: string | null) => {
+    e.preventDefault();
+    setDragOverTarget(null);
+    dragCounterRef.current = 0;
+    if (!draggedChannel || !currentServer) return;
+    if (draggedChannel.type === "category") return; // categories can't be nested
+
+    // Get the target category's children
+    const targetChildren = categoryId
+      ? (channelsByCategory.get(categoryId) || []).filter(c => c.id !== draggedChannel.id)
+      : uncategorizedChannels.filter(c => c.id !== draggedChannel.id);
+
+    // Build update list: move channel to end of target category
+    const updates: Array<{ id: string; position: number; parentId?: string | null }> = [
+      { id: draggedChannel.id, position: targetChildren.length, parentId: categoryId },
+    ];
+    // Re-index other children
+    targetChildren.forEach((ch, i) => {
+      updates.push({ id: ch.id, position: i, parentId: categoryId });
+    });
+
+    try {
+      await reorderChannels(currentServer.id, updates);
+      toast.success(`Moved #${draggedChannel.name}`);
+    } catch (err) {
+      toast.error("Failed to move channel");
+    }
+    setDraggedChannel(null);
   };
 
   const handleDeleteChannel = async () => {
@@ -295,7 +357,16 @@ export function ChannelSidebar({
       const isActive = voiceService.currentRoomId === `channel-${channel.id}`;
       const channelParticipants = isActive ? voiceParticipants : (externalVoiceParticipants.get(channel.id) || []);
       return (
-        <div key={channel.id} className="mb-0.5">
+        <div
+          key={channel.id}
+          className={cn(
+            "mb-0.5",
+            canManageChannels && "cursor-grab active:cursor-grabbing"
+          )}
+          draggable={canManageChannels}
+          onDragStart={(e) => handleDragStart(e, channel)}
+          onDragEnd={handleDragEnd}
+        >
           <button
             onClick={() => handleVoiceChannelClick(channel)}
             onContextMenu={(e) => handleContextMenu(e, channel)}
@@ -323,6 +394,15 @@ export function ChannelSidebar({
                 <span className={cn("inline-block w-1.5 h-1.5 rounded-full", isActive ? "bg-green-500 animate-pulse" : "bg-green-500/60")} />
                 <span className={cn("text-[10px]", isActive ? "text-green-400" : "text-green-400/70")}>{channelParticipants.length}</span>
               </span>
+            )}
+            {canManageChannels && (
+              <Settings
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSettingsChannelId(channel.id);
+                }}
+                className="w-4 h-4 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] opacity-0 group-hover:opacity-100 transition-opacity"
+              />
             )}
           </button>
           {/* Participants — Discord style */}
@@ -354,46 +434,50 @@ export function ChannelSidebar({
     }
 
     const mentionCount = getChannelCount(channel.id);
-    return editingChannel === channel.id ? (
-      <div key={channel.id} className="w-full px-2 py-1 mx-2" style={{ width: "calc(100% - 16px)" }}>
-        <input
-          type="text"
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={() => handleSaveEdit(channel.id)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleSaveEdit(channel.id);
-            if (e.key === 'Escape') { setEditingChannel(null); setEditName(""); }
-          }}
-          autoFocus
-          className="w-full px-2 py-1 bg-[var(--bg-sidebar-elevated)] border border-[#8B5CF6] rounded text-[var(--text-primary)] text-sm focus:outline-none"
-        />
-      </div>
-    ) : (
-      <button
+    return (
+      <div
         key={channel.id}
-        onClick={() => { navigateToChannel(channel); markChannelRead(channel.id); }}
-        onContextMenu={(e) => handleContextMenu(e, channel)}
+        draggable={canManageChannels}
+        onDragStart={(e) => handleDragStart(e, channel)}
+        onDragEnd={handleDragEnd}
         className={cn(
-          "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
-          currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]",
-          mentionCount > 0 && currentChannel?.id !== channel.id && "text-[var(--text-primary)]"
+          "relative",
+          canManageChannels && "cursor-grab active:cursor-grabbing"
         )}
-        style={{ width: "calc(100% - 16px)" }}
       >
-        {getChannelIcon(channel.type)}
-        <span className="truncate text-sm flex-1 text-left">{channel.name}</span>
-        {channel.isNsfw && (
-          <span className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 select-none">
-            NSFW
-          </span>
-        )}
-        {mentionCount > 0 && currentChannel?.id !== channel.id && (
-          <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
-            {mentionCount > 99 ? "99+" : mentionCount}
-          </span>
-        )}
-      </button>
+        <button
+          onClick={() => { navigateToChannel(channel); markChannelRead(channel.id); }}
+          onContextMenu={(e) => handleContextMenu(e, channel)}
+          className={cn(
+            "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
+            currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]",
+            mentionCount > 0 && currentChannel?.id !== channel.id && "text-[var(--text-primary)]"
+          )}
+          style={{ width: "calc(100% - 16px)" }}
+        >
+          {getChannelIcon(channel.type)}
+          <span className="truncate text-sm flex-1 text-left">{channel.name}</span>
+          {channel.isNsfw && (
+            <span className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 select-none">
+              NSFW
+            </span>
+          )}
+          {mentionCount > 0 && currentChannel?.id !== channel.id && (
+            <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
+              {mentionCount > 99 ? "99+" : mentionCount}
+            </span>
+          )}
+          {canManageChannels && (
+            <Settings
+              onClick={(e) => {
+                e.stopPropagation();
+                setSettingsChannelId(channel.id);
+              }}
+              className="w-4 h-4 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] opacity-0 group-hover:opacity-100 transition-opacity"
+            />
+          )}
+        </button>
+      </div>
     );
   };
 
@@ -587,6 +671,41 @@ export function ChannelSidebar({
     );
   }
 
+  // iOS detection (or ?platform=ios query param for testing)
+  const isIOS = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get("platform") === "ios") return true;
+    const ua = navigator.userAgent;
+    return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  }, []);
+
+  // Age-gated server block for iOS — render padlock screen instead of channel list
+  if (isIOS && currentServer?.isAgeGated) {
+    return (
+      <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
+        <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)] shrink-0">
+          <span className="font-semibold truncate text-[var(--text-primary)]">{currentServer.name}</span>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center select-none">
+          <div className="relative mb-6">
+            <span className="absolute -top-2 -left-3 text-[var(--text-muted)] text-xs select-none">✦</span>
+            <span className="absolute -top-1 right-0 text-[var(--text-muted)] text-[10px] select-none">✧</span>
+            <span className="absolute bottom-0 -left-2 text-[var(--text-muted)] text-[8px] select-none">+</span>
+            <span className="absolute bottom-2 -right-3 text-[var(--text-muted)] text-xs select-none">·</span>
+            <div className="w-16 h-16 rounded-2xl bg-[var(--bg-sidebar-elevated)] flex items-center justify-center border border-[var(--border-subtle)]">
+              <Lock className="w-8 h-8 text-[var(--text-muted)]" />
+            </div>
+          </div>
+          <p className="text-sm text-[var(--text-muted)] leading-relaxed max-w-[200px]">
+            This server&apos;s content is unavailable on iOS
+          </p>
+        </div>
+        <UserPanel user={user} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
       {/* Server Header (banner behind the name when the server has one) */}
@@ -693,21 +812,40 @@ export function ChannelSidebar({
       {/* Channel List */}
       <ScrollArea className="flex-1">
         <div className="py-3">
-          {/* Uncategorized Channels */}
-          {uncategorizedChannels.length > 0 && (
-            <div className="mb-4">
+          {/* Uncategorized Channels drop zone */}
+          <div
+            className={cn(
+              "mb-4 min-h-[8px] rounded transition-colors",
+              dragOverTarget === "__uncategorized__" && draggedChannel && "bg-[var(--app-accent)]/10 ring-1 ring-[var(--app-accent)]/40"
+            )}
+            onDragEnter={(e) => handleDragEnter(e, "__uncategorized__")}
+            onDragLeave={handleDragLeave}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDropOnCategory(e, null)}
+          >
+            {uncategorizedChannels.length > 0 && (
               <div className="space-y-0.5">
                 {uncategorizedChannels.map((channel) => renderChannelItem(channel))}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {/* Categorized Channels */}
           {categories.map((category) => {
             const isCollapsed = collapsedCategories.has(category.id);
             const categoryChildren = channelsByCategory.get(category.id) || [];
             return (
-              <div key={category.id} className="mb-4">
+              <div
+                key={category.id}
+                className={cn(
+                  "mb-4 rounded transition-colors",
+                  dragOverTarget === category.id && draggedChannel && "bg-[var(--app-accent)]/5 ring-1 ring-[var(--app-accent)]/30"
+                )}
+                onDragEnter={(e) => handleDragEnter(e, category.id)}
+                onDragLeave={handleDragLeave}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDropOnCategory(e, category.id)}
+              >
                 {/* Category Header */}
                 <div className="px-2 mb-1">
                   <div
@@ -832,6 +970,15 @@ export function ChannelSidebar({
             </>
           )}
         </div>
+      )}
+
+      {/* Channel Settings Dialog */}
+      {settingsChannelId && (
+        <ChannelSettingsDialog
+          open={!!settingsChannelId}
+          onOpenChange={(open) => { if (!open) setSettingsChannelId(null); }}
+          channelId={settingsChannelId}
+        />
       )}
     </div>
   );

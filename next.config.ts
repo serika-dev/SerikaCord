@@ -3,8 +3,9 @@ import type { NextConfig } from "next";
 const isMobileBuild = process.env.MOBILE_BUILD === '1';
 
 const nextConfig: NextConfig = {
-  // Standalone output for Docker; static export for mobile builds
-  output: isMobileBuild ? 'export' : 'standalone',
+  // Static export for mobile builds; otherwise the default build, served by our
+  // custom server (server.ts) which also hosts the bot gateway on the same port.
+  output: isMobileBuild ? 'export' : undefined,
 
   // Skip type checking during build for faster builds
   typescript: {

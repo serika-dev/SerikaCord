@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
@@ -101,6 +101,33 @@ function MessageGroupInner<M extends ChatMessage>({
   onMediaClick,
   onJumpToMessage,
 }: MessageGroupProps<M>) {
+  // Merge mention users with message authors and referenced message authors
+  // so that mentions resolve even for users who left the server or aren't in
+  // the member list fetched for autocomplete.
+  const mergedMentionUsers = useMemo(() => {
+    const map = new Map<string, MentionUser>();
+    for (const u of mentionUsers || []) {
+      if (u?.id) map.set(u.id, u);
+    }
+    for (const msg of group.messages) {
+      if (msg.author?.id && !map.has(msg.author.id)) {
+        map.set(msg.author.id, {
+          id: msg.author.id,
+          username: msg.author.username,
+          displayName: msg.author.displayName || msg.author.username,
+        });
+      }
+      if (msg.referencedMessage?.author?.id && !map.has(msg.referencedMessage.author.id)) {
+        map.set(msg.referencedMessage.author.id, {
+          id: msg.referencedMessage.author.id,
+          username: msg.referencedMessage.author.username,
+          displayName: msg.referencedMessage.author.displayName || msg.referencedMessage.author.username,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [mentionUsers, group.messages]);
+
   const buildSwipeActions = (message: M): SwipeAction[] => {
     if (!swipeEnabled) return [];
     const actions: SwipeAction[] = [
@@ -213,9 +240,10 @@ function MessageGroupInner<M extends ChatMessage>({
                     <MessageContent
                       content={decodeHtmlEntities(message.content)}
                       serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
-                      mentionUsers={mentionUsers}
+                      mentionUsers={mergedMentionUsers}
                       mentionRoles={mentionRoles}
                       currentUserId={currentUserId}
+                      serverId={serverId}
                       edited={message.edited}
                       sticker={message.sticker}
                       className="chat-message-body text-[var(--app-text)]"

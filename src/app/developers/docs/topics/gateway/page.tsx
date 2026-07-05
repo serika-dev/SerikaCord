@@ -5,10 +5,10 @@ export default function GatewayDoc() {
     <DocPage title="Gateway" description="Connect to the SerikaCord Gateway via WebSocket to receive real-time events.">
       <H2 id="connecting">Connecting to the Gateway</H2>
       <P>The Gateway URL is:</P>
-      <CodeBlock lang="bash">wss://serika.dev/api/v10/gateway</CodeBlock>
+      <CodeBlock lang="bash">wss://api.serika.chat/api/v10/gateway</CodeBlock>
       <P>You can also retrieve it dynamically:</P>
-      <CodeBlock lang="bash">{`GET https://serika.dev/api/v10/gateway
-# Response: { "url": "wss://serika.dev/api/v10/gateway" }`}</CodeBlock>
+      <CodeBlock lang="bash">{`GET https://api.serika.chat/api/v10/gateway
+# Response: { "url": "wss://api.serika.chat/api/v10/gateway" }`}</CodeBlock>
 
       <H2 id="connection-flow">Connection Flow</H2>
       <UL>
