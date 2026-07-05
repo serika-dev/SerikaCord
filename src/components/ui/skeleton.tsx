@@ -159,34 +159,34 @@ export function ChatAreaSkeleton() {
     <div className="flex-1 flex flex-col bg-[#0a0a0a] animate-in fade-in duration-300">
       {/* Header skeleton */}
       <div className="h-12 px-4 flex items-center border-b border-[#1a1a1a]">
-        <Skeleton className="w-6 h-6 rounded mr-2" />
-        <Skeleton className="h-5 w-32" />
+        <div className="w-6 h-6 rounded mr-2 skeleton-shimmer" />
+        <div className="h-5 w-32 rounded skeleton-shimmer" />
         <div className="ml-auto flex items-center gap-2">
-          <Skeleton className="w-6 h-6 rounded" />
-          <Skeleton className="w-6 h-6 rounded" />
-          <Skeleton className="w-6 h-6 rounded" />
+          <div className="w-6 h-6 rounded skeleton-shimmer" />
+          <div className="w-6 h-6 rounded skeleton-shimmer" />
+          <div className="w-6 h-6 rounded skeleton-shimmer" />
         </div>
       </div>
       
       {/* Messages skeleton */}
       <div className="flex-1 p-4 space-y-6 overflow-hidden">
-        {[...Array(5)].map((_, groupIndex) => (
+        {SKELETON_GROUPS.map((group, groupIndex) => (
           <div 
             key={groupIndex} 
             className="flex gap-4"
             style={{ animationDelay: `${groupIndex * 100}ms` }}
           >
-            <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" variant="circular" />
+            <div className="w-10 h-10 rounded-full flex-shrink-0 skeleton-shimmer" />
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2">
-                <Skeleton className="h-4 w-24" />
-                <Skeleton className="h-3 w-16" />
+                <div className="h-4 rounded skeleton-shimmer" style={{ width: `${group.nameW}%` }} />
+                <div className="h-3 rounded skeleton-shimmer" style={{ width: `${group.timeW}%` }} />
               </div>
-              {[...Array(Math.floor(Math.random() * 3) + 1)].map((_, msgIndex) => (
-                <Skeleton 
+              {group.lines.map((line, msgIndex) => (
+                <div 
                   key={msgIndex} 
-                  className="h-4" 
-                  style={{ width: `${Math.floor(Math.random() * 40) + 30}%` }}
+                  className="h-4 rounded skeleton-shimmer"
+                  style={{ width: `${line.w}%` }}
                 />
               ))}
             </div>
@@ -196,29 +196,50 @@ export function ChatAreaSkeleton() {
       
       {/* Input skeleton */}
       <div className="p-4">
-        <Skeleton className="h-11 w-full rounded-lg" />
+        <div className="h-11 w-full rounded-lg skeleton-shimmer" />
       </div>
     </div>
   );
 }
 
-// Message skeleton for inline loading
-export function MessageSkeleton({ count = 3 }: { count?: number }) {
+// Message skeleton for inline loading — deterministic widths, shimmer effect
+const SKELETON_GROUPS = [
+  { nameW: 28, timeW: 12, lines: [{ w: 45 }, { w: 68 }] },
+  { nameW: 22, timeW: 10, lines: [{ w: 55 }, { w: 38 }, { w: 62 }] },
+  { nameW: 32, timeW: 14, lines: [{ w: 72 }] },
+  { nameW: 26, timeW: 11, lines: [{ w: 48 }, { w: 58 }] },
+  { nameW: 30, timeW: 13, lines: [{ w: 65 }, { w: 42 }] },
+];
+
+export function MessageSkeleton({ count = 5 }: { count?: number }) {
+  const groups = SKELETON_GROUPS.slice(0, count);
   return (
-    <div className="space-y-4 p-4">
-      {[...Array(count)].map((_, i) => (
-        <div 
-          key={i} 
-          className="flex gap-4 animate-pulse"
-          style={{ animationDelay: `${i * 100}ms` }}
+    <div className="space-y-1 px-4 py-4">
+      {groups.map((group, i) => (
+        <div
+          key={i}
+          className="flex gap-4 py-2"
+          style={{ animationDelay: `${i * 60}ms` }}
         >
-          <Skeleton className="w-10 h-10 rounded-full flex-shrink-0" variant="circular" />
+          <div className="w-10 h-10 rounded-full flex-shrink-0 skeleton-shimmer" />
           <div className="flex-1 space-y-2">
             <div className="flex items-center gap-2">
-              <Skeleton className="h-4 w-20" />
-              <Skeleton className="h-3 w-12" />
+              <div
+                className="h-4 rounded skeleton-shimmer"
+                style={{ width: `${group.nameW}%` }}
+              />
+              <div
+                className="h-3 rounded skeleton-shimmer"
+                style={{ width: `${group.timeW}%` }}
+              />
             </div>
-            <Skeleton className="h-4 w-3/4" />
+            {group.lines.map((line, j) => (
+              <div
+                key={j}
+                className="h-4 rounded skeleton-shimmer"
+                style={{ width: `${line.w}%` }}
+              />
+            ))}
           </div>
         </div>
       ))}

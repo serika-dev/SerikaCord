@@ -300,8 +300,13 @@ html.theme-midnight body {
   overscroll-behavior: contain;
   /* Keep newly-appended messages from yanking the viewport around. */
   overflow-anchor: none;
-  /* Smooth scrolling for programmatic scrollTo calls. */
-  scroll-behavior: smooth;
+  /* NOTE: Do NOT set scroll-behavior: smooth here. It causes the browser to
+     animate *every* scroll change — including programmatic position restoration
+     after loading older messages — which creates a janky "snap" effect.
+     Smooth scrolling is applied per-call via scrollTo({ behavior: 'smooth' }). */
+  scroll-behavior: auto;
+  /* Improve paint performance for long message lists. */
+  contain: strict;
 }
 
 /* Thin, unobtrusive scrollbar shared by chat + dialog scroll areas. */
@@ -522,6 +527,60 @@ html.theme-midnight body {
 }
 .msg-fade-in {
   animation: msg-fade-in 0.2s ease-out both;
+}
+
+/* Shimmer effect for skeletons — smoother than animate-pulse */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.08) 37%,
+    rgba(255, 255, 255, 0.04) 63%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Slide-in for new messages arriving at the bottom */
+@keyframes msg-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.msg-slide-in {
+  animation: msg-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Smooth crossfade from skeleton to real content */
+@keyframes msg-list-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.msg-list-fade-in {
+  animation: msg-list-fade-in 0.15s ease-out both;
+}
+
+/* Render optimization: skip layout/paint for off-screen message groups */
+.msg-group-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 88px;
 }
 
 /* Reduced motion: collapse animations/transitions for users who ask for it */

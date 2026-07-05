@@ -106,26 +106,45 @@ function MessageListInner<M extends ChatMessage>(
   const animateInRef = useRef(true);
   const [animateIn, setAnimateIn] = useState(true);
   const [newMessagesCount, setNewMessagesCount] = useState(0);
+  const [showContentFade, setShowContentFade] = useState(false);
+  const wasLoadingRef = useRef(isLoading);
   const messageCount = useMemo(
     () => groups.reduce((total, group) => total + group.messages.length, 0),
     [groups]
   );
   const firstMessageId = groups[0]?.messages[0]?.id;
   const prevMessageCountRef = useRef(0);
+  const prevGroupCountRef = useRef(0);
 
   // Reset scroll state when channel/DM changes so the list scrolls to bottom
   // even if the message count happens to be identical to the previous context.
   useEffect(() => {
     if (resetKey === undefined) return;
     prevMessageCountRef.current = 0;
+    prevGroupCountRef.current = 0;
     isAtBottomRef.current = true;
     forceScrollRef.current = true;
     animateInRef.current = true;
+    wasLoadingRef.current = true;
     Promise.resolve().then(() => {
       setNewMessagesCount(0);
       setAnimateIn(true);
+      setShowContentFade(false);
     });
   }, [resetKey]);
+
+  // Detect transition from loading → content and trigger a smooth fade-in.
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading && groups.length > 0) {
+      wasLoadingRef.current = false;
+      setShowContentFade(true);
+      const t = setTimeout(() => setShowContentFade(false), 200);
+      return () => clearTimeout(t);
+    }
+    if (!isLoading) {
+      wasLoadingRef.current = false;
+    }
+  }, [isLoading, groups.length]);
 
   // Latest mutable handlers behind stable identities so memoized rows
   // don't re-render on every parent render.
@@ -211,6 +230,15 @@ function MessageListInner<M extends ChatMessage>(
     }
   }, [messageCount, animateIn]);
 
+  // Detect if new groups were appended at the bottom (vs prepended at top).
+  // Used to apply slide-in animation to newly arrived messages.
+  const isBottomAppend = useRef(false);
+  useLayoutEffect(() => {
+    const prevGroups = prevGroupCountRef.current;
+    prevGroupCountRef.current = groups.length;
+    isBottomAppend.current = groups.length > prevGroups && !pendingScrollRestoreRef.current;
+  }, [groups.length]);
+
   // Scroll listener: bottom detection + top pagination with scroll restore.
   // Throttled via requestAnimationFrame for smoother performance.
   const handleScroll = useCallback(() => {
@@ -263,6 +291,15 @@ function MessageListInner<M extends ChatMessage>(
 
   return (
     <div className={cn("relative flex-1 min-h-0", className)}>
+      {/* Non-intrusive top loading indicator — absolute positioned, no layout shift */}
+      {hasMoreOlder && !isLoading && isLoadingMore && (
+        <div className="absolute top-0 left-0 right-0 z-10 flex justify-center py-2 pointer-events-none">
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] bg-[var(--bg-app)]/80 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Loading older messages
+          </div>
+        </div>
+      )}
       <div
         ref={viewportRef}
         onScroll={handleScroll}
@@ -270,17 +307,7 @@ function MessageListInner<M extends ChatMessage>(
       >
         <div className="flex flex-col min-h-full">
           <div className="flex-1" />
-          <div className="flex flex-col py-4 w-full max-w-full">
-            {/* Load older — auto-loading spinner only, no button */}
-            {hasMoreOlder && !isLoading && isLoadingMore && (
-              <div className="flex justify-center py-3">
-                <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading older messages...
-                </div>
-              </div>
-            )}
-
+          <div className={cn("flex flex-col py-4 w-full max-w-full", showContentFade && "msg-list-fade-in")}>
             {/* History start header */}
             {!hasMoreOlder && !isLoading && welcomeHeader}
 
@@ -292,10 +319,16 @@ function MessageListInner<M extends ChatMessage>(
             ) : (
               groups.map((group, idx) => {
                 const shouldAnimate = animateIn && idx < 12;
+                const isLastGroup = idx === groups.length - 1;
+                const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
                 return (
                 <div
                   key={`group-${group.messages[0].id}`}
-                  className={shouldAnimate ? "msg-fade-in" : undefined}
+                  className={cn(
+                    "msg-group-cv",
+                    shouldAnimate && "msg-fade-in",
+                    shouldSlideIn && "msg-slide-in"
+                  )}
                   style={shouldAnimate ? { animationDelay: `${Math.min(idx * 35, 350)}ms` } : undefined}
                 >
                 <MessageGroup
