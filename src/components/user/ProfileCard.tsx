@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { getBadgesByPriority } from "@/lib/constants/badges";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { useMoeActivity } from "@/hooks/useMoeActivity";
@@ -330,7 +331,7 @@ export function ProfileCard({
             )}
           </button>
           {user.customStatus && (
-            <p className="text-sm text-[#c8c8d8] mt-1.5 italic">{user.customStatus}</p>
+            <div className="text-sm text-[#c8c8d8] mt-1.5 italic"><MarkdownRenderer content={user.customStatus} /></div>
           )}
           <div className="flex items-center gap-1.5 mt-1.5">
             <span
@@ -361,7 +362,7 @@ export function ProfileCard({
             {user.bio && (
               <div>
                 <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">About Me</h4>
-                <p className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words">{user.bio}</p>
+                <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words"><MarkdownRenderer content={user.bio} /></div>
               </div>
             )}
 

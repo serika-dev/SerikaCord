@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 
 interface UserProfilePopupProps {
   children: React.ReactNode;
@@ -47,6 +48,8 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
   const [open, setOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingStatus, setEditingStatus] = useState(false);
+  const [statusText, setStatusText] = useState("");
 
   // Use user status directly, fallback to online
   const currentStatus: StatusValue = (user?.status as StatusValue) || "online";
@@ -84,6 +87,27 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
   const handleEditProfile = () => {
     setOpen(false);
     onOpenSettings?.();
+  };
+
+  const handleSaveStatus = async () => {
+    const trimmed = statusText.trim();
+    updateUser({ customStatus: trimmed || undefined });
+    setEditingStatus(false);
+    try {
+      await fetch("/api/users/me", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customStatus: trimmed || null }),
+      });
+    } catch (error) {
+      console.error("Failed to update custom status:", error);
+      await refresh();
+    }
+  };
+
+  const startEditingStatus = () => {
+    setStatusText(user?.customStatus || "");
+    setEditingStatus(true);
   };
 
   const currentStatusOption = statusOptions.find(s => s.value === currentStatus) || statusOptions[0];
@@ -153,12 +177,16 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
 
             {/* Custom status */}
             {user.customStatus && (
-              <p className="text-sm text-[#dcddde] mb-2">{user.customStatus}</p>
+              <div className="text-sm text-[#dcddde] mb-2">
+                <MarkdownRenderer content={user.customStatus} />
+              </div>
             )}
 
             {/* Bio */}
             {user.bio && (
-              <p className={cn("text-[#dcddde] mb-2", isMobile ? "text-base line-clamp-6" : "text-sm line-clamp-3")}>{user.bio}</p>
+              <div className={cn("text-[#dcddde] mb-2", isMobile ? "text-base line-clamp-6" : "text-sm line-clamp-3")}>
+                <MarkdownRenderer content={user.bio} />
+              </div>
             )}
 
             {/* View Full Bio */}
@@ -244,6 +272,70 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                 ))}
               </PopoverContent>
             </Popover>
+
+            {/* Custom Status Editor */}
+            {editingStatus ? (
+              <div className="px-3 py-2 space-y-2">
+                <input
+                  type="text"
+                  value={statusText}
+                  onChange={(e) => setStatusText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSaveStatus();
+                    if (e.key === "Escape") setEditingStatus(false);
+                  }}
+                  placeholder="What's on your mind?"
+                  autoFocus
+                  maxLength={200}
+                  className="w-full px-2 py-1.5 rounded bg-[#1a1a1a] text-sm text-[#dcddde] placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveStatus}
+                    className="px-3 py-1 rounded bg-[var(--accent-color)] text-white text-xs hover:brightness-110 transition"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setEditingStatus(false)}
+                    className="px-3 py-1 rounded bg-[#1a1a1a] text-[#888] text-xs hover:bg-[#222] transition"
+                  >
+                    Cancel
+                  </button>
+                  {user?.customStatus && (
+                    <button
+                      onClick={async () => {
+                        setStatusText("");
+                        updateUser({ customStatus: undefined });
+                        setEditingStatus(false);
+                        try {
+                          await fetch("/api/users/me", {
+                            method: "PUT",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ customStatus: null }),
+                          });
+                        } catch {
+                          await refresh();
+                        }
+                      }}
+                      className="px-3 py-1 rounded text-[#888] text-xs hover:text-red-400 transition ml-auto"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={startEditingStatus}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors text-left"
+              >
+                <Pencil className="w-4 h-4 text-[#888888]" />
+                <span className="text-sm text-[#dcddde]">
+                  {user?.customStatus ? "Edit Custom Status" : "Set Custom Status"}
+                </span>
+              </button>
+            )}
 
             <div className="h-px bg-[#222222] my-1" />
 

@@ -15,27 +15,80 @@ interface MessageAttachmentsProps {
 export function MessageAttachments({ attachments, messageId, onMediaClick }: MessageAttachmentsProps) {
   if (!attachments?.length) return null;
 
+  const imageAttachments = attachments.filter((a) => a.contentType.startsWith("image/"));
+  const videoAttachments = attachments.filter((a) => a.contentType.startsWith("video/"));
+  const otherAttachments = attachments.filter(
+    (a) => !a.contentType.startsWith("image/") && !a.contentType.startsWith("video/")
+  );
+
   return (
     <>
-      {attachments.map((attachment) => (
-        <div key={attachment.id} className="mt-2">
-          {attachment.contentType.startsWith("image/") ? (
+      {/* Image collection: grid layout for multiple images, single for one */}
+      {imageAttachments.length > 0 && (
+        <div
+          className={
+            imageAttachments.length === 1
+              ? "mt-2"
+              : "mt-2 grid gap-1 max-w-md" +
+                (imageAttachments.length === 2
+                  ? " grid-cols-2"
+                  : imageAttachments.length === 3
+                    ? " grid-cols-3"
+                    : " grid-cols-2")
+          }
+        >
+          {imageAttachments.map((attachment) => (
             <img
+              key={attachment.id}
               src={attachment.url}
               alt={attachment.filename}
               loading="lazy"
               decoding="async"
-              className="chat-media cursor-pointer hover:opacity-90 max-w-sm max-h-[350px] object-contain rounded-md"
+              className={
+                imageAttachments.length === 1
+                  ? "chat-media cursor-pointer hover:opacity-90 max-w-[280px] max-h-[240px] object-contain rounded-md"
+                  : "cursor-pointer hover:opacity-90 w-full h-24 object-cover rounded-md"
+              }
               onClick={() => onMediaClick(attachment.url, attachment.filename, messageId)}
             />
-          ) : attachment.contentType.startsWith("video/") ? (
+          ))}
+        </div>
+      )}
+
+      {/* Video collection: grid layout for multiple videos, single for one */}
+      {videoAttachments.length > 0 && (
+        <div
+          className={
+            videoAttachments.length === 1
+              ? "mt-2"
+              : "mt-2 grid gap-1 max-w-md" +
+                (videoAttachments.length === 2
+                  ? " grid-cols-2"
+                  : videoAttachments.length === 3
+                    ? " grid-cols-3"
+                    : " grid-cols-2")
+          }
+        >
+          {videoAttachments.map((attachment) => (
             <VideoMediaPlayer
+              key={attachment.id}
               src={attachment.url}
               filename={attachment.filename}
               contentType={attachment.contentType}
-              className="max-w-sm rounded-lg overflow-hidden"
+              className={
+                videoAttachments.length === 1
+                  ? "max-w-[280px] rounded-lg overflow-hidden"
+                  : "w-full h-24 rounded-lg overflow-hidden"
+              }
             />
-          ) : attachment.contentType.startsWith("audio/") ? (
+          ))}
+        </div>
+      )}
+
+      {/* Other attachments (audio, files) */}
+      {otherAttachments.map((attachment) => (
+        <div key={attachment.id} className="mt-2">
+          {attachment.contentType.startsWith("audio/") ? (
             <AudioMediaPlayer
               src={attachment.url}
               filename={attachment.filename}

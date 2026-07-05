@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 
 interface UserProfileProps {
   user: {
@@ -335,7 +336,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
           {user.customStatus && (
             <div className="flex items-center gap-2 mt-3 text-sm text-[#b5bac1]">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors[user.status || 'offline'] }} />
-              {user.customStatus}
+              <MarkdownRenderer content={user.customStatus} />
             </div>
           )}
 
@@ -363,7 +364,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                 {isCurrentUser ? (
                   <>
                     {user.bio ? (
-                      <p className="text-sm text-[#dbdee1] whitespace-pre-wrap">{user.bio}</p>
+                      <div className="text-sm text-[#dbdee1] whitespace-pre-wrap"><MarkdownRenderer content={user.bio} /></div>
                     ) : (
                       <div className="text-center py-4">
                         <p className="text-sm text-[#6d6f78] mb-3">You haven't set a bio yet</p>
@@ -405,7 +406,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                 ) : (
                   <>
                     {user.bio ? (
-                      <p className="text-sm text-[#dbdee1] whitespace-pre-wrap">{user.bio}</p>
+                      <div className="text-sm text-[#dbdee1] whitespace-pre-wrap"><MarkdownRenderer content={user.bio} /></div>
                     ) : (
                       <p className="text-sm text-[#6d6f78] italic">No bio yet</p>
                     )}
@@ -482,7 +483,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
               {user.bio && (
                 <div className="mb-3">
                   <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1.5">About Me</h4>
-                  <p className="text-sm text-[#dbdee1] line-clamp-3">{user.bio}</p>
+                  <div className="text-sm text-[#dbdee1] line-clamp-3"><MarkdownRenderer content={user.bio} /></div>
                 </div>
               )}
 
