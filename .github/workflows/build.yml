@@ -129,6 +129,13 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Verify Java version
+        run: |
+          java -version
+          javac -version
+          echo "JAVA_HOME=${JAVA_HOME}"
+          which java
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -166,7 +173,8 @@ jobs:
         env:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'serikacord' }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'serikacord' }}
-        run: ./gradlew assembleRelease
+          JAVA_HOME: ${{ env.JAVA_HOME_21_X64 }}
+        run: ./gradlew assembleRelease --info
 
       - name: Rename APK
         run: |
