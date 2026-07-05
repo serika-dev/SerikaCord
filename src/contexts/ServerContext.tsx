@@ -189,8 +189,18 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         const rawMembers = Array.isArray(data) ? data : data?.members || [];
-        setMembers(rawMembers);
-      } else {
+        // Only update state if the data actually changed to avoid unnecessary re-renders
+        setMembers(prev => {
+          if (!isSwitch && prev.length === rawMembers.length) {
+            // Lightweight signature comparison instead of full JSON.stringify
+            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}`;
+            const prevSig = prev.map(sig).join("\n");
+            const newSig = rawMembers.map(sig).join("\n");
+            if (prevSig === newSig) return prev;
+          }
+          return rawMembers;
+        });
+      } else if (isSwitch) {
         setMembers([]);
       }
     } catch (error) {

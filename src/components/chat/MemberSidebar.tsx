@@ -159,7 +159,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
   const roleColor = member.highestRole?.color;
   // Only poll live activity for members who are actually around.
   const moeActivity = useMoeActivity(member.id, { enabled: !isOffline });
-  const subtitle = member.customStatus || null;
+  const subtitle = (!isOffline && member.customStatus) || null;
 
   return (
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">

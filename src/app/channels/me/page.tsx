@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Users, 
-  Sparkles, 
   Search,
   MessageCircle,
   Check,
@@ -812,88 +811,6 @@ export default function DirectMessagesPage() {
               </ScrollArea>
             </div>
           )}
-        </div>
-
-        {/* Active Now sidebar */}
-        <div className="w-[300px] bg-[var(--bg-app)] border-l border-[var(--border-subtle)] hidden xl:flex flex-col shrink-0">
-          <div className="p-4">
-            <h3 className="text-lg font-bold text-[var(--text-primary)] mb-4">Active Now</h3>
-            
-            {onlineFriends.length > 0 ? (
-              <div className="space-y-1.5">
-                {onlineFriends.slice(0, 8).map((friend) => (
-                  <div
-                    key={friend.id}
-                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"
-                    onClick={() => startDM(friend.id)}
-                  >
-                    <div className="relative shrink-0">
-                      <Avatar className="w-9 h-9">
-                        <AvatarImage src={friend.avatar} />
-                        <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm">
-                          {(friend.displayName || friend.username).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div 
-                        className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-app)]"
-                        style={{ backgroundColor: statusColors[friend.status] }}
-                      />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[var(--text-primary)] truncate">
-                        {friend.displayName || friend.username}
-                      </p>
-                      {friend.customStatus && (
-                        <p className="text-xs text-[var(--text-muted)] truncate">
-                          {friend.customStatus}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div className="w-16 h-16 rounded-full bg-[var(--app-accent)]/10 flex items-center justify-center mb-3">
-                  <Users className="w-8 h-8 text-[var(--app-accent)]/40" />
-                </div>
-                <p className="text-sm font-semibold text-[var(--text-primary)] mb-1">
-                  It&apos;s quiet for now
-                </p>
-                <p className="text-xs text-[var(--text-muted)] max-w-[200px]">
-                  When friends come online, they&apos;ll appear here
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Serika+ Promo / Premium badge */}
-          <div className="mt-auto p-4">
-            {!user?.isPremium ? (
-              <div className="p-4 rounded-xl bg-gradient-to-br from-[var(--app-accent)]/20 to-[var(--app-accent)]/5 border border-[var(--app-accent)]/30">
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="w-5 h-5 text-[var(--app-accent)]" />
-                  <span className="font-semibold text-[var(--text-primary)]">Serika+</span>
-                </div>
-                <p className="text-sm text-[var(--text-secondary)] mb-3">
-                  Bigger uploads, custom profiles, animated avatars & more
-                </p>
-                <button className="w-full py-2.5 px-4 bg-[var(--app-accent)] hover:opacity-90 text-white text-sm font-medium rounded-lg transition-opacity">
-                  Upgrade
-                </button>
-              </div>
-            ) : (
-              <div className="p-4 rounded-xl bg-gradient-to-br from-[var(--app-accent)]/10 to-[var(--app-accent)]/5 border border-[var(--app-accent)]/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <Crown className="w-5 h-5 text-[var(--app-accent)]" />
-                  <span className="font-semibold text-[var(--text-primary)]">Serika+ Active</span>
-                </div>
-                <p className="text-sm text-[var(--text-secondary)]">
-                  Thanks for supporting SerikaCord!
-                </p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

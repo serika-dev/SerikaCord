@@ -331,6 +331,7 @@ export default function DMConversationPage() {
           currentUserId={user.id}
           swipeEnabled={isMobile}
           mentionUsers={mentionUsers}
+          serverEmojis={availableServerEmojis}
           availableServerEmojis={availableServerEmojis}
           onMediaClick={lightbox.openMediaViewer}
           onReplyFocus={focusComposer}

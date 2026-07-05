@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { SwitchAccountsDialog } from "@/components/dialogs/SwitchAccountsDialog";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +51,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
   const [copied, setCopied] = useState(false);
   const [editingStatus, setEditingStatus] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [showSwitchAccounts, setShowSwitchAccounts] = useState(false);
 
   // Use user status directly, fallback to online
   const currentStatus: StatusValue = (user?.status as StatusValue) || "online";
@@ -340,7 +342,13 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
             <div className="h-px bg-[#222222] my-1" />
 
             {/* Switch Accounts */}
-            <button className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors">
+            <button
+              onClick={() => {
+                setOpen(false);
+                setShowSwitchAccounts(true);
+              }}
+              className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors"
+            >
               <div className="flex items-center gap-3">
                 <Users className="w-4 h-4 text-[#888888]" />
                 <span className="text-sm text-[#dcddde]">Switch Accounts</span>
@@ -394,6 +402,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
           </PopoverContent>
         </Popover>
       )}
+      <SwitchAccountsDialog open={showSwitchAccounts} onOpenChange={setShowSwitchAccounts} />
     </>
   );
 }

@@ -383,15 +383,15 @@ html.theme-midnight body {
 /* Large emoji when message is only emojis */
 .twemoji-large img.emoji {
   display: inline-block;
-  width: 2.5em;
-  height: 2.5em;
+  width: 3em;
+  height: 3em;
   vertical-align: -0.4em;
   margin: 0 0.1em;
 }
 
 .twemoji-large img.custom-emoji {
-  width: 3em;
-  height: 3em;
+  width: 3.5em;
+  height: 3.5em;
   vertical-align: -0.5em;
 }
 

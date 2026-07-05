@@ -255,7 +255,7 @@ export const MessageContent = memo(function MessageContent({
     }
   }, [content, serverEmojis]);
 
-  const emojiSize = isLargeEmoji ? "w-10 h-10" : "w-5 h-5";
+  const emojiSize = isLargeEmoji ? "w-14 h-14" : "w-5 h-5";
 
   // If the message has a sticker, render it as a smaller Discord-like sticker
   if (sticker) {
