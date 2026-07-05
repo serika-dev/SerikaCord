@@ -1437,19 +1437,33 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
 
 // Main API app
 export const api = new Elysia({ prefix: '/api' })
-  .onError(({ code, error, set }) => {
+  .onError(({ code, error, set, request }) => {
     console.error('API Error:', code, error);
-    
+
     if (code === 'VALIDATION') {
       set.status = 400;
       return { error: 'Validation error', details: error.message };
     }
-    
+
     if (code === 'NOT_FOUND') {
       set.status = 404;
-      return { error: 'Not found' };
+      let path = '';
+      try { path = new URL(request.url).pathname; } catch {}
+
+      // Discord-compatible shape for the bot API so libraries parse it correctly.
+      if (path.startsWith('/api/v10')) {
+        return { message: '404: Not Found', code: 0 };
+      }
+
+      // Friendly, self-describing 404 for everything else.
+      return {
+        error: 'Not found',
+        message: `No route matches ${path || 'this path'}. This is the SerikaCord API.`,
+        documentation: `${config.API_BASE_URL}/developers/docs`,
+        hint: 'Bot endpoints live under /api/v10 — see /api/v10 for an index.',
+      };
     }
-    
+
     set.status = 500;
     return { error: 'Internal server error' };
   })
@@ -1469,8 +1483,15 @@ export const api = new Elysia({ prefix: '/api' })
     secret: config.JWT_SECRET,
   }))
   .use(rateLimitPlugin)
-  .get('/health', () => ({ 
-    status: 'ok', 
+  .get('/', () => ({
+    message: 'Hi! This is the SerikaCord API — a Discord-compatible bot & app API.',
+    service: 'serikacord',
+    documentation: `${config.API_BASE_URL}/developers/docs`,
+    versions: { v10: `${config.API_BASE_URL}/api/v10` },
+    health: `${config.API_BASE_URL}/api/health`,
+  }))
+  .get('/health', () => ({
+    status: 'ok',
     service: 'serikacord',
     timestamp: new Date().toISOString(),
   }))
