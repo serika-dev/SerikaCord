@@ -13,4 +13,6 @@ ext {
     androidxJunitVersion = '1.1.5'
     androidxEspressoCoreVersion = '3.5.1'
     cordovaAndroidVersion = '10.1.1'
+    javaSourceVersion = JavaVersion.VERSION_17
+    javaTargetVersion = JavaVersion.VERSION_17
 }

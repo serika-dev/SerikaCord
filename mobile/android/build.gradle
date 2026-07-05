@@ -17,16 +17,24 @@ buildscript {
 
 apply from: "variables.gradle"
 
+subprojects {
+    afterEvaluate {
+        // Apply Java 17 to all Android projects early
+        if (plugins.hasPlugin('com.android.application') || plugins.hasPlugin('com.android.library')) {
+            android {
+                compileOptions {
+                    sourceCompatibility rootProject.ext.javaSourceVersion
+                    targetCompatibility rootProject.ext.javaTargetVersion
+                }
+            }
+        }
+    }
+}
+
 allprojects {
     repositories {
         google()
         mavenCentral()
-    }
-
-    // Force Java 17 for all projects (overrides capacitor-android's Java 21 requirement)
-    tasks.withType(JavaCompile).configureEach {
-        sourceCompatibility = '17'
-        targetCompatibility = '17'
     }
 }
 
