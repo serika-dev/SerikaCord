@@ -241,6 +241,18 @@ function formatInvite(invite: any) {
 
 export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
+// ─── API root (friendly index so /api/v10 isn't a bare 404) ─
+.get('/', () => ({
+  message: 'SerikaCord API v10 — a Discord-compatible bot API.',
+  version: 10,
+  documentation: `${config.API_BASE_URL}/developers/docs`,
+  endpoints: {
+    rest: `${config.API_BASE_URL}/api/v10`,
+    gateway: config.GATEWAY_URL,
+    user: `${config.API_BASE_URL}/api/v10/users/@me`,
+  },
+}))
+
 // ─── Gateway ───────────────────────────────────────────────
 .get('/gateway', () => ({ url: config.GATEWAY_URL }))
 .get('/gateway/bot', async ({ headers, set }) => {
