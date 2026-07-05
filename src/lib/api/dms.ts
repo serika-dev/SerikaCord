@@ -134,7 +134,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             (id: Types.ObjectId) => !id.equals(user._id)
           );
           const recipients = await User.find({ _id: { $in: recipientIds } }).select(
-            'username displayName avatar status customStatus isPremium isSystem presenceLastHeartbeatAt'
+            'username displayName avatar status customStatus isPremium isSystem presenceLastHeartbeatAt customization'
           );
 
           return {
@@ -149,6 +149,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               customStatus: r.customStatus,
               isPremium: r.isPremium,
               isSystem: r.isSystem || false,
+              customization: r.customization || null,
             })),
             lastMessageId: channel.lastMessageId,
             updatedAt: channel.updatedAt,
@@ -259,13 +260,13 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const messages = await Message.find(messageQuery)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('authorId', 'username displayName avatar status customStatus isPremium badges isSystem presenceLastHeartbeatAt')
+      .populate('authorId', 'username displayName avatar status customStatus isPremium badges isSystem presenceLastHeartbeatAt customization')
       .populate({
         path: 'referencedMessageId',
         select: '_id content authorId createdAt',
         populate: {
           path: 'authorId',
-          select: 'username displayName avatar',
+          select: 'username displayName avatar customization',
         },
       });
 
@@ -282,6 +283,17 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         isPremium?: boolean;
         badges?: string[];
         isSystem?: boolean;
+        customization?: {
+          profileColor?: string;
+          profileAccentColor?: string;
+          profileGradient?: string[];
+          displayNameStyle?: {
+            font?: string;
+            effect?: string;
+            color?: string;
+            gradient?: string[];
+          };
+        } | null;
       };
       const decryptedContent = await decryptFromStorage(msg.content);
       const emojiResult = await parseCustomEmojis(decryptedContent);
@@ -326,6 +338,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           isPremium: author.isPremium,
           badges: author.badges || [],
           isSystem: author.isSystem || false,
+          customization: author.customization || null,
         },
         channelId: msg.channelId.toString(),
         attachments: msg.attachments,
@@ -509,6 +522,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         isPremium: user.isPremium,
         badges: user.badges || [],
         isSystem: user.isSystem || false,
+        customization: user.customization || null,
       },
       channelId: channel._id.toString(),
       createdAt: message.createdAt,

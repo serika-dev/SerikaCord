@@ -54,7 +54,7 @@ export interface ProfileCardUser {
       color?: string;
       gradient?: string[];
     };
-  };
+  } | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {

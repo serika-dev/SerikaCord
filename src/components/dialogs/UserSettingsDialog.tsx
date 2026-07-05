@@ -1202,30 +1202,42 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <span className="text-[14px] font-bold text-white">Choose Font</span>
                                 <button onClick={() => setDisplayNameStyle((s) => ({ ...s, font: 'default' }))} className="text-[#B5BAC1] hover:text-white" title="Reset Font"><RotateCcw className="w-4 h-4" /></button>
                               </div>
-                              <div className="grid grid-cols-4 sm:grid-cols-4 gap-3">
+                              <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
                                 {([
-                                  { value: 'default', label: 'Gg' },
-                                  { value: 'serif', label: 'Gg' },
-                                  { value: 'mono', label: 'Gg' },
-                                  { value: 'rounded', label: 'Gg' },
-                                  { value: 'cursive', label: 'Gg' },
-                                  { value: 'bold', label: 'Gg' },
-                                ] as const).map((font) => (
-                                  <button
-                                    key={font.value}
-                                    onClick={() => setDisplayNameStyle((s) => ({ ...s, font: font.value }))}
-                                    className={cn(
-                                      "h-14 rounded-lg flex items-center justify-center text-2xl transition-all border-2",
-                                      getDisplayNameStyleClasses({ font: font.value }),
-                                      displayNameStyle.font === font.value
-                                        ? "border-[#5865F2] bg-[#2B2D31] text-white"
-                                        : "border-transparent bg-[#1E1F22] text-[#B5BAC1] hover:bg-[#313338] hover:text-white"
-                                    )}
-                                    style={getDisplayNameStyleInline({ font: font.value })}
-                                  >
-                                    {font.label}
-                                  </button>
-                                ))}
+                                  { value: 'default', label: 'Default' },
+                                  { value: 'serif', label: 'Serif' },
+                                  { value: 'mono', label: 'Mono' },
+                                  { value: 'rounded', label: 'Rounded' },
+                                  { value: 'cursive', label: 'Cursive' },
+                                  { value: 'bold', label: 'Bold' },
+                                ] as const).map((font) => {
+                                  const isSelected = displayNameStyle.font === font.value;
+                                  return (
+                                    <button
+                                      key={font.value}
+                                      onClick={() => setDisplayNameStyle((s) => ({ ...s, font: font.value }))}
+                                      className={cn(
+                                        "h-14 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all border-2",
+                                        isSelected
+                                          ? "border-[#5865F2] bg-[#2B2D31] text-white"
+                                          : "border-transparent bg-[#1E1F22] text-[#B5BAC1] hover:bg-[#313338] hover:text-white"
+                                      )}
+                                    >
+                                      <span
+                                        className={cn(
+                                          "text-[18px] leading-none",
+                                          getDisplayNameStyleClasses({ font: font.value })
+                                        )}
+                                        style={getDisplayNameStyleInline({ font: font.value })}
+                                      >
+                                        {font.label}
+                                      </span>
+                                      <span className="text-[10px] text-[#949ba4] font-medium uppercase tracking-wide">
+                                        Aa
+                                      </span>
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
 
@@ -1273,9 +1285,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <span className="text-[14px] font-bold text-white">Choose Color</span>
                                 <button onClick={() => setDisplayNameStyle((s) => ({ ...s, color: '', gradient: [] }))} className="text-[#B5BAC1] hover:text-white" title="Reset Color"><RotateCcw className="w-4 h-4" /></button>
                               </div>
-                              <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
+                              <div className="flex flex-wrap gap-2.5">
                                 {/* Custom Color Picker */}
-                                <div className="relative aspect-square rounded-md overflow-hidden bg-[#1E1F22] border-2 border-transparent hover:border-white/20 transition-all cursor-pointer">
+                                <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: displayNameStyle.effect === 'gradient' ? (displayNameStyle.gradient?.[0] || '#8B5CF6') : (displayNameStyle.color || '#8B5CF6') }}>
                                   <input
                                     type="color"
                                     value={displayNameStyle.effect === 'gradient' ? (displayNameStyle.gradient?.[0] || '#8B5CF6') : (displayNameStyle.color || '#8B5CF6')}
@@ -1289,9 +1301,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0"
                                   />
                                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <Pencil className="w-4 h-4 text-white drop-shadow-md" />
+                                    <Pencil className="w-3.5 h-3.5 text-white drop-shadow-md" />
                                   </div>
-                                </div>
+                                </label>
+                                <div className="w-px h-8 bg-[#3f4148] mx-1" />
                                 
                                 {displayNameStyle.effect === 'gradient' ? (
                                   [
@@ -1299,38 +1312,44 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#F50057', '#FF3366'],
                                     ['#FF9800', '#FF5722'], ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#3F51B5', '#2196F3'],
                                     ['#00BCD4', '#009688'], ['#CDDC39', '#FFEB3B'], ['#FFC107', '#FF5722']
-                                  ].map((grad, i) => (
-                                    <button
-                                      key={i}
-                                      onClick={() => setDisplayNameStyle((s) => ({ ...s, gradient: grad }))}
-                                      className="aspect-square rounded-md border-2 border-transparent transition-all relative overflow-hidden"
-                                      style={{ background: `linear-gradient(135deg, ${grad.join(', ')})`, borderColor: JSON.stringify(displayNameStyle.gradient) === JSON.stringify(grad) ? '#fff' : 'transparent' }}
-                                    >
-                                      {JSON.stringify(displayNameStyle.gradient) === JSON.stringify(grad) && (
-                                        <div className="absolute top-0.5 right-0.5 bg-black/40 rounded-sm">
-                                          <Check className="w-3 h-3 text-white" />
-                                        </div>
-                                      )}
-                                    </button>
-                                  ))
+                                  ].map((grad, i) => {
+                                    const isSelected = JSON.stringify(displayNameStyle.gradient) === JSON.stringify(grad);
+                                    return (
+                                      <button
+                                        key={i}
+                                        onClick={() => setDisplayNameStyle((s) => ({ ...s, gradient: grad }))}
+                                        className="w-8 h-8 rounded-full transition-all relative overflow-hidden ring-2"
+                                        style={{ background: `linear-gradient(135deg, ${grad.join(', ')})`, boxShadow: isSelected ? '0 0 0 2px #fff, 0 0 0 4px rgba(0,0,0,0.3)' : 'none', outline: isSelected ? '2px solid #fff' : 'none', outlineOffset: 1 }}
+                                      >
+                                        {isSelected && (
+                                          <div className="absolute inset-0 flex items-center justify-center">
+                                            <Check className="w-3.5 h-3.5 text-white drop-shadow-md" />
+                                          </div>
+                                        )}
+                                      </button>
+                                    );
+                                  })
                                 ) : (
                                   [
                                     '#F43F5E', '#EAB308', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6',
                                     '#D946EF', '#FF1744', '#00E676', '#00B0FF', '#D500F9', '#FF9800', '#9C27B0'
-                                  ].map((col, i) => (
-                                    <button
-                                      key={i}
-                                      onClick={() => setDisplayNameStyle((s) => ({ ...s, color: col }))}
-                                      className="aspect-square rounded-md border-2 border-transparent transition-all relative"
-                                      style={{ backgroundColor: col, borderColor: displayNameStyle.color === col ? '#fff' : 'transparent' }}
-                                    >
-                                      {displayNameStyle.color === col && (
-                                        <div className="absolute top-0.5 right-0.5 bg-black/40 rounded-sm">
-                                          <Check className="w-3 h-3 text-white" />
-                                        </div>
-                                      )}
-                                    </button>
-                                  ))
+                                  ].map((col, i) => {
+                                    const isSelected = displayNameStyle.color === col;
+                                    return (
+                                      <button
+                                        key={i}
+                                        onClick={() => setDisplayNameStyle((s) => ({ ...s, color: col }))}
+                                        className="w-8 h-8 rounded-full transition-all relative ring-2"
+                                        style={{ backgroundColor: col, boxShadow: isSelected ? '0 0 0 2px #fff, 0 0 0 4px rgba(0,0,0,0.3)' : 'none', outline: isSelected ? '2px solid #fff' : 'none', outlineOffset: 1 }}
+                                      >
+                                        {isSelected && (
+                                          <div className="absolute inset-0 flex items-center justify-center">
+                                            <Check className="w-3.5 h-3.5 text-white drop-shadow-md" />
+                                          </div>
+                                        )}
+                                      </button>
+                                    );
+                                  })
                                 )}
                               </div>
                             </div>
@@ -1347,19 +1366,23 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <span className="text-[14px] font-bold text-white">Choose Color</span>
                                 <button onClick={() => setProfileColor('')} className="text-[#B5BAC1] hover:text-white" title="Reset Color"><RotateCcw className="w-4 h-4" /></button>
                               </div>
-                              <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
-                                <div className="relative aspect-square rounded-md overflow-hidden bg-[#1E1F22] border-2 border-transparent hover:border-white/20 transition-all cursor-pointer">
+                              <div className="flex flex-wrap gap-2.5">
+                                <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: profileColor || '#8B5CF6' }}>
                                   <input type="color" value={profileColor || '#8B5CF6'} onChange={(e) => setProfileColor(e.target.value)} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Pencil className="w-4 h-4 text-white drop-shadow-md" /></div>
-                                </div>
+                                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Pencil className="w-3.5 h-3.5 text-white drop-shadow-md" /></div>
+                                </label>
+                                <div className="w-px h-8 bg-[#3f4148] mx-1" />
                                 {[
                                   '#F43F5E', '#EAB308', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6',
                                   '#D946EF', '#FF1744', '#00E676', '#00B0FF', '#D500F9', '#FF9800', '#9C27B0'
-                                ].map((col, i) => (
-                                  <button key={i} onClick={() => setProfileColor(col)} className="aspect-square rounded-md border-2 border-transparent transition-all relative" style={{ backgroundColor: col, borderColor: profileColor === col ? '#fff' : 'transparent' }}>
-                                    {profileColor === col && <div className="absolute top-0.5 right-0.5 bg-black/40 rounded-sm"><Check className="w-3 h-3 text-white" /></div>}
-                                  </button>
-                                ))}
+                                ].map((col, i) => {
+                                  const isSelected = profileColor === col;
+                                  return (
+                                    <button key={i} onClick={() => setProfileColor(col)} className="w-8 h-8 rounded-full transition-all relative" style={{ backgroundColor: col, boxShadow: isSelected ? '0 0 0 2px #fff, 0 0 0 4px rgba(0,0,0,0.3)' : 'none', outline: isSelected ? '2px solid #fff' : 'none', outlineOffset: 1 }}>
+                                      {isSelected && <div className="absolute inset-0 flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white drop-shadow-md" /></div>}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                             {/* Gradient Background */}
@@ -1368,17 +1391,20 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <span className="text-[14px] font-bold text-white">Gradient Background (Optional)</span>
                                 <button onClick={() => setProfileGradient([])} className="text-[#B5BAC1] hover:text-white" title="Reset Gradient"><RotateCcw className="w-4 h-4" /></button>
                               </div>
-                              <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
+                              <div className="flex flex-wrap gap-2.5">
                                 {[
                                   ['#FF3366', '#FFD12A'], ['#00E676', '#00B0FF'], ['#D500F9', '#FF1744'], ['#1DE9B6', '#3D5AFE'],
                                   ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#F50057', '#FF3366'],
                                   ['#FF9800', '#FF5722'], ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#3F51B5', '#2196F3'],
                                   ['#00BCD4', '#009688'], ['#CDDC39', '#FFEB3B'], ['#FFC107', '#FF5722']
-                                ].map((grad, i) => (
-                                  <button key={i} onClick={() => setProfileGradient(grad)} className="aspect-square rounded-md border-2 border-transparent transition-all relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${grad.join(', ')})`, borderColor: JSON.stringify(profileGradient) === JSON.stringify(grad) ? '#fff' : 'transparent' }}>
-                                    {JSON.stringify(profileGradient) === JSON.stringify(grad) && <div className="absolute top-0.5 right-0.5 bg-black/40 rounded-sm"><Check className="w-3 h-3 text-white" /></div>}
-                                  </button>
-                                ))}
+                                ].map((grad, i) => {
+                                  const isSelected = JSON.stringify(profileGradient) === JSON.stringify(grad);
+                                  return (
+                                    <button key={i} onClick={() => setProfileGradient(grad)} className="w-8 h-8 rounded-full transition-all relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${grad.join(', ')})`, boxShadow: isSelected ? '0 0 0 2px #fff, 0 0 0 4px rgba(0,0,0,0.3)' : 'none', outline: isSelected ? '2px solid #fff' : 'none', outlineOffset: 1 }}>
+                                      {isSelected && <div className="absolute inset-0 flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white drop-shadow-md" /></div>}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           </div>

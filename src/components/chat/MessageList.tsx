@@ -110,6 +110,7 @@ function MessageListInner<M extends ChatMessage>(
     () => groups.reduce((total, group) => total + group.messages.length, 0),
     [groups]
   );
+  const firstMessageId = groups[0]?.messages[0]?.id;
   const prevMessageCountRef = useRef(0);
 
   // Reset scroll state when channel/DM changes so the list scrolls to bottom
@@ -162,6 +163,8 @@ function MessageListInner<M extends ChatMessage>(
 
   // Scroll restoration after loading older messages — runs synchronously
   // after DOM mutation but before paint, so the user never sees a jump.
+  // Depends on firstMessageId (not messageCount) so it still fires when
+  // trimming keeps the total count unchanged.
   useLayoutEffect(() => {
     if (!pendingScrollRestoreRef.current) return;
     pendingScrollRestoreRef.current = false;
@@ -171,7 +174,8 @@ function MessageListInner<M extends ChatMessage>(
       prevScrollHeightRef.current = 0;
     }
     prevMessageCountRef.current = messageCount;
-  }, [messageCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstMessageId]);
 
   // Auto-scroll on new messages when pinned to bottom; otherwise count them.
   // useLayoutEffect ensures instant scroll (no flash) on initial load and
@@ -223,7 +227,7 @@ function MessageListInner<M extends ChatMessage>(
       }
       if (atBottom) setNewMessagesCount(0);
 
-      if (scrollTop < 100 && hasMoreOlder && !isLoadingMore) {
+      if (scrollTop < 500 && hasMoreOlder && !isLoadingMore) {
         prevScrollHeightRef.current = viewport.scrollHeight;
         pendingScrollRestoreRef.current = true;
         void latestRef.current.loadOlderMessages();
@@ -267,27 +271,13 @@ function MessageListInner<M extends ChatMessage>(
         <div className="flex flex-col min-h-full">
           <div className="flex-1" />
           <div className="flex flex-col py-4 w-full max-w-full">
-            {/* Load older */}
-            {hasMoreOlder && !isLoading && (
+            {/* Load older — auto-loading spinner only, no button */}
+            {hasMoreOlder && !isLoading && isLoadingMore && (
               <div className="flex justify-center py-3">
-                {isLoadingMore ? (
-                  <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading older messages...
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => {
-                      const viewport = viewportRef.current;
-                      prevScrollHeightRef.current = viewport?.scrollHeight ?? 0;
-                      pendingScrollRestoreRef.current = true;
-                      void latestRef.current.loadOlderMessages();
-                    }}
-                    className="px-4 py-1.5 rounded-full text-sm text-[var(--accent-color)] bg-[var(--accent-color)]/10 hover:bg-[var(--accent-color)]/20 transition-colors"
-                  >
-                    Load older messages
-                  </button>
-                )}
+                <div className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading older messages...
+                </div>
               </div>
             )}
 

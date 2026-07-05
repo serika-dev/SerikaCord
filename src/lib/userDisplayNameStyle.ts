@@ -13,7 +13,7 @@ const FONT_CLASS_MAP: Record<string, string> = {
   mono: 'font-mono',
   rounded: 'font-sans',
   cursive: 'font-serif italic',
-  bold: 'font-sans font-black',
+  bold: 'font-sans',
 };
 
 export function getDisplayNameStyleClasses(style: DisplayNameStyle | undefined): string {
@@ -54,13 +54,33 @@ export function getDisplayNameStyleInline(style: DisplayNameStyle | undefined): 
     css.color = style.color;
   }
 
-  if (style.font === 'rounded') {
-    css.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    css.fontWeight = 600;
+  switch (style.font) {
+    case 'default':
+      css.fontFamily = 'var(--font-sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)';
+      break;
+    case 'serif':
+      css.fontFamily = 'ui-serif, Georgia, Cambria, "Times New Roman", Times, serif';
+      break;
+    case 'mono':
+      css.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+      break;
+    case 'rounded':
+      css.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      css.fontWeight = 600;
+      break;
+    case 'cursive':
+      css.fontFamily = '"Comic Sans MS", "Chalkboard SE", "Bradley Hand", cursive, sans-serif';
+      css.fontStyle = 'italic';
+      break;
+    case 'bold':
+      css.fontFamily = 'var(--font-sans, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)';
+      css.fontWeight = 900;
+      break;
   }
 
   if (style.effect === 'neon') {
-    css.textShadow = `0 0 6px ${style.color || '#ffffff'}, 0 0 12px ${style.color || '#ffffff'}`;
+    const glow = style.color || '#ffffff';
+    css.textShadow = `0 0 6px ${glow}, 0 0 12px ${glow}, 0 0 18px ${glow}`;
   }
 
   if (style.effect === 'toon') {
@@ -78,7 +98,7 @@ export function getProfileBackgroundStyle(customization?: {
   profileColor?: string;
   profileGradient?: string[];
   profileAccentColor?: string;
-}): CSSProperties {
+} | null): CSSProperties {
   if (!customization) return {};
   const { profileGradient, profileColor } = customization;
 

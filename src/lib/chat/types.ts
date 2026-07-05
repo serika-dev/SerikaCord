@@ -12,6 +12,17 @@ export interface MessageAuthor {
   isPremium?: boolean;
   isOwner?: boolean;
   isSystem?: boolean;
+  customization?: {
+    profileColor?: string;
+    profileAccentColor?: string;
+    profileGradient?: string[];
+    displayNameStyle?: {
+      font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';
+      effect?: 'solid' | 'gradient' | 'neon' | 'toon' | 'pop';
+      color?: string;
+      gradient?: string[];
+    };
+  } | null;
 }
 
 export interface MessageAttachment {

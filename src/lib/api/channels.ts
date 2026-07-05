@@ -20,6 +20,17 @@ interface PopulatedAuthor {
   displayName?: string;
   avatar?: string;
   status?: string;
+  customization?: {
+    profileColor?: string;
+    profileAccentColor?: string;
+    profileGradient?: string[];
+    displayNameStyle?: {
+      font?: string;
+      effect?: string;
+      color?: string;
+      gradient?: string[];
+    };
+  } | null;
 }
 
 interface ReferencedMessageRaw {
@@ -423,13 +434,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const messages = await Message.find(filter)
       .sort({ createdAt: -1 })
       .limit(limit)
-      .populate('authorId', 'username displayName avatar status badges isSystem')
+      .populate('authorId', 'username displayName avatar status badges isSystem customization')
       .populate({
         path: 'referencedMessageId',
         select: '_id content authorId createdAt',
         populate: {
           path: 'authorId',
-          select: 'username displayName avatar badges isSystem',
+          select: 'username displayName avatar badges isSystem customization',
         },
       })
       .lean();
@@ -502,6 +513,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           badges: (populatedAuthor as PopulatedAuthor & { badges?: string[] }).badges || [],
           isOwner: serverOwnerId ? serverOwnerId.equals(populatedAuthor._id as unknown as Types.ObjectId) : false,
           isSystem: (populatedAuthor as PopulatedAuthor & { isSystem?: boolean }).isSystem || false,
+          customization: populatedAuthor.customization || null,
         } : null,
         channelId: msg.channelId.toString(),
         serverId: msg.serverId?.toString(),
@@ -760,7 +772,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     await channel.save();
 
     // Populate author for response
-    await message.populate('authorId', 'username displayName avatar status badges isSystem');
+    await message.populate('authorId', 'username displayName avatar status badges isSystem customization');
 
     // Transform message for frontend (return original sanitized content, not encrypted)
     const author = message.authorId as PopulatedAuthor | Types.ObjectId | string | null;
@@ -817,6 +829,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         badges: (populatedAuthor as PopulatedAuthor & { badges?: string[] }).badges || [],
         isOwner: serverOwnerId ? serverOwnerId.equals(populatedAuthor._id as unknown as Types.ObjectId) : false,
         isSystem: (populatedAuthor as PopulatedAuthor & { isSystem?: boolean }).isSystem || false,
+        customization: populatedAuthor.customization || null,
       } : null,
       channelId: message.channelId.toString(),
       serverId: message.serverId?.toString(),

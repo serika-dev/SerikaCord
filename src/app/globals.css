@@ -498,7 +498,7 @@ html.theme-midnight body {
 @keyframes gif-fade-in {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.98);
+    transform: translateY(8px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -506,7 +506,7 @@ html.theme-midnight body {
   }
 }
 .gif-fade-in {
-  animation: gif-fade-in 0.25s ease-out both;
+  animation: gif-fade-in 0.3s ease-out both;
 }
 
 /* Staggered fade-in for chat messages loading one by one */

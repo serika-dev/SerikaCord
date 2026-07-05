@@ -39,6 +39,7 @@ import {
   BellOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -63,6 +64,17 @@ interface DMChannel {
     status: string;
     isPremium?: boolean;
     isSystem?: boolean;
+    customization?: {
+      profileColor?: string;
+      profileAccentColor?: string;
+      profileGradient?: string[];
+      displayNameStyle?: {
+        font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';
+        effect?: 'solid' | 'gradient' | 'neon' | 'toon' | 'pop';
+        color?: string;
+        gradient?: string[];
+      };
+    } | null;
   }[];
   lastMessageId?: string;
   updatedAt?: string;
@@ -404,7 +416,7 @@ export function ChannelSidebar({
                           style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
                         />
                       </div>
-                      <span className="flex-1 truncate text-sm flex items-center gap-1.5">
+                      <span className={cn("flex-1 truncate text-sm flex items-center gap-1.5", getDisplayNameStyleClasses(recipient.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient.customization?.displayNameStyle)}>
                         {recipient.displayName || recipient.username}
                         {recipient.isSystem && (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none bg-blue-500/20 text-blue-400 whitespace-nowrap">
@@ -841,6 +853,17 @@ interface UserPanelProps {
     displayName?: string;
     avatar?: string;
     status?: string;
+    customization?: {
+      profileColor?: string;
+      profileAccentColor?: string;
+      profileGradient?: string[];
+      displayNameStyle?: {
+        font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';
+        effect?: 'solid' | 'gradient' | 'neon' | 'toon' | 'pop';
+        color?: string;
+        gradient?: string[];
+      };
+    } | null;
   } | null;
 }
 
@@ -896,7 +919,7 @@ function UserPanel({ user }: UserPanelProps) {
             />
           </div>
           <div className="flex-1 min-w-0 text-left">
-            <div className="text-sm font-medium text-[var(--text-primary)] truncate">
+            <div className={cn("text-sm font-medium text-[var(--text-primary)] truncate", getDisplayNameStyleClasses(user?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(user?.customization?.displayNameStyle)}>
               {user?.displayName || "Unknown"}
             </div>
             <div className="text-xs text-[var(--text-muted)] truncate">

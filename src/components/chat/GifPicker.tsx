@@ -35,14 +35,17 @@ interface Tag {
   previewGifs?: { url: string; thumbnailUrl?: string }[];
 }
 
-function GifThumbnail({ gif, className, alt }: { gif: Gif; className?: string; alt?: string }) {
+function GifThumbnail({ gif, className, alt, style }: { gif: Gif; className?: string; alt?: string; style?: React.CSSProperties }) {
   const [hovered, setHovered] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   return (
     <img
       src={hovered ? gif.url : gif.thumbnailUrl || gif.url}
       alt={alt || gif.title}
-      className={className}
+      className={cn(className, loaded && "gif-fade-in")}
+      style={style}
       loading="lazy"
+      onLoad={() => setLoaded(true)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     />
@@ -68,6 +71,7 @@ function PreviewTile({
 }) {
   const [hovered, setHovered] = useState(false);
   const [index, setIndex] = useState(0);
+  const [imgLoaded, setImgLoaded] = useState(false);
   useEffect(() => {
     if (!hovered || previews.length <= 1) return;
     const interval = setInterval(() => setIndex((i) => (i + 1) % previews.length), 700);
@@ -82,7 +86,13 @@ function PreviewTile({
       className="relative aspect-[16/9] rounded-lg overflow-hidden group gif-fade-in"
     >
       {active ? (
-        <img src={active.thumbnailUrl || active.url} alt="" className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+        <img
+          src={active.thumbnailUrl || active.url}
+          alt=""
+          className={cn("absolute inset-0 w-full h-full object-cover transition-opacity duration-300", imgLoaded ? "opacity-100" : "opacity-0")}
+          loading="lazy"
+          onLoad={() => setImgLoaded(true)}
+        />
       ) : (
         <div className={cn("absolute inset-0 bg-gradient-to-br", gradientClassName)} />
       )}
@@ -707,10 +717,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             ) : (
               <div className="p-2">
                 <div className="columns-2 gap-2">
-                  {favorites.map((fav) => (
+                  {favorites.map((fav, idx) => (
                     <div
                       key={fav.url}
-                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group gif-fade-in"
+                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                     >
                       <button
                         onClick={() =>
@@ -728,6 +738,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                         <GifThumbnail
                           gif={{ id: fav.url, slug: "", title: fav.title || "Favorite", url: fav.url, thumbnailUrl: fav.url }}
                           className="w-full h-auto block"
+                          style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }}
                         />
                       </button>
                       <button
@@ -836,14 +847,14 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         ) : (
           <div className="p-2">
             <div className="columns-2 gap-2">
-              {gifs.map((gif) => (
+              {gifs.map((gif, idx) => (
                 <button
                   key={gif.id}
                   onClick={() => onGifSelect(gif)}
                   title={gif.title}
-                  className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group gif-fade-in"
+                  className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                 >
-                  <GifThumbnail gif={gif} className="w-full h-auto block" />
+                  <GifThumbnail gif={gif} className="w-full h-auto block" style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }} />
                   <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     <p className="text-[10px] text-white leading-tight line-clamp-1">{gif.title}</p>
                   </div>

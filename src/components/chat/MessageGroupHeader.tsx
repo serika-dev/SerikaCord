@@ -7,6 +7,8 @@ import { StaffPill } from "@/components/chat/StaffPill";
 import { SystemPill } from "@/components/chat/SystemPill";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
 import { useTheme } from "@/contexts/ThemeContext";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
+import { cn } from "@/lib/utils";
 import type { MessageAuthor } from "@/lib/chat/types";
 
 interface GroupAvatarProps {
@@ -60,7 +62,10 @@ interface GroupHeaderProps {
 export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHeaderProps) {
   const { settings } = useTheme();
   const name = author.displayName || author.username || "Unknown";
-  const effectiveColor = settings.showRoleColors && roleColor ? roleColor : undefined;
+  const styleClasses = getDisplayNameStyleClasses(author.customization?.displayNameStyle);
+  const styleInline = getDisplayNameStyleInline(author.customization?.displayNameStyle);
+  const hasCustomStyle = Boolean(author.customization?.displayNameStyle && (author.customization.displayNameStyle.color || author.customization.displayNameStyle.gradient?.length || author.customization.displayNameStyle.effect !== 'solid' || author.customization.displayNameStyle.font !== 'default'));
+  const effectiveColor = !hasCustomStyle && settings.showRoleColors && roleColor ? roleColor : undefined;
 
   return (
     <div className="flex items-baseline gap-2 mb-1">
@@ -77,7 +82,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
           side="right"
           align="start"
         >
-          <button className="font-medium hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1" style={effectiveColor ? { color: effectiveColor } : undefined}>
+          <button className={cn("font-medium hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={hasCustomStyle ? styleInline : (effectiveColor ? { color: effectiveColor } : undefined)}>
             {name}
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
@@ -85,7 +90,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
           </button>
         </MemberProfilePopup>
       ) : (
-        <span className="font-medium text-[var(--text-primary)]" style={effectiveColor ? { color: effectiveColor } : undefined}>{name}</span>
+        <span className={cn("font-medium text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (effectiveColor ? { color: effectiveColor } : undefined)}>{name}</span>
       )}
       <SystemPill isSystem={author.isSystem} />
       <StaffPill badges={author.badges} />

@@ -7,6 +7,7 @@ import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Phone, Video, Pin, Users, Loader2, ArrowLeft, Shield, UserPlus, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { InlineBadges } from "@/components/chat/InlineBadges";
@@ -206,7 +207,7 @@ export default function DMConversationPage() {
               {(recipientName || "?").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <h2 className="text-2xl font-bold text-[var(--text-primary)]">{recipientName}</h2>
+          <h2 className={cn("text-2xl font-bold text-[var(--text-primary)]", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>{recipientName}</h2>
           <p className="text-[var(--text-secondary)]">
             This is the beginning of your direct message history with{" "}
             <span className="font-semibold text-[var(--text-primary)]">{recipientName}</span>
@@ -244,7 +245,7 @@ export default function DMConversationPage() {
             </div>
 
             <div className="flex items-center gap-2 min-w-0">
-              <span className="font-semibold text-[var(--text-primary)] truncate self-center">
+              <span className={cn("font-semibold text-[var(--text-primary)] truncate self-center", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>
                 {recipientName || "Loading..."}
               </span>
               <SystemPill isSystem={recipient?.isSystem} />
@@ -349,7 +350,7 @@ export default function DMConversationPage() {
             <UserProfileSkeleton />
           ) : recipient ? (
             <>
-              <div className="h-[120px] bg-[var(--accent-color)] relative">
+              <div className="h-[120px] relative" style={getProfileBackgroundStyle(recipient.customization) || { backgroundColor: 'var(--accent-color)' }}>
                 {recipient.isPremium && (
                   <div className="absolute top-2 right-2 px-2 py-1 bg-black/40 rounded-full flex items-center gap-1">
                     <span className="text-xs text-white font-medium">Serika+</span>
@@ -377,7 +378,7 @@ export default function DMConversationPage() {
               <div className="pt-12 px-4">
                 <div className="bg-[var(--bg-card)] rounded-lg p-4">
                   <div className="flex items-center gap-2 mb-1">
-                    <h3 className="text-xl font-bold text-[var(--text-primary)]">
+                    <h3 className={cn("text-xl font-bold text-[var(--text-primary)]", getDisplayNameStyleClasses(recipient.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient.customization?.displayNameStyle)}>
                       {recipient.displayName || recipient.username}
                     </h3>
                     <InlineBadges badges={recipient.badges} size="sm" />

@@ -65,6 +65,17 @@ interface PopulatedMemberUser {
   customStatus?: string;
   isPremium?: boolean;
   presenceLastHeartbeatAt?: Date | null;
+  customization?: {
+    profileColor?: string;
+    profileAccentColor?: string;
+    profileGradient?: string[];
+    displayNameStyle?: {
+      font?: string;
+      effect?: string;
+      color?: string;
+      gradient?: string[];
+    };
+  } | null;
 }
 
 function normalizeRoleColor(color?: number | string | null): string {
@@ -152,6 +163,7 @@ function normalizeMemberDto(member: {
     customStatus: userData?.customStatus || null,
     isPremium: Boolean(userData?.isPremium),
     isOwner: ownerId ? ownerId.equals(userData?._id as unknown as Types.ObjectId) : false,
+    customization: userData?.customization || null,
     joinedAt: member.joinedAt || null,
     roles: memberRoles,
     highestRole,
@@ -956,7 +968,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       Server.findById(params.serverId).select('ownerId'),
       ServerMember.find(filter)
         .limit(limit)
-        .populate('userId', 'username displayName avatar status customStatus isPremium presenceLastHeartbeatAt')
+        .populate('userId', 'username displayName avatar status customStatus isPremium presenceLastHeartbeatAt customization')
         .populate('roles', 'name color position permissions hoist mentionable managed isDefault'),
     ]);
 
@@ -1040,7 +1052,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await member.save();
 
     const populatedMember = await ServerMember.findById(member._id)
-      .populate('userId', 'username displayName avatar status customStatus isPremium presenceLastHeartbeatAt')
+      .populate('userId', 'username displayName avatar status customStatus isPremium presenceLastHeartbeatAt customization')
       .populate('roles', 'name color position permissions hoist mentionable managed isDefault');
 
     if (!populatedMember) {
@@ -1091,7 +1103,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       serverId: params.serverId,
       userId: params.memberUserId,
     })
-      .populate('userId', 'username displayName avatar status customStatus isPremium badges bio banner presenceLastHeartbeatAt')
+      .populate('userId', 'username displayName avatar status customStatus isPremium badges bio banner presenceLastHeartbeatAt customization')
       .populate('roles', 'name color position permissions hoist mentionable managed isDefault');
 
     if (!member) {

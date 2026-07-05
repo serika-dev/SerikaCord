@@ -45,6 +45,33 @@ const categories = [
   { id: "entertainment", name: "Entertainment", icon: Film },
 ];
 
+const DISCOVER_GRADIENTS = [
+  { from: '#5865F2', to: '#EB459E' },
+  { from: '#FF3366', to: '#FFD12A' },
+  { from: '#00E676', to: '#00B0FF' },
+  { from: '#D500F9', to: '#FF1744' },
+  { from: '#1DE9B6', to: '#3D5AFE' },
+  { from: '#FF4081', to: '#E040FB' },
+  { from: '#2979FF', to: '#00E5FF' },
+  { from: '#7C4DFF', to: '#E040FB' },
+  { from: '#F50057', to: '#FF3366' },
+  { from: '#FF9800', to: '#FF5722' },
+  { from: '#4CAF50', to: '#8BC34A' },
+  { from: '#9C27B0', to: '#673AB7' },
+  { from: '#3F51B5', to: '#2196F3' },
+  { from: '#00BCD4', to: '#009688' },
+  { from: '#CDDC39', to: '#FFEB3B' },
+  { from: '#FFC107', to: '#FF5722' },
+];
+
+function getServerGradient(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return DISCOVER_GRADIENTS[hash % DISCOVER_GRADIENTS.length];
+}
+
 function formatMemberCount(count: number) {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
@@ -62,6 +89,8 @@ function ServerCard({
   onJoin: () => void;
   joining: boolean;
 }) {
+  const gradient = getServerGradient(server.id + server.name);
+
   return (
     <div
       className="group bg-[#111214] rounded-xl overflow-hidden border border-[#1f1f22] hover:border-[#404249] hover:shadow-xl transition-all cursor-pointer"
@@ -72,7 +101,10 @@ function ServerCard({
         {server.banner ? (
           <img src={server.banner} alt="" className="w-full h-full object-cover" />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-[#5865F2]/40 to-[#EB459E]/40" />
+          <div
+            className="w-full h-full"
+            style={{ background: `linear-gradient(135deg, ${gradient.from}, ${gradient.to})` }}
+          />
         )}
       </div>
 
@@ -85,7 +117,10 @@ function ServerCard({
             )}
           >
             <AvatarImage src={server.icon} />
-            <AvatarFallback className="bg-[#5865F2] text-white text-lg">
+            <AvatarFallback
+              className="text-white text-lg"
+              style={{ backgroundColor: gradient.from }}
+            >
               {server.name.charAt(0)}
             </AvatarFallback>
           </Avatar>

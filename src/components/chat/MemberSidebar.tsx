@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { cn } from "@/lib/utils";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { usePolling } from "@/hooks/usePolling";
 
 interface MemberRole {
@@ -37,6 +38,17 @@ interface Member {
   roles: MemberRole[];
   highestRole?: MemberRole | null;
   highestHoistedRole?: MemberRole | null;
+  customization?: {
+    profileColor?: string;
+    profileAccentColor?: string;
+    profileGradient?: string[];
+    displayNameStyle?: {
+      font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';
+      effect?: 'solid' | 'gradient' | 'neon' | 'toon' | 'pop';
+      color?: string;
+      gradient?: string[];
+    };
+  } | null;
 }
 
 interface GroupedRoleMembers {
@@ -204,12 +216,19 @@ function MemberItem({ member, serverId }: MemberItemProps) {
           />
         </div>
         <div className="flex-1 min-w-0 text-left">
-          <div className="flex items-center gap-1 text-sm font-medium truncate text-[var(--text-primary)]" style={roleColor ? { color: roleColor } : undefined}>
-            {member.displayName || member.username || "Unknown"}
-            {member.isOwner && (
-              <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
-            )}
-          </div>
+          {(() => {
+            const styleClasses = getDisplayNameStyleClasses(member.customization?.displayNameStyle);
+            const styleInline = getDisplayNameStyleInline(member.customization?.displayNameStyle);
+            const hasCustomStyle = Boolean(member.customization?.displayNameStyle && (member.customization.displayNameStyle.color || member.customization.displayNameStyle.gradient?.length || member.customization.displayNameStyle.effect !== 'solid' || member.customization.displayNameStyle.font !== 'default'));
+            return (
+              <div className={cn("flex items-center gap-1 text-sm font-medium truncate text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
+                {member.displayName || member.username || "Unknown"}
+                {member.isOwner && (
+                  <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
+                )}
+              </div>
+            );
+          })()}
           {moeActivity ? (
             <div className="flex items-center gap-1 text-xs text-[#8B5CF6] truncate">
               <Play className="w-2.5 h-2.5 shrink-0 fill-current" />
