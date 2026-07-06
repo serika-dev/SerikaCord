@@ -226,7 +226,7 @@ const MessageSchema = new Schema<IMessage>({
   },
   content: {
     type: String,
-    maxlength: 4000,
+    maxlength: 16384,
     default: '',
   },
   type: {

@@ -1328,7 +1328,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </div>
 
                   {/* Profile Layout */}
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr,340px] gap-6 md:gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_340px] gap-6 md:gap-8">
                     <div>
                       <AnimatePresence mode="wait">
                         {profileTab === "main" ? (

@@ -265,7 +265,16 @@ export function ChannelSidebar({
     e.dataTransfer.dropEffect = "move";
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const isBefore = e.clientY < rect.top + rect.height / 2;
-    setDropIndicator({ targetId: targetChannel.id, position: isBefore ? "before" : "after" });
+    
+    let targetId = targetChannel.id;
+    if (draggedChannel.type === "category" && targetChannel.type !== "category" && targetChannel.parentId) {
+      const parentCat = categories.find(c => c.id === targetChannel.parentId);
+      if (parentCat) {
+        targetId = parentCat.id;
+      }
+    }
+    
+    setDropIndicator({ targetId, position: isBefore ? "before" : "after" });
     setDragOverTarget(null);
   };
 
@@ -278,21 +287,34 @@ export function ChannelSidebar({
     if (!draggedChannel || !currentServer) return;
     if (draggedChannel.id === targetChannel.id) return;
 
+    // Handle normal channel dropped on a category header
+    if (draggedChannel.type !== "category" && targetChannel.type === "category") {
+      return handleDropOnCategory(e, targetChannel.id);
+    }
+
+    let target = targetChannel;
+    if (draggedChannel.type === "category" && target.type !== "category" && target.parentId) {
+      const parentCat = categories.find(c => c.id === target.parentId);
+      if (parentCat) {
+        target = parentCat;
+      }
+    }
+
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const isBefore = e.clientY < rect.top + rect.height / 2;
-    const targetParent = targetChannel.type === "category" ? null : (targetChannel.parentId || null);
+    const targetParent = target.type === "category" ? null : (target.parentId || null);
     if (draggedChannel.type === "category" && targetParent !== null) return;
 
     let siblings: typeof channels;
     if (targetParent) {
       siblings = (channelsByCategory.get(targetParent) || []).filter(c => c.id !== draggedChannel.id);
-    } else if (targetChannel.type === "category") {
+    } else if (target.type === "category") {
       siblings = categories.filter(c => c.id !== draggedChannel.id);
     } else {
       siblings = uncategorizedChannels.filter(c => c.id !== draggedChannel.id);
     }
 
-    const targetIdx = siblings.findIndex(c => c.id === targetChannel.id);
+    const targetIdx = siblings.findIndex(c => c.id === target.id);
     if (targetIdx === -1) {
       siblings.push(draggedChannel);
     } else {
@@ -316,6 +338,58 @@ export function ChannelSidebar({
       toast.success(`Moved ${draggedChannel.type === "category" ? "" : "#"}${draggedChannel.name}`);
     } catch (err) {
       toast.error("Failed to move channel");
+    }
+    setDraggedChannel(null);
+  };
+
+  const handleDropOnBottom = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverTarget(null);
+    setDropIndicator(null);
+    dragCounterRef.current = 0;
+    if (!draggedChannel || !currentServer) return;
+
+    if (draggedChannel.type === "category") {
+      const siblings = categories.filter(c => c.id !== draggedChannel.id);
+      siblings.push(draggedChannel);
+
+      const updates = siblings.map((ch, i) => ({
+        id: ch.id,
+        position: i,
+        parentId: null,
+      }));
+
+      try {
+        await reorderChannels(currentServer.id, updates);
+        toast.success(`Moved category ${draggedChannel.name} to bottom`);
+      } catch (err) {
+        toast.error("Failed to move category");
+      }
+    } else {
+      const targetCategory = categories.length > 0 ? categories[categories.length - 1] : null;
+      const targetParentId = targetCategory ? targetCategory.id : null;
+
+      const siblings = targetParentId
+        ? (channelsByCategory.get(targetParentId) || []).filter(c => c.id !== draggedChannel.id)
+        : uncategorizedChannels.filter(c => c.id !== draggedChannel.id);
+      
+      siblings.push(draggedChannel);
+
+      const updates = siblings.map((ch, i) => ({
+        id: ch.id,
+        position: i,
+        parentId: targetParentId,
+      }));
+
+      const draggedUpdate = updates.find(u => u.id === draggedChannel.id);
+      if (draggedUpdate) draggedUpdate.parentId = targetParentId;
+
+      try {
+        await reorderChannels(currentServer.id, updates);
+        toast.success(`Moved #${draggedChannel.name} to bottom`);
+      } catch (err) {
+        toast.error("Failed to move channel");
+      }
     }
     setDraggedChannel(null);
   };
@@ -979,6 +1053,21 @@ export function ChannelSidebar({
               </div>
             );
           })}
+
+          {/* Bottom drop zone for reordering to the absolute end */}
+          {draggedChannel && (
+            <div
+              className={cn(
+                "h-12 mx-3 my-2 rounded border border-dashed border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)]/40 hover:bg-[var(--bg-sidebar-elevated)] transition-all flex items-center justify-center text-xs text-[var(--text-muted)] animate-pulse"
+              )}
+              onDragOver={handleDragOver}
+              onDragEnter={(e) => handleDragEnter(e, "__bottom_drop_zone__")}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDropOnBottom}
+            >
+              Drop here to move to bottom
+            </div>
+          )}
         </div>
       </ScrollArea>
 

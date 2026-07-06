@@ -10,7 +10,6 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
-import { GlobalAnnouncementBanner } from "@/components/ui/global-announcement-banner";
 import { Loader2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
@@ -298,7 +297,6 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        <GlobalAnnouncementBanner />
         <AnimatePresence mode="wait" initial={false}>
           <motion.main
             key={contentKey}

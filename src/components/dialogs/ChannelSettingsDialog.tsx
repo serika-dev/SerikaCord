@@ -828,7 +828,7 @@ export function ChannelSettingsDialog({
                   </button>
 
                   {showAdvancedPerms && (
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-[200px,1fr] gap-6 min-h-[300px] border border-[var(--border-subtle)] rounded-xl p-5 bg-[var(--bg-app)]">
+                    <div className="mt-4 grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6 min-h-[300px] border border-[var(--border-subtle)] rounded-xl p-5 bg-[var(--bg-app)]">
                       {/* Left list of added Overwrites */}
                       <div className="border-r border-[var(--border-subtle)] pr-4 flex flex-col gap-1.5 justify-start min-h-[250px]">
                         <div className="flex items-center justify-between mb-2">

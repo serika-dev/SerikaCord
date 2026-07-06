@@ -7,7 +7,6 @@ import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
 import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
-import { GlobalAnnouncementBanner } from "@/components/ui/global-announcement-banner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ServerProvider } from "@/contexts/ServerContext";
 
@@ -62,7 +61,6 @@ function DMContent({ children }: { children: React.ReactNode }) {
       <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
       <ChannelSidebar />
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        <GlobalAnnouncementBanner />
         <main className="flex-1 flex min-w-0 min-h-0 overflow-hidden">{children}</main>
       </div>
       <CreateServerDialog

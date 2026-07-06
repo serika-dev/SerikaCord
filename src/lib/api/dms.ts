@@ -137,6 +137,32 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             'username displayName avatar status customStatus isPremium isSystem presenceLastHeartbeatAt customization'
           );
 
+          let lastMessage = null;
+          if (channel.lastMessageId) {
+            try {
+              const msg = await Message.findById(channel.lastMessageId);
+              if (msg) {
+                const decryptedContent = msg.content ? await decryptFromStorage(msg.content) : '';
+                let displayContent = decryptedContent;
+                if (!displayContent) {
+                  if (msg.attachments && msg.attachments.length > 0) {
+                    displayContent = 'Sent an attachment';
+                  } else if (msg.sticker) {
+                    displayContent = 'Sent a sticker';
+                  }
+                }
+                lastMessage = {
+                  id: msg._id.toString(),
+                  content: displayContent,
+                  authorId: msg.authorId.toString(),
+                  createdAt: msg.createdAt,
+                };
+              }
+            } catch (err) {
+              console.error('Failed to populate lastMessage:', err);
+            }
+          }
+
           return {
             id: channel._id,
             type: channel.type,
@@ -152,6 +178,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               customization: r.customization || null,
             })),
             lastMessageId: channel.lastMessageId,
+            lastMessage,
             updatedAt: channel.updatedAt,
             _recipientKey: recipientIds.map((id: Types.ObjectId) => id.toString()).sort().join(','),
           };
