@@ -1675,6 +1675,132 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
     }),
   });
 
+// Notifications routes
+const notificationsRoutes = new Elysia({ prefix: '/notifications' })
+  .get('/', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    try {
+      const { ServerMember, Message, Channel, Server } = await import('@/lib/models');
+
+      // Get all servers the user is a member of
+      const memberships = await ServerMember.find({ userId: user._id }).select('serverId roles').lean();
+      const serverIds = memberships.map(m => m.serverId);
+
+      if (serverIds.length === 0) {
+        return { notifications: [] };
+      }
+
+      // Map serverId -> user's role IDs (for role mention matching)
+      const serverToRoles = new Map<string, string[]>();
+      for (const m of memberships) {
+        serverToRoles.set(m.serverId.toString(), (m.roles || []).map((r: { toString(): string }) => r.toString()));
+      }
+
+      // Get all channels in those servers
+      const channels = await Channel.find({ serverId: { $in: serverIds } }).select('_id serverId name').lean();
+      const channelIds = channels.map(c => c._id);
+
+      // Map channelId -> { serverId, name }
+      const channelToServer = new Map<string, string>();
+      const channelToName = new Map<string, string>();
+      for (const c of channels) {
+        channelToServer.set(c._id.toString(), c.serverId.toString());
+        channelToName.set(c._id.toString(), c.name);
+      }
+
+      // Get server names
+      const servers = await Server.find({ _id: { $in: serverIds } }).select('_id name icon').lean();
+      const serverToName = new Map<string, string>();
+      const serverToIcon = new Map<string, string>();
+      for (const s of servers) {
+        serverToName.set(s._id.toString(), s.name);
+        serverToIcon.set(s._id.toString(), s.icon || '');
+      }
+
+      // Build mention query: direct user mentions, @everyone, or role mentions
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      // Collect all role IDs the user has across all servers
+      const allUserRoleIds = new Set<string>();
+      for (const roleIds of serverToRoles.values()) {
+        for (const rid of roleIds) allUserRoleIds.add(rid);
+      }
+
+      const orConditions: Record<string, unknown>[] = [
+        { mentionedUserIds: user._id },
+        { mentionEveryone: true },
+      ];
+      if (allUserRoleIds.size > 0) {
+        orConditions.push({ mentionedRoleIds: { $in: Array.from(allUserRoleIds) } });
+      }
+
+      const mentionedMessages = await Message.find({
+        channelId: { $in: channelIds },
+        isDeleted: false,
+        createdAt: { $gte: sevenDaysAgo },
+        $or: orConditions,
+      })
+        .select('content channelId createdAt authorId mentionEveryone')
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .populate('authorId', 'username displayName avatar')
+        .lean();
+
+      const notifications = await Promise.all(mentionedMessages.map(async (msg) => {
+        const channelId = msg.channelId.toString();
+        const serverId = channelToServer.get(channelId) || '';
+        const channelName = channelToName.get(channelId) || '';
+        const serverName = serverToName.get(serverId) || '';
+        const serverIcon = serverToIcon.get(serverId) || '';
+        
+        const author = msg.authorId as unknown as { _id?: string; username?: string; displayName?: string; avatar?: string } | null;
+        const isPopulatedAuthor = author && typeof author === 'object' && 'username' in author;
+        const decryptedContent = await decryptFromStorage(msg.content || '');
+
+        // Determine mention type
+        let mentionType = 'mention';
+        if (msg.mentionEveryone) {
+          mentionType = 'everyone';
+        }
+
+        return {
+          id: (msg as { _id: { toString(): string } })._id.toString(),
+          type: 'mention' as const,
+          title: isPopulatedAuthor ? (author!.displayName || author!.username) : 'Unknown',
+          description: `${mentionType === 'everyone' ? '@everyone' : 'mentioned you'} in #${channelName}`,
+          avatar: isPopulatedAuthor ? author!.avatar : null,
+          timestamp: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : String(msg.createdAt),
+          isRead: false,
+          serverId,
+          channelId,
+          serverName,
+          channelName,
+          content: decryptedContent,
+        };
+      }));
+
+      return { notifications };
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+      return { notifications: [] };
+    }
+  })
+  .post('/read-all', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    // For now, just return success - read status tracking would need a notification model
+    return { success: true };
+  });
+
 // Main API app
 export const api = new Elysia({ prefix: '/api' })
   .onError(({ code, error, set, request }) => {
@@ -1747,6 +1873,7 @@ export const api = new Elysia({ prefix: '/api' })
   })
   .use(authRoutes)
   .use(userRoutes)
+  .use(notificationsRoutes)
   .use(friendsRoutes)
   .use(serverRoutes)
   .use(inviteRoutes)

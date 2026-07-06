@@ -904,51 +904,67 @@ export default function MobileSettingsSectionPage() {
                 {/* Colors / Presets */}
                 <div>
                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Color Preset</label>
-                  <div className="flex flex-wrap gap-2">
-                    <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all shrink-0 border border-white/20" style={{ backgroundColor: displayNameStyle.effect === "gradient" ? (displayNameStyle.gradient?.[0] || "#8B5CF6") : (displayNameStyle.color || "#8B5CF6") }}>
-                      <input
-                        type="color"
-                        value={displayNameStyle.effect === "gradient" ? (displayNameStyle.gradient?.[0] || "#8B5CF6") : (displayNameStyle.color || "#8B5CF6")}
-                        onChange={(e) => {
-                          if (displayNameStyle.effect === "gradient") {
-                            setDisplayNameStyle((s) => ({ ...s, gradient: [e.target.value, s.gradient?.[1] || "#6366F1"] }));
-                          } else {
-                            setDisplayNameStyle((s) => ({ ...s, color: e.target.value }));
-                          }
-                        }}
-                        className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0"
-                      />
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <Pencil className="w-3.5 h-3.5 text-white drop-shadow" />
-                      </div>
-                    </label>
-                    <div className="w-px h-8 bg-[var(--border-subtle)] mx-1 shrink-0" />
-
-                    {displayNameStyle.effect === "gradient" ? (
-                      [
-                        ["#FF3366", "#FFD12A"], ["#00E676", "#00B0FF"], ["#D500F9", "#FF1744"], ["#1DE9B6", "#3D5AFE"],
-                        ["#FF4081", "#E040FB"], ["#2979FF", "#00E5FF"], ["#7C4DFF", "#E040FB"], ["#F50057", "#FF3366"],
-                        ["#FF9800", "#FF5722"], ["#4CAF50", "#8BC34A"], ["#9C27B0", "#673AB7"], ["#3F51B5", "#2196F3"]
-                      ].map((grad, i) => {
-                        const isSelected = JSON.stringify(displayNameStyle.gradient) === JSON.stringify(grad);
+                  {displayNameStyle.effect === "gradient" ? (
+                    <div className="space-y-3">
+                      {/* Custom gradient bar */}
+                      {(() => {
+                        const g0 = displayNameStyle.gradient?.[0] || "#8B5CF6";
+                        const g1 = displayNameStyle.gradient?.[1] || "#EC4899";
                         return (
-                          <button
-                            key={i}
-                            type="button"
-                            onClick={() => setDisplayNameStyle((s) => ({ ...s, gradient: grad }))}
-                            className="w-8 h-8 rounded-full transition-all relative overflow-hidden border border-white/10"
-                            style={{ background: `linear-gradient(135deg, ${grad.join(", ")})`, outline: isSelected ? "2px solid var(--app-accent)" : "none", outlineOffset: 2 }}
-                          >
-                            {isSelected && (
-                              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                                <Check className="w-3.5 h-3.5 text-white drop-shadow" />
-                              </div>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                            <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
+                              <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
+                                <input type="color" value={g0} onChange={(e) => setDisplayNameStyle((s) => ({ ...s, gradient: [e.target.value, s.gradient?.[1] || "#EC4899"] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                              </label>
+                              <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
+                                <input type="color" value={g1} onChange={(e) => setDisplayNameStyle((s) => ({ ...s, gradient: [s.gradient?.[0] || "#8B5CF6", e.target.value] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                              </label>
+                            </div>
+                          </div>
                         );
-                      })
-                    ) : (
-                      [
+                      })()}
+                      {/* Gradient presets */}
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          ["#FF3366", "#FFD12A"], ["#00E676", "#00B0FF"], ["#D500F9", "#FF1744"], ["#1DE9B6", "#3D5AFE"],
+                          ["#FF4081", "#E040FB"], ["#2979FF", "#00E5FF"], ["#7C4DFF", "#E040FB"], ["#F50057", "#FF3366"],
+                          ["#FF9800", "#FF5722"], ["#4CAF50", "#8BC34A"], ["#9C27B0", "#673AB7"], ["#3F51B5", "#2196F3"]
+                        ].map((grad, i) => {
+                          const isSelected = JSON.stringify(displayNameStyle.gradient) === JSON.stringify(grad);
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => setDisplayNameStyle((s) => ({ ...s, gradient: grad }))}
+                              className="w-8 h-8 rounded-full transition-all relative overflow-hidden border border-white/10"
+                              style={{ background: `linear-gradient(135deg, ${grad.join(", ")})`, outline: isSelected ? "2px solid var(--app-accent)" : "none", outlineOffset: 2 }}
+                            >
+                              {isSelected && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                                  <Check className="w-3.5 h-3.5 text-white drop-shadow" />
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all shrink-0 border border-white/20" style={{ backgroundColor: displayNameStyle.color || "#8B5CF6" }}>
+                        <input
+                          type="color"
+                          value={displayNameStyle.color || "#8B5CF6"}
+                          onChange={(e) => setDisplayNameStyle((s) => ({ ...s, color: e.target.value }))}
+                          className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <Pencil className="w-3.5 h-3.5 text-white drop-shadow" />
+                        </div>
+                      </label>
+                      <div className="w-px h-8 bg-[var(--border-subtle)] mx-1 shrink-0" />
+                      {[
                         "#F43F5E", "#EAB308", "#22C55E", "#10B981", "#06B6D4", "#3B82F6", "#6366F1", "#8B5CF6",
                         "#D946EF", "#FF1744", "#00E676", "#00B0FF"
                       ].map((col, i) => {
@@ -968,9 +984,9 @@ export default function MobileSettingsSectionPage() {
                             )}
                           </button>
                         );
-                      })
-                    )}
-                  </div>
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

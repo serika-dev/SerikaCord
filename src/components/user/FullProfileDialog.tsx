@@ -72,11 +72,16 @@ export function FullProfileDialog({
   const userActivity = useUserActivity(fullUser.id);
   const badges = fullUser.badges?.length ? getBadgesByPriority(fullUser.badges as string[]) : [];
 
+  // Seed from the passed member/user data, but only when the *identity* changes.
+  // The member list re-renders (and passes new object references) on every
+  // presence poll — keying on `user.id` prevents those from wiping the enriched
+  // profile (banner, bio, friend state) fetched below.
   useEffect(() => {
     setFullUser(user);
     setMemberRoles(user.roles || []);
     setFriendRequestSent(user.friendRequestSent ?? false);
-  }, [user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
 
   useEffect(() => {
     if (!open || !user.id) return;
@@ -85,10 +90,15 @@ export function FullProfileDialog({
         const res = await fetch(`/api/users/${user.id}`);
         if (res.ok) {
           const data = await res.json();
-          setFullUser((prev) => ({
-            ...prev,
-            ...data,
-          }));
+          // Merge only defined, non-null values so the fetch enriches the
+          // profile without clobbering fields it doesn't return (e.g. banner).
+          setFullUser((prev) => {
+            const merged = { ...prev } as Record<string, unknown>;
+            for (const [k, v] of Object.entries(data)) {
+              if (v !== null && v !== undefined) merged[k] = v;
+            }
+            return merged as unknown as ProfileCardUser;
+          });
         }
       } catch (error) {
         console.error("Failed to fetch full user profile:", error);
@@ -379,7 +389,7 @@ export function FullProfileDialog({
                         {fullUser.connections.map((conn) => {
                           const Icon = getConnectionIcon(conn.provider);
                           const label = conn.displayName || conn.username || conn.accountId;
-                          const href = getConnectionHref(conn.provider, conn.accountId);
+                          const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
                           const color = getConnectionColor(conn.provider);
                           return (
                             <a

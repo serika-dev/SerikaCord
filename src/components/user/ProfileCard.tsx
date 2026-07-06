@@ -427,7 +427,7 @@ export function ProfileCard({
                 const Icon = getConnectionIcon(conn.provider);
                 const color = getConnectionColor(conn.provider);
                 const label = conn.displayName || conn.username || conn.accountId;
-                const href = getConnectionHref(conn.provider, conn.accountId);
+                const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
                 return (
                   <a
                     key={conn.provider}
