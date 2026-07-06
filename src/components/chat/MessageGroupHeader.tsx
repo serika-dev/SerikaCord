@@ -88,15 +88,15 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
           side="right"
           align="start"
         >
-          <button className={cn("!text-sm font-medium leading-tight whitespace-nowrap truncate max-w-[55vw] xs:max-w-[45vw] sm:max-w-[30vw] hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
-            <span className="truncate">{name}</span>
+          <button className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
+            <span>{name}</span>
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
             )}
           </button>
         </MemberProfilePopup>
       ) : (
-        <span className={cn("!text-sm font-medium leading-tight whitespace-nowrap truncate max-w-[55vw] xs:max-w-[45vw] sm:max-w-[30vw] text-[var(--text-primary)]", styleClasses)} style={chatInline}>{name}</span>
+        <span className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap text-[var(--text-primary)]", styleClasses)} style={chatInline}>{name}</span>
       )}
       <SystemPill isSystem={author.isSystem} />
       <StaffPill badges={author.badges} />
