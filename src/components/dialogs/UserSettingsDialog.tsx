@@ -181,6 +181,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     allowRegistration: boolean;
     globalAnnouncement?: string;
     oembedWhitelist?: string[];
+    allowedFileTypes?: string[];
+    warnOnUnknownFileTypes?: boolean;
   } | null>(null);
   const [selectedUser, setSelectedUser] = useState<{
     id: string;
@@ -216,6 +218,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
   const [announcementText, setAnnouncementText] = useState("");
   const [oembedDomainInput, setOembedDomainInput] = useState("");
+  const [fileTypeInput, setFileTypeInput] = useState("");
   const [fontTestText, setFontTestText] = useState("The quick brown fox jumps over the lazy dog");
 
   // Initialize form with user data
@@ -734,7 +737,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
-  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean; oembedWhitelist?: string[] }) => {
+  const handleUpdatePlatformSettings = async (updates: { maintenanceMode?: boolean; allowRegistration?: boolean; oembedWhitelist?: string[]; allowedFileTypes?: string[]; warnOnUnknownFileTypes?: boolean }) => {
     try {
       const response = await fetch("/api/admin/settings", {
         method: "PATCH",
@@ -2988,6 +2991,74 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           ))
                         )}
                       </div>
+                    </div>
+                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
+                      <h3 className="text-white font-semibold mb-3">File Type Whitelist</h3>
+                      <p className="text-sm text-[var(--text-muted)] mb-3">
+                        Allowed MIME types for file uploads. When empty, the default list is used.
+                      </p>
+                      <div className="flex gap-2 mb-3">
+                        <Input
+                          value={fileTypeInput}
+                          onChange={(e) => setFileTypeInput(e.target.value)}
+                          placeholder="application/zip"
+                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && fileTypeInput.trim()) {
+                              e.preventDefault();
+                              const type = fileTypeInput.trim().toLowerCase();
+                              const current = platformSettings?.allowedFileTypes || [];
+                              if (!current.includes(type)) {
+                                void handleUpdatePlatformSettings({ allowedFileTypes: [...current, type] });
+                              }
+                              setFileTypeInput("");
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => {
+                            if (!fileTypeInput.trim()) return;
+                            const type = fileTypeInput.trim().toLowerCase();
+                            const current = platformSettings?.allowedFileTypes || [];
+                            if (!current.includes(type)) {
+                              void handleUpdatePlatformSettings({ allowedFileTypes: [...current, type] });
+                            }
+                            setFileTypeInput("");
+                          }}
+                          className="px-3 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded text-sm font-medium"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto mb-4">
+                        {(platformSettings?.allowedFileTypes || []).length === 0 ? (
+                          <p className="text-sm text-[var(--text-muted)] italic">
+                            No custom whitelist. Using defaults: image/jpeg, image/png, image/gif, image/webp, audio/mpeg, audio/ogg, audio/wav, video/mp4, video/webm, application/pdf, text/plain
+                          </p>
+                        ) : (
+                          (platformSettings?.allowedFileTypes || []).map((type) => (
+                            <div key={type} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
+                              <span className="text-white">{type}</span>
+                              <button
+                                onClick={() => {
+                                  const current = platformSettings?.allowedFileTypes || [];
+                                  void handleUpdatePlatformSettings({ allowedFileTypes: current.filter((t) => t !== type) });
+                                }}
+                                className="text-red-400 hover:text-red-300 text-xs"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <label className="flex items-center justify-between cursor-pointer pt-3 border-t border-[var(--border-subtle)]">
+                        <div>
+                          <p className="text-white">Warn on unknown file types</p>
+                          <p className="text-sm text-[var(--text-muted)]">Show a warning to users when they upload a file type not in the whitelist</p>
+                        </div>
+                        <ToggleSwitch size="sm" checked={platformSettings?.warnOnUnknownFileTypes !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ warnOnUnknownFileTypes: checked })} />
+                      </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">Font Testing</h3>

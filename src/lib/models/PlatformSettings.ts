@@ -8,6 +8,8 @@ export interface IPlatformSettings {
   announcementUpdatedAt?: Date;
   encryptionKey: string;
   oembedWhitelist?: string[];
+  allowedFileTypes?: string[];
+  warnOnUnknownFileTypes?: boolean;
   updatedAt: Date;
 }
 
@@ -38,6 +40,14 @@ const PlatformSettingsSchema = new Schema<IPlatformSettings>({
   oembedWhitelist: {
     type: [String],
     default: [],
+  },
+  allowedFileTypes: {
+    type: [String],
+    default: [],
+  },
+  warnOnUnknownFileTypes: {
+    type: Boolean,
+    default: true,
   },
 }, {
   timestamps: { updatedAt: true, createdAt: false },

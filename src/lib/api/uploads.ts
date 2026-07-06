@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIP } from '@/lib/security';
 import { config } from '@/lib/config';
 import { Server, ServerMember, User } from '@/lib/models';
 import { accountsSyncProfile } from '@/lib/services/accountsClient';
+import { getPlatformSettings } from '@/lib/models/PlatformSettings';
 
 // Helper function for auth
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
@@ -22,7 +23,10 @@ function isValidImageType(type: string): type is "image/jpeg" | "image/png" | "i
   return config.ALLOWED_IMAGE_TYPES.includes(type as typeof config.ALLOWED_IMAGE_TYPES[number]);
 }
 
-function isValidFileType(type: string): boolean {
+function isValidFileType(type: string, customWhitelist?: string[]): boolean {
+  if (customWhitelist && customWhitelist.length > 0) {
+    return customWhitelist.includes(type);
+  }
   return config.ALLOWED_FILE_TYPES.includes(type as typeof config.ALLOWED_FILE_TYPES[number]);
 }
 
@@ -510,8 +514,10 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Validate file type
-    if (!isValidFileType(file.type)) {
+    // Validate file type (use platform settings whitelist if configured)
+    const platformSettings = await getPlatformSettings();
+    const customWhitelist = platformSettings.allowedFileTypes;
+    if (!isValidFileType(file.type, customWhitelist)) {
       set.status = 400;
       return { error: 'File type not allowed' };
     }
