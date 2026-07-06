@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ImageCropper } from "@/components/ui/image-cropper";
+import { UserProfile } from "@/components/user/UserProfile";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
   User,
@@ -114,6 +116,48 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   }>({ font: 'default', effect: 'solid', color: '', gradient: [] });
   const [profileColor, setProfileColor] = useState("");
   const [profileGradient, setProfileGradient] = useState<string[]>([]);
+
+  const previewUser = useMemo(() => {
+    const isServer = profileTab === "server";
+    return {
+      id: user?.id || "preview-id",
+      username: user?.username || "username",
+      displayName: isServer ? (serverNickname || displayName || user?.username || "") : (displayName || user?.username || ""),
+      avatar: isServer ? (serverAvatar || user?.avatar) : (user?.avatar),
+      banner: isServer ? (serverBanner || user?.banner) : (user?.banner),
+      bio: bio,
+      pronouns: pronouns,
+      timezone: timezone,
+      showTimezone: showTimezone,
+      customStatus: customStatus,
+      status: (status as any) || "online",
+      badges: user?.badges || [],
+      createdAt: user?.createdAt ? new Date(user.createdAt) : new Date(),
+      isPremium: user?.isPremium || false,
+      customization: {
+        profileColor: profileColor,
+        profileGradient: profileGradient,
+        displayNameStyle: displayNameStyle,
+      }
+    };
+  }, [
+    user,
+    profileTab,
+    serverNickname,
+    displayName,
+    serverAvatar,
+    serverBanner,
+    bio,
+    pronouns,
+    timezone,
+    showTimezone,
+    customStatus,
+    status,
+    profileColor,
+    profileGradient,
+    displayNameStyle
+  ]);
+
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1230,8 +1274,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <p className="text-sm text-[var(--text-muted)] mb-5">Customize how others see you across SerikaCord</p>
 
                   {/* Tabs */}
-                  <div className="flex gap-1 p-1 bg-[var(--bg-app)] rounded-lg w-fit mb-8">
+                  <div className="flex gap-1 p-1 bg-[var(--bg-app)] rounded-lg w-fit mb-8 relative">
                     <button
+                      type="button"
                       onClick={() => {
                         if (!hasChanges) {
                           setProfileTab("main");
@@ -1240,15 +1285,23 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         }
                       }}
                       className={cn(
-                        "px-4 py-2 rounded-md text-sm font-medium transition-all",
+                        "relative px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200 z-10",
                         profileTab === "main"
-                          ? "bg-[var(--app-accent)] text-white shadow-sm"
-                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                          ? "text-white font-semibold"
+                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                       )}
                     >
+                      {profileTab === "main" && (
+                        <motion.div
+                          layoutId="activeProfileTab"
+                          className="absolute inset-0 bg-[var(--app-accent)] rounded-md -z-10 shadow-sm"
+                          transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                        />
+                      )}
                       Main Profile
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         if (!hasChanges) {
                           setProfileTab("server");
@@ -1257,22 +1310,36 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         }
                       }}
                       className={cn(
-                        "px-4 py-2 rounded-md text-sm font-medium transition-all",
+                        "relative px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200 z-10",
                         profileTab === "server"
-                          ? "bg-[var(--app-accent)] text-white shadow-sm"
-                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                          ? "text-white font-semibold"
+                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                       )}
                     >
+                      {profileTab === "server" && (
+                        <motion.div
+                          layoutId="activeProfileTab"
+                          className="absolute inset-0 bg-[var(--app-accent)] rounded-md -z-10 shadow-sm"
+                          transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                        />
+                      )}
                       Per-server Profiles
                     </button>
                   </div>
 
                   {/* Profile Layout */}
-                  <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-6 lg:gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr,340px] gap-6 lg:gap-8">
                     <div>
-                      {/* Main Profile Form */}
-                      {profileTab === "main" && (
-                        <div className="space-y-6">
+                      <AnimatePresence mode="wait">
+                        {profileTab === "main" ? (
+                          <motion.div
+                            key="main-profile"
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 10 }}
+                            transition={{ duration: 0.2 }}
+                            className="space-y-6"
+                          >
                           {/* Banner promo for premium */}
                           {!user?.isPremium && (
                             <div className="bg-gradient-to-r from-[#5865F2] to-[#8B5CF6] rounded-lg p-4 mb-6 relative overflow-hidden">
@@ -1683,12 +1750,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 </div>
                               </div>
                             </div>
-                          </div>
-                      )}
-
-                      {/* Server Profile Form */}
-                      {profileTab === "server" && (
-                        <div className="space-y-6">
+                          </motion.div>
+                        ) : (
+                        <motion.div
+                          key="server-profile"
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, x: -10 }}
+                          transition={{ duration: 0.2 }}
+                          className="space-y-6"
+                        >
                           {/* Server Dropdown Selector */}
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
                             <div className="flex items-center justify-between mb-2">
@@ -1835,94 +1906,21 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </div>
                             </div>
                           )}
-                        </div>
+                        </motion.div>
                       )}
+                      </AnimatePresence>
                     </div>
 
                     {/* Preview */}
                     <div className="lg:sticky lg:top-5 self-start">
                       <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-3">Preview</h3>
-                      <div className="rounded-xl overflow-hidden w-full max-w-[320px] shadow-xl border border-white/5">
-                        {/* Banner */}
-                        <div
-                          className="h-[100px] relative"
-                          style={{
-                            background: (profileTab === "server" ? (serverBanner || user?.banner) : user?.banner)
-                              ? `url(${profileTab === "server" ? (serverBanner || user?.banner) : user?.banner}) center/cover`
-                              : profileGradient.length >= 2
-                                ? `linear-gradient(135deg, ${profileGradient.join(', ')})`
-                                : profileColor
-                                  ? profileColor
-                                  : `linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%)`,
-                          }}
-                        >
-                          {user?.isPremium && (
-                            <div className="absolute top-2 right-2 bg-black/30 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1">
-                              <Crown className="w-3 h-3 text-yellow-400" />
-                              <span className="text-[10px] text-white font-medium">Serika+</span>
-                            </div>
-                          )}
-                        </div>
-                        {/* Profile body */}
-                        <div className="bg-[#111214] px-4 pb-4 relative">
-                          {/* Avatar */}
-                          <div className="-mt-8 mb-2">
-                            <Avatar className="w-[80px] h-[80px] border-[6px] border-[#111214] rounded-full">
-                              <AvatarImage src={profileTab === "server" ? (serverAvatar || user?.avatar) : user?.avatar} />
-                              <AvatarFallback className="bg-[#8B5CF6] text-white text-2xl font-bold">
-                                {(profileTab === "server" ? (serverNickname || displayName || user?.username) : (displayName || user?.username))?.charAt(0).toUpperCase() || "?"}
-                              </AvatarFallback>
-                            </Avatar>
-                          </div>
-                          {/* Name + username */}
-                          <div className="mb-2">
-                            <h3
-                              className={cn("text-lg font-bold leading-tight", getDisplayNameStyleClasses(displayNameStyle))}
-                              style={getDisplayNameStyleInline(displayNameStyle)}
-                            >
-                              {profileTab === "server" ? (serverNickname || displayName || user?.username) : (displayName || user?.username)}
-                            </h3>
-                            <div className="flex items-center gap-1.5 text-sm text-[#949ba4] mt-0.5">
-                              <span>{user?.username}</span>
-                              {pronouns && (
-                                <>
-                                  <span className="text-[#4e5058]">•</span>
-                                  <span>{pronouns}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                          {/* Custom status */}
-                          {customStatus && (
-                            <div className="mb-2 text-sm text-[#dbdee1] italic">
-                              "{customStatus}"
-                            </div>
-                          )}
-                          {/* Current time */}
-                          {showTimezone && timezone && (
-                            <div className="flex items-center gap-1.5 mb-2 text-sm text-[#949ba4]">
-                              <Clock className="w-3.5 h-3.5" />
-                              <span>
-                                {new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: timezone })}
-                              </span>
-                              <span className="text-[#4e5058]">•</span>
-                              <span className="text-xs">{timezone}</span>
-                            </div>
-                          )}
-                          {/* Bio */}
-                          {bio && (
-                            <div
-                              className="rounded-lg p-3 mt-2 bg-white/5"
-                              style={profileColor || profileGradient.length >= 2
-                                ? getProfileBackgroundStyle({ profileColor, profileGradient })
-                                : undefined
-                              }
-                            >
-                              <p className="text-sm text-white/90 leading-relaxed">{bio}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <UserProfile
+                        user={previewUser}
+                        isOpen={true}
+                        onClose={() => {}}
+                        variant="popup"
+                        isCurrentUser={true}
+                      />
                     </div>
                   </div>
                 </div>
