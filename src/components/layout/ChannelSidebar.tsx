@@ -1013,6 +1013,7 @@ export function ChannelSidebar({
                   <div
                     className="w-full px-1 flex items-center justify-between group cursor-pointer"
                     onClick={() => toggleCategory(category.id)}
+                    onContextMenu={(e) => handleContextMenu(e, category)}
                   >
                     <div className="flex items-center gap-0.5">
                       <ChevronRight

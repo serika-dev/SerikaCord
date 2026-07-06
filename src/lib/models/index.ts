@@ -19,3 +19,4 @@ export { Application, type IApplication } from './Application';
 export { DeveloperTeam, type IDeveloperTeam } from './DeveloperTeam';
 export { AppWebhook, type IAppWebhook } from './AppWebhook';
 export { AppEmoji, type IAppEmoji } from './AppEmoji';
+export { RichPresence, type IRichPresence } from './RichPresence';

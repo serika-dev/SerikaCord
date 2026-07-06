@@ -1,6 +1,9 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 
-export type ConnectionProvider = 'discord' | 'twitch' | 'youtube' | 'github' | 'spotify' | 'website';
+export type ConnectionProvider =
+  | 'discord' | 'twitch' | 'youtube' | 'github' | 'spotify' | 'website'
+  | 'lastfm' | 'steam' | 'xbox' | 'psn' | 'roblox'
+  | 'twitter' | 'instagram' | 'battlenet';
 
 export interface IUserConnection extends Document {
   _id: Types.ObjectId;
@@ -24,7 +27,11 @@ const UserConnectionSchema = new Schema<IUserConnection>({
   },
   provider: {
     type: String,
-    enum: ['discord', 'twitch', 'youtube', 'github', 'spotify', 'website'],
+    enum: [
+      'discord', 'twitch', 'youtube', 'github', 'spotify', 'website',
+      'lastfm', 'steam', 'xbox', 'psn', 'roblox',
+      'twitter', 'instagram', 'battlenet',
+    ],
     required: true,
     index: true,
   },

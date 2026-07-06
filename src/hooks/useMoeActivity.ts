@@ -15,22 +15,59 @@ export interface MoeActivity {
   updatedAt: string;
 }
 
+export interface MusicActivity {
+  name: string;
+  artist: string;
+  album: string | null;
+  albumArt: string | null;
+  url: string;
+  nowPlaying: boolean;
+}
+
+export interface GameActivity {
+  type: "game" | "music" | "vscode" | "other";
+  name: string;
+  details: string | null;
+  state: string | null;
+  largeImageUrl: string | null;
+  largeImageText: string | null;
+  smallImageUrl: string | null;
+  smallImageText: string | null;
+  startedAt: string | null;
+  endsAt: string | null;
+}
+
+export interface UserActivity {
+  activity: MoeActivity | null;
+  music: MusicActivity | null;
+  game: GameActivity | null;
+}
+
 /**
- * Polls a user's live "now watching on serika.moe" activity.
+ * Polls a user's combined live activity:
+ *  - "now watching on serika.moe" (anime/media)
+ *  - Last.fm "now scrobbling" music
+ *  - Rich presence game/app status (from desktop app)
  *
- * Returns null when the user isn't linked / isn't watching. Polls every
- * `intervalMs` (default 30s) while `enabled`; the server already caches per
- * account so this stays cheap even with many mounted cards.
+ * Polls every `intervalMs` (default 30s) while `enabled`.
  */
 export function useMoeActivity(
   userId: string | undefined | null,
   { enabled = true, intervalMs = 30_000 }: { enabled?: boolean; intervalMs?: number } = {}
 ): MoeActivity | null {
-  const [activity, setActivity] = useState<MoeActivity | null>(null);
+  const full = useUserActivity(userId, { enabled, intervalMs });
+  return full?.activity ?? null;
+}
+
+export function useUserActivity(
+  userId: string | undefined | null,
+  { enabled = true, intervalMs = 30_000 }: { enabled?: boolean; intervalMs?: number } = {}
+): UserActivity | null {
+  const [data, setData] = useState<UserActivity | null>(null);
 
   useEffect(() => {
     if (!userId || !enabled) {
-      setActivity(null);
+      setData(null);
       return;
     }
 
@@ -41,8 +78,12 @@ export function useMoeActivity(
       try {
         const res = await fetch(`/api/users/${userId}/activity`, { signal: controller.signal });
         if (!active || !res.ok) return;
-        const data = (await res.json()) as { activity?: MoeActivity | null };
-        if (active) setActivity(data.activity ?? null);
+        const json = (await res.json()) as { activity?: MoeActivity | null; music?: MusicActivity | null; game?: GameActivity | null };
+        if (active) setData({
+          activity: json.activity ?? null,
+          music: json.music ?? null,
+          game: json.game ?? null,
+        });
       } catch {
         // ignore transient errors; keep last known value
       }
@@ -57,5 +98,5 @@ export function useMoeActivity(
     };
   }, [userId, enabled, intervalMs]);
 
-  return activity;
+  return data;
 }

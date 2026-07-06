@@ -6,6 +6,7 @@ import { connectDB } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams } from '@/lib/security';
 import { User, type IUser, AuthorizedApp, UserDeviceSession, UserConnection } from '@/lib/models';
+import { RichPresence } from '@/lib/models/RichPresence';
 import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes, partnerRoutes } from './servers';
 import { channelRoutes } from './channels';
@@ -21,6 +22,7 @@ import { botApiRoutes } from './botApi';
 import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { getMoeActivity } from '@/lib/services/moeActivity';
+import { getLastFmNowPlaying } from '@/lib/services/lastfmService';
 import { Types } from 'mongoose';
 
 // Helper to safely compare IDs (handles both ObjectId and string)
@@ -860,6 +862,14 @@ const userRoutes = new Elysia({ prefix: '/users' })
         t.Literal('github'),
         t.Literal('spotify'),
         t.Literal('website'),
+        t.Literal('lastfm'),
+        t.Literal('steam'),
+        t.Literal('xbox'),
+        t.Literal('psn'),
+        t.Literal('roblox'),
+        t.Literal('twitter'),
+        t.Literal('instagram'),
+        t.Literal('battlenet'),
       ]),
       accountId: t.String({ minLength: 1 }),
       username: t.Optional(t.String()),
@@ -904,6 +914,18 @@ const userRoutes = new Elysia({ prefix: '/users' })
       // Not authenticated — leave isFriend false
     }
 
+    // Public connections — strip sensitive metadata (e.g. session keys)
+    const rawConnections = await UserConnection.find({ userId: targetUser._id })
+      .select('provider accountId username displayName avatar')
+      .lean();
+    const connections = rawConnections.map((c) => ({
+      provider: c.provider,
+      accountId: c.accountId,
+      username: c.username,
+      displayName: c.displayName,
+      avatar: c.avatar,
+    }));
+
     return {
       id: targetUser._id,
       username: targetUser.username,
@@ -921,6 +943,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       isSystem: targetUser.isSystem || false,
       customization: targetUser.customization || {},
       createdAt: targetUser.createdAt,
+      connections,
       isFriend,
       friendRequestSent,
     };
@@ -929,9 +952,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       userId: t.String(),
     }),
   })
-  // Live "now watching on serika.moe" presence for a user (Discord-Spotify style).
-  // The user id here is also the Serika account id, which serika.moe keys the
-  // link by. Respects the target user's "show activity" privacy setting.
+  // Live activity for a user: "now watching" (serika.moe), Last.fm scrobble, and game/rich presence.
+  // Respects the target user's "show activity" privacy setting.
   .get('/:userId/activity', async ({ params, set }) => {
     const targetUser = await User.findById(params.userId).select('settings');
     if (!targetUser) {
@@ -941,15 +963,101 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
     const showActivity = targetUser.settings?.privacy?.showActivity ?? true;
     if (!showActivity) {
-      return { activity: null };
+      return { activity: null, music: null, game: null };
     }
 
-    const activity = await getMoeActivity(params.userId.toString());
-    return { activity };
+    const userId = params.userId.toString();
+
+    // Fetch all three in parallel
+    const [watchActivity, richPresence, lastfmConnection] = await Promise.all([
+      getMoeActivity(userId),
+      RichPresence.findOne({ userId: targetUser._id }).lean(),
+      UserConnection.findOne({ userId: targetUser._id, provider: 'lastfm' }).lean(),
+    ]);
+
+    // Fetch Last.fm now playing if connected
+    let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
+    if (lastfmConnection?.accountId) {
+      music = await getLastFmNowPlaying(lastfmConnection.accountId);
+    }
+
+    return {
+      activity: watchActivity,
+      music,
+      game: richPresence ? {
+        type: richPresence.type,
+        name: richPresence.name,
+        details: richPresence.details ?? null,
+        state: richPresence.state ?? null,
+        largeImageUrl: richPresence.largeImageUrl ?? null,
+        largeImageText: richPresence.largeImageText ?? null,
+        smallImageUrl: richPresence.smallImageUrl ?? null,
+        smallImageText: richPresence.smallImageText ?? null,
+        startedAt: richPresence.startedAt ?? null,
+        endsAt: richPresence.endsAt ?? null,
+      } : null,
+    };
   }, {
     params: t.Object({
       userId: t.String(),
     }),
+  })
+  // Rich presence — reported by the SerikaCord desktop app
+  .post('/me/rich-presence', async ({ headers, cookie, body, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const payload = body as Record<string, any>;
+    // Desktop app sends a heartbeat every 15s; TTL = 60s gives 3 missed beats before expiry
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    await RichPresence.findOneAndUpdate(
+      { userId: authUser._id },
+      {
+        $set: {
+          type: payload.type || 'game',
+          name: payload.name,
+          details: payload.details ?? null,
+          state: payload.state ?? null,
+          largeImageUrl: payload.largeImageUrl ?? null,
+          largeImageText: payload.largeImageText ?? null,
+          smallImageUrl: payload.smallImageUrl ?? null,
+          smallImageText: payload.smallImageText ?? null,
+          startedAt: payload.startedAt ? new Date(payload.startedAt) : null,
+          endsAt: payload.endsAt ? new Date(payload.endsAt) : null,
+          expiresAt,
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    return { ok: true };
+  }, {
+    body: t.Object({
+      type: t.Optional(t.Union([t.Literal('game'), t.Literal('music'), t.Literal('vscode'), t.Literal('other')])),
+      name: t.String({ minLength: 1, maxLength: 128 }),
+      details: t.Optional(t.String({ maxLength: 128 })),
+      state: t.Optional(t.String({ maxLength: 128 })),
+      largeImageUrl: t.Optional(t.String({ maxLength: 512 })),
+      largeImageText: t.Optional(t.String({ maxLength: 128 })),
+      smallImageUrl: t.Optional(t.String({ maxLength: 512 })),
+      smallImageText: t.Optional(t.String({ maxLength: 128 })),
+      startedAt: t.Optional(t.String()),
+      endsAt: t.Optional(t.String()),
+    }),
+  })
+  // Clear rich presence (sent by desktop app on exit)
+  .delete('/me/rich-presence', async ({ headers, cookie, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    await RichPresence.deleteOne({ userId: authUser._id });
+    return { ok: true };
   });
 
 // Friends routes

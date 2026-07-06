@@ -13,6 +13,13 @@ export const config = {
   // SerikaMoe (streaming) — live "now watching" presence source
   SERIKA_MOE_URL: process.env.SERIKA_MOE_URL || 'https://serika.moe',
   SERIKA_MOE_SERVICE_KEY: process.env.SERIKA_MOE_SERVICE_KEY || process.env.SERIKA_SERVICE_KEY || '',
+
+  // Last.fm — API key + shared secret for OAuth token exchange
+  LASTFM_API_KEY: process.env.LASTFM_API_KEY || '',
+  LASTFM_API_SECRET: process.env.LASTFM_API_SECRET || '',
+
+  // Public frontend base URL (used for OAuth redirects back to the UI)
+  FRONTEND_URL: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || '',
   
   // Database
   MONGO_URI: process.env.MONGO_URI || 'mongodb://localhost:27017/serikacord',

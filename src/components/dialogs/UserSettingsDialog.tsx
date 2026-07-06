@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -92,6 +92,238 @@ const statusOptions = [
   { value: "dnd", label: "Do Not Disturb", color: "#EF4444" },
   { value: "offline", label: "Invisible", color: "#555555" },
 ];
+
+const CONNECTION_PROVIDERS: Array<{
+  id: string; label: string; color: string; bg: string;
+  hint: string; placeholder: string;
+  category: "social" | "gaming" | "music" | "streaming";
+  oauth?: boolean;
+}> = [
+  { id: "lastfm",    label: "Last.fm",     color: "#e4335a", bg: "#e4335a20", hint: "Authorise via Last.fm — shows your live scrobbles on your profile.", placeholder: "", category: "music", oauth: true },
+  { id: "spotify",   label: "Spotify",     color: "#1db954", bg: "#1db95420", hint: "Link your Spotify username.", placeholder: "Spotify username", category: "music" },
+  { id: "youtube",   label: "YouTube",     color: "#ff0000", bg: "#ff000020", hint: "Link your YouTube channel @handle.", placeholder: "YouTube @handle or URL", category: "streaming" },
+  { id: "twitch",    label: "Twitch",      color: "#9146ff", bg: "#9146ff20", hint: "Link your Twitch channel.", placeholder: "Twitch username", category: "streaming" },
+  { id: "steam",     label: "Steam",       color: "#4a90d9", bg: "#4a90d920", hint: "Link your Steam profile.", placeholder: "Steam username or profile URL", category: "gaming" },
+  { id: "xbox",      label: "Xbox",        color: "#107c10", bg: "#107c1020", hint: "Link your Xbox Gamertag.", placeholder: "Gamertag", category: "gaming" },
+  { id: "psn",       label: "PlayStation", color: "#00439c", bg: "#00439c20", hint: "Link your PSN ID.", placeholder: "PSN ID", category: "gaming" },
+  { id: "battlenet", label: "Battle.net",  color: "#148eff", bg: "#148eff20", hint: "Link your Battle.net BattleTag.", placeholder: "BattleTag (e.g. User#1234)", category: "gaming" },
+  { id: "roblox",    label: "Roblox",      color: "#e8000b", bg: "#e8000b20", hint: "Link your Roblox username.", placeholder: "Roblox username", category: "gaming" },
+  { id: "github",    label: "GitHub",      color: "#c9d1d9", bg: "#ffffff12", hint: "Link your GitHub profile.", placeholder: "GitHub username", category: "social" },
+  { id: "twitter",   label: "X / Twitter", color: "#1d9bf0", bg: "#1d9bf020", hint: "Link your X / Twitter account.", placeholder: "X username (without @)", category: "social" },
+  { id: "instagram", label: "Instagram",   color: "#e1306c", bg: "#e1306c20", hint: "Link your Instagram profile.", placeholder: "Instagram username", category: "social" },
+  { id: "discord",   label: "Discord",     color: "#5865f2", bg: "#5865f220", hint: "Link your Discord username.", placeholder: "Discord username", category: "social" },
+  { id: "website",   label: "Website",     color: "#8B5CF6", bg: "#8B5CF620", hint: "Link your personal website.", placeholder: "https://yoursite.com", category: "social" },
+];
+
+const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
+  { id: "music",     label: "Music" },
+  { id: "gaming",    label: "Gaming" },
+  { id: "streaming", label: "Streaming" },
+  { id: "social",    label: "Social" },
+];
+
+function ConnectionsTabContent({
+  userConnections,
+  setUserConnections,
+  connectingProvider,
+  setConnectingProvider,
+  connectingValue,
+  setConnectingValue,
+}: {
+  userConnections: any[];
+  setUserConnections: Dispatch<SetStateAction<any[]>>;
+  connectingProvider: string | null;
+  setConnectingProvider: (v: string | null) => void;
+  connectingValue: string;
+  setConnectingValue: (v: string) => void;
+}) {
+  const connectedMap = Object.fromEntries(userConnections.map((c) => [c.provider, c]));
+
+  // Handle OAuth return (success/error params in URL)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const success = params.get("success");
+    const error = params.get("error");
+    if (success === "lastfm") {
+      toast.success("Last.fm connected!");
+      // Refresh connections
+      fetch("/api/users/me/connections")
+        .then((r) => r.json())
+        .then((d) => d.connections && setUserConnections(d.connections))
+        .catch(() => {});
+      params.delete("success");
+      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+    } else if (error) {
+      const msgs: Record<string, string> = {
+        lastfm_denied: "Last.fm authorisation was cancelled.",
+        lastfm_state_missing: "Session expired. Please try again.",
+        lastfm_session_failed: "Failed to get Last.fm session. Please try again.",
+        lastfm_error: "An error occurred linking Last.fm.",
+        lastfm_not_configured: "Last.fm is not configured on this instance.",
+      };
+      toast.error(msgs[error] || "Connection failed.");
+      params.delete("error");
+      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleConnect = async (provider: string, accountId: string) => {
+    if (!accountId.trim()) return;
+    try {
+      const res = await fetch("/api/users/me/connections", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, accountId: accountId.trim() }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUserConnections((prev) => {
+          const filtered = prev.filter((c) => c.provider !== provider);
+          return [data.connection, ...filtered];
+        });
+        toast.success(`${CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label} connected`);
+        setConnectingProvider(null);
+        setConnectingValue("");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error((err as any).error || "Failed to connect");
+      }
+    } catch {
+      toast.error("Failed to connect");
+    }
+  };
+
+  const handleDisconnect = async (connectionId: string, provider: string) => {
+    const res = await fetch(`/api/users/me/connections/${connectionId}`, { method: "DELETE" });
+    if (res.ok) {
+      setUserConnections((prev) => prev.filter((c) => c._id !== connectionId));
+      toast.success(`${CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label} disconnected`);
+    } else {
+      toast.error("Failed to disconnect");
+    }
+  };
+
+  const activeProviderDef = connectingProvider
+    ? CONNECTION_PROVIDERS.find((x) => x.id === connectingProvider)
+    : null;
+
+  return (
+    <div>
+      <h2 className="text-xl font-bold text-white mb-1">Connections</h2>
+      <p className="text-sm text-[var(--text-muted)] mb-6">
+        Link your accounts to show them on your profile. Some connections display live activity.
+      </p>
+
+      {/* Inline connect form */}
+      {connectingProvider && activeProviderDef && (
+        <div className="mb-6 p-4 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+          <div className="flex items-center gap-2 mb-3">
+            <div
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
+              style={{ backgroundColor: activeProviderDef.bg, color: activeProviderDef.color }}
+            >
+              {activeProviderDef.label[0]}
+            </div>
+            <p className="text-white font-semibold text-sm">Connect {activeProviderDef.label}</p>
+            <button
+              onClick={() => { setConnectingProvider(null); setConnectingValue(""); }}
+              className="ml-auto text-[var(--text-muted)] hover:text-white transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mb-3">{activeProviderDef.hint}</p>
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              value={connectingValue}
+              onChange={(e) => setConnectingValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleConnect(connectingProvider, connectingValue)}
+              placeholder={activeProviderDef.placeholder}
+              className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
+            />
+            <button
+              onClick={() => void handleConnect(connectingProvider, connectingValue)}
+              disabled={!connectingValue.trim()}
+              className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-40 font-medium transition-opacity"
+              style={{ backgroundColor: activeProviderDef.color }}
+            >
+              Connect
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Provider list grouped by category */}
+      <div className="space-y-6">
+        {CONNECTION_CATEGORIES.map(({ id: catId, label: catLabel }) => {
+          const catProviders = CONNECTION_PROVIDERS.filter((p) => p.category === catId);
+          return (
+            <div key={catId}>
+              <p className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide mb-2">{catLabel}</p>
+              <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)]">
+                {catProviders.map((p, i) => {
+                  const conn = connectedMap[p.id];
+                  const isExpanded = connectingProvider === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      className={`flex items-center gap-3 px-4 py-3 bg-[var(--bg-app)] transition-colors${i < catProviders.length - 1 ? " border-b border-[var(--border-subtle)]" : ""}`}
+                    >
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm select-none"
+                        style={{ backgroundColor: p.bg, color: p.color }}
+                      >
+                        {p.label[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white">{p.label}</p>
+                        {conn ? (
+                          <p className="text-xs text-[#22c55e] truncate flex items-center gap-1">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
+                            {conn.displayName || conn.username || conn.accountId}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-[var(--text-muted)]">{p.hint}</p>
+                        )}
+                      </div>
+                      {conn ? (
+                        <button
+                          onClick={() => void handleDisconnect(conn._id, p.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors shrink-0"
+                        >
+                          Disconnect
+                        </button>
+                      ) : p.oauth ? (
+                        <a
+                          href="/api/auth/lastfm/initiate"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
+                          style={{ backgroundColor: p.color }}
+                        >
+                          Connect
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => { setConnectingProvider(isExpanded ? null : p.id); setConnectingValue(""); }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90"
+                          style={{ backgroundColor: p.color }}
+                        >
+                          {isExpanded ? "Cancel" : "Connect"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
@@ -271,6 +503,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const [oembedDomainInput, setOembedDomainInput] = useState("");
   const [fileTypeInput, setFileTypeInput] = useState("");
   const [fontTestText, setFontTestText] = useState("The quick brown fox jumps over the lazy dog");
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  const [connectingValue, setConnectingValue] = useState("");
 
   // Initialize form with user data
   useEffect(() => {
@@ -2302,8 +2536,20 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 </div>
               )}
 
+              {/* Connections tab */}
+              {activeTab === "connections" && (
+                <ConnectionsTabContent
+                  userConnections={userConnections}
+                  setUserConnections={setUserConnections}
+                  connectingProvider={connectingProvider}
+                  setConnectingProvider={setConnectingProvider}
+                  connectingValue={connectingValue}
+                  setConnectingValue={setConnectingValue}
+                />
+              )}
+
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-badges", "admin-announcements"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-badges", "admin-announcements", "connections"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 capitalize">
                     {activeTab.replace(/-/g, " ")}
@@ -2365,35 +2611,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               Revoke
                             </button>
                           )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : activeTab === "connections" ? (
-                    <div className="space-y-2">
-                      {userConnections.length === 0 ? (
-                        <div className="bg-[var(--bg-app)] rounded-lg p-6 text-center text-[var(--text-secondary)] text-sm">
-                          No social connections added.
-                        </div>
-                      ) : userConnections.map((connection) => (
-                        <div key={connection._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
-                          <div>
-                            <p className="text-white capitalize">{connection.provider}</p>
-                            <p className="text-xs text-[var(--text-secondary)]">{connection.displayName || connection.username || connection.accountId}</p>
-                          </div>
-                          <button
-                            onClick={async () => {
-                              const response = await fetch(`/api/users/me/connections/${connection._id}`, { method: "DELETE" });
-                              if (response.ok) {
-                                setUserConnections((prev) => prev.filter((item) => item._id !== connection._id));
-                                toast.success("Connection removed");
-                              } else {
-                                toast.error("Failed to remove connection");
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                          >
-                            Disconnect
-                          </button>
                         </div>
                       ))}
                     </div>
@@ -3025,48 +3242,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">Global Announcement</h3>
-                      <Textarea
-                        value={announcementText}
-                        onChange={(e) => setAnnouncementText(e.target.value)}
-                        placeholder="Enter a global announcement to display to all users..."
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-3"
-                        rows={6}
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handlePublishAnnouncement}
-                          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium"
-                        >
-                          Publish Announcement
-                        </button>
-                        {announcementText && (
-                          <button
-                            onClick={async () => {
-                              setAnnouncementText("");
-                              try {
-                                const res = await fetch("/api/admin/settings", {
-                                  method: "PATCH",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ globalAnnouncement: "" }),
-                                });
-                                if (res.ok) {
-                                  const data = await res.json();
-                                  setPlatformSettings(data);
-                                  toast.success("Announcement cleared");
-                                }
-                              } catch {
-                                toast.error("Failed to clear announcement");
-                              }
-                            }}
-                            className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded font-medium"
-                          >
-                            Clear
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-white font-semibold mb-3">OEmbed Whitelist</h3>
                       <p className="text-sm text-[var(--text-muted)] mb-3">Domains allowed for rich link embeds (Spotify, YouTube, etc.)</p>
                       <div className="flex gap-2 mb-3">
@@ -3305,93 +3480,33 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 </div>
               )}
 
-              {/* Admin Panel - Badge Management */}
+              {/* Admin Panel - Badge Management (create/define badges) */}
               {activeTab === "admin-badges" && isStaff && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-2">Badge Management</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-6">Search for a user to assign or remove badges.</p>
-                  <div className="flex gap-2 mb-4">
-                    <Input
-                      value={adminUserSearch}
-                      onChange={(e) => setAdminUserSearch(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && void searchAdminUsers()}
-                      placeholder="Search by username or display name…"
-                      className="flex-1 bg-[var(--bg-app)] border-[var(--border-subtle)] text-white"
-                    />
-                    <button
-                      onClick={() => void searchAdminUsers()}
-                      className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded font-medium text-sm"
-                    >
-                      Search
-                    </button>
-                  </div>
-                  {adminUsers.length > 0 && !selectedUser && (
-                    <div className="space-y-2 mb-6">
-                      {adminUsers.map((u) => (
-                        <button
-                          key={u.id}
-                          onClick={() => setSelectedUser(u)}
-                          className="w-full flex items-center gap-3 p-3 bg-[var(--bg-app)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors text-left"
-                        >
-                          <Avatar className="w-9 h-9 shrink-0">
-                            <AvatarImage src={u.avatar} />
-                            <AvatarFallback className="bg-[#8B5CF6] text-white">{(u.displayName || u.username).charAt(0).toUpperCase()}</AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <p className="text-sm text-white font-medium truncate">{u.displayName || u.username}</p>
-                            <p className="text-xs text-[var(--text-muted)] truncate">@{u.username}</p>
+                  <p className="text-sm text-[var(--text-muted)] mb-6">Create, edit, and manage the platform&apos;s badge definitions. To assign badges to a user, use the User Management tab.</p>
+                  <div className="bg-[var(--bg-app)] rounded-xl p-5">
+                    <div className="grid grid-cols-2 gap-2">
+                      {Object.values(BADGES).map((badge) => {
+                        const IconComponent = badge.icon;
+                        return (
+                          <div
+                            key={badge.id}
+                            className="flex items-center gap-2.5 p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]"
+                          >
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${badge.color}20` }}>
+                              <IconComponent className="w-4 h-4" style={{ color: badge.color }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm text-white font-medium truncate">{badge.name}</p>
+                              <p className="text-xs text-[var(--text-muted)] truncate">{badge.description}</p>
+                            </div>
                           </div>
-                        </button>
-                      ))}
+                        );
+                      })}
                     </div>
-                  )}
-                  {selectedUser && (
-                    <div className="bg-[var(--bg-app)] rounded-xl p-5">
-                      <div className="flex items-center gap-3 mb-5 pb-4 border-b border-[var(--border-subtle)]">
-                        <button onClick={() => setSelectedUser(null)} className="p-1.5 hover:bg-[var(--bg-hover)] rounded-lg text-[var(--text-muted)] transition-colors">
-                          <X className="w-4 h-4" />
-                        </button>
-                        <Avatar className="w-10 h-10 shrink-0">
-                          <AvatarImage src={selectedUser.avatar} />
-                          <AvatarFallback className="bg-[#8B5CF6] text-white">{(selectedUser.displayName || selectedUser.username).charAt(0).toUpperCase()}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="text-white font-semibold">{selectedUser.displayName || selectedUser.username}</p>
-                          <p className="text-xs text-[var(--text-muted)]">@{selectedUser.username}</p>
-                        </div>
-                      </div>
-                      <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-3">Badges ({(selectedUser.badges || []).length})</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        {Object.values(BADGES).map((badge) => {
-                          const isAssigned = (selectedUser.badges || []).includes(badge.id);
-                          const IconComponent = badge.icon;
-                          return (
-                            <button
-                              key={badge.id}
-                              onClick={() => void handleToggleBadge(badge.id)}
-                              className={cn(
-                                "flex items-center gap-2.5 p-2.5 rounded-lg border transition-all text-left",
-                                isAssigned
-                                  ? "bg-[var(--bg-card)] border-[#8B5CF6]/40"
-                                  : "bg-transparent border-[var(--border-subtle)] opacity-50 hover:opacity-80"
-                              )}
-                            >
-                              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${badge.color}20` }}>
-                                <IconComponent className="w-4 h-4" style={{ color: badge.color }} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm text-white font-medium truncate">{badge.name}</p>
-                                <p className="text-xs text-[var(--text-muted)] truncate">{badge.description}</p>
-                              </div>
-                              <div className={cn("w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors", isAssigned ? "bg-[#8B5CF6] border-[#8B5CF6]" : "border-[var(--text-muted)]")}>
-                                {isAssigned && <Check className="w-2.5 h-2.5 text-white" />}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                    <p className="text-xs text-[var(--text-muted)] mt-4">Badge definitions are defined in <code className="text-[#8B5CF6]">src/lib/constants/badges.ts</code>. Assign badges to users via User Management.</p>
+                  </div>
                 </div>
               )}
 
@@ -3401,14 +3516,23 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <h2 className="text-xl font-bold text-white mb-2">Announcements</h2>
                   <p className="text-sm text-[var(--text-muted)] mb-6">Publish a global banner announcement visible to all users. Blank lines are preserved.</p>
                   <div className="bg-[var(--bg-app)] rounded-xl p-5 space-y-4">
+                    {platformSettings?.globalAnnouncement && (
+                      <div className="p-3 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-sm text-[var(--text-primary)]">
+                        <p className="text-[10px] uppercase font-semibold text-[var(--text-muted)] mb-1.5">Current Live Announcement</p>
+                        {platformSettings.globalAnnouncement.split("\n").map((line: string, i: number, arr: string[]) => (
+                          <span key={i}>{line || "\u00A0"}{i < arr.length - 1 && <br />}</span>
+                        ))}
+                      </div>
+                    )}
                     <div>
-                      <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Announcement Text</p>
+                      <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">New Announcement</p>
                       <Textarea
                         value={announcementText}
                         onChange={(e) => setAnnouncementText(e.target.value)}
                         placeholder="Enter announcement text… Blank lines will be preserved as visual breaks."
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white resize-y"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white resize-none overflow-y-auto"
                         rows={8}
+                        style={{ maxHeight: "240px" }}
                       />
                     </div>
                     <div className="flex gap-2">
@@ -3419,7 +3543,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <Megaphone className="w-4 h-4" />
                         Publish
                       </button>
-                      {announcementText && (
+                      {platformSettings?.globalAnnouncement && (
                         <button
                           onClick={async () => {
                             setAnnouncementText("");
@@ -3430,18 +3554,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }}
                           className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-lg font-medium text-sm"
                         >
-                          Clear
+                          Clear Live
                         </button>
                       )}
                     </div>
-                    {platformSettings?.globalAnnouncement && (
-                      <div className="mt-3 p-3 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-sm text-[var(--text-primary)]">
-                        <p className="text-[10px] uppercase font-semibold text-[var(--text-muted)] mb-1.5">Live Preview</p>
-                        {platformSettings.globalAnnouncement.split("\n").map((line: string, i: number, arr: string[]) => (
-                          <span key={i}>{line || "\u00A0"}{i < arr.length - 1 && <br />}</span>
-                        ))}
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
