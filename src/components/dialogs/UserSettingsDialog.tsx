@@ -2151,12 +2151,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     <div className="space-y-2.5">
                                       <div className="flex items-center gap-2">
                                         <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
-                                        <div className="flex items-center gap-1.5 flex-1 rounded-md h-8 px-2" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
-                                          <label className="relative w-5 h-5 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/50" style={{ backgroundColor: g0 }}>
+                                        <div className="flex items-center justify-between flex-1 rounded-md h-9 px-2" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
+                                          <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                                             <input type="color" value={g0} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [e.target.value, g1] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
                                           </label>
-                                          <span className="text-white/80 text-xs">→</span>
-                                          <label className="relative w-5 h-5 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/50" style={{ backgroundColor: g1 }}>
+                                          <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
                                             <input type="color" value={g1} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [g0, e.target.value] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
                                           </label>
                                         </div>
@@ -2259,228 +2258,24 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       );
                                     })}
                                   </div>
-                                  {/* Custom Gradient Controls */}
-                                  <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <span className="text-[14px] font-bold text-[var(--text-primary)]">Custom Gradient Stops (2 to 5 colors)</span>
-                                      {profileGradient.length < 5 && (
-                                        <button 
-                                          onClick={() => setProfileGradient([...profileGradient, '#8B5CF6'])}
-                                          className="text-xs text-[var(--app-accent)] hover:underline font-semibold flex items-center gap-1"
-                                        >
-                                          + Add Stop
-                                        </button>
-                                      )}
-                                    </div>
-                                    
-                                    <div className="space-y-2 mb-4">
-                                      {profileGradient.map((color, idx) => (
-                                        <div key={idx} className="flex items-center gap-3 p-2 bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-lg">
-                                          <span className="text-xs text-[var(--text-secondary)] font-medium w-16">Stop {idx + 1}</span>
-                                          <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all border border-[var(--border-subtle)]" style={{ backgroundColor: color }}>
-                                            <input
-                                              type="color"
-                                              value={color}
-                                              onChange={(e) => {
-                                                const newGrad = [...profileGradient];
-                                                newGrad[idx] = e.target.value;
-                                                setProfileGradient(newGrad);
-                                              }}
-                                              className="absolute inset-0 opacity-0 cursor-pointer"
-                                            />
+                                  {/* Custom two-colour gradient */}
+                                  {(() => {
+                                    const g0 = profileGradient?.[0] || '#8B5CF6';
+                                    const g1 = profileGradient?.[1] || '#EC4899';
+                                    return (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                                        <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(135deg, ${g0}, ${g1})` }}>
+                                          <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
+                                            <input type="color" value={g0} onChange={(e) => setProfileGradient([e.target.value, g1])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
                                           </label>
-                                          <span className="text-xs font-mono text-[var(--text-muted)] select-all">{color.toUpperCase()}</span>
-                                          <div className="flex-1" />
-                                          {profileGradient.length > 2 && (
-                                            <button 
-                                              onClick={() => {
-                                                const newGrad = profileGradient.filter((_, i) => i !== idx);
-                                                setProfileGradient(newGrad);
-                                              }}
-                                              className="text-red-500 hover:text-red-400 text-xs font-medium"
-                                            >
-                                              Remove
-                                            </button>
-                                          )}
-                                        </div>
-                                      ))}
-                                    </div>
-
-                                    {profileGradient.length >= 2 && (
-                                      <div className="grid grid-cols-2 gap-3 mb-4">
-                                        <div>
-                                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Gradient Type</label>
-                                          <select
-                                            value={profileGradientType}
-                                            onChange={(e) => setProfileGradientType(e.target.value as 'linear' | 'radial')}
-                                            className="w-full bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-[var(--text-primary)] h-10 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] font-medium"
-                                          >
-                                            <option value="linear">Linear</option>
-                                            <option value="radial">Radial</option>
-                                          </select>
-                                        </div>
-
-                                        {profileGradientType === 'linear' ? (
-                                          <div>
-                                            <div className="flex justify-between items-center mb-2">
-                                              <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Gradient Angle</label>
-                                              <span className="text-xs font-mono text-[var(--text-muted)]">{profileGradientAngle}°</span>
-                                            </div>
-                                            <input 
-                                              type="range" 
-                                              min="0" 
-                                              max="360" 
-                                              value={profileGradientAngle}
-                                              onChange={(e) => setProfileGradientAngle(Number(e.target.value))}
-                                              className="w-full accent-[var(--app-accent)]"
-                                            />
-                                          </div>
-                                        ) : (
-                                          <div>
-                                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Radial Position</label>
-                                            <select
-                                              value={profileGradientRadialPosition}
-                                              onChange={(e) => setProfileGradientRadialPosition(e.target.value)}
-                                              className="w-full bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-[var(--text-primary)] h-10 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] font-medium"
-                                            >
-                                              <option value="center">Center</option>
-                                              <option value="top left">Top Left</option>
-                                              <option value="top right">Top Right</option>
-                                              <option value="bottom left">Bottom Left</option>
-                                              <option value="bottom right">Bottom Right</option>
-                                            </select>
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {/* Premium Card Effects */}
-                                  <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
-                                    <h3 className="text-sm font-bold text-[var(--text-primary)] mb-3">Premium Card Effect</h3>
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-                                      {[
-                                        { id: 'normal', name: 'Normal', desc: 'Default profile styling' },
-                                        { id: 'glassmorphism', name: 'Glassmorphism', desc: 'Frosted glass look' },
-                                        { id: 'glow', name: 'Outer Glow', desc: 'Luminous ambient aura' },
-                                        { id: 'neon', name: 'Neon Border', desc: 'Vibrant neon edges' },
-                                        { id: 'holographic', name: 'Holographic', desc: 'Animated color shift' }
-                                      ].map((effect) => {
-                                        const isSelected = profileCardEffect === effect.id;
-                                        return (
-                                          <button
-                                            key={effect.id}
-                                            onClick={() => setProfileCardEffect(effect.id as any)}
-                                            className={cn(
-                                              "p-3 rounded-lg border text-left transition-all relative overflow-hidden",
-                                              isSelected 
-                                                ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10" 
-                                                : "border-[var(--border-subtle)] bg-[var(--bg-sidebar)] hover:border-white/20"
-                                            )}
-                                          >
-                                            <div className="text-xs font-bold text-[var(--text-primary)] mb-0.5">{effect.name}</div>
-                                            <div className="text-[10px] text-[var(--text-muted)] leading-tight">{effect.desc}</div>
-                                            {isSelected && (
-                                              <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--app-accent)]" />
-                                            )}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-
-                                    {/* Glassmorphism Controls */}
-                                    {profileCardEffect === 'glassmorphism' && (
-                                      <div className="grid grid-cols-2 gap-4 p-4 bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-lg mb-6">
-                                        <div>
-                                          <div className="flex justify-between items-center mb-2">
-                                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Backdrop Blur</label>
-                                            <span className="text-xs font-mono text-[var(--text-muted)]">{profileCardBlur}px</span>
-                                          </div>
-                                          <input 
-                                            type="range" 
-                                            min="0" 
-                                            max="24" 
-                                            value={profileCardBlur}
-                                            onChange={(e) => setProfileCardBlur(Number(e.target.value))}
-                                            className="w-full accent-[var(--app-accent)]"
-                                          />
-                                        </div>
-                                        <div>
-                                          <div className="flex justify-between items-center mb-2">
-                                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Card Opacity</label>
-                                            <span className="text-xs font-mono text-[var(--text-muted)]">{Math.round(profileCardOpacity * 100)}%</span>
-                                          </div>
-                                          <input 
-                                            type="range" 
-                                            min="10" 
-                                            max="100" 
-                                            value={Math.round(profileCardOpacity * 100)}
-                                            onChange={(e) => setProfileCardOpacity(Number(e.target.value) / 100)}
-                                            className="w-full accent-[var(--app-accent)]"
-                                          />
-                                        </div>
-                                      </div>
-                                    )}
-
-                                    {/* Custom Border Styling */}
-                                    <div className="bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-lg p-4">
-                                      <div className="flex items-center justify-between mb-4">
-                                        <div className="flex items-center gap-2">
-                                          <input 
-                                            type="checkbox"
-                                            id="borderGlow"
-                                            checked={profileCardBorderGlow}
-                                            onChange={(e) => setProfileCardBorderGlow(e.target.checked)}
-                                            className="rounded border-[var(--border-subtle)] text-[var(--app-accent)] focus:ring-[var(--app-accent)] bg-transparent"
-                                          />
-                                          <label htmlFor="borderGlow" className="text-xs font-bold text-[var(--text-primary)] cursor-pointer">
-                                            Enable Border Glow
+                                          <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
+                                            <input type="color" value={g1} onChange={(e) => setProfileGradient([g0, e.target.value])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
                                           </label>
                                         </div>
-                                        {profileCardBorderColor && (
-                                          <button 
-                                            onClick={() => setProfileCardBorderColor("")} 
-                                            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[10px]"
-                                          >
-                                            Reset Color
-                                          </button>
-                                        )}
                                       </div>
-
-                                      <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                          <div className="flex justify-between items-center mb-2">
-                                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Border Width</label>
-                                            <span className="text-xs font-mono text-[var(--text-muted)]">{profileCardBorderWidth}px</span>
-                                          </div>
-                                          <input 
-                                            type="range" 
-                                            min="1" 
-                                            max="5" 
-                                            value={profileCardBorderWidth}
-                                            onChange={(e) => setProfileCardBorderWidth(Number(e.target.value))}
-                                            className="w-full accent-[var(--app-accent)]"
-                                          />
-                                        </div>
-                                        <div>
-                                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Border Color</label>
-                                          <div className="flex items-center gap-2">
-                                            <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all border border-[var(--border-subtle)]" style={{ backgroundColor: profileCardBorderColor || '#ffffff' }}>
-                                              <input
-                                                type="color"
-                                                value={profileCardBorderColor || '#ffffff'}
-                                                onChange={(e) => setProfileCardBorderColor(e.target.value)}
-                                                className="absolute inset-0 opacity-0 cursor-pointer"
-                                              />
-                                            </label>
-                                            <span className="text-xs font-mono text-[var(--text-muted)] select-all">
-                                              {profileCardBorderColor ? profileCardBorderColor.toUpperCase() : "MATCH THEME"}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             </div>

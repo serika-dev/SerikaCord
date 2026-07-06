@@ -615,3 +615,12 @@ html.theme-midnight body {
   background-size: 400% 400% !important;
   animation: holographic-animation 12s ease infinite !important;
 }
+
+/* Radix ScrollArea renders its viewport content as display:table, which grows to
+   the widest child instead of clamping to the container — causing the member
+   list rows to overflow and get clipped offscreen. Force block layout so rows
+   truncate to the sidebar width. */
+.member-scroll-area [data-slot="scroll-area-viewport"] > div {
+  display: block !important;
+  min-width: 0 !important;
+}

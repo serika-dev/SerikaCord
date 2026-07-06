@@ -15,7 +15,7 @@ import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline, convertHexToRgba, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -71,44 +71,6 @@ export function FullProfileDialog({
   const moeActivity = useMoeActivity(fullUser.id);
   const userActivity = useUserActivity(fullUser.id);
   const badges = fullUser.badges?.length ? getBadgesByPriority(fullUser.badges as string[]) : [];
-
-  // Card-wide theme wash: the user's accent colour(s) bleed across the whole
-  // dialog (banner → both panels), fading into a dark base.
-  const profileGradient = fullUser.customization?.profileGradient;
-  const gradientType = fullUser.customization?.profileGradientType || 'linear';
-  const gradientAngle = fullUser.customization?.profileGradientAngle || 135;
-  const radialPosition = fullUser.customization?.profileGradientRadialPosition || 'center';
-  const customColor = fullUser.customization?.profileColor;
-
-  const accentColor =
-    (profileGradient && profileGradient.length >= 1 ? profileGradient[0] : undefined) ||
-    customColor ||
-    "#8B5CF6";
-  const accentColor2 =
-    (profileGradient && profileGradient.length >= 2 ? profileGradient[1] : undefined) || accentColor;
-
-  let bleedBg = '';
-  if (profileGradient && profileGradient.length >= 2) {
-    const transparentGrad = profileGradient.map((color, idx) => {
-      const opacity = Math.max(0.05, 0.25 - idx * 0.05);
-      return convertHexToRgba(color, opacity);
-    });
-    if (gradientType === 'radial') {
-      bleedBg = `radial-gradient(circle at ${radialPosition}, ${transparentGrad.join(', ')})`;
-    } else {
-      bleedBg = `linear-gradient(${gradientAngle}deg, ${transparentGrad.join(', ')})`;
-    }
-  } else {
-    bleedBg = `radial-gradient(125% 85% at 0% 0%, ${convertHexToRgba(accentColor, 0.25)}, transparent 58%), radial-gradient(120% 90% at 100% 100%, ${convertHexToRgba(accentColor, 0.12)}, transparent 55%)`;
-  }
-
-  const isHolographic = fullUser.customization?.profileCardEffect === 'holographic';
-
-  const cardThemeStyle = {
-    background: isHolographic
-      ? `linear-gradient(${gradientAngle}deg, #ff7b00, #ff007b, #9900ff, #0022ff, #00ff77, #ff7b00)`
-      : `${bleedBg}, #0b0b0f`,
-  };
 
   useEffect(() => {
     setFullUser(user);
@@ -204,33 +166,19 @@ export function FullProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent 
-        className="!max-w-[1000px] !w-[1000px] !max-h-[720px] p-0 gap-0 overflow-hidden transition-all duration-300"
-        style={{
-          borderColor: fullUser.customization?.profileCardBorderColor || (fullUser.customization?.profileCardBorderGlow ? accentColor : 'rgba(255, 255, 255, 0.06)'),
-          borderWidth: fullUser.customization?.profileCardBorderWidth !== undefined ? `${fullUser.customization.profileCardBorderWidth}px` : '1px',
-          borderStyle: 'solid',
-          boxShadow: fullUser.customization?.profileCardBorderGlow 
-            ? `0 0 25px ${convertHexToRgba(accentColor, 0.45)}` 
-            : undefined,
-        }}
-      >
+      <DialogContent className="!max-w-[1000px] !w-[1000px] !max-h-[720px] p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden">
         <DialogTitle className="sr-only">{displayName}&apos;s Profile</DialogTitle>
-        <div 
-          className={cn(
-            "flex h-[720px] transition-all duration-300",
-            isHolographic && "holographic-animation"
-          )} 
-          style={cardThemeStyle}
-        >
+        <div className="flex h-[720px]">
           {/* Left panel — profile summary */}
-          <div className="w-[360px] shrink-0 overflow-y-auto border-r border-white/[0.06] bg-black/10">
+          <div className="w-[360px] shrink-0 overflow-y-auto" style={getProfileBackgroundStyle(fullUser.customization)}>
             {/* Banner */}
             <div className="relative h-[140px]">
               {fullUser.banner ? (
                 <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${fullUser.banner})` }} />
-              ) : (fullUser.customization?.profileGradient || fullUser.customization?.profileColor) ? (
-                <div className="absolute inset-0" style={getProfileBannerStyle(fullUser.customization)} />
+              ) : fullUser.customization?.profileGradient && fullUser.customization.profileGradient.length >= 2 ? (
+                <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${fullUser.customization.profileGradient.join(', ')})` }} />
+              ) : fullUser.customization?.profileColor ? (
+                <div className="absolute inset-0" style={{ backgroundColor: fullUser.customization.profileColor }} />
               ) : (
                 <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] via-[#7C3AED] to-[#4F46E5]" />
               )}
@@ -397,7 +345,7 @@ export function FullProfileDialog({
           </div>
 
           {/* Right panel — tabs */}
-          <div className="flex-1 flex flex-col min-w-0 bg-black/20">
+          <div className="flex-1 flex flex-col min-w-0 bg-[#111114]">
             {/* Tab bar */}
             <div className="flex items-center gap-1 px-4 pt-4 pb-0 border-b border-white/[0.06] shrink-0">
               {tabs.map((tab) => (

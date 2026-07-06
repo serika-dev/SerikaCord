@@ -112,8 +112,8 @@ export function MemberSidebar() {
   if (!currentServer) return null;
 
   return (
-    <div className="w-56 min-w-[180px] h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] shrink overflow-hidden">
-      <ScrollArea className="h-full">
+    <div className="w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden">
+      <ScrollArea className="h-full member-scroll-area">
         <div className="py-4 space-y-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -169,16 +169,24 @@ function MemberItem({ member, serverId }: MemberItemProps) {
   const moeActivity = userActivity?.activity ?? null;
   const musicActivity = userActivity?.music ?? null;
   const subtitle = (!isOffline && member.customStatus) || null;
+  const nameplateBg = getNameplateBackground(member.customization);
 
   return (
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">
       <button
         className={cn(
-          "w-full px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] transition-all group",
+          "relative overflow-hidden w-full px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] transition-all group",
           isOffline && "opacity-50"
         )}
         style={{ width: "calc(100% - 16px)" }}
       >
+        {nameplateBg && (
+          <span
+            aria-hidden
+            className="absolute inset-0 pointer-events-none"
+            style={{ background: nameplateBg, opacity: 0.5, WebkitMaskImage: "linear-gradient(90deg, #000 60%, transparent 100%)", maskImage: "linear-gradient(90deg, #000 60%, transparent 100%)" }}
+          />
+        )}
         <div className="relative flex-shrink-0">
           <Avatar className="w-8 h-8">
             <AvatarImage src={member.avatar || undefined} alt={member.displayName || member.username} />
