@@ -6,6 +6,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  useEffect,
 } from "react";
 import {
   PlusCircle,
@@ -205,6 +206,44 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [pickerTab, setPickerTab] = useState<"emoji" | "gifs" | "stickers">("emoji");
     const [hasText, setHasText] = useState(false);
+
+    useEffect(() => {
+      const handleGlobalKeyDown = (e: KeyboardEvent) => {
+        // 1. Only capture keydown when tab is visible
+        if (document.visibilityState !== "visible") return;
+
+        // 2. Ignore modifier key combinations (Ctrl/Meta/Alt)
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+        // 3. Only capture single character keys (printable characters)
+        if (e.key.length !== 1) return;
+
+        // 4. Ignore if user is already focused on an editable element
+        const active = document.activeElement;
+        if (active) {
+          const tagName = active.tagName.toLowerCase();
+          const isEditable =
+            tagName === "input" ||
+            tagName === "textarea" ||
+            tagName === "select" ||
+            active.getAttribute("contenteditable") === "true" ||
+            (active as HTMLElement).isContentEditable;
+          if (isEditable) return;
+        }
+
+        // 5. Ignore if any modal, dialog, or context menu is open
+        const isModalOpen = document.querySelector('[role="dialog"], [role="menu"]') !== null;
+        if (isModalOpen) return;
+
+        // 6. Focus the message bar input
+        composerRef.current?.focus();
+      };
+
+      window.addEventListener("keydown", handleGlobalKeyDown);
+      return () => {
+        window.removeEventListener("keydown", handleGlobalKeyDown);
+      };
+    }, []);
 
     // Ref mirror of attachments.length so addFiles doesn't depend on state
     // (prevents stale closures on mobile where the file picker can suspend the page).

@@ -318,7 +318,19 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
     }, [posToDom, emitChange]);
 
     useImperativeHandle(ref, () => ({
-      focus: () => editorRef.current?.focus(),
+      focus: () => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        editor.focus();
+        const selection = window.getSelection();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      },
       clear: () => {
         if (editorRef.current) {
           editorRef.current.innerHTML = "";

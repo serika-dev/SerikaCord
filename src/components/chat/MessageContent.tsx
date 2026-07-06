@@ -279,11 +279,11 @@ export const MessageContent = memo(function MessageContent({
     const onlyGif = isGifUrl(imageOnlyUrl);
     return (
       <div className={className}>
-        <div className={cn("inline-block relative group", onlyGif && "rounded-lg overflow-hidden")}>
+        <div className={cn("inline-block w-fit relative group", onlyGif && "rounded-lg overflow-hidden")}>
           <img
             src={imageOnlyUrl}
             alt="Image"
-            className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
+            className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
             onClick={() => handleMediaClick(imageOnlyUrl, "Image")}
             loading="lazy"
           />
@@ -327,11 +327,11 @@ export const MessageContent = memo(function MessageContent({
           const inlineGif = isGifUrl(part.url);
           return (
             <span key={`image-${index}`} className="block my-2">
-              <span className={cn("inline-block relative group", inlineGif && "rounded-lg overflow-hidden")}>
+              <span className={cn("inline-block w-fit relative group", inlineGif && "rounded-lg overflow-hidden")}>
                 <img
                   src={part.url}
                   alt="Image"
-                  className="chat-media cursor-pointer hover:opacity-90 transition-opacity"
+                  className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
                   onClick={() => handleMediaClick(part.url!, "Image")}
                   loading="lazy"
                 />

@@ -468,7 +468,7 @@ export function ChannelSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="!max-w-none !w-screen !h-screen !rounded-none p-0 bg-[var(--bg-app)] border-none overflow-hidden flex !translate-x-[-50%] !translate-y-[-50%] relative"
+        className="!max-w-none !w-screen !h-screen !rounded-none p-0 bg-[var(--bg-app)] border-none overflow-hidden flex !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed"
         onPointerDownOutside={(e) => e.preventDefault()}
       >
         {/* ESC close hint button in top right */}

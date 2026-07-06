@@ -228,17 +228,17 @@ function SpotifyEmbed({ type, id, url }: { type: string; id: string; url: string
 function GiphyEmbed({ gifId, url }: { gifId: string; url: string }) {
   const gifUrl = `https://media.giphy.com/media/${gifId}/giphy.gif`;
   return (
-    <div className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]">
+    <div className="mt-2 inline-block w-fit relative group rounded-lg overflow-hidden max-w-[400px]">
       <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="block"
+        className="block w-fit"
       >
         <img
           src={gifUrl}
           alt="Giphy GIF"
-          className="rounded-lg max-h-[300px] w-auto"
+          className="rounded-lg max-h-[300px] w-auto block"
           loading="lazy"
         />
         <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
@@ -293,17 +293,17 @@ function TenorEmbed({ gifId, url, preview }: { gifId: string; url: string; previ
   }
 
   return (
-    <div className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]">
+    <div className="mt-2 inline-block w-fit relative group rounded-lg overflow-hidden max-w-[400px]">
       <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="block"
+        className="block w-fit"
       >
         <img
           src={gifSrc}
           alt={preview?.title || "Tenor GIF"}
-          className="rounded-lg max-h-[300px] w-auto"
+          className="rounded-lg max-h-[300px] w-auto block"
           loading="lazy"
         />
         <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">
@@ -357,17 +357,17 @@ function KlipyEmbed({ url, preview }: { url: string; preview?: { title?: string;
   }
 
   return (
-    <div className="mt-2 inline-block relative group rounded-lg overflow-hidden max-w-[400px]">
+    <div className="mt-2 inline-block w-fit relative group rounded-lg overflow-hidden max-w-[400px]">
       <a
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="block"
+        className="block w-fit"
       >
         <img
           src={gifSrc}
           alt={preview?.title || "Klipy GIF"}
-          className="rounded-lg max-h-[300px] w-auto"
+          className="rounded-lg max-h-[300px] w-auto block"
           loading="lazy"
         />
         <div className="absolute bottom-1 right-1 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white font-medium opacity-0 group-hover:opacity-100 transition-opacity">

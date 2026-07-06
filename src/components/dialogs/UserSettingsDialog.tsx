@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ImageCropper } from "@/components/ui/image-cropper";
-import { UserProfile } from "@/components/user/UserProfile";
+import { ProfileCard } from "@/components/user/ProfileCard";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
@@ -132,7 +132,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       customStatus: customStatus,
       status: (status as any) || "online",
       badges: user?.badges || [],
-      createdAt: user?.createdAt ? new Date(user.createdAt) : new Date(),
+      createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       isPremium: user?.isPremium || false,
       customization: {
         profileColor: profileColor,
@@ -1224,7 +1224,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           </button>
 
           <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
-            <div className={cn("py-6 px-4 md:py-10 md:px-10 mx-auto pb-24", activeTab.startsWith("admin-") ? "max-w-[1100px]" : "max-w-[740px]")}>
+            <div className={cn("py-6 px-4 md:py-10 md:px-10 mx-auto pb-24", (activeTab.startsWith("admin-") || activeTab === "profiles") ? "max-w-[1100px]" : "max-w-[740px]")}>
               {/* Admin Logs Tab */}
               {activeTab === "admin-logs" && (
                 <div>
@@ -1328,7 +1328,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </div>
 
                   {/* Profile Layout */}
-                  <div className="grid grid-cols-1 lg:grid-cols-[1fr,340px] gap-6 lg:gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr,340px] gap-6 md:gap-8">
                     <div>
                       <AnimatePresence mode="wait">
                         {profileTab === "main" ? (
@@ -1912,13 +1912,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </div>
 
                     {/* Preview */}
-                    <div className="lg:sticky lg:top-5 self-start">
+                    <div className="md:sticky md:top-5 self-start">
                       <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-3">Preview</h3>
-                      <UserProfile
+                      <ProfileCard
                         user={previewUser}
-                        isOpen={true}
-                        onClose={() => {}}
-                        variant="popup"
                         isCurrentUser={true}
                       />
                     </div>
