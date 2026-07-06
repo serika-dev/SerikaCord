@@ -2079,17 +2079,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             {/* Nameplate */}
                             <div className="mt-8">
                               <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">Nameplate</h2>
-                              <p className="text-xs text-[var(--text-muted)] mb-4">A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.</p>
-                              <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-5 space-y-5">
-                                {/* Live preview */}
-                                <div className="relative rounded-lg overflow-hidden border border-[var(--border-subtle)]">
+                              <p className="text-xs text-[var(--text-muted)] mb-3">A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.</p>
+                              <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-4 space-y-3">
+                                {/* Live preview — mirrors the sidebar user panel */}
+                                <div className="relative rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
                                   {getNameplateBackground({ nameplate }) && (
-                                    <div className="absolute inset-0" style={{ background: getNameplateBackground({ nameplate })!, opacity: 0.5 }} />
+                                    <div className="absolute inset-0" style={{ background: getNameplateBackground({ nameplate })!, opacity: 0.55, WebkitMaskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)', maskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)' }} />
                                   )}
-                                  <div className="relative flex items-center gap-2.5 px-3 py-2.5">
-                                    <img src={user?.avatar || undefined} alt="" className="w-8 h-8 rounded-full object-cover bg-[var(--bg-sidebar-elevated)]" />
+                                  <div className="relative flex items-center gap-2 px-2 py-2">
+                                    <img src={user?.avatar || undefined} alt="" className="w-8 h-8 rounded-full object-cover bg-[var(--bg-sidebar-elevated)] shrink-0" />
                                     <span
-                                      className={cn("text-sm font-semibold text-[var(--text-primary)]", getDisplayNameStyleClasses(displayNameStyle))}
+                                      className={cn("text-sm font-bold text-[var(--text-primary)] truncate", getDisplayNameStyleClasses(displayNameStyle))}
                                       style={getDisplayNameStyleInline(displayNameStyle)}
                                     >
                                       {displayName || user?.username || "Your name"}
@@ -2097,8 +2097,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </div>
                                 </div>
 
-                                {/* Type selector */}
-                                <div className="flex flex-wrap gap-2">
+                                {/* Type selector — segmented */}
+                                <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-sidebar)] border border-[var(--border-subtle)]">
                                   {([
                                     { id: 'none', label: 'None' },
                                     { id: 'color', label: 'Solid' },
@@ -2109,10 +2109,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       key={opt.id}
                                       onClick={() => setNameplate((n) => ({ ...n, type: opt.id }))}
                                       className={cn(
-                                        "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
+                                        "flex-1 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors",
                                         (nameplate.type || 'none') === opt.id
-                                          ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                          : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                                          ? "bg-[var(--app-accent)] text-white"
+                                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                                       )}
                                     >
                                       {opt.label}
@@ -2122,53 +2122,71 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                                 {/* Solid colour swatches */}
                                 {nameplate.type === 'color' && (
-                                  <div className="flex flex-wrap gap-2">
+                                  <div className="flex flex-wrap gap-1.5">
                                     {['#F43F5E', '#EAB308', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6', '#D946EF', '#FF9800', '#9C27B0', '#434343'].map((col) => {
                                       const on = nameplate.color === col;
                                       return (
                                         <button
                                           key={col}
                                           onClick={() => setNameplate((n) => ({ ...n, type: 'color', color: col }))}
-                                          className="w-8 h-8 rounded-full relative transition-all"
+                                          className="w-7 h-7 rounded-full relative transition-all"
                                           style={{ backgroundColor: col, boxShadow: on ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none' }}
                                         >
-                                          {on && <Check className="w-3.5 h-3.5 text-white absolute inset-0 m-auto drop-shadow-md" />}
+                                          {on && <Check className="w-3 h-3 text-white absolute inset-0 m-auto drop-shadow-md" />}
                                         </button>
                                       );
                                     })}
-                                    <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40" style={{ backgroundColor: nameplate.color || '#8B5CF6' }}>
+                                    <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40" style={{ backgroundColor: nameplate.color || '#8B5CF6' }}>
                                       <input type="color" value={nameplate.color || '#8B5CF6'} onChange={(e) => setNameplate((n) => ({ ...n, type: 'color', color: e.target.value }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                      <Pencil className="w-3.5 h-3.5 text-white absolute inset-0 m-auto drop-shadow-md pointer-events-none" />
+                                      <Pencil className="w-3 h-3 text-white absolute inset-0 m-auto drop-shadow-md pointer-events-none" />
                                     </label>
                                   </div>
                                 )}
 
-                                {/* Gradient swatches */}
-                                {nameplate.type === 'gradient' && (
-                                  <div className="flex flex-wrap gap-2">
-                                    {[
-                                      ['#FF3366', '#FFD12A'], ['#00E676', '#00B0FF'], ['#D500F9', '#FF1744'], ['#1DE9B6', '#3D5AFE'],
-                                      ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#FF9800', '#FF5722'],
-                                      ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#00BCD4', '#009688'], ['#434343', '#000000'],
-                                    ].map((grad, i) => {
-                                      const on = JSON.stringify(nameplate.gradient) === JSON.stringify(grad);
-                                      return (
-                                        <button
-                                          key={i}
-                                          onClick={() => setNameplate((n) => ({ ...n, type: 'gradient', gradient: grad }))}
-                                          className="w-10 h-8 rounded-md relative transition-all"
-                                          style={{ background: `linear-gradient(90deg, ${grad.join(', ')})`, boxShadow: on ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none' }}
-                                        >
-                                          {on && <Check className="w-3.5 h-3.5 text-white absolute inset-0 m-auto drop-shadow-md" />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
+                                {/* Gradient — custom two-colour pickers + presets */}
+                                {nameplate.type === 'gradient' && (() => {
+                                  const g0 = nameplate.gradient?.[0] || '#8B5CF6';
+                                  const g1 = nameplate.gradient?.[1] || '#EC4899';
+                                  return (
+                                    <div className="space-y-2.5">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                                        <div className="flex items-center gap-1.5 flex-1 rounded-md h-8 px-2" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
+                                          <label className="relative w-5 h-5 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/50" style={{ backgroundColor: g0 }}>
+                                            <input type="color" value={g0} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [e.target.value, g1] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                                          </label>
+                                          <span className="text-white/80 text-xs">→</span>
+                                          <label className="relative w-5 h-5 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/50" style={{ backgroundColor: g1 }}>
+                                            <input type="color" value={g1} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [g0, e.target.value] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                                          </label>
+                                        </div>
+                                      </div>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {[
+                                          ['#FF3366', '#FFD12A'], ['#00E676', '#00B0FF'], ['#D500F9', '#FF1744'], ['#1DE9B6', '#3D5AFE'],
+                                          ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#FF9800', '#FF5722'],
+                                          ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#00BCD4', '#009688'], ['#434343', '#000000'],
+                                        ].map((grad, i) => {
+                                          const on = JSON.stringify(nameplate.gradient) === JSON.stringify(grad);
+                                          return (
+                                            <button
+                                              key={i}
+                                              onClick={() => setNameplate((n) => ({ ...n, type: 'gradient', gradient: grad }))}
+                                              className="w-9 h-7 rounded-md relative transition-all"
+                                              style={{ background: `linear-gradient(90deg, ${grad.join(', ')})`, boxShadow: on ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none' }}
+                                            >
+                                              {on && <Check className="w-3 h-3 text-white absolute inset-0 m-auto drop-shadow-md" />}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
 
                                 {/* Preset gallery */}
                                 {nameplate.type === 'preset' && (
-                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                  <div className="grid grid-cols-3 gap-1.5">
                                     {NAMEPLATE_PRESETS.map((preset) => {
                                       const on = nameplate.presetId === preset.id;
                                       return (
@@ -2176,13 +2194,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                           key={preset.id}
                                           onClick={() => setNameplate((n) => ({ ...n, type: 'preset', presetId: preset.id }))}
                                           className={cn(
-                                            "relative h-11 rounded-lg overflow-hidden border transition-all flex items-center px-3",
+                                            "relative h-9 rounded-md overflow-hidden border transition-all flex items-center px-2.5",
                                             on ? "border-[var(--app-accent)] ring-2 ring-[var(--app-accent)]" : "border-[var(--border-subtle)]"
                                           )}
                                         >
                                           <div className="absolute inset-0" style={{ background: preset.css, opacity: 0.55 }} />
-                                          <span className="relative text-xs font-semibold text-white drop-shadow-md">{preset.name}</span>
-                                          {on && <Check className="w-4 h-4 text-white absolute right-2 top-1/2 -translate-y-1/2 drop-shadow-md" />}
+                                          <span className="relative text-[11px] font-semibold text-white drop-shadow-md truncate">{preset.name}</span>
+                                          {on && <Check className="w-3.5 h-3.5 text-white absolute right-1.5 top-1/2 -translate-y-1/2 drop-shadow-md" />}
                                         </button>
                                       );
                                     })}

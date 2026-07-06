@@ -1232,24 +1232,24 @@ function UserPanel({ user }: UserPanelProps) {
   const nameplateBg = getNameplateBackground(user?.customization);
 
   return (
-    <div className="h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
+    <div className="relative overflow-hidden h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
+      {/* Nameplate — spans the whole user panel bar */}
+      {nameplateBg && (
+        <span
+          aria-hidden
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: nameplateBg,
+            opacity: 0.55,
+            WebkitMaskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)',
+            maskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)',
+          }}
+        />
+      )}
       <UserProfilePopup onOpenSettings={handleSettingsClick}>
         <button
-          className="relative overflow-hidden flex items-center gap-2 flex-1 min-w-0 p-1 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
+          className="relative z-10 flex items-center gap-2 flex-1 min-w-0 p-1 rounded hover:bg-[var(--bg-sidebar-elevated)]/60 transition-colors"
         >
-          {nameplateBg && (
-            <span 
-              aria-hidden 
-              className="absolute inset-0 pointer-events-none" 
-              style={{ 
-                background: nameplateBg, 
-                opacity: 0.6,
-                backgroundImage: 'radial-gradient(circle at 20% 30%, rgba(255,255,255,0.1) 0%, transparent 50%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.05) 0%, transparent 40%)',
-                WebkitMaskImage: "linear-gradient(90deg, #000 60%, transparent 100%)", 
-                maskImage: "linear-gradient(90deg, #000 60%, transparent 100%)" 
-              }} 
-            />
-          )}
           <div className="relative shrink-0">
             <Avatar className="w-8 h-8">
               <AvatarImage src={user?.avatar} alt={user?.displayName} />
@@ -1274,7 +1274,7 @@ function UserPanel({ user }: UserPanelProps) {
           </div>
         </button>
       </UserProfilePopup>
-      <div className="flex items-center gap-0.5">
+      <div className="relative z-10 flex items-center gap-0.5">
         <button
           onClick={handleMuteToggle}
           className={cn(
