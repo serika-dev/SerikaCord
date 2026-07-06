@@ -99,6 +99,10 @@ interface ProfileCardProps {
   isFriend?: boolean;
   /** Server context for role management */
   serverId?: string;
+  /** When provided, the "View Full Profile" button calls this instead of
+   *  managing a dialog internally. Used by popover wrappers that need to
+   *  render the dialog outside the popover to avoid unmount issues. */
+  onViewFullProfile?: () => void;
 }
 
 /**
@@ -113,6 +117,7 @@ export function ProfileCard({
   className,
   isFriend = false,
   serverId,
+  onViewFullProfile,
 }: ProfileCardProps) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
@@ -541,8 +546,12 @@ export function ProfileCard({
         {user.id && (
           <button
             onClick={() => {
-              onNavigate?.();
-              setFullProfileOpen(true);
+              if (onViewFullProfile) {
+                onViewFullProfile();
+              } else {
+                onNavigate?.();
+                setFullProfileOpen(true);
+              }
             }}
             className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-sm font-medium text-[#c8c8d8] hover:text-white transition-colors"
           >
@@ -552,15 +561,17 @@ export function ProfileCard({
         )}
       </div>
 
-      <FullProfileDialog
-        user={user}
-        open={fullProfileOpen}
-        onOpenChange={setFullProfileOpen}
-        isCurrentUser={isCurrentUser}
-        isFriend={isFriend}
-        serverId={serverId}
-        showOwnerCrown={showOwnerCrown}
-      />
+      {!onViewFullProfile && (
+        <FullProfileDialog
+          user={user}
+          open={fullProfileOpen}
+          onOpenChange={setFullProfileOpen}
+          isCurrentUser={isCurrentUser}
+          isFriend={isFriend}
+          serverId={serverId}
+          showOwnerCrown={showOwnerCrown}
+        />
+      )}
     </div>
   );
 }

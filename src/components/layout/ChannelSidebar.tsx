@@ -523,7 +523,7 @@ export function ChannelSidebar({
             onClick={() => handleVoiceChannelClick(channel)}
             onContextMenu={(e) => handleContextMenu(e, channel)}
             className={cn(
-              "w-full px-2 py-1 mx-2 rounded flex items-center gap-1.5 transition-all group",
+              "w-full px-2 py-1 mx-2 rounded flex items-center gap-1.5 transition-all group min-w-0 overflow-hidden",
               isActive
                 ? "text-green-400 hover:bg-[var(--bg-sidebar-elevated)]"
                 : "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)]",
@@ -605,7 +605,7 @@ export function ChannelSidebar({
           onClick={() => { navigateToChannel(channel); markChannelRead(channel.id); }}
           onContextMenu={(e) => handleContextMenu(e, channel)}
           className={cn(
-            "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group",
+            "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group min-w-0 overflow-hidden",
             currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]",
             mentionCount > 0 && currentChannel?.id !== channel.id && "text-[var(--text-primary)]"
           )}
@@ -725,7 +725,7 @@ export function ChannelSidebar({
 
   if (!currentServer) {
     return (
-      <div className="flex flex-col w-60 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
+      <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
         {/* DM Header */}
         <div className="h-12 px-3 flex items-center border-b border-[var(--border-subtle)] shrink-0">
           <button className="w-full h-7 px-2.5 rounded-md bg-[var(--bg-sidebar-elevated)] text-[var(--text-muted)] text-sm text-left hover:brightness-110 transition-all truncate">
@@ -853,7 +853,7 @@ export function ChannelSidebar({
   }
 
   return (
-    <div className="flex flex-col w-60 h-full min-h-0 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
+    <div className="flex flex-col w-64 h-full min-h-0 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
       {/* Server Header (banner behind the name when the server has one) */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -1032,7 +1032,7 @@ export function ChannelSidebar({
                           e.stopPropagation();
                           onCreateChannel?.(undefined, category.id);
                         }}
-                        className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-60 hover:opacity-100 group-hover:opacity-100 transition-opacity"
+                        className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-60 hover:opacity-100 group-hover:opacity-100 transition-opacity shrink-0"
                       />
                     )}
                   </div>

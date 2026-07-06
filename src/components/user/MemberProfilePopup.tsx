@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
+import { FullProfileDialog } from "@/components/user/FullProfileDialog";
 
 interface MemberProfilePopupProps {
   children: React.ReactNode;
@@ -30,6 +31,7 @@ export function MemberProfilePopup({
 }: MemberProfilePopupProps) {
   const { user: currentUser } = useAuth();
   const [open, setOpen] = useState(false);
+  const [fullProfileOpen, setFullProfileOpen] = useState(false);
   const [fullProfile, setFullProfile] = useState<ProfileCardUser>(member);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export function MemberProfilePopup({
   }, [open, member.id, serverId]);
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
@@ -99,8 +102,23 @@ export function MemberProfilePopup({
           showOwnerCrown={Boolean(serverId)}
           onNavigate={() => setOpen(false)}
           serverId={serverId}
+          onViewFullProfile={() => {
+            setOpen(false);
+            setFullProfileOpen(true);
+          }}
         />
       </PopoverContent>
     </Popover>
+
+    <FullProfileDialog
+      user={fullProfile}
+      open={fullProfileOpen}
+      onOpenChange={setFullProfileOpen}
+      isCurrentUser={currentUser?.id === member.id}
+      isFriend={fullProfile.isFriend}
+      serverId={serverId}
+      showOwnerCrown={Boolean(serverId)}
+    />
+    </>
   );
 }
