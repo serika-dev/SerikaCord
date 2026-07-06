@@ -778,6 +778,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!Types.ObjectId.isValid(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+
+  const channelCount = await Channel.countDocuments({ serverId: params.guildId });
+  if (channelCount >= config.MAX_CHANNELS_PER_SERVER) {
+    set.status = 400;
+    return { code: 30013, message: 'Maximum number of guild channels reached' };
+  }
+
   const { name, type, topic, nsfw, parent_id, rate_limit_per_user, position } = body as any;
   if (!name) { set.status = 400; return { code: 50035, message: 'Name is required' }; }
 

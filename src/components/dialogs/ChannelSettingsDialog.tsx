@@ -472,7 +472,7 @@ export function ChannelSettingsDialog({
         onPointerDownOutside={(e) => e.preventDefault()}
       >
         {/* ESC close hint button in top right */}
-        <div className="absolute top-[60px] right-[60px] z-50 flex flex-col items-center gap-1.5 cursor-pointer select-none group" onClick={() => onOpenChange(false)}>
+        <div className="absolute top-[60px] right-[60px] lg:right-auto lg:left-[1020px] z-50 flex flex-col items-center gap-1.5 cursor-pointer select-none group" onClick={() => onOpenChange(false)}>
           <div className="w-9 h-9 rounded-full border-2 border-[var(--text-muted)] group-hover:border-[var(--text-primary)] flex items-center justify-center text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-all">
             <X className="w-5 h-5" />
           </div>

@@ -853,7 +853,7 @@ export function ChannelSidebar({
   }
 
   return (
-    <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
+    <div className="flex flex-col w-60 h-full min-h-0 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
       {/* Server Header (banner behind the name when the server has one) */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -1032,7 +1032,7 @@ export function ChannelSidebar({
                           e.stopPropagation();
                           onCreateChannel?.(undefined, category.id);
                         }}
-                        className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="w-4 h-4 text-[var(--text-muted)] hover:text-[var(--text-secondary)] opacity-60 hover:opacity-100 group-hover:opacity-100 transition-opacity"
                       />
                     )}
                   </div>

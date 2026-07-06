@@ -282,7 +282,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden">
       {/* Combined Sidebars */}
-      <div className="flex flex-shrink-0">
+      <div className="flex flex-shrink-0 h-full min-h-0">
         <ServerSidebar onCreateServer={() => setShowCreateServer(true)} />
         {pathname !== "/channels/explore" && (
           <ChannelSidebar

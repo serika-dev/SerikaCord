@@ -346,6 +346,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to create channels' };
     }
 
+    // Check channel limit
+    const channelCount = await Channel.countDocuments({ serverId: server._id });
+    if (channelCount >= config.MAX_CHANNELS_PER_SERVER) {
+      set.status = 400;
+      return { error: `Server has reached the channel limit of ${config.MAX_CHANNELS_PER_SERVER}` };
+    }
+
     const { name, type = 'text', parentId, nsfw } = body;
     const sanitizedName = sanitizeInput(name);
 
