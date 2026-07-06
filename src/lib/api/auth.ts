@@ -20,6 +20,149 @@ import {
   accountsResetPassword,
 } from '../services/accountsClient';
 
+// ── OAuth2 provider configurations ──────────────────────────────────────────
+// Each provider reads client ID/secret from env vars and implements:
+//   getAuthUrl  – build the provider's authorisation URL
+//   exchangeCode – swap the auth code for an access token
+//   fetchUser   – call the provider's /me endpoint for user info
+interface OAuth2Provider {
+  clientId: string;
+  clientSecret: string;
+  scopes: string;
+  getAuthUrl: (clientId: string, redirectUri: string, scopes: string) => string;
+  exchangeCode: (clientId: string, clientSecret: string, code: string, redirectUri: string) => Promise<{ access_token: string; refreshToken?: string }>;
+  fetchUser: (accessToken: string) => Promise<{ accountId: string; username?: string; displayName?: string; avatar?: string }>;
+}
+
+const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
+  github: {
+    clientId: process.env.GITHUB_CLIENT_ID || '',
+    clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
+    scopes: 'read:user',
+    getAuthUrl: (clientId, redirectUri) =>
+      `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=read:user`,
+    exchangeCode: async (_clientId, clientSecret, code, redirectUri) => {
+      const resp = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: _clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }),
+      });
+      const data = await resp.json() as any;
+      return { access_token: data.access_token, refreshToken: data.refresh_token };
+    },
+    fetchUser: async (accessToken) => {
+      const resp = await fetch('https://api.github.com/user', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await resp.json() as any;
+      return {
+        accountId: String(data.id),
+        username: data.login,
+        displayName: data.name || data.login,
+        avatar: data.avatar_url,
+      };
+    },
+  },
+
+  spotify: {
+    clientId: process.env.SPOTIFY_CLIENT_ID || '',
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET || '',
+    scopes: 'user-read-private user-read-email',
+    getAuthUrl: (clientId, redirectUri, scopes) =>
+      `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scopes)}`,
+    exchangeCode: async (clientId, clientSecret, code, redirectUri) => {
+      const resp = await fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: redirectUri,
+          client_id: clientId,
+          client_secret: clientSecret,
+        }),
+      });
+      const data = await resp.json() as any;
+      return { access_token: data.access_token, refreshToken: data.refresh_token };
+    },
+    fetchUser: async (accessToken) => {
+      const resp = await fetch('https://api.spotify.com/v1/me', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await resp.json() as any;
+      return {
+        accountId: data.id,
+        username: data.id,
+        displayName: data.display_name || data.id,
+        avatar: data.images?.[0]?.url,
+      };
+    },
+  },
+
+  twitch: {
+    clientId: process.env.TWITCH_CLIENT_ID || '',
+    clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
+    scopes: 'user:read:email',
+    getAuthUrl: (clientId, redirectUri, scopes) =>
+      `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scopes)}`,
+    exchangeCode: async (clientId, clientSecret, code, redirectUri) => {
+      const resp = await fetch('https://id.twitch.tv/oauth2/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          code,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+        }),
+      });
+      const data = await resp.json() as any;
+      return { access_token: data.access_token, refreshToken: data.refresh_token };
+    },
+    fetchUser: async (accessToken) => {
+      const resp = await fetch('https://api.twitch.tv/helix/users', {
+        headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': process.env.TWITCH_CLIENT_ID || '' },
+      });
+      const data = await resp.json() as any;
+      const u = data.data?.[0];
+      if (!u) return { accountId: '' };
+      return {
+        accountId: u.id,
+        username: u.login,
+        displayName: u.display_name || u.login,
+        avatar: u.profile_image_url,
+      };
+    },
+  },
+
+  steam: {
+    clientId: process.env.STEAM_API_KEY || '',
+    clientSecret: process.env.STEAM_API_KEY || '',
+    scopes: '',
+    getAuthUrl: (_clientId, redirectUri) =>
+      `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${redirectUri}&openid.realm=${redirectUri}&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`,
+    exchangeCode: async () => {
+      // Steam uses OpenID, not OAuth2 code exchange — the "code" is the SteamID
+      // extracted from the openid.identity return URL. We handle it in fetchUser.
+      return { access_token: '' };
+    },
+    fetchUser: async (steamId: string) => {
+      const apiKey = process.env.STEAM_API_KEY || '';
+      const resp = await fetch(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${apiKey}&steamids=${steamId}`);
+      const data = await resp.json() as any;
+      const p = data.response?.players?.[0];
+      if (!p) return { accountId: steamId };
+      return {
+        accountId: steamId,
+        username: p.personaname,
+        displayName: p.personaname,
+        avatar: p.avatarfull,
+      };
+    },
+  },
+};
+
 export const authRoutes = new Elysia({ prefix: '/auth' })
   // Register - proxies to accounts.serika.dev
   .post('/register', async ({ body, set }) => {
@@ -401,10 +544,13 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   // The frontend calls /api/auth/lastfm/initiate (with the user's auth token in
   // header/cookie) which sets a short-lived state cookie then redirects.
   .get('/lastfm/initiate', async ({ headers, cookie, set }) => {
-    const { user, error: authError } = await authenticateRequest(
-      headers.authorization ?? null,
-      { auth_token: typeof cookie.auth_token?.value === 'string' ? cookie.auth_token.value : '' },
-    );
+    const authHeader = headers.authorization ?? null;
+    const authToken = cookie.auth_token?.value;
+    const cookies: Record<string, string> = {};
+    if (typeof authToken === 'string' && authToken) {
+      cookies.auth_token = authToken;
+    }
+    const { user, error: authError } = await authenticateRequest(authHeader, cookies);
     if (!user) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
@@ -427,7 +573,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       sameSite: 'lax',
     };
 
-    const callbackUrl = encodeURIComponent(`${config.API_BASE_URL}/api/auth/lastfm/callback`);
+    const callbackUrl = encodeURIComponent(`${config.FRONTEND_URL || config.API_BASE_URL}/api/auth/lastfm/callback`);
     set.redirect = `https://www.last.fm/api/auth/?api_key=${apiKey}&cb=${callbackUrl}`;
   })
 
@@ -526,4 +672,180 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     query: t.Object({
       token: t.Optional(t.String()),
     }),
+  })
+
+  // ── Generic OAuth2 providers ───────────────────────────────────────────────
+  // Supports GitHub, Spotify, Twitch, Steam via env-var-configured credentials.
+  // Each provider has an initiate route (redirect to provider auth page) and a
+  // callback route (exchange code for token, fetch user info, upsert connection).
+
+  .get('/:provider/initiate', async ({ params, headers, cookie, set }) => {
+    const provider = params.provider;
+    if (provider === 'lastfm') return; // handled by dedicated route above
+
+    // Authenticate user
+    const authHeader = headers.authorization ?? null;
+    const authToken = cookie.auth_token?.value;
+    const cookies: Record<string, string> = {};
+    if (typeof authToken === 'string' && authToken) {
+      cookies.auth_token = authToken;
+    }
+    const { user, error: authError } = await authenticateRequest(authHeader, cookies);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const prov = OAUTH2_PROVIDERS[provider];
+    if (!prov || !prov.clientId) {
+      set.redirect = `${config.FRONTEND_URL || config.API_BASE_URL}/channels/settings/connections?error=${provider}_not_configured`;
+      return;
+    }
+
+    const userId = (user._id as { toString(): string }).toString();
+    const state = `${provider}:${userId}`;
+    (cookie as any).oauth2_state = {
+      value: state,
+      httpOnly: true,
+      path: '/',
+      maxAge: 600,
+      sameSite: 'lax',
+    };
+
+    const callbackUrl = encodeURIComponent(`${config.FRONTEND_URL || config.API_BASE_URL}/api/auth/${provider}/callback`);
+    const authUrl = prov.getAuthUrl(prov.clientId, callbackUrl, prov.scopes);
+    set.redirect = authUrl;
+  })
+
+  .get('/:provider/callback', async ({ params, query, cookie, set }) => {
+    const provider = params.provider;
+    if (provider === 'lastfm') return;
+
+    const redirectBase = `${config.FRONTEND_URL || config.API_BASE_URL}/channels/settings/connections`;
+
+    // Steam uses OpenID — extract SteamID from openid.identity
+    if (provider === 'steam') {
+      const state = (cookie as any).oauth2_state?.value as string | undefined;
+      if (!state || !state.startsWith('steam:')) {
+        set.redirect = `${redirectBase}?error=steam_state_missing`;
+        return;
+      }
+      const userId = state.split(':')[1];
+      const prov = OAUTH2_PROVIDERS.steam;
+      if (!prov.clientId) {
+        set.redirect = `${redirectBase}?error=steam_not_configured`;
+        return;
+      }
+      const openidIdentity = (query as any)['openid.identity'] as string | undefined;
+      if (!openidIdentity) {
+        set.redirect = `${redirectBase}?error=steam_denied`;
+        return;
+      }
+      // Extract SteamID from the identity URL
+      const steamId = openidIdentity.split('/').pop() || '';
+      if (!steamId) {
+        set.redirect = `${redirectBase}?error=steam_session_failed`;
+        return;
+      }
+      try {
+        const userInfo = await prov.fetchUser(steamId);
+        await UserConnection.findOneAndUpdate(
+          { userId, provider: 'steam' },
+          {
+            $set: {
+              userId,
+              provider: 'steam',
+              accountId: userInfo.accountId,
+              username: userInfo.username || userInfo.accountId,
+              displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
+              avatar: userInfo.avatar,
+              metadata: { steamId },
+            },
+          },
+          { upsert: true, new: true },
+        );
+        (cookie as any).oauth2_state = { value: '', maxAge: 0, path: '/' };
+        set.redirect = `${redirectBase}?success=steam`;
+      } catch (err) {
+        console.error('Steam callback error:', err);
+        set.redirect = `${redirectBase}?error=steam_error`;
+      }
+      return;
+    }
+
+    const code = (query as any).code as string | undefined;
+    const state = (cookie as any).oauth2_state?.value as string | undefined;
+
+    if (!code) {
+      set.redirect = `${redirectBase}?error=${provider}_denied`;
+      return;
+    }
+    if (!state || !state.startsWith(`${provider}:`)) {
+      set.redirect = `${redirectBase}?error=${provider}_state_missing`;
+      return;
+    }
+
+    const userId = state.split(':')[1];
+    const prov = OAUTH2_PROVIDERS[provider];
+    if (!prov || !prov.clientId || !prov.clientSecret) {
+      set.redirect = `${redirectBase}?error=${provider}_not_configured`;
+      return;
+    }
+
+    const callbackUrl = `${config.FRONTEND_URL || config.API_BASE_URL}/api/auth/${provider}/callback`;
+
+    try {
+      // Exchange code for access token
+      const tokenResp = await prov.exchangeCode(prov.clientId, prov.clientSecret, code, callbackUrl);
+      if (!tokenResp.access_token) {
+        set.redirect = `${redirectBase}?error=${provider}_session_failed`;
+        return;
+      }
+
+      // Fetch user info
+      const userInfo = await prov.fetchUser(tokenResp.access_token);
+      if (!userInfo.accountId) {
+        set.redirect = `${redirectBase}?error=${provider}_session_failed`;
+        return;
+      }
+
+      // Upsert connection
+      await UserConnection.findOneAndUpdate(
+        { userId, provider },
+        {
+          $set: {
+            userId,
+            provider,
+            accountId: userInfo.accountId,
+            username: userInfo.username || userInfo.accountId,
+            displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
+            avatar: userInfo.avatar,
+            metadata: { accessToken: tokenResp.access_token, refreshToken: tokenResp.refreshToken },
+          },
+        },
+        { upsert: true, new: true },
+      );
+
+      // Clear state cookie
+      (cookie as any).oauth2_state = { value: '', maxAge: 0, path: '/' };
+
+      set.redirect = `${redirectBase}?success=${provider}`;
+    } catch (err) {
+      console.error(`${provider} callback error:`, err);
+      set.redirect = `${redirectBase}?error=${provider}_error`;
+    }
+  }, {
+    query: t.Object({
+      code: t.Optional(t.String()),
+      state: t.Optional(t.String()),
+      error: t.Optional(t.String()),
+      ['openid.identity']: t.Optional(t.String()),
+      ['openid.mode']: t.Optional(t.String()),
+      ['openid.ns']: t.Optional(t.String()),
+      ['openid.op_endpoint']: t.Optional(t.String()),
+      ['openid.return_to']: t.Optional(t.String()),
+      ['openid.signed']: t.Optional(t.String()),
+      ['openid.sig']: t.Optional(t.String()),
+      ['openid.claimed_id']: t.Optional(t.String()),
+    }, { additionalProperties: true }),
   });

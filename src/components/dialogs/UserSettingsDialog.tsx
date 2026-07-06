@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
+import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -95,24 +96,23 @@ const statusOptions = [
 
 const CONNECTION_PROVIDERS: Array<{
   id: string; label: string; color: string; bg: string;
-  hint: string; placeholder: string;
+  hint: string;
   category: "social" | "gaming" | "music" | "streaming";
-  oauth?: boolean;
 }> = [
-  { id: "lastfm",    label: "Last.fm",     color: "#e4335a", bg: "#e4335a20", hint: "Authorise via Last.fm — shows your live scrobbles on your profile.", placeholder: "", category: "music", oauth: true },
-  { id: "spotify",   label: "Spotify",     color: "#1db954", bg: "#1db95420", hint: "Link your Spotify username.", placeholder: "Spotify username", category: "music" },
-  { id: "youtube",   label: "YouTube",     color: "#ff0000", bg: "#ff000020", hint: "Link your YouTube channel @handle.", placeholder: "YouTube @handle or URL", category: "streaming" },
-  { id: "twitch",    label: "Twitch",      color: "#9146ff", bg: "#9146ff20", hint: "Link your Twitch channel.", placeholder: "Twitch username", category: "streaming" },
-  { id: "steam",     label: "Steam",       color: "#4a90d9", bg: "#4a90d920", hint: "Link your Steam profile.", placeholder: "Steam username or profile URL", category: "gaming" },
-  { id: "xbox",      label: "Xbox",        color: "#107c10", bg: "#107c1020", hint: "Link your Xbox Gamertag.", placeholder: "Gamertag", category: "gaming" },
-  { id: "psn",       label: "PlayStation", color: "#00439c", bg: "#00439c20", hint: "Link your PSN ID.", placeholder: "PSN ID", category: "gaming" },
-  { id: "battlenet", label: "Battle.net",  color: "#148eff", bg: "#148eff20", hint: "Link your Battle.net BattleTag.", placeholder: "BattleTag (e.g. User#1234)", category: "gaming" },
-  { id: "roblox",    label: "Roblox",      color: "#e8000b", bg: "#e8000b20", hint: "Link your Roblox username.", placeholder: "Roblox username", category: "gaming" },
-  { id: "github",    label: "GitHub",      color: "#c9d1d9", bg: "#ffffff12", hint: "Link your GitHub profile.", placeholder: "GitHub username", category: "social" },
-  { id: "twitter",   label: "X / Twitter", color: "#1d9bf0", bg: "#1d9bf020", hint: "Link your X / Twitter account.", placeholder: "X username (without @)", category: "social" },
-  { id: "instagram", label: "Instagram",   color: "#e1306c", bg: "#e1306c20", hint: "Link your Instagram profile.", placeholder: "Instagram username", category: "social" },
-  { id: "discord",   label: "Discord",     color: "#5865f2", bg: "#5865f220", hint: "Link your Discord username.", placeholder: "Discord username", category: "social" },
-  { id: "website",   label: "Website",     color: "#8B5CF6", bg: "#8B5CF620", hint: "Link your personal website.", placeholder: "https://yoursite.com", category: "social" },
+  { id: "lastfm",    label: "Last.fm",     color: "#e4335a", bg: "#e4335a20", hint: "Authorise via Last.fm — shows your live scrobbles on your profile.", category: "music" },
+  { id: "spotify",   label: "Spotify",     color: "#1db954", bg: "#1db95420", hint: "Authorise via Spotify.", category: "music" },
+  { id: "youtube",   label: "YouTube",     color: "#ff0000", bg: "#ff000020", hint: "Authorise via Google/YouTube.", category: "streaming" },
+  { id: "twitch",    label: "Twitch",      color: "#9146ff", bg: "#9146ff20", hint: "Authorise via Twitch.", category: "streaming" },
+  { id: "steam",     label: "Steam",       color: "#4a90d9", bg: "#4a90d920", hint: "Authorise via Steam.", category: "gaming" },
+  { id: "xbox",      label: "Xbox",        color: "#107c10", bg: "#107c1020", hint: "Authorise via Microsoft/Xbox.", category: "gaming" },
+  { id: "psn",       label: "PlayStation", color: "#00439c", bg: "#00439c20", hint: "Authorise via PlayStation Network.", category: "gaming" },
+  { id: "battlenet", label: "Battle.net",  color: "#148eff", bg: "#148eff20", hint: "Authorise via Battle.net.", category: "gaming" },
+  { id: "roblox",    label: "Roblox",      color: "#e8000b", bg: "#e8000b20", hint: "Authorise via Roblox.", category: "gaming" },
+  { id: "github",    label: "GitHub",      color: "#c9d1d9", bg: "#ffffff12", hint: "Authorise via GitHub.", category: "social" },
+  { id: "twitter",   label: "X / Twitter", color: "#1d9bf0", bg: "#1d9bf020", hint: "Authorise via X.", category: "social" },
+  { id: "instagram", label: "Instagram",   color: "#e1306c", bg: "#e1306c20", hint: "Authorise via Instagram.", category: "social" },
+  { id: "discord",   label: "Discord",     color: "#5865f2", bg: "#5865f220", hint: "Authorise via Discord.", category: "social" },
+  { id: "website",   label: "Website",     color: "#8B5CF6", bg: "#8B5CF620", hint: "Enter your personal website URL.", category: "social" },
 ];
 
 const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
@@ -145,8 +145,9 @@ function ConnectionsTabContent({
     const params = new URLSearchParams(window.location.search);
     const success = params.get("success");
     const error = params.get("error");
-    if (success === "lastfm") {
-      toast.success("Last.fm connected!");
+    if (success) {
+      const label = CONNECTION_PROVIDERS.find((p) => p.id === success)?.label || success;
+      toast.success(`${label} connected!`);
       // Refresh connections
       fetch("/api/users/me/connections")
         .then((r) => r.json())
@@ -156,13 +157,15 @@ function ConnectionsTabContent({
       window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
     } else if (error) {
       const msgs: Record<string, string> = {
-        lastfm_denied: "Last.fm authorisation was cancelled.",
-        lastfm_state_missing: "Session expired. Please try again.",
-        lastfm_session_failed: "Failed to get Last.fm session. Please try again.",
-        lastfm_error: "An error occurred linking Last.fm.",
-        lastfm_not_configured: "Last.fm is not configured on this instance.",
+        denied: "Authorisation was cancelled.",
+        state_missing: "Session expired. Please try again.",
+        session_failed: "Failed to complete authorisation. Please try again.",
+        error: "An error occurred while linking the account.",
+        not_configured: "This provider is not configured on this instance.",
       };
-      toast.error(msgs[error] || "Connection failed.");
+      // Match prefix errors like "lastfm_denied", "github_denied", etc.
+      const base = error.includes("_") ? error.split("_").slice(1).join("_") : error;
+      toast.error(msgs[base] || "Connection failed.");
       params.delete("error");
       window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
     }
@@ -241,7 +244,7 @@ function ConnectionsTabContent({
               value={connectingValue}
               onChange={(e) => setConnectingValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void handleConnect(connectingProvider, connectingValue)}
-              placeholder={activeProviderDef.placeholder}
+              placeholder="https://yoursite.com"
               className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
             />
             <button
@@ -273,10 +276,10 @@ function ConnectionsTabContent({
                       className={`flex items-center gap-3 px-4 py-3 bg-[var(--bg-app)] transition-colors${i < catProviders.length - 1 ? " border-b border-[var(--border-subtle)]" : ""}`}
                     >
                       <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 font-bold text-sm select-none"
-                        style={{ backgroundColor: p.bg, color: p.color }}
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: p.bg }}
                       >
-                        {p.label[0]}
+                        {(() => { const Icon = getConnectionIcon(p.id); return <Icon size={18} style={{ color: p.color }} />; })()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-white">{p.label}</p>
@@ -296,15 +299,7 @@ function ConnectionsTabContent({
                         >
                           Disconnect
                         </button>
-                      ) : p.oauth ? (
-                        <a
-                          href="/api/auth/lastfm/initiate"
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
-                          style={{ backgroundColor: p.color }}
-                        >
-                          Connect
-                        </a>
-                      ) : (
+                      ) : p.id === "website" ? (
                         <button
                           onClick={() => { setConnectingProvider(isExpanded ? null : p.id); setConnectingValue(""); }}
                           className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90"
@@ -312,6 +307,14 @@ function ConnectionsTabContent({
                         >
                           {isExpanded ? "Cancel" : "Connect"}
                         </button>
+                      ) : (
+                        <a
+                          href={`/api/auth/${p.id}/initiate`}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
+                          style={{ backgroundColor: p.color }}
+                        >
+                          Connect
+                        </a>
                       )}
                     </div>
                   );

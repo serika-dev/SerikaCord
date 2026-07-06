@@ -535,9 +535,9 @@ export function ChannelSidebar({
               "w-4 h-4 flex-shrink-0",
               isActive ? "text-green-400" : "text-[var(--text-muted)]"
             )} />
-            <span className="truncate text-sm flex-1 text-left">{channel.name}</span>
+            <span className="truncate text-sm flex-1 text-left min-w-0">{channel.name}</span>
             {channel.isNsfw && (
-              <span className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 select-none">
+              <span className="shrink-0 px-0.5 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 select-none">
                 NSFW
               </span>
             )}
@@ -612,9 +612,9 @@ export function ChannelSidebar({
           style={{ width: "calc(100% - 16px)" }}
         >
           {getChannelIcon(channel.type)}
-          <span className="truncate text-sm flex-1 text-left">{channel.name}</span>
+          <span className="truncate text-sm flex-1 text-left min-w-0">{channel.name}</span>
           {channel.isNsfw && (
-            <span className="shrink-0 px-1 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 select-none">
+            <span className="shrink-0 px-0.5 py-0.5 rounded text-[8px] font-bold bg-red-500/20 text-red-400 select-none">
               NSFW
             </span>
           )}
@@ -956,7 +956,7 @@ export function ChannelSidebar({
       </DropdownMenu>
 
       {/* Channel List */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="py-3">
           {/* Uncategorized Channels drop zone */}
           <div

@@ -30,23 +30,9 @@ import { useMoeActivity, useUserActivity } from "@/hooks/useMoeActivity";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
-
-const CONNECTION_META: Record<string, { label: string; color: string; href: (id: string) => string }> = {
-  lastfm:    { label: "Last.fm",     color: "#e4335a", href: (id) => `https://www.last.fm/user/${id}` },
-  spotify:   { label: "Spotify",     color: "#1db954", href: (id) => `https://open.spotify.com/user/${id}` },
-  youtube:   { label: "YouTube",     color: "#ff0000", href: (id) => id.startsWith("http") ? id : `https://youtube.com/@${id}` },
-  twitch:    { label: "Twitch",      color: "#9146ff", href: (id) => `https://twitch.tv/${id}` },
-  steam:     { label: "Steam",       color: "#4a90d9", href: (id) => id.startsWith("http") ? id : `https://steamcommunity.com/id/${id}` },
-  xbox:      { label: "Xbox",        color: "#107c10", href: (id) => `https://account.xbox.com/en-US/profile?gamertag=${encodeURIComponent(id)}` },
-  psn:       { label: "PlayStation", color: "#00439c", href: (id) => `https://psnprofiles.com/${id}` },
-  battlenet: { label: "Battle.net",  color: "#148eff", href: () => `https://battle.net` },
-  roblox:    { label: "Roblox",      color: "#e8000b", href: (id) => `https://www.roblox.com/users/profile?username=${id}` },
-  github:    { label: "GitHub",      color: "#c9d1d9", href: (id) => `https://github.com/${id}` },
-  twitter:   { label: "X / Twitter", color: "#1d9bf0", href: (id) => `https://x.com/${id}` },
-  instagram: { label: "Instagram",   color: "#e1306c", href: (id) => `https://instagram.com/${id}` },
-  discord:   { label: "Discord",     color: "#5865f2", href: () => `https://discord.com` },
-  website:   { label: "Website",     color: "#8B5CF6", href: (id) => id.startsWith("http") ? id : `https://${id}` },
-};
+import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
+import { FullProfileDialog } from "@/components/user/FullProfileDialog";
+import { ExternalLink } from "lucide-react";
 
 export interface ProfileCardUser {
   id: string;
@@ -133,6 +119,7 @@ export function ProfileCard({
   const [friendRequestSent, setFriendRequestSent] = useState(user.friendRequestSent ?? false);
   const [memberRoles, setMemberRoles] = useState(user.roles || []);
   const [serverRoles, setServerRoles] = useState<Array<{ id: string; name: string; color?: string; isDefault?: boolean }>>([]);
+  const [fullProfileOpen, setFullProfileOpen] = useState(false);
   const [canManageRoles, setCanManageRoles] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [isUpdatingRoles, setIsUpdatingRoles] = useState(false);
@@ -411,10 +398,10 @@ export function ProfileCard({
             <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">Connections</h4>
             <div className="space-y-1">
               {user.connections.map((conn) => {
-                const meta = CONNECTION_META[conn.provider];
-                if (!meta) return null;
+                const Icon = getConnectionIcon(conn.provider);
+                const color = getConnectionColor(conn.provider);
                 const label = conn.displayName || conn.username || conn.accountId;
-                const href = meta.href(conn.accountId);
+                const href = getConnectionHref(conn.provider, conn.accountId);
                 return (
                   <a
                     key={conn.provider}
@@ -425,11 +412,9 @@ export function ProfileCard({
                   >
                     {conn.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={conn.avatar} alt={label} className="w-5 h-5 rounded-full object-cover shrink-0" style={{ backgroundColor: `${meta.color}20` }} />
+                      <img src={conn.avatar} alt={label} className="w-5 h-5 rounded-full object-cover shrink-0" />
                     ) : (
-                      <div className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold" style={{ backgroundColor: `${meta.color}20`, color: meta.color }}>
-                        {meta.label[0]}
-                      </div>
+                      <Icon size={20} className="shrink-0" style={{ color }} />
                     )}
                     <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
                     <svg className="w-3 h-3 text-[#9a9aad] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
@@ -551,7 +536,31 @@ export function ProfileCard({
             )}
           </div>
         )}
+
+        {/* View Full Profile button */}
+        {user.id && (
+          <button
+            onClick={() => {
+              onNavigate?.();
+              setFullProfileOpen(true);
+            }}
+            className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-sm font-medium text-[#c8c8d8] hover:text-white transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            View Full Profile
+          </button>
+        )}
       </div>
+
+      <FullProfileDialog
+        user={user}
+        open={fullProfileOpen}
+        onOpenChange={setFullProfileOpen}
+        isCurrentUser={isCurrentUser}
+        isFriend={isFriend}
+        serverId={serverId}
+        showOwnerCrown={showOwnerCrown}
+      />
     </div>
   );
 }

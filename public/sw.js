@@ -43,6 +43,9 @@ self.addEventListener('fetch', (event) => {
     // Skip API requests - they should always be fresh
     if (event.request.url.includes('/api/')) return;
 
+    // Skip non-http(s) requests (chrome-extension://, etc.) — Cache API can't handle them
+    if (!event.request.url.startsWith('http')) return;
+
     event.respondWith(
         fetch(event.request)
             .then((response) => {
