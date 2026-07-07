@@ -390,6 +390,7 @@ export default function DMConversationPage() {
                 user={recipient as ProfileCardUser}
                 isFriend={recipient.isFriend}
                 hideMessageButton
+                hideConnections
                 noRoundedCorners
                 className="w-full max-w-none flex-1 flex flex-col"
               />

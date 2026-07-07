@@ -55,7 +55,13 @@ function upsertSavedAccount(
   accounts: SavedAccountEntry[],
   entry: SavedAccountEntry
 ): SavedAccountEntry[] {
-  const filtered = accounts.filter((a) => a.email.toLowerCase() !== entry.email.toLowerCase());
+  const entryEmail = entry.email.toLowerCase();
+  const entryUsername = entry.username.toLowerCase();
+  const filtered = accounts.filter((a) => {
+    if (a.email.toLowerCase() === entryEmail) return false;
+    if (a.username.toLowerCase() === entryUsername) return false;
+    return true;
+  });
   filtered.push(entry);
   return filtered;
 }

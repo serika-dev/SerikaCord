@@ -12,14 +12,13 @@ import {
   AlertCircle,
   MessageSquare,
   ArrowRight,
-  Clock,
   Shield,
   ChevronLeft,
+  Clock,
 } from "lucide-react";
 
 import { ServerBadge } from "@/components/ui/badges";
 import { ShareInviteButton } from "@/components/invite/ShareInviteButton";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 interface InviteInfo {
   code: string;
@@ -34,24 +33,6 @@ interface InviteInfo {
     isPartnered?: boolean;
   };
   expiresAt?: string;
-}
-
-interface ServerWidget {
-  id: string;
-  name: string;
-  icon?: string;
-  memberCount: number;
-  onlineCount: number;
-  isPartnered?: boolean;
-  inviteCode?: string;
-  channels: Array<{ id: string; name: string; type: string }>;
-  members: Array<{ id: string; username: string; displayName?: string; avatar?: string; status: string }>;
-  recentMessages: Array<{
-    id: string;
-    content: string;
-    author: { id: string; username: string; displayName?: string; avatar?: string };
-    createdAt: string;
-  }>;
 }
 
 function formatExpiry(expiresAt: string | undefined): string | null {
@@ -76,7 +57,6 @@ export default function InvitePage() {
   const inviteCode = params.inviteCode as string;
 
   const [invite, setInvite] = useState<InviteInfo | null>(null);
-  const [widget, setWidget] = useState<ServerWidget | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,22 +92,6 @@ export default function InvitePage() {
     fetchInvite();
     checkAuth();
   }, [fetchInvite, checkAuth]);
-
-  useEffect(() => {
-    if (!invite?.server._id) return;
-    const fetchWidget = async () => {
-      try {
-        const res = await fetch(`/api/servers/${invite.server._id}/widget`);
-        if (res.ok) {
-          const data = await res.json();
-          setWidget(data);
-        }
-      } catch {
-        // best-effort: widget preview is optional
-      }
-    };
-    fetchWidget();
-  }, [invite?.server._id]);
 
   const handleJoin = async () => {
     if (!isAuthenticated) {
@@ -176,14 +140,15 @@ export default function InvitePage() {
 
   const expiry = invite?.expiresAt ? formatExpiry(invite.expiresAt) : null;
   const isExpired = expiry === "Expired";
+  const banner = invite?.server.banner;
 
   // Show 404 for reserved slugs (real routes / branding names)
   if (inviteCode && isReservedSlug(inviteCode)) {
     return (
-      <div className="min-h-screen bg-[#05060a] flex flex-col items-center justify-center px-4 text-center">
+      <div className="min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center px-4 text-center">
         <p className="text-8xl font-extrabold text-white/5 select-none mb-6">404</p>
         <h1 className="text-2xl font-bold text-white mb-2">Page Not Found</h1>
-        <p className="text-[#8d97ad] text-sm mb-8">This page doesn&apos;t exist or you don&apos;t have access to it.</p>
+        <p className="text-[var(--app-muted)] text-sm mb-8">This page doesn&apos;t exist or you don&apos;t have access to it.</p>
         <Link href="/" className="px-6 py-3 bg-[var(--accent-color)] hover:brightness-110 text-white font-medium rounded-lg transition-all text-sm">
           Go Home
         </Link>
@@ -192,30 +157,51 @@ export default function InvitePage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#05060a] flex flex-col items-center justify-center px-4 relative overflow-hidden">
-      {/* Background gradient orbs */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div
-          className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full opacity-20"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(124,140,255,0.4) 0%, transparent 70%)",
-          }}
+    <div className="min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center px-4 relative overflow-hidden">
+      {/* Full-bleed background: server banner, blurred + darkened */}
+      <div className="fixed inset-0 pointer-events-none">
+        {banner ? (
+          <>
+            <div
+              className="absolute inset-0 bg-cover bg-center scale-110"
+              style={{
+                backgroundImage: `url(${banner})`,
+                filter: "blur(36px) saturate(1.2)",
+                transform: "scale(1.15)",
+              }}
+            />
+            <div className="absolute inset-0 bg-[var(--app-bg)]/70" />
+            <div className="absolute inset-0 bg-gradient-to-b from-[var(--app-bg)]/40 via-transparent to-[var(--app-bg)]" />
+          </>
+        ) : (
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--accent-color) 22%, transparent) 0%, transparent 55%), radial-gradient(circle at 75% 75%, color-mix(in srgb, var(--app-accent) 20%, transparent) 0%, transparent 55%), var(--app-bg)",
+            }}
+          />
+        )}
+        {/* Floating glow orbs for depth, layered above the banner */}
+        <motion.div
+          className="absolute -top-32 -left-32 w-[500px] h-[500px] rounded-full opacity-25"
+          style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--accent-color) 45%, transparent) 0%, transparent 70%)" }}
+          animate={{ x: [0, 30, 0], y: [0, 20, 0] }}
+          transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
         />
-        <div
-          className="absolute -bottom-40 -right-40 w-[500px] h-[500px] rounded-full opacity-15"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(139,92,246,0.4) 0%, transparent 70%)",
-          }}
+        <motion.div
+          className="absolute -bottom-40 -right-24 w-[440px] h-[440px] rounded-full opacity-20"
+          style={{ background: "radial-gradient(circle, rgba(139,92,246,0.5) 0%, transparent 70%)" }}
+          animate={{ x: [0, -20, 0], y: [0, -25, 0] }}
+          transition={{ duration: 14, repeat: Infinity, ease: "easeInOut" }}
         />
       </div>
 
       {/* Back to home */}
-      <div className="absolute top-6 left-6">
+      <div className="absolute top-6 left-6 z-10">
         <Link
           href="/"
-          className="flex items-center gap-2 text-sm text-[#8d97ad] hover:text-[#d5d9e8] transition-colors"
+          className="flex items-center gap-2 text-sm text-[var(--app-muted)] hover:text-[var(--app-text)] transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
           Back to SerikaCord
@@ -229,12 +215,12 @@ export default function InvitePage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center gap-4"
+            className="relative z-10 flex flex-col items-center gap-4"
           >
-            <div className="w-16 h-16 rounded-2xl bg-[#0c0f17] border border-[#1e2637] flex items-center justify-center">
-              <Loader2 className="w-8 h-8 text-[#7c8cff] animate-spin" />
+            <div className="w-16 h-16 rounded-2xl bg-[var(--app-surface)]/80 backdrop-blur-xl border border-[var(--app-border)] flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
             </div>
-            <p className="text-[#8d97ad] text-sm">Loading invite...</p>
+            <p className="text-[var(--app-muted)] text-sm">Loading invite...</p>
           </motion.div>
         ) : error && !invite ? (
           <motion.div
@@ -242,16 +228,16 @@ export default function InvitePage() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="flex flex-col items-center gap-6 text-center max-w-sm"
+            className="relative z-10 flex flex-col items-center gap-6 text-center max-w-sm"
           >
-            <div className="w-20 h-20 rounded-2xl bg-[#0c0f17] border border-[#1e2637] flex items-center justify-center">
+            <div className="w-20 h-20 rounded-2xl bg-[var(--app-surface)]/80 backdrop-blur-xl border border-[var(--app-border)] flex items-center justify-center">
               <AlertCircle className="w-10 h-10 text-[#ef4444]" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-[#d5d9e8] mb-2">
+              <h1 className="text-2xl font-bold text-[var(--app-text)] mb-2">
                 Invite Invalid
               </h1>
-              <p className="text-[#8d97ad] text-sm leading-relaxed">{error}</p>
+              <p className="text-[var(--app-muted)] text-sm leading-relaxed">{error}</p>
             </div>
             <Link
               href="/channels/me"
@@ -263,83 +249,87 @@ export default function InvitePage() {
         ) : invite ? (
           <motion.div
             key="invite"
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            className="w-full max-w-md"
+            transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+            className="relative z-10 w-full max-w-md"
           >
             {/* Card */}
-            <div className="bg-[#0c0f17] border border-[#1e2637] rounded-2xl overflow-hidden shadow-2xl">
-              {/* Server banner */}
-              <div className="relative h-28 bg-gradient-to-br from-[#1e2637] to-[#0c0f17]">
-                {invite.server.banner && (
-                  <Image
-                    src={invite.server.banner}
-                    alt=""
-                    fill
-                    className="object-cover"
-                    unoptimized
-                  />
-                )}
-                {!invite.server.banner && (
-                  <div
-                    className="absolute inset-0"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, rgba(124,140,255,0.3) 0%, rgba(139,92,246,0.2) 50%, rgba(30,38,55,0.8) 100%)",
-                    }}
-                  />
-                )}
-                {/* Server icon overlapping banner */}
-                <div className="absolute -bottom-8 left-6">
-                  <div className="w-16 h-16 rounded-2xl border-4 border-[#0c0f17] overflow-hidden bg-[#131a28] flex items-center justify-center shadow-lg">
-                    {invite.server.icon ? (
-                      <Image
-                        src={invite.server.icon}
-                        alt={invite.server.name}
-                        width={64}
-                        height={64}
-                        className="object-cover"
-                        unoptimized
-                      />
-                    ) : (
-                      <span className="text-xl font-bold text-white">
-                        {invite.server.name.charAt(0).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4, delay: 0.05, ease: [0.16, 1, 0.3, 1] }}
+              className="bg-[var(--app-surface)]/70 backdrop-blur-2xl border border-[var(--app-border)]/80 rounded-3xl overflow-hidden shadow-2xl"
+            >
+              <div className="pt-8 px-6 pb-6">
+                {/* Icon */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.85 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.4, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                  className="w-20 h-20 rounded-3xl overflow-hidden bg-[var(--app-surface-alt)] flex items-center justify-center shrink-0"
+                  style={{
+                    boxShadow:
+                      "0 0 0 4px color-mix(in srgb, var(--accent-color) 25%, transparent), 0 12px 30px -8px color-mix(in srgb, var(--accent-color) 45%, transparent)",
+                  }}
+                >
+                  {invite.server.icon ? (
+                    <Image
+                      src={invite.server.icon}
+                      alt={invite.server.name}
+                      width={80}
+                      height={80}
+                      className="object-cover w-full h-full"
+                      unoptimized
+                    />
+                  ) : (
+                    <span className="text-3xl font-bold text-white">
+                      {invite.server.name.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </motion.div>
 
-              {/* Content */}
-              <div className="pt-10 px-6 pb-6">
                 {/* Header */}
-                <div className="mb-1">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-[#7c8cff] mb-1">
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: 0.18 }}
+                  className="mt-4"
+                >
+                  <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent-color)] mb-1">
                     You&apos;ve been invited to join
                   </p>
                   <div className="flex items-center gap-2">
                     {invite.server.isPartnered && <ServerBadge type="partnered" size="md" iconOnly />}
-                    <h1 className="text-2xl font-bold text-[#d5d9e8] leading-tight">
+                    <h1 className="text-2xl font-bold text-[var(--app-text)] leading-tight">
                       {invite.server.name}
                     </h1>
                   </div>
-                </div>
+                </motion.div>
 
                 {/* Description */}
                 {invite.server.description && (
-                  <p className="text-sm text-[#8d97ad] mt-2 leading-relaxed line-clamp-2">
+                  <p className="text-sm text-[var(--app-muted)] mt-2 leading-relaxed line-clamp-2">
                     {invite.server.description}
                   </p>
                 )}
 
                 {/* Stats */}
-                <div className="flex items-center gap-4 mt-4">
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.35, delay: 0.24 }}
+                  className="flex items-center gap-4 mt-4"
+                >
                   {invite.server.onlineCount !== undefined && (
                     <div className="flex items-center gap-1.5">
-                      <Circle className="w-2.5 h-2.5 fill-[#23d160] text-[#23d160]" />
-                      <span className="text-sm text-[#8d97ad]">
-                        <span className="text-[#d5d9e8] font-medium">
+                      <span className="relative flex w-2.5 h-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#23d160] opacity-60" />
+                        <Circle className="relative w-2.5 h-2.5 fill-[#23d160] text-[#23d160]" />
+                      </span>
+                      <span className="text-sm text-[var(--app-muted)]">
+                        <span className="text-[var(--app-text)] font-medium">
                           {invite.server.onlineCount.toLocaleString()}
                         </span>{" "}
                         Online
@@ -348,22 +338,22 @@ export default function InvitePage() {
                   )}
                   {invite.server.memberCount !== undefined && (
                     <div className="flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-[#6b7387]" />
-                      <span className="text-sm text-[#8d97ad]">
-                        <span className="text-[#d5d9e8] font-medium">
+                      <Users className="w-3.5 h-3.5 text-[var(--app-muted-2)]" />
+                      <span className="text-sm text-[var(--app-muted)]">
+                        <span className="text-[var(--app-text)] font-medium">
                           {invite.server.memberCount.toLocaleString()}
                         </span>{" "}
                         Members
                       </span>
                     </div>
                   )}
-                </div>
+                </motion.div>
 
                 {/* Expiry */}
                 {expiry && (
                   <div
                     className={`flex items-center gap-1.5 mt-3 text-xs ${
-                      isExpired ? "text-[#ef4444]" : "text-[#6b7387]"
+                      isExpired ? "text-[#ef4444]" : "text-[var(--app-muted-2)]"
                     }`}
                   >
                     <Clock className="w-3.5 h-3.5" />
@@ -380,11 +370,17 @@ export default function InvitePage() {
                 )}
 
                 {/* CTA */}
-                <div className="mt-5 flex flex-col gap-2">
-                  <button
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35, delay: 0.3 }}
+                  className="mt-5 flex flex-col gap-2"
+                >
+                  <motion.button
+                    whileTap={{ scale: 0.98 }}
                     onClick={handleJoin}
                     disabled={isJoining || isExpired}
-                    className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all active:scale-[0.98] text-sm"
+                    className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all text-sm"
                   >
                     {isJoining ? (
                       <>
@@ -404,7 +400,7 @@ export default function InvitePage() {
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
-                  </button>
+                  </motion.button>
 
                   {!isExpired && (
                     <ShareInviteButton
@@ -415,7 +411,7 @@ export default function InvitePage() {
                   )}
 
                   {!isAuthenticated && !isExpired && (
-                    <p className="text-center text-xs text-[#6b7387]">
+                    <p className="text-center text-xs text-[var(--app-muted-2)]">
                       Don&apos;t have an account?{" "}
                       <Link
                         href={`/register?redirect=/${inviteCode}`}
@@ -425,75 +421,25 @@ export default function InvitePage() {
                       </Link>
                     </p>
                   )}
-                </div>
+                </motion.div>
               </div>
-            </div>
+            </motion.div>
 
             {/* Brand footer */}
-            <div className="flex items-center justify-center gap-2 mt-6 text-sm text-[#6b7387]">
-              <div className="w-5 h-5 rounded-md bg-[#7c8cff] flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.35, delay: 0.4 }}
+              className="flex items-center justify-center gap-2 mt-6 text-sm text-[var(--app-muted-2)]"
+            >
+              <div className="w-5 h-5 rounded-md bg-[var(--app-accent)] flex items-center justify-center">
                 <MessageSquare className="w-3 h-3 text-white" />
               </div>
               <span>SerikaCord</span>
-              <span className="text-[#1e2637]">·</span>
+              <span className="text-[var(--app-border)]">·</span>
               <Shield className="w-3.5 h-3.5" />
               <span>Safe & Secure</span>
-            </div>
-
-            {/* Widget Preview */}
-            {widget && !isExpired && (
-              <div className="mt-4 bg-[#0a0a0a]/80 border border-[#222222] rounded-xl p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold text-white">Server Preview</h2>
-                  <Link
-                    href={`/widget/${widget.id}`}
-                    className="text-xs text-[var(--accent-color)] hover:underline"
-                  >
-                    Open widget
-                  </Link>
-                </div>
-
-                {widget.channels.length > 0 && (
-                  <div className="mb-3">
-                    <h3 className="text-xs uppercase text-[#6b7387] mb-1.5">Channels</h3>
-                    <div className="flex flex-wrap gap-1.5">
-                      {widget.channels.slice(0, 5).map((channel) => (
-                        <span
-                          key={channel.id}
-                          className="px-2 py-1 text-xs bg-[#1a1a1a] rounded text-[#b5bac1]"
-                        >
-                          #{channel.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {widget.recentMessages && widget.recentMessages.length > 0 && (
-                  <div>
-                    <h3 className="text-xs uppercase text-[#6b7387] mb-1.5">Recent Messages</h3>
-                    <div className="space-y-2">
-                      {widget.recentMessages.slice(0, 5).map((msg) => (
-                        <div key={msg.id} className="flex gap-2">
-                          <Avatar className="w-6 h-6 shrink-0">
-                            <AvatarImage src={msg.author.avatar} />
-                            <AvatarFallback className="bg-[var(--accent-color)] text-white text-[10px]">
-                              {(msg.author.displayName || msg.author.username).charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <span className="text-xs font-medium text-[#dcddde]">
-                              {msg.author.displayName || msg.author.username}
-                            </span>
-                            <p className="text-xs text-[#b5bac1] line-clamp-1">{msg.content}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            </motion.div>
           </motion.div>
         ) : null}
       </AnimatePresence>

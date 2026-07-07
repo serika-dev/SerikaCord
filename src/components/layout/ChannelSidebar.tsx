@@ -735,8 +735,8 @@ export function ChannelSidebar({
   }, [currentServer, fetchDMChannels]);
 
   const statusColors: Record<string, string> = {
-    online: "#8B5CF6",
-    idle: "#A78BFA",
+    online: "#23A559",
+    idle: "#F0B232",
     dnd: "#EF4444",
     offline: "#555555",
   };
@@ -1233,7 +1233,7 @@ function UserPanel({ user }: UserPanelProps) {
 
   return (
     <div className="relative overflow-hidden h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
-      {/* Nameplate — spans the whole user panel bar */}
+      {/* Nameplate — floats behind the whole panel, not boxed in its own pill */}
       {nameplateBg && (
         <span
           aria-hidden
@@ -1241,8 +1241,8 @@ function UserPanel({ user }: UserPanelProps) {
           style={{
             background: nameplateBg,
             opacity: 0.55,
-            WebkitMaskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)',
-            maskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)',
+            WebkitMaskImage: "linear-gradient(90deg, #000 55%, transparent 100%)",
+            maskImage: "linear-gradient(90deg, #000 55%, transparent 100%)",
           }}
         />
       )}
@@ -1260,10 +1260,10 @@ function UserPanel({ user }: UserPanelProps) {
             <div
               className={cn(
                 "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[var(--bg-sidebar)]",
-                user?.status === "online" && "bg-[var(--app-accent)]",
-                user?.status === "idle" && "bg-[#A78BFA]",
-                user?.status === "dnd" && "bg-red-500",
-                (!user?.status || user?.status === "offline") && "bg-[var(--text-muted)]"
+                user?.status === "online" && "bg-[#23A559]",
+                user?.status === "idle" && "bg-[#F0B232]",
+                user?.status === "dnd" && "bg-[#EF4444]",
+                (!user?.status || user?.status === "offline") && "bg-[#555555]"
               )}
             />
           </div>

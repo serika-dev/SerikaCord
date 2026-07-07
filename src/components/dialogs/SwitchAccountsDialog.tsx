@@ -29,8 +29,18 @@ export function SwitchAccountsDialog({
 
   useEffect(() => {
     if (open) {
-      // Only show accounts that have a saved token (switchable) and dedupe by email
-      setAccounts(parseSavedAccountsCookie().filter((a) => a.token));
+      // Only show accounts that have a saved token (switchable) and dedupe by username
+      const seen = new Set<string>();
+      setAccounts(
+        parseSavedAccountsCookie()
+          .filter((a) => a.token)
+          .filter((a) => {
+            const key = a.username.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+      );
       setMode("list");
       setSelectedAccount(null);
       setError("");

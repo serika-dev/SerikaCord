@@ -116,6 +116,8 @@ interface ProfileCardProps {
   onViewFullProfile?: () => void;
   /** Hide the "Message" action (e.g. inside the DM view where it's redundant) */
   hideMessageButton?: boolean;
+  /** Hide the Connections section (e.g. in popups / side panels; keep for full profile view) */
+  hideConnections?: boolean;
   /** Remove rounded corners (e.g. for DM sidebar full-height view) */
   noRoundedCorners?: boolean;
 }
@@ -134,6 +136,7 @@ export function ProfileCard({
   serverId,
   onViewFullProfile,
   hideMessageButton = false,
+  hideConnections = false,
   noRoundedCorners = false,
 }: ProfileCardProps) {
   const router = useRouter();
@@ -292,7 +295,7 @@ export function ProfileCard({
         <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c10]/70 via-transparent to-transparent" />
       </div>
 
-      <div className="relative px-4 pb-4">
+      <div className="relative flex-1 flex flex-col min-h-0 px-4 pb-4">
         {/* Avatar overlapping the banner */}
         <div className="absolute -top-11 left-4">
           <div className="relative">
@@ -428,7 +431,7 @@ export function ProfileCard({
         )}
 
         {/* Connections */}
-        {user.connections && user.connections.length > 0 && (
+        {!hideConnections && user.connections && user.connections.length > 0 && (
           <div className="mt-4">
             <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">Connections</h4>
             <div className="space-y-1">
@@ -574,20 +577,22 @@ export function ProfileCard({
 
         {/* View Full Profile button */}
         {user.id && (
-          <button
-            onClick={() => {
-              if (onViewFullProfile) {
-                onViewFullProfile();
-              } else {
-                onNavigate?.();
-                setFullProfileOpen(true);
-              }
-            }}
-            className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-sm font-medium text-[#c8c8d8] hover:text-white transition-colors"
-          >
-            <ExternalLink className="w-4 h-4" />
-            View Full Profile
-          </button>
+          <div className="mt-auto pt-4">
+            <button
+              onClick={() => {
+                if (onViewFullProfile) {
+                  onViewFullProfile();
+                } else {
+                  onNavigate?.();
+                  setFullProfileOpen(true);
+                }
+              }}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-sm font-medium text-white transition-all"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View Full Profile
+            </button>
+          </div>
         )}
       </div>
 

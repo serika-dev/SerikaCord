@@ -6,8 +6,31 @@ import { cache } from '@/lib/db';
 import { nanoid } from 'nanoid';
 import { config } from '@/lib/config';
 import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
-import { resolveEffectiveStatus } from '@/lib/services/presence';
+import { resolveEffectiveStatus, PRESENCE_TIMEOUT_MS } from '@/lib/services/presence';
+import { parseCustomEmojis } from '@/lib/services/emoji';
 import { Types } from 'mongoose';
+
+// Live count of members who are actually online right now (status + fresh
+// heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
+// is never written to and must not be trusted as a source of truth.
+async function computeOnlineCount(serverId: Types.ObjectId | string): Promise<number> {
+  const result = await ServerMember.aggregate([
+    { $match: { serverId: new Types.ObjectId(serverId) } },
+    { $lookup: {
+      from: 'users',
+      localField: 'userId',
+      foreignField: '_id',
+      as: 'user',
+    }},
+    { $unwind: '$user' },
+    { $match: {
+      'user.status': { $nin: ['offline', 'invisible'] },
+      'user.presenceLastHeartbeatAt': { $gte: new Date(Date.now() - PRESENCE_TIMEOUT_MS) },
+    }},
+    { $count: 'count' },
+  ]);
+  return result[0]?.count ?? 0;
+}
 
 // Helper function for auth
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
@@ -193,11 +216,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const servers = memberships
       .filter(m => m.serverId)
-      .map(m => ({
-        ...(m.serverId as unknown as { toJSON: () => Record<string, unknown> }).toJSON(),
-        joinedAt: m.joinedAt,
-        roles: m.roles,
-      }));
+      .map(m => {
+        const server = m.serverId as unknown as { _id: Types.ObjectId; toJSON: () => Record<string, unknown> };
+        return {
+          ...server.toJSON(),
+          id: server._id.toString(),
+          joinedAt: m.joinedAt,
+          roles: m.roles,
+        };
+      });
 
     return { servers };
   })
@@ -1753,8 +1780,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       roleId: t.String(),
     }),
   })
-  // Get server widget data (public endpoint)
-  .get('/:serverId/widget', async ({ params, set }) => {
+  // Get server widget data (public endpoint) — powers the embeddable
+  // /widget/:serverId chat preview. Accepts an optional `channel` query param
+  // so the embed can switch which channel's messages are shown.
+  .get('/:serverId/widget', async ({ params, query, set }) => {
     if (!isValidObjectId(params.serverId)) {
       set.status = 400;
       return { error: 'Invalid server ID' };
@@ -1770,59 +1799,221 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       set.status = 403;
       return { error: 'Server widget is disabled' };
     }
-    
+
     // Get online members
     const members = await ServerMember.find({ serverId: params.serverId })
       .populate('userId', 'username displayName avatar status presenceLastHeartbeatAt')
       .limit(50);
-    
-    // Get channels
-    const channels = await Channel.find({ serverId: params.serverId, type: { $in: ['text', 'voice'] } })
-      .select('name type')
-      .limit(10);
 
-    const widgetChannelId = server.settings?.widget?.channelId?.toString();
-    const messageChannelId = widgetChannelId || channels.find(c => c.type === 'text')?._id?.toString();
+    // Get categories + text/voice/announcement channels, ordered like the
+    // real client so the embed's sidebar matches the server's layout.
+    const [categories, channels] = await Promise.all([
+      Channel.find({ serverId: params.serverId, type: 'category' })
+        .select('name position')
+        .sort({ position: 1 })
+        .limit(25),
+      // Only channels visible to @everyone by default (no per-role/member
+      // overwrites) and not marked NSFW — this is a public, unauthenticated
+      // endpoint, so anything gated behind roles or an age check must not
+      // be listed or become browsable here.
+      Channel.find({
+        serverId: params.serverId,
+        type: { $in: ['text', 'voice', 'announcement'] },
+        nsfw: { $ne: true },
+        $or: [{ permissionOverwrites: { $exists: false } }, { permissionOverwrites: { $size: 0 } }],
+      })
+        .select('name type position parentId')
+        .sort({ position: 1 })
+        .limit(50),
+    ]);
 
-    let recentMessages: Array<{
+    const rawWidgetChannelId = server.settings?.widget?.channelId?.toString();
+    // Only honour the configured widget channel if it survived the public
+    // (non-nsfw, no-overwrite) filter above — never leak a gated channel.
+    const textChannels = channels.filter(c => c.type === 'text' || c.type === 'announcement');
+    const safeChannelIds = new Set(textChannels.map(c => c._id.toString()));
+    const widgetChannelId = rawWidgetChannelId && safeChannelIds.has(rawWidgetChannelId)
+      ? rawWidgetChannelId
+      : undefined;
+
+    // A requested channel must actually belong to this server and be a
+    // text-like channel — otherwise fall back to the configured widget
+    // channel, then the first text channel.
+    const requestedChannelId = typeof query.channel === 'string' ? query.channel : undefined;
+    const requestedChannel = requestedChannelId && isValidObjectId(requestedChannelId)
+      ? textChannels.find(c => c._id.toString() === requestedChannelId)
+      : undefined;
+    const messageChannelId = requestedChannel?._id?.toString() || widgetChannelId || textChannels[0]?._id?.toString();
+
+    interface WidgetAttachment {
+      id: string;
+      filename: string;
+      contentType: string;
+      url: string;
+      width?: number;
+      height?: number;
+    }
+    interface WidgetEmoji { id: string; name: string; url: string; animated?: boolean }
+    interface WidgetMessageAuthor { id: string; username: string; displayName?: string; avatar?: string }
+    interface WidgetMessage {
       id: string;
       content: string;
-      author: { id: string; username: string; displayName?: string; avatar?: string };
+      author: WidgetMessageAuthor;
       createdAt: Date;
-    }> = [];
+      attachments: WidgetAttachment[];
+      customEmojis: WidgetEmoji[];
+      mentionedUserIds: string[];
+      mentionedRoleIds: string[];
+      mentionEveryone: boolean;
+      sticker?: { id: string; name: string; imageUrl: string };
+      referencedMessage?: {
+        id: string;
+        content: string;
+        author?: WidgetMessageAuthor;
+      };
+    }
+
+    let recentMessages: WidgetMessage[] = [];
+    // Resolved names for any @user / @role mentions across the batch, so the
+    // embed can render mentions without extra authenticated lookups.
+    const mentionUserMap: Record<string, { username: string; displayName?: string }> = {};
+    const mentionRoleMap: Record<string, { name: string; color?: string }> = {};
+
     if (messageChannelId) {
       const rawMessages = await Message.find({ channelId: messageChannelId, isDeleted: false })
         .sort({ createdAt: -1 })
-        .limit(5)
+        .limit(30)
         .populate('authorId', 'username displayName avatar')
+        .populate({
+          path: 'referencedMessageId',
+          select: '_id content authorId',
+          populate: { path: 'authorId', select: 'username displayName avatar' },
+        })
         .lean();
+
       const decrypted = await Promise.all(
         rawMessages.map(async (msg) => {
-          const author = (msg.authorId as unknown as { _id: Types.ObjectId; username: string; displayName?: string; avatar?: string }) || {};
+          const m = msg as unknown as {
+            _id: Types.ObjectId;
+            content?: string;
+            authorId?: { _id: Types.ObjectId; username?: string; displayName?: string; avatar?: string };
+            createdAt: Date;
+            attachments?: Array<{ id?: string; _id?: Types.ObjectId; filename?: string; contentType?: string; url?: string; width?: number; height?: number }>;
+            sticker?: { id?: string; name?: string; imageUrl?: string };
+            mentionedUserIds?: (Types.ObjectId | string)[];
+            mentionedRoleIds?: (Types.ObjectId | string)[];
+            mentionEveryone?: boolean;
+            referencedMessageId?: { _id: Types.ObjectId; content?: string; authorId?: { _id: Types.ObjectId; username?: string; displayName?: string; avatar?: string } } | null;
+          };
+          const author = m.authorId || ({} as NonNullable<typeof m.authorId>);
+          const content = await decryptFromStorage(m.content || '');
+
+          const emojiResult = await parseCustomEmojis(content);
+          const customEmojis: WidgetEmoji[] = emojiResult.emojis.map(e => ({
+            id: e.id,
+            name: e.name,
+            url: e.url,
+            animated: e.animated,
+          }));
+
+          const ref = m.referencedMessageId;
+          let referencedMessage: WidgetMessage['referencedMessage'];
+          if (ref && ref._id) {
+            const refAuthor = ref.authorId;
+            referencedMessage = {
+              id: ref._id.toString(),
+              content: ref.content ? await decryptFromStorage(ref.content) : '',
+              author: refAuthor
+                ? {
+                    id: refAuthor._id.toString(),
+                    username: refAuthor.username || '',
+                    displayName: refAuthor.displayName,
+                    avatar: refAuthor.avatar,
+                  }
+                : undefined,
+            };
+          }
+
           return {
-            id: (msg._id as Types.ObjectId).toString(),
-            content: await decryptFromStorage(msg.content || ''),
+            id: m._id.toString(),
+            content,
             author: {
               id: author._id?.toString() || '',
               username: author.username || '',
               displayName: author.displayName,
               avatar: author.avatar,
             },
-            createdAt: msg.createdAt as Date,
-          };
+            createdAt: m.createdAt,
+            attachments: (m.attachments || []).map(a => ({
+              id: (a.id || a._id?.toString() || '').toString(),
+              filename: a.filename || 'file',
+              contentType: a.contentType || '',
+              url: a.url || '',
+              width: a.width,
+              height: a.height,
+            })),
+            customEmojis,
+            mentionedUserIds: (m.mentionedUserIds || []).map(id => id.toString()),
+            mentionedRoleIds: (m.mentionedRoleIds || []).map(id => id.toString()),
+            mentionEveryone: Boolean(m.mentionEveryone),
+            sticker: m.sticker?.imageUrl
+              ? { id: m.sticker.id || '', name: m.sticker.name || '', imageUrl: m.sticker.imageUrl }
+              : undefined,
+            referencedMessage,
+          } satisfies WidgetMessage;
         })
       );
       recentMessages = decrypted.reverse();
+
+      // Batch-resolve mention names once for the whole message set.
+      const userIds = new Set<string>();
+      const roleIds = new Set<string>();
+      for (const msg of recentMessages) {
+        msg.mentionedUserIds.forEach(id => userIds.add(id));
+        msg.mentionedRoleIds.forEach(id => roleIds.add(id));
+      }
+      if (userIds.size > 0) {
+        const users = await ServerMember.find({
+          serverId: params.serverId,
+          userId: { $in: Array.from(userIds).map(id => new Types.ObjectId(id)) },
+        })
+          .populate('userId', 'username displayName')
+          .lean();
+        for (const u of users) {
+          const ud = u.userId as unknown as { _id: Types.ObjectId; username?: string; displayName?: string } | null;
+          if (ud?._id) {
+            mentionUserMap[ud._id.toString()] = { username: ud.username || '', displayName: ud.displayName };
+          }
+        }
+      }
+      if (roleIds.size > 0) {
+        const roles = await Role.find({
+          serverId: params.serverId,
+          _id: { $in: Array.from(roleIds).map(id => new Types.ObjectId(id)) },
+        })
+          .select('name color')
+          .lean();
+        for (const r of roles) {
+          mentionRoleMap[(r._id as Types.ObjectId).toString()] = {
+            name: (r as { name?: string }).name || 'role',
+            color: (r as { color?: string }).color,
+          };
+        }
+      }
     }
 
-    // Get an active invite
-    const invite = await Invite.findOne({
-      serverId: params.serverId,
-      $or: [
-        { expiresAt: { $gt: new Date() } },
-        { expiresAt: null }
-      ]
-    }).sort({ createdAt: -1 });
+    // Get an active invite. Partnered servers with a vanity URL prefer that as
+    // the default invite (serika.cc/<vanity>) over a random invite code.
+    const vanityCode = server.isPartnered && server.vanityUrlCode ? server.vanityUrlCode : undefined;
+    const invite = vanityCode
+      ? null
+      : await Invite.findOne({
+          serverId: params.serverId,
+          $or: [
+            { expiresAt: { $gt: new Date() } },
+            { expiresAt: null }
+          ]
+        }).sort({ createdAt: -1 });
 
     const transformedMembers = members.map(m => {
       const userData = m.userId as unknown as PopulatedMemberUser;
@@ -1838,28 +2029,43 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       };
     });
 
-    const onlineCount = transformedMembers.filter(m => m.status !== 'offline').length;
+    // Computed across the whole server, not just the (max 50) fetched
+    // members above — otherwise larger servers under-report online count.
+    const onlineCount = await computeOnlineCount(params.serverId);
 
     return {
       id: server._id.toString(),
       name: server.name,
       icon: server.icon,
+      banner: server.banner,
       isPartnered: server.isPartnered,
       memberCount: server.memberCount || members.length,
       onlineCount,
-      inviteCode: invite?.code,
+      // Vanity (serika.cc/<vanity>) wins for partnered servers; otherwise the
+      // newest active invite code.
+      inviteCode: vanityCode || invite?.code,
+      currentChannelId: messageChannelId || null,
+      categories: categories.map(c => ({
+        id: c._id.toString(),
+        name: c.name,
+      })),
       channels: channels.map(c => ({
         id: c._id.toString(),
         name: c.name,
         type: c.type,
+        parentId: c.parentId ? c.parentId.toString() : null,
         isWidgetChannel: widgetChannelId ? c._id.toString() === widgetChannelId : false,
       })),
       members: transformedMembers,
       recentMessages,
+      mentions: { users: mentionUserMap, roles: mentionRoleMap },
     };
   }, {
     params: t.Object({
       serverId: t.String(),
+    }),
+    query: t.Object({
+      channel: t.Optional(t.String()),
     }),
   })
   // Get server emojis
@@ -2826,12 +3032,14 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
     }
 
     const server = await Server.findById(resolved.serverId)
-      .select('name icon banner description memberCount onlineCount isPartnered');
+      .select('name icon banner description memberCount isPartnered');
 
     if (!server) {
       set.status = 404;
       return { error: 'Invite not found or expired' };
     }
+
+    const onlineCount = await computeOnlineCount(resolved.serverId);
 
     return {
       code: params.code,
@@ -2842,7 +3050,7 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
         banner: server.banner,
         description: server.description,
         memberCount: server.memberCount,
-        onlineCount: server.onlineCount,
+        onlineCount,
         isPartnered: server.isPartnered,
       },
       expiresAt: resolved.kind === 'invite' ? resolved.invite.expiresAt : null,

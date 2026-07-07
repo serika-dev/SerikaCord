@@ -132,6 +132,7 @@ export function MemberProfilePopup({
           showOwnerCrown={Boolean(serverId)}
           onNavigate={() => setOpen(false)}
           serverId={serverId}
+          hideConnections
           onViewFullProfile={() => {
             setOpen(false);
             setFullProfileOpen(true);

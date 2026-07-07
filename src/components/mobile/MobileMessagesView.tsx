@@ -434,7 +434,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                         {message.timestamp}
                       </span>
                     </div>
-                    <p className="text-[15px] text-[var(--text-muted)] truncate leading-snug mt-0.5">
+                    <p className="text-[15px] text-[var(--text-muted)] line-clamp-2 break-words leading-snug mt-0.5">
                       {message.lastMessage}
                     </p>
                   </div>

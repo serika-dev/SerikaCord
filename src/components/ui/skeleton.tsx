@@ -250,30 +250,34 @@ export function MessageSkeleton({ count = 5 }: { count?: number }) {
 // User profile skeleton
 export function UserProfileSkeleton() {
   return (
-    <div className="w-80 bg-[#111111] rounded-lg overflow-hidden animate-in fade-in slide-in-from-right-2 duration-300">
+    <div className="flex flex-col h-full bg-[#0c0c10] animate-in fade-in slide-in-from-right-2 duration-300 overflow-hidden">
       {/* Banner */}
-      <Skeleton className="h-24 rounded-none" />
-      
+      <Skeleton className="h-[120px] rounded-none shrink-0" />
+
       {/* Profile section */}
-      <div className="relative px-4 pb-4">
-        <div className="absolute -top-8 left-4">
-          <Skeleton className="w-20 h-20 rounded-full border-4 border-[#111111]" variant="circular" />
+      <div className="relative flex-1 flex flex-col min-h-0 px-4 pb-4">
+        <div className="absolute -top-11 left-4">
+          <Skeleton className="w-[88px] h-[88px] rounded-full border-[5px] border-[#0c0c10]" variant="circular" />
         </div>
-        
-        <div className="pt-14 space-y-3">
-          <div className="space-y-1">
-            <Skeleton className="h-5 w-32" />
-            <Skeleton className="h-3 w-24" />
-          </div>
-          
-          <Skeleton className="h-px w-full" />
-          
-          <div className="space-y-2">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
+
+        <div className="flex justify-end gap-2 pt-3 min-h-[44px]">
+          <Skeleton className="h-9 w-24 rounded-lg" />
+          <Skeleton className="h-9 w-9 rounded-lg" />
         </div>
+
+        <div className="mt-4 space-y-2">
+          <Skeleton className="h-7 w-40" />
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+
+        <div className="mt-4 space-y-3">
+          <Skeleton className="h-3 w-16" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+
+        <Skeleton className="mt-auto h-10 w-full rounded-lg" />
       </div>
     </div>
   );
