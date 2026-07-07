@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { NetworkStatus } from "@/components/ui/network-status";
 import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
+import { TauriUpdater } from "@/components/TauriUpdater";
 import { buildRootMetadata } from "@/lib/seo";
 import "./globals.css";
 
@@ -71,6 +72,7 @@ export default function RootLayout({
           {children}
           <NetworkStatus />
           <ToasterWrapper />
+          <TauriUpdater />
         </ThemeProvider>
       </body>
     </html>

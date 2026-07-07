@@ -69,6 +69,9 @@ jobs:
 
       - name: Build Tauri app
         working-directory: desktop-tauri
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: bun run build
 
       - name: Sign AppImage
@@ -106,6 +109,7 @@ jobs:
           name: desktop-linux
           path: |
             desktop-tauri/src-tauri/target/release/bundle/appimage/*.AppImage
+            desktop-tauri/src-tauri/target/release/bundle/appimage/*.AppImage.sig
             desktop-tauri/src-tauri/target/release/bundle/appimage/*.AppImage.asc
             desktop-tauri/src-tauri/target/release/bundle/deb/*.deb
             desktop-tauri/src-tauri/target/release/bundle/rpm/*.rpm
@@ -119,7 +123,9 @@ jobs:
           name: desktop-windows
           path: |
             desktop-tauri/src-tauri/target/release/bundle/nsis/*.exe
+            desktop-tauri/src-tauri/target/release/bundle/nsis/*.exe.sig
             desktop-tauri/src-tauri/target/release/bundle/msi/*.msi
+            desktop-tauri/src-tauri/target/release/bundle/msi/*.msi.sig
           if-no-files-found: warn
           retention-days: 30
 
@@ -130,6 +136,8 @@ jobs:
           name: desktop-macos
           path: |
             desktop-tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop-tauri/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            desktop-tauri/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: warn
           retention-days: 30
 
@@ -236,6 +244,62 @@ jobs:
 
       - name: List downloaded files
         run: ls -R artifacts || true
+
+      - name: Generate updater latest.json
+        run: |
+          python3 << 'PYEOF'
+          import os, json, glob, datetime
+
+          tag = os.environ.get('GITHUB_REF_NAME', 'latest')
+          version = tag.lstrip('v')
+          base_url = f"https://github.com/serika-dev/SerikaCord/releases/download/{tag}"
+
+          sig_files = sorted(glob.glob('artifacts/**/*/*.sig', recursive=True))
+          platforms = {}
+
+          for sig in sig_files:
+              base_name = os.path.basename(sig)[:-4]
+              bundle_dir = os.path.dirname(sig)
+              bundle_path = os.path.join(bundle_dir, base_name)
+              if not os.path.exists(bundle_path):
+                  continue
+
+              name = base_name.lower()
+              key = None
+              if name.endswith('.appimage'):
+                  key = 'linux-x86_64'
+              elif name.endswith('.exe'):
+                  key = 'windows-x86_64'
+              elif name.endswith('.app.tar.gz'):
+                  key = 'darwin-aarch64'
+              elif name.endswith('.msi'):
+                  continue
+              else:
+                  continue
+
+              if key in platforms:
+                  continue
+
+              with open(sig, 'r') as f:
+                  signature = f.read().strip()
+
+              platforms[key] = {
+                  'signature': signature,
+                  'url': f'{base_url}/{base_name}',
+              }
+
+          latest = {
+              'version': version,
+              'notes': f'SerikaCord {version}',
+              'pub_date': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+              'platforms': platforms,
+          }
+
+          with open('artifacts/latest.json', 'w') as f:
+              json.dump(latest, f, indent=2)
+
+          print(json.dumps(latest, indent=2))
+          PYEOF
 
       - name: Create Release
         uses: softprops/action-gh-release@v2

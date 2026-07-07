@@ -126,6 +126,9 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let start_url: tauri::Url = format!("{APP_URL}{START_PATH}")
                 .parse()
                 .expect("valid start URL");
