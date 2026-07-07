@@ -1959,6 +1959,14 @@ export const api = new Elysia({ prefix: '/api' })
       maintenanceMode: settings.maintenanceMode,
     };
   })
+  .get('/platform/file-types', async () => {
+    const { getPlatformSettings } = await import('@/lib/models/PlatformSettings');
+    const settings = await getPlatformSettings();
+    const fileTypes = settings.allowedFileTypes?.length
+      ? settings.allowedFileTypes.map((f) => f.type)
+      : config.ALLOWED_FILE_TYPES;
+    return { fileTypes };
+  })
   .use(authRoutes)
   .use(userRoutes)
   .use(notificationsRoutes)

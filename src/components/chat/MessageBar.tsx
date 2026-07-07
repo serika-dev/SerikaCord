@@ -207,6 +207,19 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [pickerTab, setPickerTab] = useState<"emoji" | "gifs" | "stickers">("emoji");
     const [hasText, setHasText] = useState(false);
+    const [acceptFileTypes, setAcceptFileTypes] = useState<string>("*/*");
+
+    useEffect(() => {
+      fetch("/api/platform/file-types")
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          const types = data?.fileTypes as string[] | undefined;
+          if (types && types.length > 0) {
+            setAcceptFileTypes(types.join(","));
+          }
+        })
+        .catch(() => {});
+    }, []);
 
     useEffect(() => {
       const handleGlobalKeyDown = (e: KeyboardEvent) => {
@@ -450,7 +463,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           ref={fileInputRef}
           onChange={handleFileSelect}
           multiple
-          accept="*/*"
+          accept={acceptFileTypes}
           style={{ display: "none" }}
           tabIndex={-1}
           aria-hidden="true"

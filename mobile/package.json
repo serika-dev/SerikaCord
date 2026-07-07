@@ -1,6 +1,6 @@
 {
   "name": "serikacord-mobile",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "SerikaCord mobile app",
   "main": "index.js",
   "scripts": {
