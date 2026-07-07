@@ -128,19 +128,29 @@ export function validateMessageContent(content: string): { valid: boolean; error
     return { valid: false, error: `Message too long (max ${config.MAX_MESSAGE_LENGTH} characters)` };
   }
   
+  // Preserve Discord-style tokens (mentions, custom emojis, timestamps) before
+  // running spam heuristics, so valid tokens like the system user ID don't
+  // trigger the repeated-character check.
+  const TOKEN_REGEX = /<@!?[0-9a-fA-F]{24}>|<@&[0-9a-fA-F]{24}>|<#[0-9a-fA-F]{24}>|<a?:[a-zA-Z0-9_]+:[0-9a-fA-F]{24}>|<t:[^>]+>/g;
+  const contentWithoutTokens = content.replace(TOKEN_REGEX, ' ');
+
   // Check for spam patterns
   const spamPatterns = [
     /(.)\1{20,}/, // Repeated characters
-    /(https?:\/\/[^\s]+\s*){10,}/, // Many URLs
     /(\s*\n){10,}/, // Many newlines
   ];
   
   for (const pattern of spamPatterns) {
-    if (pattern.test(content)) {
+    if (pattern.test(contentWithoutTokens)) {
       return { valid: false, error: 'Message contains spam-like content' };
     }
   }
-  
+
+  // Check for excessive URLs on the original content
+  if (/(https?:\/\/[^\s]+\s*){10,}/.test(content)) {
+    return { valid: false, error: 'Message contains spam-like content' };
+  }
+
   return { valid: true };
 }
 

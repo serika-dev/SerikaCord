@@ -197,9 +197,9 @@ function MemberItem({ member, serverId }: MemberItemProps) {
           <div
             className={cn(
               "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-[2.5px] border-[var(--app-bg)]",
-              member.status === "online" && "bg-[#8B5CF6]",
-              member.status === "idle" && "bg-[#A78BFA]",
-              member.status === "dnd" && "bg-red-500",
+              member.status === "online" && "bg-[#23A559]",
+              member.status === "idle" && "bg-[#F0B232]",
+              member.status === "dnd" && "bg-[#EF4444]",
               member.status === "offline" && "bg-[#555555]"
             )}
           />

@@ -1751,21 +1751,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             transition={{ duration: 0.2 }}
                             className="space-y-6"
                           >
-                          {/* Banner promo for premium */}
-                          {!user?.isPremium && (
-                            <div className="bg-gradient-to-r from-[#5865F2] to-[#8B5CF6] rounded-lg p-4 mb-6 relative overflow-hidden">
-                              <div className="relative z-10">
-                                <h3 className="text-white font-bold mb-1">Give your profile a fresh look</h3>
-                                <p className="text-sm text-white/80 mb-3">
-                                  Check out the latest avatar decorations, profile effects, and nameplates.
-                                </p>
-                                <button className="px-4 py-2 bg-white text-[#5865F2] font-medium rounded hover:bg-gray-100 transition-colors">
-                                  Go to Shop
-                                </button>
-                              </div>
-                            </div>
-                          )}
-
                           {/* Avatar & Banner Section */}
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
                             <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">Avatar & Banner</h3>

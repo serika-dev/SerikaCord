@@ -8,6 +8,7 @@ import { Users, MessageCircle, Loader2, ArrowRight, Hash, Volume2, Menu, X, Chev
 import { ServerBadge } from "@/components/ui/badges";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
+import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 
 interface WidgetCategory {
   id: string;
@@ -97,6 +98,9 @@ function formatTime(iso: string): string {
 
 const TOKEN_SOURCE = "<@!?([a-f0-9]{24})>|<@&([a-f0-9]{24})>|(?<!\\S)@(everyone|here)\\b|<(a)?:([a-zA-Z0-9_]+):([a-f0-9]{24})>|(https?:\\/\\/[^\\s]+)";
 
+const VIDEO_URL_RE = /\.(mp4|webm|mov|m4v|mkv)(?:$|[?#])/i;
+const AUDIO_URL_RE = /\.(mp3|ogg|wav|m4a|flac|opus)(?:$|[?#])/i;
+
 /**
  * Lightweight, self-contained message renderer for the public widget: inline
  * images/GIFs, custom emojis, @user / @role / @everyone mentions and links.
@@ -160,7 +164,19 @@ function WidgetMessageBody({
       // eslint-disable-next-line @next/next/no-img-element
       nodes.push(<img key={key} src={src} alt={`:${emojiName}:`} title={`:${emojiName}:`} className="inline-block align-middle mx-0.5 w-5 h-5" loading="lazy" />);
     } else if (url) {
-      if (isImageLikeUrl(url)) {
+      if (VIDEO_URL_RE.test(url)) {
+        nodes.push(
+          <span key={key} className="block my-1.5">
+            <VideoMediaPlayer src={url} className="max-w-[280px] rounded-lg overflow-hidden" />
+          </span>
+        );
+      } else if (AUDIO_URL_RE.test(url)) {
+        nodes.push(
+          <span key={key} className="block my-1.5">
+            <AudioMediaPlayer src={url} className="w-full max-w-sm" />
+          </span>
+        );
+      } else if (isImageLikeUrl(url)) {
         nodes.push(
           <span key={key} className="block my-1.5">
             <img
@@ -190,7 +206,8 @@ function WidgetAttachments({ attachments }: { attachments?: WidgetAttachment[] }
   if (!attachments?.length) return null;
   const images = attachments.filter((a) => a.contentType.startsWith("image/") || isImageLikeUrl(a.url));
   const videos = attachments.filter((a) => a.contentType.startsWith("video/"));
-  const files = attachments.filter((a) => !images.includes(a) && !videos.includes(a));
+  const audios = attachments.filter((a) => a.contentType.startsWith("audio/"));
+  const files = attachments.filter((a) => !images.includes(a) && !videos.includes(a) && !audios.includes(a));
   return (
     <div className="mt-1.5 space-y-1.5">
       {images.length > 0 && (
@@ -211,7 +228,22 @@ function WidgetAttachments({ attachments }: { attachments?: WidgetAttachment[] }
         </div>
       )}
       {videos.map((a) => (
-        <video key={a.id} src={a.url} controls className="max-w-[280px] rounded-lg" />
+        <VideoMediaPlayer
+          key={a.id}
+          src={a.url}
+          filename={a.filename}
+          contentType={a.contentType}
+          className="max-w-[280px] rounded-lg overflow-hidden"
+        />
+      ))}
+      {audios.map((a) => (
+        <AudioMediaPlayer
+          key={a.id}
+          src={a.url}
+          filename={a.filename}
+          contentType={a.contentType}
+          className="w-full max-w-sm"
+        />
       ))}
       {files.map((a) => (
         <a
