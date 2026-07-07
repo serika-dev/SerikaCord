@@ -1984,11 +1984,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </div>
                                 </div>
 
-                                {/* Color */}
+                                {/* Colour */}
                                 <div>
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Color</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, color: '', gradient: [] }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Color"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Colour</span>
+                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, color: '', gradient: [] }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Colour"><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   {displayNameStyle.effect === 'gradient' ? (
                                     <div className="space-y-3">
@@ -2038,7 +2038,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     </div>
                                   ) : (
                                     <div className="flex flex-wrap gap-2.5">
-                                      {/* Custom Color Picker */}
+                                      {/* Custom Colour Picker */}
                                       <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: displayNameStyle.color || '#8B5CF6' }}>
                                         <input
                                           type="color"
@@ -2209,15 +2209,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </div>
                             </div>
 
-                            {/* Profile Color */}
+                            {/* Profile Colour */}
                             <div className="mt-8">
-                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-4">Profile Color</h2>
+                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-4">Profile Colour</h2>
                               <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-5">
-                                {/* Color */}
+                                {/* Colour */}
                                 <div className="mb-6">
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Color</span>
-                                    <button onClick={() => setProfileColor('')} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Color"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Colour</span>
+                                    <button onClick={() => setProfileColor('')} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Colour"><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   <div className="flex flex-wrap gap-2.5">
                                     <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: profileColor || '#8B5CF6' }}>
@@ -2570,10 +2570,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </div>
                   </div>
 
-                  {/* Accent Color */}
+                  {/* Accent Colour */}
                   <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">Accent Color</h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4">Choose your primary accent color</p>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">Accent Colour</h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4">Choose your primary accent colour</p>
                     <div className="flex gap-2 flex-wrap">
                       {[
                         { color: '#8B5CF6', name: 'Purple' },
@@ -2639,8 +2639,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </label>
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">Show Role Colors</p>
-                          <p className="text-sm text-[var(--text-secondary)]">Color usernames by their highest role</p>
+                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">Show Role Colours</p>
+                          <p className="text-sm text-[var(--text-secondary)]">Colour usernames by their highest role</p>
                         </div>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)} onCheckedChange={(checked) => saveAppearancePatch({ showRoleColors: checked })} />
                       </label>

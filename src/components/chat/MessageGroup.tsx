@@ -253,13 +253,13 @@ function MessageGroupInner<M extends ChatMessage>({
                           ) : (
                             "message"
                           )}
-                          : {message.referencedMessage.content || "(attachment)"}
+                          : {message.referencedMessage.content ? decodeHtmlEntities(message.referencedMessage.content) : "(attachment)"}
                         </span>
                       </div>
                     )}
 
                     <MessageContent
-                      content={decodeHtmlEntities(message.content)}
+                      content={message.content}
                       serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
                       mentionUsers={mergedMentionUsers}
                       mentionRoles={mentionRoles}

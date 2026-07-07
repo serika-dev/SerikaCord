@@ -375,7 +375,7 @@ export default function MobileSettingsSectionPage() {
               </select>
             </div>
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-              <label className="text-sm text-[var(--text-secondary)]">Accent Color</label>
+              <label className="text-sm text-[var(--text-secondary)]">Accent Colour</label>
               <input
                 type="color"
                 value={settings.appearance?.accentColor || "#8B5CF6"}
@@ -385,7 +385,7 @@ export default function MobileSettingsSectionPage() {
             </div>
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
               <div className="flex items-center justify-between">
-                <label className="text-sm text-[var(--text-secondary)]">Text Color</label>
+                <label className="text-sm text-[var(--text-secondary)]">Text Colour</label>
                 {(settings.appearance?.textColor || "").trim() && (
                   <button
                     onClick={() => saveSettings({ appearance: { ...(settings.appearance || {}), textColor: "" } })}
@@ -918,9 +918,9 @@ export default function MobileSettingsSectionPage() {
                   </div>
                 </div>
 
-                {/* Colors / Presets */}
+                {/* Colours / Presets */}
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Color Preset</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Colour Preset</label>
                   {displayNameStyle.effect === "gradient" ? (
                     <div className="space-y-3">
                       {/* Custom gradient bar */}
@@ -1147,7 +1147,7 @@ export default function MobileSettingsSectionPage() {
               )}
             </div>
 
-            {/* Profile Theme Color */}
+            {/* Profile Theme Colour */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Profile Theme</h3>
@@ -1173,7 +1173,7 @@ export default function MobileSettingsSectionPage() {
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Theme Color</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Theme Colour</label>
                   <div className="flex flex-wrap gap-2">
                     <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all shrink-0 border border-white/20" style={{ backgroundColor: profileColor || "#8B5CF6" }}>
                       <input
@@ -1347,7 +1347,7 @@ export default function MobileSettingsSectionPage() {
                           onClick={() => setProfileCardBorderColor("")} 
                           className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[10px]"
                         >
-                          Reset Color
+                          Reset Colour
                         </button>
                       )}
                     </div>
@@ -1368,7 +1368,7 @@ export default function MobileSettingsSectionPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Border Color</label>
+                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Border Colour</label>
                         <div className="flex items-center gap-2">
                           <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all border border-[var(--border-subtle)]" style={{ backgroundColor: profileCardBorderColor || '#ffffff' }}>
                             <input

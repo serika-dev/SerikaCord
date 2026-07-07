@@ -7,6 +7,7 @@ import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 interface CustomEmoji {
   id: string;
@@ -110,9 +111,10 @@ export const MessageContent = memo(function MessageContent({
     onImageClick?.(src, alt);
   };
 
-  // Strip /tts prefix for display; mark as TTS message
-  const isTtsMessage = content.startsWith("/tts ");
-  const displayContent = isTtsMessage ? content.slice(5) : content;
+  // Decode any legacy HTML entities, then strip /tts prefix for display
+  const decodedContent = decodeHtmlEntities(content);
+  const isTtsMessage = decodedContent.startsWith("/tts ");
+  const displayContent = isTtsMessage ? decodedContent.slice(5) : decodedContent;
 
   // Check if the entire message is just an image URL
   const imageOnlyUrl = useMemo(() => {

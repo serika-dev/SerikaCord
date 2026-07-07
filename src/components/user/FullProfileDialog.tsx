@@ -420,10 +420,9 @@ export function FullProfileDialog({
                               {conn.avatar ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img src={conn.avatar} alt={label} className="w-6 h-6 rounded-full object-cover shrink-0" />
-                              ) : (
-                                <Icon size={22} className="shrink-0" style={{ color }} />
-                              )}
+                              ) : null}
                               <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
+                              <Icon size={22} className="shrink-0" style={{ color }} />
                               <ExternalLink className="w-3 h-3 text-[#9a9aad] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                             </a>
                           );

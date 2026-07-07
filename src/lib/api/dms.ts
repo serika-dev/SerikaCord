@@ -4,6 +4,7 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams } from '@/lib/security';
+import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { Types } from 'mongoose';
 
@@ -29,7 +30,7 @@ function sanitizeMessageContent(content: string): string {
   for (const [placeholder, token] of preservedTokens) {
     sanitized = sanitized.split(placeholder).join(token);
   }
-  return sanitized;
+  return decodeHtmlEntities(sanitized);
 }
 
 function getPublicPresenceStatus(user: { status?: string | null; presenceLastHeartbeatAt?: Date | string | number | null; isSystem?: boolean }) {

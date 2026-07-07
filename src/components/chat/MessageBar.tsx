@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/popover";
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
 import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   clear: <Eraser className="w-3.5 h-3.5" />,
@@ -538,7 +539,9 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   <p className="text-xs text-[var(--app-muted)] mb-0.5">
                     Replying to {replyTo.author?.displayName || replyTo.author?.username || "message"}
                   </p>
-                  <p className="text-sm text-[var(--text-primary)] truncate" dangerouslySetInnerHTML={{ __html: replyTo.content || "(attachment)" }} />
+                  <p className="text-sm text-[var(--text-primary)] truncate">
+                    {replyTo.content ? decodeHtmlEntities(replyTo.content) : "(attachment)"}
+                  </p>
                 </div>
               </div>
               {onCancelReply && (

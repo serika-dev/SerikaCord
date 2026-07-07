@@ -1654,7 +1654,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
                 {/* Scrollable content */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-5">
-                  {/* Name + Color */}
+                  {/* Name + Colour */}
                   <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
                     <div>
                       <label className="block text-xs text-[#888888] mb-1.5">Role Name</label>
@@ -1666,7 +1666,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-[#888888] mb-1.5">Color</label>
+                      <label className="block text-xs text-[#888888] mb-1.5">Colour</label>
                       <div className="flex items-center gap-2">
                         <input
                           type="color"

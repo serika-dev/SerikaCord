@@ -3,6 +3,7 @@ import { Channel, Message, Role, Server, ServerMember, ServerSticker, User } fro
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { checkRateLimit, sanitizeInput, validateMessageContent, isValidObjectId, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams } from '@/lib/security';
+import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { Types } from 'mongoose';
@@ -88,7 +89,7 @@ function sanitizeMessageContent(content: string): string {
   for (const [placeholder, token] of preservedTokens) {
     sanitized = sanitized.split(placeholder).join(token);
   }
-  return sanitized;
+  return decodeHtmlEntities(sanitized);
 }
 
 async function extractMentionsFromContent(
