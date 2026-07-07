@@ -6,6 +6,11 @@ import * as jose from 'jose';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 
+// Short-lived in-memory cache for accounts.serika.dev token verification.
+// Without this, every API call with an accounts token hits the accounts service.
+const tokenVerifyCache = new Map<string, { result: any; expiresAt: number }>();
+const TOKEN_VERIFY_CACHE_TTL_MS = 30_000;
+
 // Session interface
 interface Session {
   id: string;
@@ -116,7 +121,13 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; payl
       payload: payload as unknown as JWTPayload,
     };
   } catch (localError) {
-    // Local verification failed - try accounts API fallback
+    // Local verification failed - try accounts API fallback (with caching)
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
+    const cached = tokenVerifyCache.get(tokenHash);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.result;
+    }
+
     try {
       const { data } = await accountsInternalVerify(token);
 
@@ -133,7 +144,7 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; payl
           }
         }
         
-        return {
+        const result = {
           valid: true,
           payload: {
             ...payload,
@@ -143,6 +154,8 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; payl
           },
           accountsUser: data.user,
         };
+        tokenVerifyCache.set(tokenHash, { result, expiresAt: Date.now() + TOKEN_VERIFY_CACHE_TTL_MS });
+        return result;
       }
       
       return { valid: false, error: data.error || 'Token verification failed' };
@@ -262,26 +275,47 @@ export async function authenticateRequest(
     if (!dbUser && verification.accountsUser) {
       const accountsUser = verification.accountsUser;
       
-      // Create user in local database - only set avatar/banner on initial creation
-      dbUser = await User.findOneAndUpdate(
-        { _id: userId },
-        {
-          $setOnInsert: {
-            _id: userId,
-            username: accountsUser.username,
-            email: accountsUser.email || `${accountsUser.username}@serika.dev`,
-            status: 'online',
-            avatar: accountsUser.avatar,
-            banner: accountsUser.banner,
+      // Check if username is already taken by a different user ID.
+      // If so, we can't upsert with that username (E11000 unique index).
+      // Fall back to finding the existing user by username or creating with a modified username.
+      const existingByUsername = await User.findOne({ username: { $regex: new RegExp(`^${accountsUser.username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } });
+      if (existingByUsername) {
+        // The username exists but with a different _id — use the existing user
+        dbUser = existingByUsername;
+        // Update their fields from accounts
+        await User.updateOne(
+          { _id: dbUser._id },
+          {
+            $set: {
+              displayName: accountsUser.displayName || accountsUser.username,
+              isPremium: accountsUser.isPremium || false,
+              isVerified: accountsUser.isVerified || true,
+            },
+          }
+        );
+        dbUser = await User.findById(dbUser._id);
+      } else {
+        // Username is free — safe to upsert
+        dbUser = await User.findOneAndUpdate(
+          { _id: userId },
+          {
+            $setOnInsert: {
+              _id: userId,
+              username: accountsUser.username,
+              email: accountsUser.email || `${accountsUser.username}@serika.dev`,
+              status: 'online',
+              avatar: accountsUser.avatar,
+              banner: accountsUser.banner,
+            },
+            $set: {
+              displayName: accountsUser.displayName || accountsUser.username,
+              isPremium: accountsUser.isPremium || false,
+              isVerified: accountsUser.isVerified || true,
+            },
           },
-          $set: {
-            displayName: accountsUser.displayName || accountsUser.username,
-            isPremium: accountsUser.isPremium || false,
-            isVerified: accountsUser.isVerified || true,
-          },
-        },
-        { upsert: true, new: true }
-      );
+          { upsert: true, new: true }
+        );
+      }
     } else if (dbUser && verification.accountsUser) {
       // User exists locally - only update non-media fields from accounts API
       const accountsUser = verification.accountsUser;

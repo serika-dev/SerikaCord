@@ -9,7 +9,7 @@ import { ForumChannelView } from "@/components/chat/ForumChannelView";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Loader2, Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, Monitor, MonitorOff, Headphones, ScreenShare, Maximize2, Music } from "lucide-react";
+import { Loader2, Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, Monitor, MonitorOff, Headphones, ScreenShare, Maximize2, Music, X } from "lucide-react";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { cn } from "@/lib/utils";
@@ -583,8 +583,48 @@ export default function ChannelPage() {
   const params = useParams();
   const router = useRouter();
   const { servers, setCurrentServer, channels, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
-  const [showMembers, setShowMembers] = useState(true);
+  const [showMembers, setShowMembers] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+  );
   const [isMobile, setIsMobile] = useState(false);
+
+  // Member list rendering: inline sidebar on desktop, slide-in drawer on mobile.
+  const renderMembers = (mobile: boolean) => {
+    if (mobile) {
+      if (!showMembers) return null;
+      return (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/60 md:hidden animate-in fade-in duration-200"
+            onClick={() => setShowMembers(false)}
+          />
+          {/* Drawer */}
+          <div
+            className="fixed top-0 right-0 z-50 h-dvh w-72 max-w-[85vw] md:hidden shadow-2xl flex flex-col bg-[var(--bg-app)] animate-in slide-in-from-right duration-200 ease-out"
+          >
+            <div className="flex items-center justify-between h-12 px-4 border-b border-[var(--app-border)] shrink-0">
+              <span className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">
+                <Users className="w-5 h-5" />
+                Members
+              </span>
+              <button
+                onClick={() => setShowMembers(false)}
+                aria-label="Close member list"
+                className="p-2 -mr-2 rounded-lg text-[var(--app-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--app-surface-alt)] transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0">
+              <MemberSidebar />
+            </div>
+          </div>
+        </>
+      );
+    }
+    return showMembers ? <MemberSidebar /> : null;
+  };
 
   const serverId = params.serverId as string;
   const channelId = params.channelId as string;
@@ -819,7 +859,7 @@ export default function ChannelPage() {
           channelId={currentChannel.id}
           channelName={currentChannel.name}
         />
-        {showMembers && !isMobile && <MemberSidebar />}
+        {renderMembers(isMobile)}
       </>
     );
   }
@@ -833,7 +873,7 @@ export default function ChannelPage() {
           channelName={currentChannel.name}
           serverId={currentServer?.id}
         />
-        {showMembers && !isMobile && <MemberSidebar />}
+        {renderMembers(isMobile)}
       </>
     );
   }
@@ -841,7 +881,7 @@ export default function ChannelPage() {
   return (
     <>
       <ChatArea onToggleMembers={() => setShowMembers(!showMembers)} showMembers={showMembers} />
-      {showMembers && !isMobile && <MemberSidebar />}
+      {renderMembers(isMobile)}
     </>
   );
 }

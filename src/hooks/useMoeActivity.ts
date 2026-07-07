@@ -49,11 +49,11 @@ export interface UserActivity {
  *  - Last.fm "now scrobbling" music
  *  - Rich presence game/app status (from desktop app)
  *
- * Polls every `intervalMs` (default 30s) while `enabled`.
+ * Polls every `intervalMs` (default 5s) while `enabled`.
  */
 export function useMoeActivity(
   userId: string | undefined | null,
-  { enabled = true, intervalMs = 30_000 }: { enabled?: boolean; intervalMs?: number } = {}
+  { enabled = true, intervalMs = 5_000 }: { enabled?: boolean; intervalMs?: number } = {}
 ): MoeActivity | null {
   const full = useUserActivity(userId, { enabled, intervalMs });
   return full?.activity ?? null;
@@ -61,7 +61,7 @@ export function useMoeActivity(
 
 export function useUserActivity(
   userId: string | undefined | null,
-  { enabled = true, intervalMs = 30_000 }: { enabled?: boolean; intervalMs?: number } = {}
+  { enabled = true, intervalMs = 5_000 }: { enabled?: boolean; intervalMs?: number } = {}
 ): UserActivity | null {
   const [data, setData] = useState<UserActivity | null>(null);
 

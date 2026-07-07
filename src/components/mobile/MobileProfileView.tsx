@@ -2,10 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import { getBadgesByPriority } from "@/lib/constants/badges";
 import {
-  Settings,
+  getDisplayNameStyleClasses,
+  getDisplayNameStyleInline,
+  getProfileBackgroundStyle,
+  getProfileBannerStyle,
+} from "@/lib/userDisplayNameStyle";
+import {
   User,
   Shield,
   Bell,
@@ -14,17 +21,29 @@ import {
   LogOut,
   ChevronRight,
   Sparkles,
-  Moon,
   Volume2,
   Lock,
   Languages,
   Accessibility,
-  Bug,
   MessageSquare,
-  UserCheck,
+  Crown,
   Link as LinkIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+const STATUS_COLORS: Record<string, string> = {
+  online: "#23A559",
+  idle: "#F0B232",
+  dnd: "#EF4444",
+  offline: "#80848E",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  online: "Online",
+  idle: "Idle",
+  dnd: "Do Not Disturb",
+  offline: "Invisible",
+};
 
 interface SettingsItem {
   icon: React.ElementType;
@@ -45,24 +64,27 @@ export function MobileProfileView() {
   const router = useRouter();
   const { user, logout } = useAuth();
 
-  const statusColors: Record<string, string> = {
-    online: "#8B5CF6",
-    idle: "#A78BFA",
-    dnd: "#EF4444",
-    offline: "#555555",
-  };
+  const status = user?.status ?? "offline";
+  const displayName = user?.displayName || user?.username || "";
+  const badges = user?.badges?.length ? getBadgesByPriority(user.badges as string[]) : [];
+  const customization = user?.customization;
+  const hasBannerStyle =
+    Boolean(user?.banner) ||
+    (Array.isArray(customization?.profileGradient) && customization!.profileGradient!.length >= 2) ||
+    Boolean(customization?.profileColor);
 
   const handleLogout = async () => {
     await logout();
     router.push("/login");
   };
 
+  const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
+
   const settingsSections: SettingsSection[] = [
     {
       title: "Account",
       items: [
         { icon: User, label: "My Account", href: "/channels/settings/account" },
-        { icon: UserCheck, label: "Profiles", href: "/channels/settings/profiles" },
         { icon: LinkIcon, label: "Connections", href: "/channels/settings/connections" },
         { icon: Shield, label: "Privacy & Safety", href: "/channels/settings/privacy" },
         { icon: Lock, label: "Authorized Apps", href: "/channels/settings/apps" },
@@ -92,101 +114,91 @@ export function MobileProfileView() {
     {
       title: "Support",
       items: [
-        { icon: HelpCircle, label: "Help & Support", href: "/channels/settings/help" },
-        { icon: Bug, label: "Report a Bug", href: "/channels/settings/bug-report" },
-        { icon: MessageSquare, label: "Give Feedback", href: "/channels/settings/feedback" },
+        { icon: HelpCircle, label: "Help & Support", onClick: () => openExternal("https://serika.cc/serika") },
+        { icon: MessageSquare, label: "Feedback & Bug Reports", onClick: () => openExternal("https://serika.cc/serika") },
       ],
     },
   ];
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-app)]">
-      {/* Header */}
-      <header className="flex-shrink-0 px-4 pt-3 pb-2 safe-area-top">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">You</h1>
-          <button
-            onClick={() => router.push("/channels/settings")}
-            className="flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] text-[var(--text-primary)] active:scale-95 active:bg-[var(--bg-hover)] transition-all touch-manipulation"
-          >
-            <Settings className="w-5 h-5" />
-          </button>
-        </div>
-      </header>
+    <div className="relative flex flex-col h-full bg-[var(--bg-app)]" style={getProfileBackgroundStyle(customization)}>
+      {/* Themed wash so the whole page picks up the profile colours */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg-app)]/70 to-[var(--bg-app)]" />
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="relative flex-1">
         <div className="pb-24">
-          {/* Profile Card */}
-          <div className="px-5 mb-6">
-            <div className="relative rounded-3xl overflow-hidden bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-              {/* Banner */}
+          {/* ── Fullscreen profile hero ── */}
+          <div className="relative">
+            {/* Banner */}
+            <div className="relative h-52">
               {user?.banner ? (
-                <div
-                  className="h-28 bg-cover bg-center"
-                  style={{ backgroundImage: `url(${user.banner})` }}
-                />
+                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${user.banner})` }} />
+              ) : hasBannerStyle ? (
+                <div className="absolute inset-0" style={getProfileBannerStyle(customization)} />
               ) : (
-                <div className="h-28 bg-gradient-to-br from-[var(--app-accent)] to-[var(--app-accent)] opacity-80" />
+                <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] via-[#7C3AED] to-[#4F46E5]" />
               )}
-
-              {/* Profile Info */}
-              <div className="relative px-5 pt-14 pb-5 -mt-10">
-                {/* Avatar */}
-                <div className="absolute -top-12 left-5">
-                  <div className="relative">
-                    <Avatar className="w-24 h-24 border-[6px] border-[var(--bg-card)] shadow-xl">
-                      <AvatarImage src={user?.avatar} />
-                      <AvatarFallback className="bg-[var(--app-accent)] text-white text-3xl font-bold">
-                        {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div
-                      className="absolute bottom-2 right-2 w-5 h-5 rounded-full border-[4px] border-[var(--bg-card)]"
-                      style={{ backgroundColor: statusColors[user?.status || "online"] }}
-                    />
-                  </div>
-                </div>
-
-                {/* Edit Profile Button */}
-                <div className="flex justify-end mb-4">
-                  <button
-                    onClick={() => router.push("/channels/settings/profiles")}
-                    className="px-4 py-2 rounded-xl bg-[var(--bg-hover)] hover:bg-[var(--bg-active)] text-[var(--text-primary)] text-sm font-semibold transition-all active:scale-95 border border-[var(--border-subtle)]"
-                  >
-                    Edit Profile
-                  </button>
-                </div>
-
-                {/* Name & Status */}
-                <div className="mt-2">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-2xl font-bold text-[var(--text-primary)] leading-tight">
-                      {user?.displayName || user?.username}
-                    </h2>
-                    {user?.isPremium && (
-                      <Sparkles className="w-5 h-5 text-[#F59E0B]" />
-                    )}
-                  </div>
-                  <p className="text-[var(--text-muted)] font-medium">@{user?.username}</p>
-                  {user?.bio && (
-                    <p className="text-[var(--text-secondary)] text-sm mt-3 leading-relaxed">{user.bio}</p>
-                  )}
-                </div>
-
-                {/* Status Selector */}
-                <button
-                  onClick={() => router.push("/channels/settings/status")}
-                  className="w-full mt-5 flex items-center gap-3 p-3.5 rounded-2xl bg-[var(--bg-app)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors active:scale-95"
-                >
-                  <div
-                    className="w-3.5 h-3.5 rounded-full"
-                    style={{ backgroundColor: statusColors[user?.status || "online"] }}
-                  />
-                  <span className="text-[var(--text-primary)] font-medium capitalize">{user?.status || "Online"}</span>
-                  <ChevronRight className="w-4 h-4 text-[var(--text-muted)] ml-auto" />
-                </button>
-              </div>
+              <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-app)] via-[var(--bg-app)]/20 to-transparent" />
             </div>
+
+            {/* Identity block */}
+            <div className="relative px-6 -mt-14">
+              <div className="relative inline-block">
+                <Avatar className="w-28 h-28 border-4 border-[var(--bg-app)] shadow-2xl">
+                  <AvatarImage src={user?.avatar} />
+                  <AvatarFallback className="bg-[#8B5CF6] text-white text-4xl font-bold">
+                    {displayName.charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span
+                  className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full border-4 border-[var(--bg-app)]"
+                  style={{ backgroundColor: STATUS_COLORS[status] }}
+                  title={STATUS_LABELS[status]}
+                />
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <h1
+                  className={cn("text-3xl font-extrabold text-[var(--text-primary)] leading-tight", getDisplayNameStyleClasses(customization?.displayNameStyle))}
+                  style={getDisplayNameStyleInline(customization?.displayNameStyle)}
+                >
+                  {displayName}
+                </h1>
+                {user?.isPremium && <Crown className="w-6 h-6 text-[#F59E0B] shrink-0" />}
+              </div>
+              <p className="text-[var(--text-muted)] font-medium mt-0.5">@{user?.username}</p>
+
+              {/* Online status pill */}
+              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)]">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
+                <span className="text-sm font-semibold text-[var(--text-primary)]">{STATUS_LABELS[status]}</span>
+              </div>
+
+              {/* Badges */}
+              {badges.length > 0 && (
+                <div className="mt-4">
+                  <BadgeList badges={badges.map((b) => b.id) as UIBadgeId[]} size="md" maxDisplay={badges.length} expandable={false} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Customize + status quick actions */}
+          <div className="px-6 mt-6 mb-8 grid grid-cols-2 gap-3">
+            <button
+              onClick={() => router.push("/channels/settings/profiles")}
+              className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[var(--app-accent)] text-white text-sm font-semibold shadow-lg shadow-[var(--app-accent)]/20 active:scale-[0.98] transition-transform"
+            >
+              <Palette className="w-4 h-4" />
+              Customize Profile
+            </button>
+            <button
+              onClick={() => router.push("/channels/settings/status")}
+              className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm font-semibold active:scale-[0.98] transition-transform"
+            >
+              <User className="w-4 h-4" />
+              Set Status
+            </button>
           </div>
 
           {/* Settings Sections */}
@@ -204,14 +216,16 @@ export function MobileProfileView() {
                         key={item.label}
                         onClick={() => item.onClick?.() || (item.href && router.push(item.href))}
                         className={cn(
-                          "w-full flex items-center gap-4 p-4 hover:bg-[var(--bg-hover)] transition-all active:bg-[var(--bg-active)]",
+                          "w-full flex items-center gap-3.5 p-3.5 hover:bg-[var(--bg-hover)] transition-all active:bg-[var(--bg-active)]",
                           item.danger && "text-red-500"
                         )}
                       >
-                        <Icon className={cn(
-                          "w-5 h-5",
-                          item.danger ? "text-red-500" : "text-[var(--text-muted)]"
-                        )} />
+                        <span className={cn(
+                          "flex items-center justify-center w-9 h-9 rounded-xl shrink-0",
+                          item.danger ? "bg-red-500/10 text-red-500" : "bg-[var(--bg-app)] text-[var(--text-secondary)]"
+                        )}>
+                          <Icon className="w-[18px] h-[18px]" />
+                        </span>
                         <span className={cn(
                           "flex-1 text-left font-medium",
                           item.danger ? "text-red-500" : "text-[var(--text-primary)]"
@@ -243,9 +257,11 @@ export function MobileProfileView() {
             <div className="rounded-2xl bg-[var(--bg-card)] overflow-hidden border border-[var(--border-subtle)]">
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-4 p-4 hover:bg-[var(--bg-hover)] transition-colors text-red-500 active:bg-[var(--bg-active)]"
+                className="w-full flex items-center gap-3.5 p-3.5 hover:bg-[var(--bg-hover)] transition-colors text-red-500 active:bg-[var(--bg-active)]"
               >
-                <LogOut className="w-5 h-5" />
+                <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-red-500/10 text-red-500 shrink-0">
+                  <LogOut className="w-[18px] h-[18px]" />
+                </span>
                 <span className="flex-1 text-left font-medium">Log Out</span>
                 <ChevronRight className="w-4 h-4 text-red-500/50" />
               </button>

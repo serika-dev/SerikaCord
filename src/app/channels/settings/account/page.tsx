@@ -52,30 +52,29 @@ export default function AccountSettingsPage() {
                             <label className="text-xs font-bold text-[var(--text-muted)] uppercase">Display Name</label>
                             <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] flex items-center justify-between">
                                 <span>{user?.displayName || user?.username}</span>
-                                <button onClick={() => router.push("/channels/settings/appearance")} className="text-sm font-medium text-[#8B5CF6]">Edit</button>
+                                <button onClick={() => router.push("/channels/settings/profiles")} className="text-sm font-medium text-[#8B5CF6]">Edit</button>
                             </div>
                         </div>
 
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-[var(--text-muted)] uppercase">Username</label>
-                            <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] flex items-center justify-between">
+                            <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                                 <span>{user?.username}</span>
-                                <button onClick={() => router.push("/channels/settings/account")} className="text-sm font-medium text-[#8B5CF6]">Edit</button>
                             </div>
                         </div>
 
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-[var(--text-muted)] uppercase">Email</label>
-                            <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] flex items-center justify-between">
+                            <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                                 <span>{user?.email || "No email linked"}</span>
-                                <button onClick={() => router.push("/channels/settings/account")} className="text-sm font-medium text-[#8B5CF6]">Edit</button>
                             </div>
                         </div>
 
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-[var(--text-muted)] uppercase">About Me</label>
-                            <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[100px]">
-                                {user?.bio || "No bio set."}
+                            <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[100px] flex items-start justify-between gap-3">
+                                <span className="flex-1">{user?.bio || "No bio set."}</span>
+                                <button onClick={() => router.push("/channels/settings/profiles")} className="text-sm font-medium text-[#8B5CF6] shrink-0">Edit</button>
                             </div>
                         </div>
                     </div>

@@ -10,7 +10,7 @@ import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/comp
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
-import { useMoeActivity, useUserActivity } from "@/hooks/useMoeActivity";
+import { useUserActivity } from "@/hooks/useMoeActivity";
 import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, Crown } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -68,8 +68,8 @@ export function FullProfileDialog({
 
   const status = fullUser.status ?? "offline";
   const displayName = fullUser.displayName || fullUser.username;
-  const moeActivity = useMoeActivity(fullUser.id);
   const userActivity = useUserActivity(fullUser.id);
+  const moeActivity = userActivity?.activity ?? null;
   const badges = fullUser.badges?.length ? getBadgesByPriority(fullUser.badges as string[]) : [];
 
   // Seed from the passed member/user data, but only when the *identity* changes.
@@ -176,11 +176,25 @@ export function FullProfileDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!max-w-[1000px] !w-[1000px] !max-h-[720px] p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden">
+      <DialogContent
+        className={cn(
+          "p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden",
+          // Mobile: bottom sheet that slides up ("pops in from under")
+          "!w-screen !max-w-none !left-1/2 !-translate-x-1/2 !top-auto !bottom-0 !translate-y-0",
+          "h-[92dvh] !max-h-[92dvh] rounded-t-3xl rounded-b-none border-b-0 border-x-0",
+          "data-[state=open]:slide-in-from-bottom-[100%] data-[state=closed]:slide-out-to-bottom-[100%] data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
+          // Desktop: centered card
+          "sm:!top-1/2 sm:!bottom-auto sm:!-translate-y-1/2 sm:!w-[min(1000px,95vw)] sm:!max-w-[1000px] sm:h-[85vh] sm:!max-h-[720px] sm:rounded-2xl sm:border"
+        )}
+      >
         <DialogTitle className="sr-only">{displayName}&apos;s Profile</DialogTitle>
-        <div className="flex h-[720px]">
+        {/* Grab handle (mobile sheet affordance) */}
+        <div className="sm:hidden absolute top-0 inset-x-0 z-20 flex justify-center pt-2 pointer-events-none">
+          <span className="h-1 w-10 rounded-full bg-white/40" />
+        </div>
+        <div className="flex flex-col md:flex-row h-full min-h-0 overflow-y-auto md:overflow-hidden">
           {/* Left panel — profile summary */}
-          <div className="w-[360px] shrink-0 overflow-y-auto" style={getProfileBackgroundStyle(fullUser.customization)}>
+          <div className="w-full md:w-[360px] shrink-0 md:overflow-y-auto" style={getProfileBackgroundStyle(fullUser.customization)}>
             {/* Banner */}
             <div className="relative h-[140px]">
               {fullUser.banner ? (
@@ -355,15 +369,15 @@ export function FullProfileDialog({
           </div>
 
           {/* Right panel — tabs */}
-          <div className="flex-1 flex flex-col min-w-0 bg-[#111114]">
+          <div className="flex-1 flex flex-col min-w-0 md:min-h-0 bg-[#111114]">
             {/* Tab bar */}
-            <div className="flex items-center gap-1 px-4 pt-4 pb-0 border-b border-white/[0.06] shrink-0">
+            <div className="flex items-center gap-1 px-4 pt-4 pb-0 border-b border-white/[0.06] shrink-0 overflow-x-auto scrollbar-hide">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "px-4 py-2.5 text-sm font-medium transition-colors relative",
+                    "px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap shrink-0",
                     activeTab === tab.id
                       ? "text-white"
                       : "text-[#9a9aad] hover:text-[#c8c8d8]"
@@ -378,7 +392,7 @@ export function FullProfileDialog({
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 md:overflow-y-auto p-4">
               {activeTab === "board" && (
                 <div className="space-y-4">
                   {/* Connections */}

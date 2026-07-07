@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/popover";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface MemberProfilePopupProps {
   children: React.ReactNode;
@@ -30,6 +31,7 @@ export function MemberProfilePopup({
   align = "start",
 }: MemberProfilePopupProps) {
   const { user: currentUser } = useAuth();
+  const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
   const [fullProfileOpen, setFullProfileOpen] = useState(false);
   const [fullProfile, setFullProfile] = useState<ProfileCardUser>(member);
@@ -39,7 +41,7 @@ export function MemberProfilePopup({
   }, [member]);
 
   useEffect(() => {
-    if (!open || !member.id) return;
+    if ((!open && !fullProfileOpen) || !member.id) return;
     let cancelled = false;
 
     const fetchProfile = async () => {
@@ -82,7 +84,34 @@ export function MemberProfilePopup({
     return () => {
       cancelled = true;
     };
-  }, [open, member.id, serverId]);
+  }, [open, fullProfileOpen, member.id, serverId]);
+
+  // On mobile, tapping the avatar/name opens the full profile as a bottom
+  // sheet that slides up — no intermediate popover card.
+  if (isMobile) {
+    return (
+      <>
+        <span
+          className="contents"
+          onClick={(e) => {
+            e.stopPropagation();
+            setFullProfileOpen(true);
+          }}
+        >
+          {children}
+        </span>
+        <FullProfileDialog
+          user={fullProfile}
+          open={fullProfileOpen}
+          onOpenChange={setFullProfileOpen}
+          isCurrentUser={currentUser?.id === member.id}
+          isFriend={fullProfile.isFriend}
+          serverId={serverId}
+          showOwnerCrown={Boolean(serverId)}
+        />
+      </>
+    );
+  }
 
   return (
     <>

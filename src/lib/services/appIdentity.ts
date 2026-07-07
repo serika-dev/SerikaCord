@@ -58,7 +58,7 @@ export async function ensureBotProvisioned(app: IApplication & { save: () => Pro
     // must be unique, so suffix with a short hash of the client id on collision.
     const base = (app.name || 'bot').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24) || 'bot';
     let username = base.length >= 3 ? base : `${base}bot`;
-    if (await User.exists({ username })) {
+    if (await User.exists({ username: { $regex: new RegExp(`^${username}$`, 'i') } })) {
       username = `${base}${app.clientId.slice(-6)}`.slice(0, 32);
     }
     const botUser = await User.create({

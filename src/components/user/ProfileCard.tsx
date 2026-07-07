@@ -26,7 +26,7 @@ import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
-import { useMoeActivity, useUserActivity } from "@/hooks/useMoeActivity";
+import { useUserActivity } from "@/hooks/useMoeActivity";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
@@ -184,8 +184,8 @@ export function ProfileCard({
 
   const status = user.status ?? "offline";
   const displayName = user.displayName || user.username;
-  const moeActivity = useMoeActivity(user.id);
   const userActivity = useUserActivity(user.id);
+  const moeActivity = userActivity?.activity ?? null;
 
   const handleCopyUsername = async () => {
     try {
@@ -260,7 +260,7 @@ export function ProfileCard({
   return (
     <div
       className={cn(
-        "w-[340px] rounded-xl overflow-hidden border border-white/[0.06] shadow-2xl transition-all duration-300",
+        "w-[min(340px,calc(100vw-1.5rem))] rounded-xl overflow-hidden border border-white/[0.06] shadow-2xl transition-all duration-300",
         !hasBgOverride && !isHolographic && "bg-[#0c0c10]",
         isHolographic && "holographic-animation",
         className

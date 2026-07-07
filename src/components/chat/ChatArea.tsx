@@ -1161,7 +1161,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           </button>
           <button
             onClick={onToggleMembers}
-            className={cn("hover:text-[var(--text-primary)] transition-colors hidden sm:block", showMembers && "text-[var(--text-primary)]")}
+            aria-label="Toggle member list"
+            className={cn("hover:text-[var(--text-primary)] transition-colors", showMembers && "text-[var(--text-primary)]")}
           >
             <Users className="w-5 h-5" />
           </button>

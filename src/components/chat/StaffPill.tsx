@@ -1,5 +1,7 @@
 "use client";
 
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Badge, getBadgeMeta, type BadgeId } from "@/components/ui/badges";
 import { cn } from "@/lib/utils";
 
 interface StaffPillProps {
@@ -7,30 +9,44 @@ interface StaffPillProps {
   className?: string;
 }
 
-const STAFF_RANKS: { id: string; label: string }[] = [
-  { id: "serikacord_developer", label: "Developer" },
-  { id: "staff", label: "Serika Staff" },
-  { id: "admin", label: "Admin" },
-  { id: "moderator", label: "Moderator" },
+// Priority order — the first matching rank is shown as a compact icon badge.
+const STAFF_RANKS: BadgeId[] = [
+  "serikacord_developer",
+  "staff",
+  "admin",
+  "moderator",
 ];
 
 export function StaffPill({ badges, className }: StaffPillProps) {
   if (!badges || badges.length === 0) return null;
 
-  for (const rank of STAFF_RANKS) {
-    if (badges.includes(rank.id)) {
-      return (
-        <span
-          className={cn(
-            "inline-flex items-center self-center px-1.5 py-0.5 rounded text-[10px] font-semibold leading-none bg-[#8B5CF6]/20 text-[#A78BFA] whitespace-nowrap",
-            className
-          )}
-        >
-          {rank.label}
-        </span>
-      );
-    }
-  }
+  const rank = STAFF_RANKS.find((r) => badges.includes(r));
+  if (!rank) return null;
 
-  return null;
+  const meta = getBadgeMeta(rank);
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={meta?.name || "Badge"}
+          className={cn("self-center shrink-0 rounded-md cursor-pointer", className)}
+        >
+          {/* Hover tooltip on desktop; the popover handles tap on touch. */}
+          <Badge id={rank} size="xs" showTooltip />
+        </button>
+      </PopoverTrigger>
+      {meta && (
+        <PopoverContent
+          side="top"
+          align="start"
+          className="w-auto max-w-[220px] p-2.5 bg-[#0a0a0a] border-[#222222]"
+        >
+          <div className="text-sm font-semibold text-white" style={{ color: meta.color }}>{meta.name}</div>
+          <div className="text-xs text-[#888888] mt-0.5">{meta.description}</div>
+        </PopoverContent>
+      )}
+    </Popover>
+  );
 }

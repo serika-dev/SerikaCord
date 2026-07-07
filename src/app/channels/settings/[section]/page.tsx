@@ -12,6 +12,7 @@ import Link from "next/link";
 import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
+import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -104,6 +105,12 @@ export default function MobileSettingsSectionPage() {
   const [profileCardBorderColor, setProfileCardBorderColor] = useState("");
   const [profileCardBorderGlow, setProfileCardBorderGlow] = useState(false);
   const [profileCardBorderWidth, setProfileCardBorderWidth] = useState(1);
+  const [nameplate, setNameplate] = useState<{
+    type?: 'none' | 'color' | 'gradient' | 'preset';
+    color?: string;
+    gradient?: string[];
+    presetId?: string;
+  }>({ type: 'none' });
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -135,6 +142,7 @@ export default function MobileSettingsSectionPage() {
       setProfileCardBorderColor(user.customization?.profileCardBorderColor || "");
       setProfileCardBorderGlow(user.customization?.profileCardBorderGlow ?? false);
       setProfileCardBorderWidth(user.customization?.profileCardBorderWidth ?? 1);
+      setNameplate(user.customization?.nameplate || { type: 'none' });
     }
   }, [user]);
 
@@ -165,6 +173,7 @@ export default function MobileSettingsSectionPage() {
             profileCardBorderColor,
             profileCardBorderGlow,
             profileCardBorderWidth,
+            nameplate,
           },
         }),
       });
@@ -991,6 +1000,145 @@ export default function MobileSettingsSectionPage() {
               </div>
             </div>
 
+            {/* Nameplate */}
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
+              <div>
+                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Nameplate</h3>
+                <p className="text-xs text-[var(--text-muted)] mt-1">A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.</p>
+              </div>
+
+              {/* Live preview */}
+              <div className="relative rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-app)]">
+                {getNameplateBackground({ nameplate }) && (
+                  <div className="absolute inset-0" style={{ background: getNameplateBackground({ nameplate })!, opacity: 0.55, WebkitMaskImage: "linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)", maskImage: "linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)" }} />
+                )}
+                <div className="relative flex items-center gap-2 px-2.5 py-2.5">
+                  <Avatar className="w-8 h-8 shrink-0">
+                    <AvatarImage src={user?.avatar} />
+                    <AvatarFallback className="bg-[var(--app-accent)] text-white text-xs font-bold">
+                      {(displayName || user?.username || "U").charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className={cn("text-sm font-bold text-[var(--text-primary)] truncate", getDisplayNameStyleClasses(displayNameStyle))} style={getDisplayNameStyleInline(displayNameStyle)}>
+                    {displayName || user?.username || "Your name"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Type selector — segmented */}
+              <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+                {([
+                  { id: "none", label: "None" },
+                  { id: "color", label: "Solid" },
+                  { id: "gradient", label: "Gradient" },
+                  { id: "preset", label: "Presets" },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setNameplate((n) => ({ ...n, type: opt.id }))}
+                    className={cn(
+                      "flex-1 px-2 py-2 rounded-md text-xs font-semibold transition-colors",
+                      (nameplate.type || "none") === opt.id
+                        ? "bg-[var(--app-accent)] text-white"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Solid colours */}
+              {nameplate.type === "color" && (
+                <div className="flex flex-wrap gap-2">
+                  {["#F43F5E", "#EAB308", "#22C55E", "#10B981", "#06B6D4", "#3B82F6", "#6366F1", "#8B5CF6", "#D946EF", "#FF9800", "#9C27B0", "#434343"].map((col) => {
+                    const on = nameplate.color === col;
+                    return (
+                      <button
+                        key={col}
+                        type="button"
+                        onClick={() => setNameplate((n) => ({ ...n, type: "color", color: col }))}
+                        className="w-8 h-8 rounded-full relative transition-all"
+                        style={{ backgroundColor: col, boxShadow: on ? "0 0 0 2px var(--bg-card), 0 0 0 4px var(--app-accent)" : "none" }}
+                      >
+                        {on && <Check className="w-3.5 h-3.5 text-white absolute inset-0 m-auto drop-shadow-md" />}
+                      </button>
+                    );
+                  })}
+                  <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 border border-white/20" style={{ backgroundColor: nameplate.color || "#8B5CF6" }}>
+                    <input type="color" value={nameplate.color || "#8B5CF6"} onChange={(e) => setNameplate((n) => ({ ...n, type: "color", color: e.target.value }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                    <Pencil className="w-3.5 h-3.5 text-white absolute inset-0 m-auto drop-shadow-md pointer-events-none" />
+                  </label>
+                </div>
+              )}
+
+              {/* Gradient */}
+              {nameplate.type === "gradient" && (() => {
+                const g0 = nameplate.gradient?.[0] || "#8B5CF6";
+                const g1 = nameplate.gradient?.[1] || "#EC4899";
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                      <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
+                        <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
+                          <input type="color" value={g0} onChange={(e) => setNameplate((n) => ({ ...n, type: "gradient", gradient: [e.target.value, g1] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                        </label>
+                        <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
+                          <input type="color" value={g1} onChange={(e) => setNameplate((n) => ({ ...n, type: "gradient", gradient: [g0, e.target.value] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                        </label>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        ["#FF3366", "#FFD12A"], ["#00E676", "#00B0FF"], ["#D500F9", "#FF1744"], ["#1DE9B6", "#3D5AFE"],
+                        ["#FF4081", "#E040FB"], ["#2979FF", "#00E5FF"], ["#7C4DFF", "#E040FB"], ["#FF9800", "#FF5722"],
+                        ["#4CAF50", "#8BC34A"], ["#9C27B0", "#673AB7"], ["#00BCD4", "#009688"], ["#434343", "#000000"],
+                      ].map((grad, i) => {
+                        const on = JSON.stringify(nameplate.gradient) === JSON.stringify(grad);
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => setNameplate((n) => ({ ...n, type: "gradient", gradient: grad }))}
+                            className="w-10 h-8 rounded-md relative transition-all"
+                            style={{ background: `linear-gradient(90deg, ${grad.join(", ")})`, boxShadow: on ? "0 0 0 2px var(--bg-card), 0 0 0 4px var(--app-accent)" : "none" }}
+                          >
+                            {on && <Check className="w-3.5 h-3.5 text-white absolute inset-0 m-auto drop-shadow-md" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Presets */}
+              {nameplate.type === "preset" && (
+                <div className="grid grid-cols-2 gap-2">
+                  {NAMEPLATE_PRESETS.map((preset) => {
+                    const on = nameplate.presetId === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setNameplate((n) => ({ ...n, type: "preset", presetId: preset.id }))}
+                        className={cn(
+                          "relative h-10 rounded-lg overflow-hidden border transition-all flex items-center px-3",
+                          on ? "border-[var(--app-accent)] ring-2 ring-[var(--app-accent)]" : "border-[var(--border-subtle)]"
+                        )}
+                      >
+                        <div className="absolute inset-0" style={{ background: preset.css, opacity: 0.55 }} />
+                        <span className="relative text-xs font-semibold text-white drop-shadow-md truncate">{preset.name}</span>
+                        {on && <Check className="w-4 h-4 text-white absolute right-2 top-1/2 -translate-y-1/2 drop-shadow-md" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Profile Theme Color */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
               <div className="flex items-center justify-between">
@@ -1083,103 +1231,24 @@ export default function MobileSettingsSectionPage() {
                   </div>
                 </div>
 
-                {/* Custom Gradient Controls */}
-                <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase">Custom Gradient Stops (2 to 5 stops)</span>
-                    {profileGradient.length < 5 && (
-                      <button 
-                        type="button"
-                        onClick={() => setProfileGradient([...profileGradient, '#8B5CF6'])}
-                        className="text-xs text-[var(--app-accent)] hover:underline font-semibold flex items-center gap-1"
-                      >
-                        + Add Stop
-                      </button>
-                    )}
-                  </div>
-                  
-                  <div className="space-y-2 mb-4">
-                    {profileGradient.map((color, idx) => (
-                      <div key={idx} className="flex items-center gap-3 p-2 bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-lg font-medium text-xs">
-                        <span className="text-xs text-[var(--text-secondary)] font-medium w-16">Stop {idx + 1}</span>
-                        <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all border border-[var(--border-subtle)]" style={{ backgroundColor: color }}>
-                          <input
-                            type="color"
-                            value={color}
-                            onChange={(e) => {
-                              const newGrad = [...profileGradient];
-                              newGrad[idx] = e.target.value;
-                              setProfileGradient(newGrad);
-                            }}
-                            className="absolute inset-0 opacity-0 cursor-pointer"
-                          />
+                {/* Custom two-colour gradient (matches PC) */}
+                {(() => {
+                  const g0 = profileGradient?.[0] || "#8B5CF6";
+                  const g1 = profileGradient?.[1] || "#EC4899";
+                  return (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                      <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(135deg, ${g0}, ${g1})` }}>
+                        <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
+                          <input type="color" value={g0} onChange={(e) => setProfileGradient([e.target.value, g1])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
                         </label>
-                        <span className="text-xs font-mono text-[var(--text-muted)] select-all">{color.toUpperCase()}</span>
-                        <div className="flex-1" />
-                        {profileGradient.length > 2 && (
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              const newGrad = profileGradient.filter((_, i) => i !== idx);
-                              setProfileGradient(newGrad);
-                            }}
-                            className="text-red-500 hover:text-red-400 text-xs font-medium"
-                          >
-                            Remove
-                          </button>
-                        )}
+                        <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
+                          <input type="color" value={g1} onChange={(e) => setProfileGradient([g0, e.target.value])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
+                        </label>
                       </div>
-                    ))}
-                  </div>
-
-                  {profileGradient.length >= 2 && (
-                    <div className="grid grid-cols-2 gap-3 mb-4">
-                      <div>
-                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Gradient Type</label>
-                        <select
-                          value={profileGradientType}
-                          onChange={(e) => setProfileGradientType(e.target.value as 'linear' | 'radial')}
-                          className="w-full bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-[var(--text-primary)] h-10 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] font-medium"
-                        >
-                          <option value="linear">Linear</option>
-                          <option value="radial">Radial</option>
-                        </select>
-                      </div>
-
-                      {profileGradientType === 'linear' ? (
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Gradient Angle</label>
-                            <span className="text-xs font-mono text-[var(--text-muted)]">{profileGradientAngle}°</span>
-                          </div>
-                          <input 
-                            type="range" 
-                            min="0" 
-                            max="360" 
-                            value={profileGradientAngle}
-                            onChange={(e) => setProfileGradientAngle(Number(e.target.value))}
-                            className="w-full accent-[var(--app-accent)]"
-                          />
-                        </div>
-                      ) : (
-                        <div>
-                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Radial Position</label>
-                          <select
-                            value={profileGradientRadialPosition}
-                            onChange={(e) => setProfileGradientRadialPosition(e.target.value)}
-                            className="w-full bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-[var(--text-primary)] h-10 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] font-medium"
-                          >
-                            <option value="center">Center</option>
-                            <option value="top left">Top Left</option>
-                            <option value="top right">Top Right</option>
-                            <option value="bottom left">Bottom Left</option>
-                            <option value="bottom right">Bottom Right</option>
-                          </select>
-                        </div>
-                      )}
                     </div>
-                  )}
-                </div>
+                  );
+                })()}
 
                 {/* Premium Card Effects */}
                 <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">

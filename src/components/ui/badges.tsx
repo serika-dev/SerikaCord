@@ -144,6 +144,13 @@ const BADGE_CONFIG = {
 
 export type BadgeId = keyof typeof BADGE_CONFIG;
 
+/** Public accessor for a badge's display metadata (name/description/color). */
+export function getBadgeMeta(id: BadgeId): { name: string; description: string; color: string } | null {
+  const config = BADGE_CONFIG[id];
+  if (!config) return null;
+  return { name: config.name, description: config.description, color: config.color };
+}
+
 interface BadgeProps {
   id: BadgeId;
   size?: 'xs' | 'sm' | 'md' | 'lg';

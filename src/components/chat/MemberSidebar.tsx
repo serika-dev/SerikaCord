@@ -112,7 +112,7 @@ export function MemberSidebar() {
   if (!currentServer) return null;
 
   return (
-    <div className="w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden">
+    <div className="w-full md:w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden">
       <ScrollArea className="h-full member-scroll-area">
         <div className="py-4 space-y-4">
           {isLoading ? (

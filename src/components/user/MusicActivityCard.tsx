@@ -27,6 +27,8 @@ export function MusicActivityCard({ music }: { music: MusicActivity }) {
           <img
             src={music.albumArt}
             alt={music.album ?? music.name}
+            loading="lazy"
+            referrerPolicy="no-referrer"
             className="w-12 h-12 rounded-lg object-cover shrink-0 shadow-md"
           />
         ) : (

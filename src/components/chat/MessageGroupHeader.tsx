@@ -100,7 +100,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
       )}
       <SystemPill isSystem={author.isSystem} />
       <StaffPill badges={author.badges} />
-      <span className="text-xs text-[var(--text-muted)]">{formatMessageTimestamp(timestamp)}</span>
+      <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formatMessageTimestamp(timestamp)}</span>
     </div>
   );
 }
