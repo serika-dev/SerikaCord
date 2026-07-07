@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Gamepad2, Code2, Music, Layers } from "lucide-react";
+import { Gamepad2, Code2, Music, Layers, Terminal, Bot, Wind } from "lucide-react";
 import type { GameActivity } from "@/hooks/useMoeActivity";
 
 function formatElapsed(startedAt: string | null): string {
@@ -15,11 +15,15 @@ function formatElapsed(startedAt: string | null): string {
   return "just started";
 }
 
-const typeConfig = {
-  game:   { label: "Playing a Game",    Icon: Gamepad2, color: "#22c55e" },
-  vscode: { label: "Working in VS Code", Icon: Code2,    color: "#0ea5e9" },
-  music:  { label: "Listening to Music", Icon: Music,    color: "#e4335a" },
-  other:  { label: "Using an App",       Icon: Layers,   color: "#8B5CF6" },
+const typeConfig: Record<string, { label: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }> = {
+  game:    { label: "Playing a Game",      Icon: Gamepad2, color: "#22c55e" },
+  vscode:  { label: "Working in VS Code:", Icon: Code2,    color: "#0ea5e9" },
+  music:   { label: "Listening to Music",    Icon: Music,    color: "#e4335a" },
+  windsurf:{ label: "Coding in Windsurf",  Icon: Wind,     color: "#38bdf8" },
+  cursor:  { label: "Coding in Cursor",    Icon: Code2,    color: "#a855f7" },
+  zed:     { label: "Coding in Zed",       Icon: Terminal, color: "#facc15" },
+  claude:  { label: "Working with Claude",  Icon: Bot,      color: "#f97316" },
+  other:   { label: "Using an App",         Icon: Layers,   color: "#8B5CF6" },
 };
 
 export function GameActivityCard({ game }: { game: GameActivity }) {

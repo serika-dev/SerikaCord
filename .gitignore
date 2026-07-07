@@ -59,3 +59,7 @@ docker-compose.override.yml
 .vscode/
 *.swp
 *.swo
+
+# Rust / Tauri
+/target/
+/desktop-tauri/src-tauri/target/

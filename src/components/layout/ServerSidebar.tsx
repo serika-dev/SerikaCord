@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -14,15 +15,19 @@ interface ServerSidebarProps {
   onCreateServer: () => void;
 }
 
-// Check if running in native app (Electron or Capacitor)
+// Check if running in native app (Electron, Tauri, or Capacitor)
 function isNativeApp(): boolean {
   if (typeof window === 'undefined') return false;
-  // Check for Electron
+  // Check for Electron (contextBridge object, body class, or user agent)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((window as any).electron) return true;
+  const win = window as any;
+  if (win.electron || win.electron?.isElectron) return true;
+  if (typeof document !== 'undefined' && document.body?.classList.contains('electron-app')) return true;
+  if (typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent)) return true;
+  // Check for Tauri
+  if (typeof win.__TAURI__ !== 'undefined') return true;
   // Check for Capacitor
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if ((window as any).Capacitor?.isNativePlatform?.()) return true;
+  if (win.Capacitor?.isNativePlatform?.()) return true;
   // Check for standalone mode (PWA)
   if (window.matchMedia('(display-mode: standalone)').matches) return true;
   return false;
@@ -31,8 +36,12 @@ function isNativeApp(): boolean {
 export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
   const router = useRouter();
   const { servers, currentServer, setCurrentServer } = useServer();
-  const isNative = isNativeApp();
+  const [isNative, setIsNative] = useState(isNativeApp);
   const { serverMentionCounts } = useMentions();
+
+  useEffect(() => {
+    setIsNative(isNativeApp());
+  }, []);
 
   // Defensive: drop any entries without an id and de-duplicate by id so the
   // list keys are always unique (guards against races in server add/refetch).

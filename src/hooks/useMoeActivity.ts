@@ -25,7 +25,7 @@ export interface MusicActivity {
 }
 
 export interface GameActivity {
-  type: "game" | "music" | "vscode" | "other";
+  type: string;
   name: string;
   details: string | null;
   state: string | null;
@@ -41,6 +41,7 @@ export interface UserActivity {
   activity: MoeActivity | null;
   music: MusicActivity | null;
   game: GameActivity | null;
+  activities: GameActivity[];
 }
 
 /**
@@ -78,11 +79,18 @@ export function useUserActivity(
       try {
         const res = await fetch(`/api/users/${userId}/activity`, { signal: controller.signal });
         if (!active || !res.ok) return;
-        const json = (await res.json()) as { activity?: MoeActivity | null; music?: MusicActivity | null; game?: GameActivity | null };
+        const json = (await res.json()) as {
+          activity?: MoeActivity | null;
+          music?: MusicActivity | null;
+          game?: GameActivity | null;
+          activities?: GameActivity[];
+        };
+        const activities = json.activities ?? (json.game ? [json.game] : []);
         if (active) setData({
           activity: json.activity ?? null,
           music: json.music ?? null,
-          game: json.game ?? null,
+          game: activities[0] ?? json.game ?? null,
+          activities,
         });
       } catch {
         // ignore transient errors; keep last known value

@@ -110,20 +110,23 @@ export const convertHexToRgba = (hex: string, opacity: number): string => {
   return hex;
 };
 
-export function getProfileBackgroundStyle(customization?: {
-  profileColor?: string;
-  profileAccentColor?: string;
-  profileGradient?: string[];
-  profileGradientAngle?: number;
-  profileGradientType?: 'linear' | 'radial';
-  profileGradientRadialPosition?: string;
-  profileCardEffect?: 'normal' | 'glassmorphism' | 'glow' | 'holographic' | 'neon';
-  profileCardBlur?: number;
-  profileCardOpacity?: number;
-  profileCardBorderColor?: string;
-  profileCardBorderGlow?: boolean;
-  profileCardBorderWidth?: number;
-} | null): CSSProperties {
+export function getProfileBackgroundStyle(
+  customization?: {
+    profileColor?: string;
+    profileAccentColor?: string;
+    profileGradient?: string[];
+    profileGradientAngle?: number;
+    profileGradientType?: 'linear' | 'radial';
+    profileGradientRadialPosition?: string;
+    profileCardEffect?: 'normal' | 'glassmorphism' | 'glow' | 'holographic' | 'neon';
+    profileCardBlur?: number;
+    profileCardOpacity?: number;
+    profileCardBorderColor?: string;
+    profileCardBorderGlow?: boolean;
+    profileCardBorderWidth?: number;
+  } | null,
+  options?: { opaque?: boolean }
+): CSSProperties {
   if (!customization) return {};
   const {
     profileGradient,
@@ -155,20 +158,30 @@ export function getProfileBackgroundStyle(customization?: {
 
   // 2. Card Effect styling
   if (profileCardEffect === 'glassmorphism') {
-    style.backdropFilter = `blur(${profileCardBlur}px)`;
-    style.WebkitBackdropFilter = `blur(${profileCardBlur}px)`;
-
-    if (profileGradient && profileGradient.length >= 2) {
-      const transparentGrad = profileGradient.map((color) => convertHexToRgba(color, profileCardOpacity));
-      if (profileGradientType === 'radial') {
-        style.background = `radial-gradient(circle at ${profileGradientRadialPosition}, ${transparentGrad.join(', ')})`;
-      } else {
-        style.background = `linear-gradient(${profileGradientAngle}deg, ${transparentGrad.join(', ')})`;
+    if (options?.opaque) {
+      if (backgroundVal) {
+        if (backgroundVal.startsWith('linear-gradient') || backgroundVal.startsWith('radial-gradient')) {
+          style.background = backgroundVal;
+        } else {
+          style.backgroundColor = backgroundVal;
+        }
       }
-    } else if (profileColor) {
-      style.backgroundColor = convertHexToRgba(profileColor, profileCardOpacity);
     } else {
-      style.backgroundColor = `rgba(12, 12, 16, ${profileCardOpacity})`;
+      style.backdropFilter = `blur(${profileCardBlur}px)`;
+      style.WebkitBackdropFilter = `blur(${profileCardBlur}px)`;
+
+      if (profileGradient && profileGradient.length >= 2) {
+        const transparentGrad = profileGradient.map((color) => convertHexToRgba(color, profileCardOpacity));
+        if (profileGradientType === 'radial') {
+          style.background = `radial-gradient(circle at ${profileGradientRadialPosition}, ${transparentGrad.join(', ')})`;
+        } else {
+          style.background = `linear-gradient(${profileGradientAngle}deg, ${transparentGrad.join(', ')})`;
+        }
+      } else if (profileColor) {
+        style.backgroundColor = convertHexToRgba(profileColor, profileCardOpacity);
+      } else {
+        style.backgroundColor = `rgba(12, 12, 16, ${profileCardOpacity})`;
+      }
     }
   } else if (profileCardEffect === 'holographic') {
     style.background = `linear-gradient(${profileGradientAngle}deg, #ff7b00, #ff007b, #9900ff, #0022ff, #00ff77, #ff7b00)`;

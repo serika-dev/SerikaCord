@@ -186,7 +186,7 @@ export function FullProfileDialog({
           // Desktop: centered card
           "sm:!top-1/2 sm:!bottom-auto sm:!-translate-y-1/2 sm:!w-[min(1000px,95vw)] sm:!max-w-[1000px] sm:h-[85vh] sm:!max-h-[720px] sm:rounded-2xl sm:border"
         )}
-        style={getProfileBackgroundStyle(fullUser.customization)}
+        style={getProfileBackgroundStyle(fullUser.customization, { opaque: true })}
       >
         <DialogTitle className="sr-only">{displayName}&apos;s Profile</DialogTitle>
         {/* Grab handle (mobile sheet affordance) */}
@@ -423,7 +423,7 @@ export function FullProfileDialog({
                               ) : null}
                               <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
                               <Icon size={22} className="shrink-0" style={{ color }} />
-                              <ExternalLink className="w-3 h-3 text-[#9a9aad] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                              <ExternalLink className="w-3 h-3 text-[#9a9aad] shrink-0" />
                             </a>
                           );
                         })}
@@ -434,10 +434,12 @@ export function FullProfileDialog({
                   {/* Activity */}
                   <div>
                     <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">Recent Activity</h4>
-                    {userActivity?.game && <GameActivityCard game={userActivity.game} />}
+                    {userActivity?.activities?.map((game) => (
+                      <GameActivityCard key={`${game.type}-${game.name}`} game={game} />
+                    ))}
                     {userActivity?.music && <MusicActivityCard music={userActivity.music} />}
                     {moeActivity && <NowWatchingCard activity={moeActivity} />}
-                    {!userActivity?.game && !userActivity?.music && !moeActivity && (
+                    {(!userActivity?.activities || userActivity.activities.length === 0) && !userActivity?.music && !moeActivity && (
                       <div className="flex flex-col items-center justify-center text-center text-[#9a9aad] py-12 rounded-lg bg-white/[0.02] border border-white/[0.04]">
                         <p className="text-sm">No recent activity to show.</p>
                       </div>
@@ -448,10 +450,12 @@ export function FullProfileDialog({
 
               {activeTab === "activity" && (
                 <div className="space-y-4">
-                  {userActivity?.game && <GameActivityCard game={userActivity.game} />}
+                  {userActivity?.activities?.map((game) => (
+                    <GameActivityCard key={`${game.type}-${game.name}`} game={game} />
+                  ))}
                   {userActivity?.music && <MusicActivityCard music={userActivity.music} />}
                   {moeActivity && <NowWatchingCard activity={moeActivity} />}
-                  {!userActivity?.game && !userActivity?.music && !moeActivity && (
+                  {(!userActivity?.activities || userActivity.activities.length === 0) && !userActivity?.music && !moeActivity && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-[#9a9aad] py-20">
                       <p className="text-sm">No activity in the last 30 days.</p>
                     </div>

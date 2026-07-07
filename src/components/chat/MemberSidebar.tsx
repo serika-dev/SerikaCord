@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef } from "react";
-import { Crown, Play, Pause, Music2 } from "lucide-react";
+import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -168,6 +168,9 @@ function MemberItem({ member, serverId }: MemberItemProps) {
   const userActivity = useUserActivity(member.id, { enabled: !isOffline, intervalMs: 15_000 });
   const moeActivity = userActivity?.activity ?? null;
   const musicActivity = userActivity?.music ?? null;
+  const gameActivities = userActivity?.activities ?? [];
+  const gameActivity = gameActivities[0] ?? null;
+  const extraGameCount = gameActivities.length > 1 ? gameActivities.length - 1 : 0;
   const subtitle = (!isOffline && member.customStatus) || null;
   const nameplateBg = getNameplateBackground(member.customization);
 
@@ -231,6 +234,22 @@ function MemberItem({ member, serverId }: MemberItemProps) {
             <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)] min-w-0">
               <Music2 className="w-2.5 h-2.5 shrink-0 fill-current" />
               <span className="truncate min-w-0">{musicActivity.name} — {musicActivity.artist}</span>
+            </div>
+          ) : gameActivity ? (
+            <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)] min-w-0">
+              {gameActivity.type === "vscode" ? (
+                <Code2 className="w-2.5 h-2.5 shrink-0" />
+              ) : gameActivity.type === "windsurf" || gameActivity.type === "cursor" || gameActivity.type === "zed" ? (
+                <Code2 className="w-2.5 h-2.5 shrink-0" />
+              ) : gameActivity.type === "claude" ? (
+                <Bot className="w-2.5 h-2.5 shrink-0" />
+              ) : (
+                <Gamepad2 className="w-2.5 h-2.5 shrink-0" />
+              )}
+              <span className="truncate min-w-0">{gameActivity.name}</span>
+              {extraGameCount > 0 && (
+                <span className="text-[10px] text-[var(--text-muted)]">+{extraGameCount}</span>
+              )}
             </div>
           ) : (
             subtitle && (

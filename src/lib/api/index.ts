@@ -1111,15 +1111,15 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
     const showActivity = targetUser.settings?.privacy?.showActivity ?? true;
     if (!showActivity) {
-      return { activity: null, music: null, game: null };
+      return { activity: null, music: null, game: null, activities: [] };
     }
 
     const userId = params.userId.toString();
 
     // Fetch all three in parallel
-    const [watchActivity, richPresence, lastfmConnection] = await Promise.all([
+    const [watchActivity, richPresenceDocs, lastfmConnection] = await Promise.all([
       getMoeActivity(userId),
-      RichPresence.findOne({ userId: targetUser._id }).lean(),
+      RichPresence.find({ userId: targetUser._id, expiresAt: { $gt: new Date() } }).lean(),
       UserConnection.findOne({ userId: targetUser._id, provider: 'lastfm' }).lean(),
     ]);
 
@@ -1129,21 +1129,24 @@ const userRoutes = new Elysia({ prefix: '/users' })
       music = await getLastFmNowPlaying(lastfmConnection.accountId);
     }
 
+    const activities = (richPresenceDocs as any[]).map((doc) => ({
+      type: doc.type,
+      name: doc.name,
+      details: doc.details ?? null,
+      state: doc.state ?? null,
+      largeImageUrl: doc.largeImageUrl ?? null,
+      largeImageText: doc.largeImageText ?? null,
+      smallImageUrl: doc.smallImageUrl ?? null,
+      smallImageText: doc.smallImageText ?? null,
+      startedAt: doc.startedAt ?? null,
+      endsAt: doc.endsAt ?? null,
+    }));
+
     return {
       activity: watchActivity,
       music,
-      game: richPresence ? {
-        type: richPresence.type,
-        name: richPresence.name,
-        details: richPresence.details ?? null,
-        state: richPresence.state ?? null,
-        largeImageUrl: richPresence.largeImageUrl ?? null,
-        largeImageText: richPresence.largeImageText ?? null,
-        smallImageUrl: richPresence.smallImageUrl ?? null,
-        smallImageText: richPresence.smallImageText ?? null,
-        startedAt: richPresence.startedAt ?? null,
-        endsAt: richPresence.endsAt ?? null,
-      } : null,
+      game: activities[0] ?? null,
+      activities,
     };
   }, {
     params: t.Object({
@@ -1158,44 +1161,79 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const payload = body as Record<string, any>;
+    const raw = body as any;
+    const incoming = Array.isArray(raw.activities)
+      ? raw.activities.filter((a: any) => a?.name)
+      : raw?.name ? [raw] : [];
+
     // Desktop app sends a heartbeat every 15s; TTL = 60s gives 3 missed beats before expiry
     const expiresAt = new Date(Date.now() + 60_000);
+    const activeKeys = new Set<string>();
 
-    await RichPresence.findOneAndUpdate(
-      { userId: authUser._id },
-      {
-        $set: {
-          type: payload.type || 'game',
-          name: payload.name,
-          details: payload.details ?? null,
-          state: payload.state ?? null,
-          largeImageUrl: payload.largeImageUrl ?? null,
-          largeImageText: payload.largeImageText ?? null,
-          smallImageUrl: payload.smallImageUrl ?? null,
-          smallImageText: payload.smallImageText ?? null,
-          startedAt: payload.startedAt ? new Date(payload.startedAt) : null,
-          endsAt: payload.endsAt ? new Date(payload.endsAt) : null,
-          expiresAt,
+    for (const item of incoming) {
+      const type = item.type || 'other';
+      const name = item.name;
+      activeKeys.add(`${type}:${name}`);
+      await RichPresence.findOneAndUpdate(
+        { userId: authUser._id, type, name },
+        {
+          $set: {
+            type,
+            name,
+            details: item.details ?? null,
+            state: item.state ?? null,
+            largeImageUrl: item.largeImageUrl ?? null,
+            largeImageText: item.largeImageText ?? null,
+            smallImageUrl: item.smallImageUrl ?? null,
+            smallImageText: item.smallImageText ?? null,
+            startedAt: item.startedAt ? new Date(item.startedAt) : null,
+            endsAt: item.endsAt ? new Date(item.endsAt) : null,
+            expiresAt,
+          },
         },
-      },
-      { upsert: true, new: true }
-    );
+        { upsert: true, new: true }
+      );
+    }
+
+    // Anything not reported in this batch is no longer active.
+    const existing = await RichPresence.find({ userId: authUser._id }).lean();
+    const staleIds = (existing as any[])
+      .filter((doc) => !activeKeys.has(`${doc.type}:${doc.name}`))
+      .map((doc) => doc._id);
+    if (staleIds.length) {
+      await RichPresence.deleteMany({ _id: { $in: staleIds } });
+    }
 
     return { ok: true };
   }, {
-    body: t.Object({
-      type: t.Optional(t.Union([t.Literal('game'), t.Literal('music'), t.Literal('vscode'), t.Literal('other')])),
-      name: t.String({ minLength: 1, maxLength: 128 }),
-      details: t.Optional(t.String({ maxLength: 128 })),
-      state: t.Optional(t.String({ maxLength: 128 })),
-      largeImageUrl: t.Optional(t.String({ maxLength: 512 })),
-      largeImageText: t.Optional(t.String({ maxLength: 128 })),
-      smallImageUrl: t.Optional(t.String({ maxLength: 512 })),
-      smallImageText: t.Optional(t.String({ maxLength: 128 })),
-      startedAt: t.Optional(t.String()),
-      endsAt: t.Optional(t.String()),
-    }),
+    body: t.Union([
+      t.Object({
+        type: t.Optional(t.String()),
+        name: t.String({ minLength: 1, maxLength: 128 }),
+        details: t.Optional(t.String({ maxLength: 128 })),
+        state: t.Optional(t.String({ maxLength: 128 })),
+        largeImageUrl: t.Optional(t.String({ maxLength: 512 })),
+        largeImageText: t.Optional(t.String({ maxLength: 128 })),
+        smallImageUrl: t.Optional(t.String({ maxLength: 512 })),
+        smallImageText: t.Optional(t.String({ maxLength: 128 })),
+        startedAt: t.Optional(t.String()),
+        endsAt: t.Optional(t.String()),
+      }),
+      t.Object({
+        activities: t.Array(t.Object({
+          type: t.Optional(t.String()),
+          name: t.String({ minLength: 1, maxLength: 128 }),
+          details: t.Optional(t.String({ maxLength: 128 })),
+          state: t.Optional(t.String({ maxLength: 128 })),
+          largeImageUrl: t.Optional(t.String({ maxLength: 512 })),
+          largeImageText: t.Optional(t.String({ maxLength: 128 })),
+          smallImageUrl: t.Optional(t.String({ maxLength: 512 })),
+          smallImageText: t.Optional(t.String({ maxLength: 128 })),
+          startedAt: t.Optional(t.String()),
+          endsAt: t.Optional(t.String()),
+        })),
+      }),
+    ]),
   })
   // Clear rich presence (sent by desktop app on exit)
   .delete('/me/rich-presence', async ({ headers, cookie, set }) => {
@@ -1204,7 +1242,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
-    await RichPresence.deleteOne({ userId: authUser._id });
+    await RichPresence.deleteMany({ userId: authUser._id });
     return { ok: true };
   });
 

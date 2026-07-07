@@ -6,7 +6,7 @@
 // The web app owns all HTTP: secrets never touch the client, and the HttpOnly
 // `auth_token` cookie is sent automatically by the webview on same-origin fetch.
 
-use std::{thread, time::Duration};
+use std::{collections::HashSet, thread, time::Duration};
 
 use serde::Serialize;
 use sysinfo::System;
@@ -34,6 +34,10 @@ fn match_known_app(exe_lower: &str) -> Option<DetectedActivity> {
         ("pycharm64", "PyCharm", "vscode"),
         ("webstorm64", "WebStorm", "vscode"),
         ("clion64", "CLion", "vscode"),
+        ("windsurf", "Windsurf", "windsurf"),
+        ("cursor", "Cursor", "cursor"),
+        ("zed", "Zed", "zed"),
+        ("claude", "Claude Code", "claude"),
         ("sublime_text", "Sublime Text", "other"),
         ("blender", "Blender", "other"),
         ("obs", "OBS Studio", "other"),
@@ -97,22 +101,27 @@ fn match_known_game(exe_lower: &str) -> Option<DetectedActivity> {
     None
 }
 
-/// Scan all running processes and return the highest-priority match (games win).
-fn detect(sys: &System) -> Option<DetectedActivity> {
-    let mut app_fallback: Option<DetectedActivity> = None;
+/// Scan all running processes and return every recognised activity.
+fn detect(sys: &System) -> Vec<DetectedActivity> {
+    let mut results: Vec<DetectedActivity> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for (_pid, process) in sys.processes() {
         let name = process.name().to_lowercase();
         let exe_lower = name.trim_end_matches(".exe").to_string();
-        if let Some(game) = match_known_game(&exe_lower) {
-            return Some(game); // games take priority — return immediately
+        if seen.contains(&exe_lower) {
+            continue;
         }
-        if app_fallback.is_none() {
-            if let Some(app) = match_known_app(&exe_lower) {
-                app_fallback = Some(app);
-            }
+        if let Some(game) = match_known_game(&exe_lower) {
+            seen.insert(exe_lower);
+            results.push(game);
+            continue;
+        }
+        if let Some(app) = match_known_app(&exe_lower) {
+            seen.insert(exe_lower);
+            results.push(app);
         }
     }
-    app_fallback
+    results
 }
 
 /// Spawn the background detection loop. Emits `presence://detected` to the
@@ -120,7 +129,7 @@ fn detect(sys: &System) -> Option<DetectedActivity> {
 pub fn spawn_detection_loop(app: AppHandle) {
     thread::spawn(move || {
         let mut sys = System::new();
-        let mut last: Option<DetectedActivity> = None;
+        let mut last: Vec<DetectedActivity> = Vec::new();
 
         loop {
             sys.refresh_processes();
@@ -132,8 +141,8 @@ pub fn spawn_detection_loop(app: AppHandle) {
                 // (via /api/igdb/game) and posting to /api/users/me/rich-presence.
                 let _ = app.emit("presence://detected", &current);
                 if let Some(window) = app.get_webview_window("main") {
-                    let payload = serde_json::to_string(&current).unwrap_or_else(|_| "null".into());
-                    let _ = window.eval(&format!("window.__serikaSetActivity && window.__serikaSetActivity({payload});"));
+                    let payload = serde_json::to_string(&current).unwrap_or_else(|_| "[]".into());
+                    let _ = window.eval(&format!("window.__serikaSetActivities && window.__serikaSetActivities({payload});"));
                 }
             }
 

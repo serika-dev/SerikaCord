@@ -17,69 +17,82 @@ use tauri_plugin_opener::OpenerExt;
 const APP_URL: &str = "https://waifu.ws";
 const START_PATH: &str = "/channels/me";
 
-// Injected into the web app. Receives detected activity from Rust via
-// `window.__serikaSetActivity`, resolves games through the IGDB proxy, and
+// Injected into the web app. Receives detected activities from Rust via
+// `window.__serikaSetActivities`, resolves games through the IGDB proxy, and
 // reports to the rich-presence API using the page's (authenticated) session.
 const PRESENCE_REPORTER_JS: &str = r#"
 (function () {
   if (window.__serikaPresenceInit) return;
   window.__serikaPresenceInit = true;
 
-  var current = null;      // last DetectedActivity from Rust
-  var reported = null;     // last payload we POSTed (to avoid spam)
-  var startedAt = null;
+  var current = [];      // last DetectedActivity[] from Rust
+  var reported = {};     // name+kind -> last payload we POSTed (to avoid spam)
+  var startedAt = {};    // name+kind -> ISO timestamp
 
   function api(path, opts) {
     return fetch(path, Object.assign({ credentials: 'include' }, opts || {}));
   }
 
-  async function resolveAndReport(activity) {
-    if (!activity) {
-      if (reported !== null) {
-        reported = null; startedAt = null;
+  async function resolveAndReport(activities) {
+    if (!activities || activities.length === 0) {
+      if (Object.keys(reported).length > 0) {
+        reported = {}; startedAt = {};
         try { await api('/api/users/me/rich-presence', { method: 'DELETE' }); } catch (e) {}
       }
       return;
     }
 
-    var name = activity.name;
-    var largeImageUrl = null;
+    var payloads = [];
+    for (var i = 0; i < activities.length; i++) {
+      var activity = activities[i];
+      var name = activity.name;
+      var largeImageUrl = null;
 
-    if (activity.kind === 'game') {
-      try {
-        var res = await api('/api/igdb/game?name=' + encodeURIComponent(activity.name));
-        if (res.ok) {
-          var data = await res.json();
-          if (data && data.game) {
-            name = data.game.name || name;
-            largeImageUrl = data.game.coverUrl || null;
+      if (activity.kind === 'game') {
+        try {
+          var res = await api('/api/igdb/game?name=' + encodeURIComponent(activity.name));
+          if (res.ok) {
+            var data = await res.json();
+            if (data && data.game) {
+              name = data.game.name || name;
+              largeImageUrl = data.game.coverUrl || null;
+            }
           }
-        }
-      } catch (e) {}
+        } catch (e) {}
+      }
+
+      var key = activity.kind + '|' + name;
+      if (!startedAt[key] || !reported[key] || reported[key].name !== name) {
+        startedAt[key] = new Date().toISOString();
+      }
+
+      var payload = {
+        type: activity.kind === 'game' ? 'game' : activity.kind,
+        name: name,
+        largeImageUrl: largeImageUrl || undefined,
+        largeImageText: name,
+        startedAt: startedAt[key],
+      };
+      payloads.push(payload);
+      reported[key] = payload;
     }
 
-    if (!startedAt || !reported || reported.name !== name) {
-      startedAt = new Date().toISOString();
-    }
-
-    var payload = {
-      type: activity.kind === 'game' ? 'game' : (activity.kind === 'vscode' ? 'vscode' : 'other'),
-      name: name,
-      largeImageUrl: largeImageUrl || undefined,
-      largeImageText: name,
-      startedAt: startedAt,
-    };
-    reported = payload;
-    try { await api('/api/users/me/rich-presence', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+    try {
+      await api('/api/users/me/rich-presence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activities: payloads })
+      });
+    } catch (e) {}
   }
 
-  window.__serikaSetActivity = function (activity) {
-    current = activity;
-    resolveAndReport(activity);
+  window.__serikaSetActivities = function (activities) {
+    current = activities || [];
+    resolveAndReport(current);
   };
 
   // Heartbeat so presence doesn't expire (server TTL ~60s) while unchanged.
-  setInterval(function () { if (current) resolveAndReport(current); }, 45000);
+  setInterval(function () { if (current && current.length) resolveAndReport(current); }, 45000);
 })();
 "#;
 

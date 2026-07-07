@@ -418,11 +418,11 @@ export function ProfileCard({
         )}
 
         {/* Activity cards: game, music (Last.fm), watching (serika.moe) */}
-        {userActivity?.game && (
-          <div className="mt-4">
-            <GameActivityCard game={userActivity.game} />
+        {userActivity?.activities?.map((game) => (
+          <div key={`${game.type}-${game.name}`} className="mt-4">
+            <GameActivityCard game={game} />
           </div>
-        )}
+        ))}
         {userActivity?.music && (
           <div className="mt-4">
             <MusicActivityCard music={userActivity.music} />
@@ -459,7 +459,7 @@ export function ProfileCard({
                       <Icon size={20} className="shrink-0" style={{ color }} />
                     )}
                     <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
-                    <svg className="w-3 h-3 text-[#9a9aad] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
+                    <svg className="w-3 h-3 text-[#9a9aad] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                   </a>
                 );
               })}
