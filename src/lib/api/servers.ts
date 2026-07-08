@@ -187,6 +187,7 @@ interface PopulatedMemberUser {
   customStatus?: string;
   isPremium?: boolean;
   isBot?: boolean;
+  isSystem?: boolean;
   isVerified?: boolean;
   presenceLastHeartbeatAt?: Date | null;
   customization?: {
@@ -1106,7 +1107,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         afkTimeout: server.afkTimeout,
       },
       settings: {
-        ...server.settings,
+        ...(server.settings as Record<string, unknown>),
         discoveryDescription: server.discoveryDescription || '',
         discoveryCategories: server.discoveryCategories || [],
       },

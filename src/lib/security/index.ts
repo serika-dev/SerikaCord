@@ -94,7 +94,7 @@ export async function checkRateLimit(
         keyPrefix: `rl-fallback:${limiterKey}`,
         points: limiterConfig.points,
         duration: limiterConfig.duration,
-        blockDuration: limiterConfig.blockDuration || 0,
+        blockDuration: (limiterConfig as { blockDuration?: number }).blockDuration || 0,
       });
       const result = await fallbackLimiter.consume(identifier);
       return {
