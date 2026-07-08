@@ -26,22 +26,70 @@ const MAX_LOADED_MESSAGES = 200;
 const MAX_CACHED_CONTEXTS = 50;
 const messageCache = new Map<string, ChatMessage[]>();
 
+// localStorage persistence: paints channels instantly after a full page reload
+// (in-memory cache alone is lost on reload). We persist only a small tail of
+// recent messages for a bounded set of contexts to stay well under quota.
+const LS_MSG_PREFIX = "sc:msgcache:";
+const LS_PERSIST_TAIL = 30;
+const LS_MAX_PERSISTED = 30;
+const LS_INDEX_KEY = "sc:msgcache:index";
+
+function lsPersist(key: string, messages: ChatMessage[]): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const tail = messages.slice(-LS_PERSIST_TAIL);
+    localStorage.setItem(LS_MSG_PREFIX + key, JSON.stringify(tail));
+    // Maintain a small LRU index so we can evict old persisted contexts.
+    const idx: string[] = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");
+    const next = [key, ...idx.filter((k) => k !== key)];
+    while (next.length > LS_MAX_PERSISTED) {
+      const evict = next.pop();
+      if (evict) localStorage.removeItem(LS_MSG_PREFIX + evict);
+    }
+    localStorage.setItem(LS_INDEX_KEY, JSON.stringify(next));
+  } catch {
+    /* quota / disabled — ignore */
+  }
+}
+
+function lsHydrate<M extends ChatMessage>(key: string): M[] | undefined {
+  if (typeof localStorage === "undefined") return undefined;
+  try {
+    const raw = localStorage.getItem(LS_MSG_PREFIX + key);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as M[];
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function readCache<M extends ChatMessage>(key: string): M[] | undefined {
-  const cached = messageCache.get(key);
-  if (!cached) return undefined;
-  // Refresh LRU recency.
-  messageCache.delete(key);
-  messageCache.set(key, cached);
+  let cached = messageCache.get(key);
+  if (!cached) {
+    // Fall back to persisted tail (post-reload) and promote into memory.
+    const hydrated = lsHydrate<M>(key);
+    if (!hydrated) return undefined;
+    cached = hydrated;
+    messageCache.set(key, cached);
+  } else {
+    // Refresh LRU recency.
+    messageCache.delete(key);
+    messageCache.set(key, cached);
+  }
   return cached as M[];
 }
 
-function writeCache<M extends ChatMessage>(key: string, messages: M[]): void {
+function writeCache<M extends ChatMessage>(key: string, messages: M[], persist = false): void {
   messageCache.delete(key);
   messageCache.set(key, messages);
   if (messageCache.size > MAX_CACHED_CONTEXTS) {
     const oldest = messageCache.keys().next().value;
     if (oldest !== undefined) messageCache.delete(oldest);
   }
+  // Only persist authoritative fetches (initial load / prefetch), not every
+  // live SSE/optimistic mutation — those would thrash localStorage.
+  if (persist) lsPersist(key, messages);
 }
 
 /** True if this REST base already has messages warmed in the SWR cache. */
@@ -79,7 +127,7 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
         seen.add(normalized.id);
         deduped.push(normalized);
       }
-      if (deduped.length > 0) writeCache(apiBase, deduped);
+      if (deduped.length > 0) writeCache(apiBase, deduped, true);
     } catch {
       // best-effort warm-up; the real fetch on open will retry
     } finally {
@@ -227,7 +275,7 @@ export function useChatSession<M extends ChatMessage>({
           seen.add(normalized.id);
           deduped.push(normalized);
         }
-        writeCache(requestedContext, deduped);
+        writeCache(requestedContext, deduped, true);
         setMessages(deduped);
         setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
         latestRef.current.onShouldScrollToBottom?.();

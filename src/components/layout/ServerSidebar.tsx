@@ -43,7 +43,7 @@ function isNativeApp(): boolean {
 
 export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
   const router = useRouter();
-  const { servers, currentServer, setCurrentServer, leaveServer } = useServer();
+  const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
   const [isNative, setIsNative] = useState(isNativeApp);
   const { serverMentionCounts, markServerRead } = useMentions();
   const { isMuted, toggleMute } = useServerMutes();
@@ -146,6 +146,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                 <TooltipTrigger asChild>
                   <motion.button
                     onClick={() => handleServerClick(server)}
+                    onMouseEnter={() => prefetchServer(server.id)}
                     whileTap={{ scale: 0.88 }}
                     transition={{ type: "spring", stiffness: 500, damping: 30 }}
                     className={cn(

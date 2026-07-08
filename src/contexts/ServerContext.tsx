@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition } from "react";
 import { usePolling } from "@/hooks/usePolling";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
 
 interface Server {
   id: string;
@@ -66,6 +67,8 @@ interface ServerContextType {
   clearContext: () => void;
   fetchServers: () => Promise<void>;
   fetchChannels: (serverId: string) => Promise<void>;
+  /** Warm channel list + top channel messages for a server (e.g. on hover). */
+  prefetchServer: (serverId: string) => void;
   createServer: (name: string, icon?: File) => Promise<Server>;
   joinServer: (inviteCode: string) => Promise<void>;
   leaveServer: (serverId: string) => Promise<void>;
@@ -221,6 +224,53 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Failed to fetch channels:", error);
     }
+  }, []);
+
+  // Warm a server before the user clicks it: fetch its channel list into the
+  // cache (so the sidebar paints instantly) and prefetch the most recently
+  // active text channel's messages (so landing in it is instant). Deduped so
+  // repeated hovers don't refetch. Best-effort and non-blocking.
+  const prefetchedServersRef = useRef<Set<string>>(new Set());
+  const prefetchServer = useCallback((serverId: string) => {
+    if (!serverId || prefetchedServersRef.current.has(serverId)) return;
+    prefetchedServersRef.current.add(serverId);
+    void (async () => {
+      try {
+        let list = channelCacheRef.current.get(serverId);
+        if (!list) {
+          const res = await fetch(`/api/servers/${serverId}/channels`);
+          if (!res.ok) return;
+          const data = await res.json();
+          const arr = Array.isArray(data) ? data : data.channels || [];
+          list = arr.map((c: any) => ({
+            id: c.id || c._id,
+            name: c.name,
+            type: c.type,
+            serverId: c.serverId,
+            position: c.position,
+            parentId: c.parentId || null,
+            isNsfw: c.nsfw || c.isNsfw,
+            topic: c.topic,
+            rateLimitPerUser: c.rateLimitPerUser || 0,
+            permissionOverwrites: c.permissionOverwrites || [],
+            lastMessageAt: c.lastMessageAt || null,
+          }));
+          channelCacheRef.current.set(serverId, list!);
+          lsSet(LS_CHANNELS_PREFIX + serverId, list);
+        }
+        const top = [...(list || [])]
+          .filter((c) => c.type === "text" || c.type === "announcement")
+          .sort(
+            (a, b) =>
+              (b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0) -
+              (a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0)
+          )[0];
+        if (top) void prefetchChannelMessages(`/api/channels/${top.id}`);
+      } catch {
+        // best-effort — a failed prefetch just means the normal load runs
+        prefetchedServersRef.current.delete(serverId);
+      }
+    })();
   }, []);
 
   const fetchMembers = useCallback(async (serverId: string) => {
@@ -460,6 +510,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         clearContext,
         fetchServers,
         fetchChannels,
+        prefetchServer,
         createServer,
         joinServer,
         leaveServer,

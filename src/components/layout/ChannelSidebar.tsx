@@ -530,30 +530,48 @@ export function ChannelSidebar({
     );
   }, [channels, registerChannels]);
 
-  // Preload: when a server's channels load, warm the message cache for text
-  // channels that have unread activity so opening them is instant. The channel
-  // the user is currently viewing is already being fetched by the mounted chat,
-  // so we skip it here and stagger the rest to keep the load light.
+  // Preload: when a server's channels load, warm the message cache so opening a
+  // channel is instant. Priority: unread channels first, then the most
+  // recently-active ones (by lastMessageAt). The channel the user is viewing is
+  // already being fetched by the mounted chat, so we skip it. Bounded count +
+  // concurrency keep this light (server-side decrypt is cached after first warm).
   useEffect(() => {
     if (channels.length === 0) return;
     let cancelled = false;
-    const unreadTextChannels = channels.filter(
-      (c) =>
-        (c.type === "text" || c.type === "announcement") &&
-        c.id !== currentChannel?.id &&
-        isChannelUnread(c.id)
+
+    const textChannels = channels.filter(
+      (c) => (c.type === "text" || c.type === "announcement") && c.id !== currentChannel?.id
     );
-    (async () => {
-      for (const c of unreadTextChannels) {
-        if (cancelled) return;
-        await prefetchChannelMessages(`/api/channels/${c.id}`);
+    const unread = textChannels.filter((c) => isChannelUnread(c.id));
+    const byRecency = [...textChannels].sort((a, b) => {
+      const at = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+      const bt = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+      return bt - at;
+    });
+    // Unread first, then recent, de-duped, capped.
+    const seen = new Set<string>();
+    const queue: string[] = [];
+    for (const c of [...unread, ...byRecency]) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      queue.push(c.id);
+      if (queue.length >= 12) break;
+    }
+
+    // Concurrency-limited worker pool (3 at a time).
+    let cursor = 0;
+    const runWorker = async () => {
+      while (!cancelled && cursor < queue.length) {
+        const id = queue[cursor++];
+        await prefetchChannelMessages(`/api/channels/${id}`);
       }
-    })();
+    };
+    void Promise.all([runWorker(), runWorker(), runWorker()]);
+
     return () => {
       cancelled = true;
     };
-    // Intentionally keyed on the server/channel set, not isChannelUnread identity,
-    // to run once per server open rather than on every unread change.
+    // Keyed on the server/channel set so it runs once per server open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentServer?.id, channels.length]);
 
