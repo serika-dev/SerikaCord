@@ -1578,6 +1578,21 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const channels = allChannels
       .filter((ch: any) => ch.type !== 'public_thread' && ch.type !== 'private_thread')
       .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
+
+    // Batch-resolve the timestamp of each channel's last message so the client
+    // can compute initial unread state (bold) without an extra round-trip per
+    // channel. One query for all last-message ids in this server.
+    const lastMessageIds = channels
+      .map((ch: any) => ch.lastMessageId)
+      .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+    const lastMessageAtById = new Map<string, string>();
+    if (lastMessageIds.length > 0) {
+      const lastMsgs = await Message.find({ id: { in: lastMessageIds } });
+      for (const m of lastMsgs as any[]) {
+        if (m.createdAt) lastMessageAtById.set(m.id, new Date(m.createdAt).toISOString());
+      }
+    }
+
     // Transform for frontend compatibility
     return channels.map((ch: any) => ({
       id: ch.id,
@@ -1591,6 +1606,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       forumMode: ch.forumMode,
       rateLimitPerUser: ch.rateLimitPerUser,
       lastMessageId: ch.lastMessageId || null,
+      lastMessageAt: ch.lastMessageId ? (lastMessageAtById.get(ch.lastMessageId) || null) : null,
       permissionOverwrites: (ch.permissionOverwrites || []).map((o: { id: any; type: string; allow: string; deny: string }) => ({
         id: o.id,
         type: o.type,

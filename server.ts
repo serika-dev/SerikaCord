@@ -35,6 +35,7 @@ let registerChannelSSE: ((channelId: string, write: (data: string) => void) => (
 let registerDmSSE: ((channelId: string, write: (data: string) => void) => () => void) | null = null;
 let checkChannelAccess: ((userId: string, channelId: string) => Promise<{ hasAccess: boolean; error?: string }>) | null = null;
 let getOrCreateDMChannel: ((userId: string, recipientId: string) => Promise<{ id: string }>) | null = null;
+let registerActivitySSE: ((userId: string, write: (data: string) => void) => () => void) | null = null;
 
 async function main() {
   await app.prepare();
@@ -70,6 +71,17 @@ async function main() {
       return;
     }
 
+    if (pathname === '/api/users/@me/activity') {
+      handleActivitySSE(req, res).catch((err) => {
+        console.error('Activity SSE handler error:', err);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'SSE handler error' }));
+        }
+      });
+      return;
+    }
+
     handle(req, res);
   });
 
@@ -91,6 +103,11 @@ async function main() {
     getOrCreateDMChannel = dmMod.getOrCreateDMChannel;
     await channelMod.startChannelSSEBridge();
     await dmMod.startDmSSEBridge();
+    // App-wide unread/activity bus (glow, mention badges in the sidebar).
+    import('@/lib/api/activity').then(async (activityMod) => {
+      registerActivitySSE = activityMod.registerActivityConnection;
+      await activityMod.startActivitySSEBridge();
+    }).catch((err) => console.error('Activity SSE bridge init failed:', err));
     // Voice bridge is optional — don't block startup if it fails.
     import('@/lib/api/voice').then(({ startVoiceBridge }) => {
       startVoiceBridge().catch(() => {});
@@ -216,6 +233,48 @@ async function handleSSE(
   }, SSE_PING_MS);
 
   // Cleanup on client disconnect
+  const cleanup = () => {
+    clearInterval(pingInterval);
+    unregister();
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+  res.on('close', cleanup);
+  res.on('error', cleanup);
+}
+
+// Raw SSE handler for the app-wide unread/activity stream. Writes directly to
+// the socket (same rationale as handleSSE) so unread glow updates arrive
+// instantly instead of being batched by Next.js response buffering.
+async function handleActivitySSE(req: IncomingMessage, res: ServerResponse) {
+  const cookies = parseCookies(req.headers.cookie);
+  const authHeader = req.headers.authorization ?? null;
+  const { user, error: authError } = await authenticateRequest(
+    typeof authHeader === 'string' ? authHeader : null,
+    cookies,
+  );
+  if (!user) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: authError || 'Unauthorized' }));
+    return;
+  }
+  if (!registerActivitySSE) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Activity stream not ready' }));
+    return;
+  }
+
+  res.writeHead(200, SSE_HEADERS);
+  res.write('data: {"type":"connected"}\n\n');
+
+  const unregister = registerActivitySSE(user.id, (data: string) => {
+    try { res.write(data); } catch { /* socket closed */ }
+  });
+
+  const pingInterval = setInterval(() => {
+    try { res.write('data: {"type":"ping"}\n\n'); } catch { /* closed */ }
+  }, SSE_PING_MS);
+
   const cleanup = () => {
     clearInterval(pingInterval);
     unregister();

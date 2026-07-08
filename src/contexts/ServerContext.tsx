@@ -51,6 +51,7 @@ interface Channel {
   topic?: string;
   rateLimitPerUser?: number;
   permissionOverwrites?: PermissionOverwrite[];
+  lastMessageAt?: string | null;
 }
 
 interface ServerContextType {
@@ -209,6 +210,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
           topic: c.topic,
           rateLimitPerUser: c.rateLimitPerUser || 0,
           permissionOverwrites: c.permissionOverwrites || [],
+          lastMessageAt: c.lastMessageAt || null,
         }));
         // Cache channels for faster switching (in-memory + localStorage for
         // instant paint on reload).

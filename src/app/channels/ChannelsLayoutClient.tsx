@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ServerProvider, useServer } from "@/contexts/ServerContext";
+import { UnreadProvider } from "@/contexts/UnreadContext";
 import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
@@ -368,9 +369,11 @@ export default function ChannelsLayoutClient({
   return (
     <AuthProvider>
       <ServerProvider>
-        <AuthGate>
-          <ChannelsContent>{children}</ChannelsContent>
-        </AuthGate>
+        <UnreadProvider>
+          <AuthGate>
+            <ChannelsContent>{children}</ChannelsContent>
+          </AuthGate>
+        </UnreadProvider>
       </ServerProvider>
     </AuthProvider>
   );

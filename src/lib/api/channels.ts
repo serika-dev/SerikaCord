@@ -1232,6 +1232,29 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       message: messageResponse,
     });
 
+    // App-wide unread signal: notify every other member of this server so their
+    // sidebar can glow / badge the channel even when they're not viewing it.
+    // Fire-and-forget — never block the sender's response on fan-out.
+    if (channel.serverId) {
+      void (async () => {
+        try {
+          const { notifyChannelActivity } = await import('@/lib/api/activity');
+          await notifyChannelActivity({
+            type: 'channel_activity',
+            serverId: channel.serverId as string,
+            channelId: message.channelId,
+            channelName: channel.name,
+            messageId: message.id,
+            authorId: user.id,
+            authorName: senderNickname || author?.displayName || author?.username,
+            mentionedUserIds: (message.mentionedUserIds || []) as string[],
+            mentionEveryone: Boolean(message.mentionEveryone),
+            createdAt: new Date(message.createdAt ?? Date.now()).toISOString(),
+          });
+        } catch { /* best-effort */ }
+      })();
+    }
+
     // Bot gateway dispatch and slash-command HTTP round-trips must NOT block the
     // sender's response (a slow/unreachable bot endpoint previously stalled
     // sends by tens of seconds). Fire-and-forget instead.

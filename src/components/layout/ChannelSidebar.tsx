@@ -50,7 +50,8 @@ import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { ServerBadge } from "@/components/ui/badges";
 import { isChannelMuted, toggleChannelMute } from "@/lib/services/notificationUX";
-import { useMentions } from "@/hooks/useMentions";
+import { useUnread } from "@/contexts/UnreadContext";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
@@ -105,7 +106,7 @@ export function ChannelSidebar({
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
   const canManageAny = canManageChannels || canManageServer || isAdmin;
-  const { getChannelCount, markChannelRead } = useMentions(currentServer?.id);
+  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel } = useUnread();
   const [activeVoiceChannelName, setActiveVoiceChannelName] = useState<string | undefined>(undefined);
   const [voiceParticipants, setVoiceParticipants] = useState<import("@/lib/services/voiceService").VoiceParticipant[]>([]);
 
@@ -471,9 +472,20 @@ export function ChannelSidebar({
   // Group channels by type & category
   const voiceChannels = useMemo(() => channels.filter(c => c.type === "voice"), [channels]);
 
+  // Channels you've been mentioned in float to the top of their group.
+  const mentionFirst = useCallback(
+    (a: typeof channels[0], b: typeof channels[0]) => {
+      const am = getMentionCount(a.id) > 0 ? 0 : 1;
+      const bm = getMentionCount(b.id) > 0 ? 0 : 1;
+      if (am !== bm) return am - bm;
+      return a.position - b.position;
+    },
+    [getMentionCount]
+  );
+
   const uncategorizedChannels = useMemo(() => {
-    return channels.filter(c => c.type !== "category" && !c.parentId);
-  }, [channels]);
+    return channels.filter(c => c.type !== "category" && !c.parentId).sort(mentionFirst);
+  }, [channels, mentionFirst]);
 
   const categories = useMemo(() => {
     return channels.filter(c => c.type === "category").sort((a, b) => a.position - b.position);
@@ -491,19 +503,59 @@ export function ChannelSidebar({
         map.get(pId)?.push(channel);
       }
     }
-    // Sort channels inside each category by position
+    // Sort channels inside each category by position, mention channels first.
     for (const key of map.keys()) {
-      map.get(key)?.sort((a, b) => a.position - b.position);
+      map.get(key)?.sort(mentionFirst);
     }
     return map;
-  }, [channels]);
+  }, [channels, mentionFirst]);
 
-  // Mark channel as read when it becomes active
+  // Mark channel as read when it becomes active (also updates the unread engine's
+  // notion of which channel the user is viewing so its own messages don't glow).
   useEffect(() => {
-    if (currentChannel?.id) {
-      markChannelRead(currentChannel.id);
-    }
-  }, [currentChannel?.id, markChannelRead]);
+    setActiveChannel(currentChannel?.id ?? null);
+  }, [currentChannel?.id, setActiveChannel]);
+
+  // Feed the unread engine the channel list (channel→server map + last-activity
+  // seed) so it can compute glow/badges and per-server aggregation.
+  useEffect(() => {
+    if (channels.length === 0) return;
+    registerChannels(
+      channels.map((c) => ({
+        id: c.id,
+        serverId: c.serverId,
+        type: c.type,
+        lastMessageAt: c.lastMessageAt ?? null,
+      }))
+    );
+  }, [channels, registerChannels]);
+
+  // Preload: when a server's channels load, warm the message cache for text
+  // channels that have unread activity so opening them is instant. The channel
+  // the user is currently viewing is already being fetched by the mounted chat,
+  // so we skip it here and stagger the rest to keep the load light.
+  useEffect(() => {
+    if (channels.length === 0) return;
+    let cancelled = false;
+    const unreadTextChannels = channels.filter(
+      (c) =>
+        (c.type === "text" || c.type === "announcement") &&
+        c.id !== currentChannel?.id &&
+        isChannelUnread(c.id)
+    );
+    (async () => {
+      for (const c of unreadTextChannels) {
+        if (cancelled) return;
+        await prefetchChannelMessages(`/api/channels/${c.id}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally keyed on the server/channel set, not isChannelUnread identity,
+    // to run once per server open rather than on every unread change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentServer?.id, channels.length]);
 
   // State for collapsed categories
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -608,7 +660,9 @@ export function ChannelSidebar({
       );
     }
 
-    const mentionCount = getChannelCount(channel.id);
+    const mentionCount = getMentionCount(channel.id);
+    const isActive = currentChannel?.id === channel.id;
+    const unread = !isActive && isChannelUnread(channel.id);
     return (
       <div
         key={channel.id}
@@ -624,20 +678,25 @@ export function ChannelSidebar({
       >
         {showDropBefore && <div className="absolute -top-px left-2 right-2 h-0.5 bg-[var(--app-accent)] rounded-full z-20" />}
         {showDropAfter && <div className="absolute -bottom-px left-2 right-2 h-0.5 bg-[var(--app-accent)] rounded-full z-20" />}
+        {/* Unread pill: a small white bar on the far left, Discord-style. */}
+        {unread && (
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-white z-20" />
+        )}
         <button
-          onClick={() => { navigateToChannel(channel); markChannelRead(channel.id); }}
+          onClick={() => { navigateToChannel(channel); setActiveChannel(channel.id); }}
+          onMouseEnter={() => { void prefetchChannelMessages(`/api/channels/${channel.id}`); }}
           onContextMenu={(e) => handleContextMenu(e, channel)}
           className={cn(
             "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group min-w-0 overflow-hidden",
-            currentChannel?.id === channel.id && "bg-[var(--bg-active)] text-[var(--app-accent)]",
-            mentionCount > 0 && currentChannel?.id !== channel.id && "text-[var(--text-primary)]"
+            isActive && "bg-[var(--bg-active)] text-[var(--app-accent)]",
+            !isActive && unread && "text-white font-semibold"
           )}
           style={{ width: "calc(100% - 16px)" }}
         >
           {getChannelIcon(channel.type, undefined, channel.isNsfw)}
           <span className="truncate text-sm flex-1 text-left min-w-0" title={channel.name}>{channel.name}</span>
-          {mentionCount > 0 && currentChannel?.id !== channel.id && (
-            <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
+          {mentionCount > 0 && !isActive && (
+            <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#c4306b] text-[10px] font-bold text-white leading-none">
               {mentionCount > 99 ? "99+" : mentionCount}
             </span>
           )}

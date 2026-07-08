@@ -449,6 +449,54 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { servers: [], mentions: [] };
     }
   })
+  // App-wide unread/activity stream. Emits a lightweight `channel_activity`
+  // event whenever a message lands in any channel this user can see, so the
+  // sidebar can glow / badge channels the user isn't currently viewing.
+  //
+  // In production the raw SSE fast-path in server.ts intercepts this path before
+  // Next.js (avoids response buffering); this Elysia handler is the dev-mode and
+  // fallback implementation. Both register into the same activity connection map.
+  .get('/@me/activity', async ({ headers, cookie }) => {
+    const sseHeaders = {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    };
+
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
+    }
+
+    const { registerActivityConnection } = await import('@/lib/api/activity');
+    const encoder = new TextEncoder();
+    let pingInterval: NodeJS.Timeout | null = null;
+    let unregister: (() => void) | null = null;
+
+    const stream = new ReadableStream({
+      start(controller) {
+        const write = (data: string) => {
+          try { controller.enqueue(encoder.encode(data)); } catch { /* closed */ }
+        };
+        controller.enqueue(encoder.encode('data: {"type":"connected"}\n\n'));
+        unregister = registerActivityConnection(user.id, write);
+        pingInterval = setInterval(() => write('data: {"type":"ping"}\n\n'), 30000);
+      },
+      cancel() {
+        if (pingInterval) clearInterval(pingInterval);
+        unregister?.();
+      },
+    });
+
+    return new Response(stream, { headers: sseHeaders });
+  })
   .get('/@me/emojis', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {

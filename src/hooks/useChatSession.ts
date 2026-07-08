@@ -44,6 +44,53 @@ function writeCache<M extends ChatMessage>(key: string, messages: M[]): void {
   }
 }
 
+/** True if this REST base already has messages warmed in the SWR cache. */
+export function hasCachedMessages(apiBase: string): boolean {
+  const cached = messageCache.get(apiBase);
+  return !!cached && cached.length > 0;
+}
+
+// De-dupes concurrent prefetches for the same base (hover + server-open can race).
+const inflightPrefetch = new Map<string, Promise<void>>();
+
+/**
+ * Warm the shared message cache for a channel/DM without mounting the chat.
+ * Used to make channel switching feel instant: on server open we prefetch
+ * channels with unread activity, and on hover we prefetch the hovered channel.
+ * No-op (returns cached) if already warm unless `force` is set.
+ */
+export function prefetchChannelMessages(apiBase: string, force = false): Promise<void> {
+  if (!apiBase) return Promise.resolve();
+  if (!force && hasCachedMessages(apiBase)) return Promise.resolve();
+  const existing = inflightPrefetch.get(apiBase);
+  if (existing) return existing;
+
+  const task = (async () => {
+    try {
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const raw = Array.isArray(data) ? data : data.messages || [];
+      const seen = new Set<string>();
+      const deduped: ChatMessage[] = [];
+      for (const item of raw) {
+        const normalized = normalizeIncomingMessage<ChatMessage>(item);
+        if (seen.has(normalized.id)) continue;
+        seen.add(normalized.id);
+        deduped.push(normalized);
+      }
+      if (deduped.length > 0) writeCache(apiBase, deduped);
+    } catch {
+      // best-effort warm-up; the real fetch on open will retry
+    } finally {
+      inflightPrefetch.delete(apiBase);
+    }
+  })();
+
+  inflightPrefetch.set(apiBase, task);
+  return task;
+}
+
 export interface ChatSessionUser {
   id: string;
   username: string;
