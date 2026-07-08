@@ -26,11 +26,14 @@ export const Message = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
+        case 'id': conditions.push(buildCondition(schema.messages.id, value, true)); break;
         case 'channelId': conditions.push(buildCondition(schema.messages.channelId, value, true)); break;
         case 'serverId': conditions.push(buildCondition(schema.messages.serverId, value, true)); break;
         case 'authorId': conditions.push(buildCondition(schema.messages.authorId, value, true)); break;
         case 'referencedMessageId': conditions.push(buildCondition(schema.messages.referencedMessageId, value, true)); break;
         case 'threadId': conditions.push(buildCondition(schema.messages.threadId, value, true)); break;
+        case 'isDeleted': conditions.push(eq(schema.messages.isDeleted, value as boolean)); break;
+        case 'pinned': conditions.push(eq(schema.messages.pinned, value as boolean)); break;
       }
     }
     let query = db.select().from(schema.messages);

@@ -15,6 +15,31 @@ async function deriveKey(platformKey: string, salt: Buffer): Promise<Buffer> {
   return scryptAsync(platformKey, salt, 32) as Promise<Buffer>;
 }
 
+// ── Decryption cache ────────────────────────────────────────────────────────
+// scrypt is intentionally CPU-expensive; running it once per message on every
+// channel fetch made loading 50 messages take >1s. Stored ciphertext is
+// immutable (an edit produces new ciphertext), so caching ciphertext→plaintext
+// is safe and makes re-fetches, pagination, prefetch, and revalidation free.
+const DECRYPT_CACHE_MAX = 20_000;
+const decryptCache = new Map<string, string>();
+
+function cacheGet(cipher: string): string | undefined {
+  const hit = decryptCache.get(cipher);
+  if (hit === undefined) return undefined;
+  // LRU touch
+  decryptCache.delete(cipher);
+  decryptCache.set(cipher, hit);
+  return hit;
+}
+
+function cacheSet(cipher: string, plain: string): void {
+  decryptCache.set(cipher, plain);
+  if (decryptCache.size > DECRYPT_CACHE_MAX) {
+    const oldest = decryptCache.keys().next().value;
+    if (oldest !== undefined) decryptCache.delete(oldest);
+  }
+}
+
 /**
  * Encrypt a message with the platform encryption key
  * Returns a base64 encoded string containing salt:iv:authTag:ciphertext
@@ -63,12 +88,16 @@ export async function encryptMessage(plaintext: string): Promise<string> {
  */
 export async function decryptMessage(encryptedBase64: string): Promise<string> {
   if (!encryptedBase64) return '';
-  
+
+  // Fast path: skip the scrypt key derivation for ciphertext we've seen before.
+  const cached = cacheGet(encryptedBase64);
+  if (cached !== undefined) return cached;
+
   try {
     // Ensure DB is connected before fetching encryption key
     await connectDB();
     const platformKey = await getEncryptionKey();
-    
+
     // Decode from base64
     const combined = Buffer.from(encryptedBase64, 'base64');
     
@@ -90,8 +119,10 @@ export async function decryptMessage(encryptedBase64: string): Promise<string> {
       decipher.update(ciphertext),
       decipher.final()
     ]);
-    
-    return decrypted.toString('utf8');
+
+    const plaintext = decrypted.toString('utf8');
+    cacheSet(encryptedBase64, plaintext);
+    return plaintext;
   } catch (error) {
     console.error('Failed to decrypt message:', error);
     // Return original if decryption fails (for backward compatibility with unencrypted messages)
