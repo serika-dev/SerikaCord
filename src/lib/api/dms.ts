@@ -261,6 +261,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               customStatus: r.customStatus,
               isPremium: r.isPremium,
               isSystem: r.isSystem || false,
+              isBot: Boolean(r.isBot),
+              isVerified: Boolean(r.isVerified),
               customization: r.customization || null,
             })),
             lastMessageId: channel.lastMessageId,
@@ -404,8 +406,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         url: e.url,
       }));
 
-      // Build referenced message data
-      let referencedMessage: { id: string; content: string; author?: { id: string; username: string; displayName: string; avatar?: string }; createdAt?: string } | undefined;
+      let referencedMessage: { id: string; content: string; author?: { id: string; username: string; displayName: string; avatar?: string; isBot?: boolean; isVerified?: boolean }; createdAt?: string } | undefined;
       const refRaw = msg.referencedMessageId;
       if (refRaw && typeof refRaw === 'string') {
         const refMsg = refMap.get(refRaw);
@@ -420,6 +421,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               username: refAuthor.username,
               displayName: refAuthor.displayName || refAuthor.username,
               avatar: refAuthor.avatar ?? undefined,
+              isBot: Boolean(refAuthor.isBot),
+              isVerified: Boolean(refAuthor.isVerified),
             } : undefined,
             createdAt: refMsg.createdAt instanceof Date ? refMsg.createdAt.toISOString() : (refMsg.createdAt ?? undefined),
           };
@@ -440,6 +443,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           isPremium: author.isPremium,
           badges: author.badges || [],
           isSystem: author.isSystem || false,
+          isBot: Boolean(author.isBot),
+          isVerified: Boolean(author.isVerified),
           customization: author.customization || null,
         } : null,
         channelId: msg.channelId,
@@ -568,7 +573,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     // Validate reply target if provided
     let replyRef: string | undefined;
-    let referencedMessage: { id: string; content: string; author?: { id: string; username: string; displayName: string; avatar?: string }; createdAt?: string } | undefined;
+    let referencedMessage: { id: string; content: string; author?: { id: string; username: string; displayName: string; avatar?: string; isBot?: boolean; isVerified?: boolean }; createdAt?: string } | undefined;
     if (replyTo) {
       const refMsg = await Message.findOne({ id: replyTo, channelId: channel.id, isDeleted: false });
       if (refMsg) {
@@ -583,6 +588,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             username: refAuthor.username,
             displayName: refAuthor.displayName || refAuthor.username,
             avatar: refAuthor.avatar ?? undefined,
+            isBot: Boolean(refAuthor.isBot),
+            isVerified: Boolean(refAuthor.isVerified),
           } : undefined,
           createdAt: refMsg.createdAt instanceof Date ? refMsg.createdAt.toISOString() : (refMsg.createdAt ?? undefined),
         };
@@ -617,6 +624,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         isPremium: user.isPremium,
         badges: user.badges || [],
         isSystem: user.isSystem || false,
+        isBot: Boolean(user.isBot),
+        isVerified: Boolean(user.isVerified),
         customization: user.customization || null,
       },
       channelId: channel.id,

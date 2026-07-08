@@ -832,6 +832,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         customization: authorData.customization,
         badges: authorData.badges,
         isSystem: authorData.isSystem,
+        isBot: Boolean(authorData.isBot),
+        isVerified: Boolean(authorData.isVerified),
       } : null;
       const decryptedContent = await decryptFromStorage(msg.content || '');
 
@@ -856,6 +858,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               username: string;
               displayName: string;
               avatar?: string;
+              isBot?: boolean;
+              isVerified?: boolean;
             };
             createdAt?: Date;
           }
@@ -873,6 +877,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               username: refAuthorData.username,
               displayName: refAuthorData.displayName || refAuthorData.username,
               avatar: refAuthorData.avatar,
+              isBot: Boolean(refAuthorData.isBot),
+              isVerified: Boolean(refAuthorData.isVerified),
             } : undefined,
             createdAt: refMsg.createdAt,
           };
@@ -892,6 +898,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           badges: populatedAuthor.badges || [],
           isOwner: serverOwnerId ? compareIds(serverOwnerId, populatedAuthor.id) : false,
           isSystem: populatedAuthor.isSystem || false,
+          isBot: populatedAuthor.isBot,
+          isVerified: populatedAuthor.isVerified,
           customization: populatedAuthor.customization || null,
         } : null,
         channelId: msg.channelId,
@@ -1167,6 +1175,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             username: string;
             displayName: string;
             avatar?: string;
+            isBot?: boolean;
+            isVerified?: boolean;
           };
           createdAt?: Date;
         }
@@ -1184,6 +1194,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             username: refAuthor.username,
             displayName: refAuthor.displayName || refAuthor.username,
             avatar: refAuthor.avatar ?? undefined,
+            isBot: Boolean(refAuthor.isBot),
+            isVerified: Boolean(refAuthor.isVerified),
           } : undefined,
           createdAt: reference.createdAt ?? undefined,
         };
@@ -1203,6 +1215,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         badges: author.badges || [],
         isOwner: serverOwnerId ? compareIds(serverOwnerId, author.id) : false,
         isSystem: author.isSystem || false,
+        isBot: Boolean(author.isBot),
+        isVerified: Boolean(author.isVerified),
         customization: author.customization || null,
       } : null,
       channelId: message.channelId,

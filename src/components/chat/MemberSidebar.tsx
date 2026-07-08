@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef } from "react";
-import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot } from "lucide-react";
+import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -34,6 +34,8 @@ interface Member {
   customStatus?: string | null;
   isPremium?: boolean;
   isOwner?: boolean;
+  isBot?: boolean;
+  isVerified?: boolean;
   joinedAt?: string | null;
   roles: MemberRole[];
   highestRole?: MemberRole | null;
@@ -217,6 +219,17 @@ function MemberItem({ member, serverId }: MemberItemProps) {
                 <span className="truncate">{member.displayName || member.username || "Unknown"}</span>
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
+                )}
+                {member.isBot && (
+                  <span className={cn(
+                    "inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left",
+                    member.isVerified 
+                      ? "bg-[#5865F2] text-white" 
+                      : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
+                  )}>
+                    {member.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
+                    Bot
+                  </span>
                 )}
               </div>
             );

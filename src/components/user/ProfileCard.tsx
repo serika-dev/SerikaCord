@@ -55,6 +55,8 @@ export interface ProfileCardUser {
   isOwner?: boolean;
   isFriend?: boolean;
   friendRequestSent?: boolean;
+  isBot?: boolean;
+  isVerified?: boolean;
   connections?: Array<{
     provider: string;
     accountId: string;
@@ -351,13 +353,24 @@ export function ProfileCard({
 
         {/* Identity */}
         <div className="mt-4">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h3
               className={cn("text-xl font-bold text-white leading-tight truncate", getDisplayNameStyleClasses(user.customization?.displayNameStyle))}
               style={getDisplayNameStyleInline(user.customization?.displayNameStyle)}
             >
               {displayName}
             </h3>
+            {user.isBot && (
+              <span className={cn(
+                "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",
+                user.isVerified 
+                  ? "bg-[#5865F2] text-white" 
+                  : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
+              )}>
+                {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
+                Bot
+              </span>
+            )}
             {showOwnerCrown && user.isOwner && (
               <span title="Server Owner" className="shrink-0 text-[#F59E0B]">
                 <Crown className="w-4 h-4" />

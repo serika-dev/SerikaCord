@@ -39,9 +39,15 @@ function CallbackHandler() {
       );
       setStatus("Authorization details sent. Closing window...");
       setComplete(true);
-      setTimeout(() => {
-        window.close();
-      }, 1000);
+      // Don't close window for app authorizations (check for no_close param)
+      const noClose = data.no_close === "true" || (search && new URLSearchParams(search).get("no_close") === "true");
+      if (!noClose) {
+        setTimeout(() => {
+          window.close();
+        }, 1000);
+      } else {
+        setStatus("Authorized! You can now return to the app.");
+      }
     } else {
       setStatus("Authorized successfully! You can close this tab now.");
       setComplete(true);

@@ -59,6 +59,8 @@ interface UserProfileProps {
     isStaff?: boolean;
     isPartnerOwner?: boolean;
     isPremium?: boolean;
+    isBot?: boolean;
+    isVerified?: boolean;
     customization?: {
       profileColor?: string;
       profileGradient?: string[];
@@ -78,10 +80,10 @@ interface UserProfileProps {
 }
 
 const statusColors = {
-  online: '#57F287',
+  online: '#23A559',
   idle: '#F0B232',
-  dnd: '#ED4245',
-  offline: '#80848E',
+  dnd: '#EF4444',
+  offline: '#80848e',
 };
 
 const statusLabels = {
@@ -329,6 +331,17 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                 style={getDisplayNameStyleInline(user.customization?.displayNameStyle)}
               >
                 {user.displayName}
+                {user.isBot && (
+                  <span className={cn(
+                    "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",
+                    user.isVerified 
+                      ? "bg-[#5865F2] text-white" 
+                      : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
+                  )}>
+                    {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
+                    Bot
+                  </span>
+                )}
                 {user.badges && user.badges.length > 0 && (
                   <BadgeList badges={user.badges} size="md" maxDisplay={user.badges.length} expandable={false} />
                 )}

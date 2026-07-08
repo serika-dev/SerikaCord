@@ -72,7 +72,7 @@ export function MessageHoverActions<M extends ChatMessage>({
   return (
     <div
       className={cn(
-        "absolute -top-3 right-0 transition-opacity z-10",
+        "absolute -top-3 right-0 transition-opacity z-[100]",
         reactionPickerOpen ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
       )}
     >

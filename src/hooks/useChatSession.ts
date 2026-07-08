@@ -211,6 +211,9 @@ export function useChatSession<M extends ChatMessage>({
   // flushed yet (e.g. rapid double-Enter).
   const isSendingRef = useRef(false);
 
+  // Track in-flight / resolved authors who loaded as "Unknown" so we don't spam fetch
+  const fetchedUnknownAuthorsRef = useRef<Set<string>>(new Set());
+
   const latestRef = useRef({ normalizeContent, onIncomingMessage, onOtherEvent, onShouldScrollToBottom });
   useEffect(() => {
     latestRef.current = { normalizeContent, onIncomingMessage, onOtherEvent, onShouldScrollToBottom };
@@ -335,6 +338,7 @@ export function useChatSession<M extends ChatMessage>({
 
   useEffect(() => {
     if (apiBase && user) {
+      fetchedUnknownAuthorsRef.current.clear();
       void fetchMessages();
       void fetchPinnedMessages();
     }
@@ -349,6 +353,82 @@ export function useChatSession<M extends ChatMessage>({
       writeCache(apiBase, messages);
     }
   }, [apiBase, messages]);
+
+  // Lazy-resolve "Unknown" authors
+  useEffect(() => {
+    const unknownAuthorIds = new Set<string>();
+    for (const m of messages) {
+      if (m.author && m.author.id && m.author.id !== "unknown" && m.author.username === "unknown") {
+        unknownAuthorIds.add(m.author.id);
+      }
+      const refAuthor = m.referencedMessage?.author;
+      if (refAuthor && refAuthor.id && refAuthor.id !== "unknown" && refAuthor.username === "unknown") {
+        unknownAuthorIds.add(refAuthor.id);
+      }
+    }
+
+    for (const userId of Array.from(unknownAuthorIds)) {
+      if (fetchedUnknownAuthorsRef.current.has(userId)) continue;
+      fetchedUnknownAuthorsRef.current.add(userId);
+
+      void (async () => {
+        try {
+          const res = await fetch(`/api/users/${userId}`);
+          if (res.ok) {
+            const fetched = await res.json();
+            setMessages((prev) =>
+              prev.map((m) => {
+                let updated = false;
+                const author = m.author?.id === userId
+                  ? {
+                      ...m.author,
+                      username: fetched.username,
+                      displayName: fetched.displayName || fetched.username,
+                      avatar: fetched.avatar,
+                      status: fetched.status,
+                      isPremium: fetched.isPremium,
+                      badges: fetched.badges || [],
+                      isSystem: fetched.isSystem || false,
+                      isBot: Boolean(fetched.isBot),
+                      isVerified: Boolean(fetched.isVerified),
+                      customization: fetched.customization || null,
+                    }
+                  : m.author;
+                if (author !== m.author) updated = true;
+
+                const refAuthor = m.referencedMessage?.author?.id === userId
+                  ? {
+                      ...m.referencedMessage.author,
+                      username: fetched.username,
+                      displayName: fetched.displayName || fetched.username,
+                      avatar: fetched.avatar,
+                      isBot: Boolean(fetched.isBot),
+                      isVerified: Boolean(fetched.isVerified),
+                    }
+                  : m.referencedMessage?.author;
+                if (refAuthor !== m.referencedMessage?.author) updated = true;
+
+                if (!updated) return m;
+
+                return {
+                  ...m,
+                  author,
+                  referencedMessage: m.referencedMessage
+                    ? {
+                        ...m.referencedMessage,
+                        author: refAuthor,
+                      }
+                    : undefined,
+                };
+              })
+            );
+          }
+        } catch (err) {
+          console.error("Failed to lazy-resolve unknown user", userId, err);
+        }
+      })();
+    }
+  }, [messages]);
 
   // Real-time updates over SSE (connection + typing handled by the stream hook)
   const { typingStatusText, typingUsers } = useChatStream({

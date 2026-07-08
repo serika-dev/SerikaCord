@@ -39,13 +39,37 @@ export function MessageContextMenu<M extends ChatMessage>({
     onClose();
   };
 
+  // Calculate position to avoid being cut off by message bar
+  const menuHeight = 300;
+  const menuWidth = 200;
+  const padding = 10;
+  const messageBarHeight = 80; // Approximate height of message bar area
+  
+  let left = menu.x;
+  let top = menu.y;
+
+  if (typeof window !== "undefined") {
+    // Flip horizontally if too close to right edge
+    if (left + menuWidth > window.innerWidth - padding) {
+      left = window.innerWidth - menuWidth - padding;
+    }
+    
+    // Flip vertically if too close to bottom edge (account for message bar)
+    const bottomLimit = window.innerHeight - messageBarHeight - padding;
+    if (top + menuHeight > bottomLimit) {
+      top = bottomLimit - menuHeight;
+    }
+    
+    // Ensure menu doesn't go off top
+    if (top < padding) {
+      top = padding;
+    }
+  }
+
   return (
     <div
-      className="fixed z-50 min-w-[180px] py-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md shadow-xl"
-      style={{
-        left: Math.min(menu.x, typeof window !== "undefined" ? window.innerWidth - 200 : menu.x),
-        top: Math.min(menu.y, typeof window !== "undefined" ? window.innerHeight - 300 : menu.y),
-      }}
+      className="fixed z-[9999] min-w-[180px] py-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md shadow-xl"
+      style={{ left, top }}
       onClick={(e) => e.stopPropagation()}
     >
       <button onClick={run(() => onReply(message))} className={itemClass}>

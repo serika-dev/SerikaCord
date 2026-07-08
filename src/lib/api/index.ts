@@ -1114,6 +1114,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       customStatus: targetUser.customStatus,
       isPremium: targetUser.isPremium,
       isSystem: targetUser.isSystem || false,
+      isBot: Boolean(targetUser.isBot),
+      isVerified: Boolean(targetUser.isVerified),
       customization: targetUser.customization || {},
       createdAt: targetUser.createdAt,
       connections,

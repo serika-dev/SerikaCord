@@ -1,7 +1,7 @@
 "use client";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Crown } from "lucide-react";
+import { Crown, Check } from "lucide-react";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { StaffPill } from "@/components/chat/StaffPill";
 import { SystemPill } from "@/components/chat/SystemPill";
@@ -83,6 +83,8 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
             displayName: author.displayName,
             avatar: author.avatar,
             badges: author.badges,
+            isBot: author.isBot,
+            isVerified: author.isVerified,
           }}
           serverId={serverId}
           side="right"
@@ -92,6 +94,17 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
             <span>{name}</span>
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
+            )}
+            {author.isBot && (
+              <span className={cn(
+                "inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left",
+                author.isVerified 
+                  ? "bg-[#5865F2] text-white" 
+                  : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
+              )}>
+                {author.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
+                Bot
+              </span>
             )}
           </button>
         </MemberProfilePopup>

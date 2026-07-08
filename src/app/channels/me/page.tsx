@@ -54,10 +54,10 @@ interface FriendsData {
 }
 
 const statusColors = {
-  online: "#8B5CF6",
-  idle: "#A78BFA", 
+  online: "#23A559",
+  idle: "#F0B232",
   dnd: "#EF4444",
-  offline: "#555555",
+  offline: "#80848e",
 };
 
 const statusLabels = {

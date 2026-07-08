@@ -121,6 +121,8 @@ interface PopulatedMemberUser {
   status?: string;
   customStatus?: string;
   isPremium?: boolean;
+  isBot?: boolean;
+  isVerified?: boolean;
   presenceLastHeartbeatAt?: Date | null;
   customization?: {
     profileColor?: string;
@@ -224,6 +226,8 @@ function normalizeMemberDto(member: {
     }),
     customStatus: userData?.customStatus || null,
     isPremium: Boolean(userData?.isPremium),
+    isBot: Boolean(userData?.isBot),
+    isVerified: Boolean(userData?.isVerified),
     isOwner: ownerId ? ownerId === userData?.id : false,
     customization: userData?.customization || null,
     joinedAt: member.joinedAt || null,

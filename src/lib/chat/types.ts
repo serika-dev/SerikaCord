@@ -12,6 +12,8 @@ export interface MessageAuthor {
   isPremium?: boolean;
   isOwner?: boolean;
   isSystem?: boolean;
+  isBot?: boolean;
+  isVerified?: boolean;
   customization?: {
     profileColor?: string;
     profileAccentColor?: string;
@@ -67,6 +69,8 @@ export interface ReferencedMessage {
     username: string;
     displayName: string;
     avatar?: string;
+    isBot?: boolean;
+    isVerified?: boolean;
   };
   createdAt?: string;
 }

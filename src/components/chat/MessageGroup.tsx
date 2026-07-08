@@ -190,14 +190,11 @@ function MessageGroupInner<M extends ChatMessage>({
         const isFirst = index === 0;
         const isEditing = editingMessageId === message.id;
         const pickerOpen = reactionPickerMessageId === message.id;
-
         return (
-          // The swipe wrapper spans the whole row — gutter, avatar, header and
-          // body — so the gesture works anywhere on the message.
-          <SwipeableRow key={message.id} actions={buildSwipeActions(message)}>
+          <SwipeableRow key={message.id} actions={buildSwipeActions(message)} className="hover:z-40">
             <div
               id={`message-${message.id}`}
-              className="flex gap-4 relative group/message"
+              className="flex gap-4 relative group/message hover:z-50"
               onContextMenu={(e) => onContextMenu(e, message)}
             >
               <div className="w-10 flex-shrink-0">

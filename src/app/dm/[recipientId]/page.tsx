@@ -31,10 +31,10 @@ import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 
 const statusColors = {
-  online: "#8B5CF6",
-  idle: "#A78BFA",
+  online: "#23A559",
+  idle: "#F0B232",
   dnd: "#EF4444",
-  offline: "#555555",
+  offline: "#80848e",
 };
 
 interface Recipient extends MessageAuthor {
