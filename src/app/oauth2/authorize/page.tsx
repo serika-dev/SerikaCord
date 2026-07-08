@@ -258,11 +258,15 @@ function AuthorizeForm() {
         <div className="p-8 space-y-6">
           {/* App Info header */}
           <div className="flex items-center space-y-0 space-x-5">
-            <div className="w-16 h-16 bg-[#1e1f22] rounded-2xl border border-white/[0.08] flex items-center justify-center overflow-hidden flex-shrink-0">
+            <div className="w-16 h-16 bg-gradient-to-tr from-[#8B5CF6]/10 to-[#EC4899]/10 rounded-2xl border border-white/[0.08] flex items-center justify-center overflow-hidden flex-shrink-0 shadow-[0_0_15px_rgba(139,92,246,0.15)]">
               {appData?.application.icon ? (
                 <img src={appData.application.icon} alt={appData.application.name} className="w-full h-full object-cover" />
               ) : (
-                <Shield className="w-8 h-8 text-[#8B5CF6]" />
+                <img 
+                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(appData?.application.name || 'bot')}`}
+                  alt=""
+                  className="w-full h-full object-cover" 
+                />
               )}
             </div>
             <div>
@@ -329,16 +333,13 @@ function AuthorizeForm() {
             )}
 
             {/* Permissions Checkboxes (if bot scope and eligible server selected) */}
-            {isBotScope && selectedGuildId && BigInt(permissionsParam) > 0n && (
+            {isBotScope && selectedGuildId && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-[#888888] uppercase tracking-wider">
                   Permissions Requested:
                 </h3>
                 <div className="max-h-[180px] overflow-y-auto border border-white/[0.06] bg-[#111111] rounded-xl p-4 space-y-3 scrollbar-thin">
                   {COMMON_PERMISSIONS.map((perm) => {
-                    const isRequested = (BigInt(permissionsParam) & (1n << perm.bit)) !== 0n;
-                    if (!isRequested) return null;
-
                     const isChecked = (botPermissions & (1n << perm.bit)) !== 0n;
 
                     return (

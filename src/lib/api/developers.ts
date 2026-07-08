@@ -1024,20 +1024,26 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
 
     const clientId = query.client_id as string;
     const { Application } = await import('@/lib/models');
-    const app = await Application.findOne({ clientId });
+    let app = await Application.findOne({ clientId });
     if (!app) {
       set.status = 404;
       return { error: 'Unknown application' };
+    }
+
+    const scopes = (query.scope as string || '').split(' ').filter(Boolean);
+    if (scopes.includes('bot') && (!app.botId || !app.botToken)) {
+      const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+      app = await ensureBotProvisioned(app);
     }
 
     return {
       application: {
         id: app.id,
         name: app.name,
-        icon: app.icon,
+        icon: app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name)}`,
         description: app.description,
       },
-      scopes: (query.scope as string || '').split(' ').filter(Boolean),
+      scopes,
       redirect_uri: query.redirect_uri as string,
     };
   })
@@ -1104,12 +1110,13 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
         return { error: 'bot scope requires serverId' };
       }
 
-      if (!app.botId) {
-        set.status = 400;
-        return { error: 'Application has no bot user associated' };
+      let currentApp = app;
+      if (!currentApp.botId || !currentApp.botToken) {
+        const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+        currentApp = await ensureBotProvisioned(app);
       }
 
-      const botUser = await User.findById(app.botId);
+      const botUser = currentApp.botId ? await User.findById(currentApp.botId) : null;
       if (!botUser) {
         set.status = 400;
         return { error: 'Application bot user not found' };

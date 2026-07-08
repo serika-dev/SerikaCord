@@ -61,16 +61,20 @@ export default function ApplicationDetailLayoutClient({
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-xl bg-gradient-to-br from-[#8B5CF6] to-[#6366f1] flex items-center justify-center shrink-0 overflow-hidden">
+              <div className="size-10 rounded-xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 border border-white/[0.08] flex items-center justify-center shrink-0 overflow-hidden shadow-[0_0_10px_rgba(139,92,246,0.1)]">
                 {app?.icon ? (
                   <img src={app.icon} alt="" className="size-10 rounded-xl object-cover" />
                 ) : (
-                  <Bot className="size-5 text-white" />
+                  <img 
+                    src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app?.name || 'bot')}`}
+                    alt=""
+                    className="size-10 rounded-xl object-cover animate-pulse-slow" 
+                  />
                 )}
               </div>
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold truncate">{app?.name || "Unnamed"}</h2>
-                <p className="text-xs text-[#555] truncate">{app?.id}</p>
+                <h2 className="text-sm font-semibold truncate text-white/90">{app?.name || "Unnamed"}</h2>
+                <p className="text-[10px] font-mono text-[#555] truncate mt-0.5">{app?.id}</p>
               </div>
             </div>
           )}

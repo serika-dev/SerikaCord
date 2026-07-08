@@ -2158,6 +2158,15 @@ export async function initializeAPI() {
   // Ensure system users exist
   const { ensureSystemUsers } = await import('@/lib/services/systemUsers');
   await ensureSystemUsers();
+
+  // Auto-provision bot users for existing applications
+  try {
+    const { ensureAllBotsProvisioned } = await import('@/lib/services/appIdentity');
+    await ensureAllBotsProvisioned();
+  } catch (err) {
+    console.error('Failed to auto-provision bots on startup:', err);
+  }
+
   console.log('✅ API initialized');
 }
 

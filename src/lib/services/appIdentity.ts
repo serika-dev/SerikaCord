@@ -52,10 +52,11 @@ export async function ensureBotProvisioned(app: IApplication) {
     if (existing) {
       username = `${base}${app.clientId.slice(-6)}`.slice(0, 32);
     }
+    const defaultAvatar = app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name || username)}`;
     const botUser = await User.create({
       username,
       displayName: app.name || username,
-      avatar: app.icon || null,
+      avatar: defaultAvatar,
       bio: (app.description || '').slice(0, 190),
       isBot: true,
       isVerified: app.verified ?? false,
@@ -63,6 +64,13 @@ export async function ensureBotProvisioned(app: IApplication) {
       badges: app.verified ? ['verified_bot'] : [],
     });
     updates.botId = botUser.id;
+  } else {
+    // If the bot user exists, ensure its avatar is set (fallback to Dicebear if empty)
+    const botUser = await User.findById(app.botId);
+    if (botUser && !botUser.avatar) {
+      const defaultAvatar = app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name || botUser.username)}`;
+      await User.updateById(botUser.id, { avatar: defaultAvatar });
+    }
   }
 
   if (Object.keys(updates).length > 0) {
@@ -70,6 +78,16 @@ export async function ensureBotProvisioned(app: IApplication) {
     return updated || app;
   }
   return app;
+}
+
+/** Ensure backing bot users are provisioned for all existing applications in the DB. */
+export async function ensureAllBotsProvisioned() {
+  const apps = await Application.find({});
+  for (const app of apps) {
+    if (!app.botId || !app.botToken) {
+      await ensureBotProvisioned(app as any);
+    }
+  }
 }
 
 /** Resolve an application (with private key) by its bot token. */
