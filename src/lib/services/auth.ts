@@ -226,6 +226,13 @@ export async function deleteAllUserSessions(userId: string): Promise<void> {
   await cache.del(`user:${userId}`);
 }
 
+// Convert MongoDB ObjectId (24 hex chars) to UUID format (36 chars with hyphens)
+function mongoIdToUUID(mongoId: string): string {
+  // Pad with zeros to 32 hex chars, then format as UUID
+  const padded = mongoId.padEnd(32, '0');
+  return `${padded.slice(0, 8)}-${padded.slice(8, 12)}-${padded.slice(12, 16)}-${padded.slice(16, 20)}-${padded.slice(20, 32)}`;
+}
+
 // Authenticate request and return user
 export async function authenticateRequest(
   authHeader: string | null,
@@ -252,12 +259,17 @@ export async function authenticateRequest(
   }
 
   // Support both local tokens (sub, sid) and accounts.serika.dev tokens (user.id, userId)
-  const userId = verification.payload.sub || verification.payload.user?.id || verification.payload.userId;
+  let userId = verification.payload.sub || verification.payload.user?.id || verification.payload.userId;
   const sessionId = verification.payload.sid;
   const type = verification.payload.type;
 
   if (!userId) {
     return { user: null, error: 'Invalid token: no user ID' };
+  }
+
+  // Convert MongoDB ObjectId to UUID if needed (24 hex chars = MongoDB ObjectId)
+  if (userId.length === 24 && /^[0-9a-f]{24}$/i.test(userId)) {
+    userId = mongoIdToUUID(userId);
   }
 
   // For local tokens, verify session exists
@@ -352,12 +364,17 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ tokens
     return { error: verification.error || 'Invalid refresh token' };
   }
 
-  const userId = verification.payload.sub || verification.payload.user?.id || verification.payload.userId;
+  let userId = verification.payload.sub || verification.payload.user?.id || verification.payload.userId;
   const sessionId = verification.payload.sid;
   const type = verification.payload.type;
 
   if (!userId) {
     return { error: 'Invalid token: no user ID' };
+  }
+
+  // Convert MongoDB ObjectId to UUID if needed (24 hex chars = MongoDB ObjectId)
+  if (userId.length === 24 && /^[0-9a-f]{24}$/i.test(userId)) {
+    userId = mongoIdToUUID(userId);
   }
 
   // Only check type for local tokens

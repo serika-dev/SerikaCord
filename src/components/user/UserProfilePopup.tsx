@@ -80,6 +80,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
         // If update failed, refresh to get the correct status back
         await refresh();
       }
+      // On success, don't refresh - we already updated local state
     } catch (error) {
       console.error("Failed to update status:", error);
       // Refresh to restore correct state
@@ -97,12 +98,15 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
     updateUser({ customStatus: trimmed || undefined });
     setEditingStatus(false);
     try {
-      await fetch("/api/users/me", {
+      const response = await fetch("/api/users/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ customStatus: trimmed || null }),
       });
-      await refresh();
+      if (!response.ok) {
+        await refresh();
+      }
+      // On success, don't refresh - we already updated local state
     } catch (error) {
       console.error("Failed to update custom status:", error);
       await refresh();
@@ -326,13 +330,16 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                       onClick={async () => {
                         setStatusText("");
                         setEditingStatus(false);
+                        updateUser({ customStatus: undefined });
                         try {
-                          await fetch("/api/users/me", {
+                          const response = await fetch("/api/users/me", {
                             method: "PUT",
                             headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ customStatus: null }),
                           });
-                          await refresh();
+                          if (!response.ok) {
+                            await refresh();
+                          }
                         } catch {
                           await refresh();
                         }

@@ -16,6 +16,7 @@ export default function ServerPage() {
   const isMobile = useIsMobile();
 
   const serverId = params.serverId as string;
+  const channelId = params.channelId as string;
 
   // Set current server when servers are loaded
   useEffect(() => {
@@ -29,16 +30,33 @@ export default function ServerPage() {
     }
   }, [serverId, servers, isLoading, setCurrentServer, router]);
 
-  // Auto-select first channel when channels load
+  // Auto-select channel when channels load
   useEffect(() => {
-    if (currentServer && currentServer.id === serverId && channels.length > 0 && !params.channelId) {
-      const firstTextChannel = channels.find((c) => c.type === "text");
-      if (firstTextChannel && firstTextChannel.id) {
-        setCurrentChannel(firstTextChannel);
-        router.push(`/channels/${serverId}/${firstTextChannel.id}`);
+    if (currentServer && currentServer.id === serverId && channels.length > 0 && !channelId) {
+      // Try to get last visited channel from localStorage
+      const lastVisitedChannelId = localStorage.getItem(`sc:last_channel:${serverId}`);
+      const lastChannel = channels.find((c) => c.id === lastVisitedChannelId && (c.type === "text" || c.type === "announcement"));
+      
+      if (lastChannel && lastChannel.id) {
+        setCurrentChannel(lastChannel);
+        router.push(`/channels/${serverId}/${lastChannel.id}`);
+      } else {
+        // Fallback to first text channel
+        const firstTextChannel = channels.find((c) => c.type === "text");
+        if (firstTextChannel && firstTextChannel.id) {
+          setCurrentChannel(firstTextChannel);
+          router.push(`/channels/${serverId}/${firstTextChannel.id}`);
+        }
       }
     }
-  }, [channels, params.channelId, serverId, router, setCurrentChannel, currentServer]);
+  }, [channels, channelId, serverId, router, setCurrentChannel, currentServer]);
+
+  // Save last visited channel to localStorage
+  useEffect(() => {
+    if (channelId && currentServer?.id === serverId) {
+      localStorage.setItem(`sc:last_channel:${serverId}`, channelId);
+    }
+  }, [channelId, serverId, currentServer]);
 
   // Show loading state while waiting for redirect
   if (currentServer && channels.length === 0) {
