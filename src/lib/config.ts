@@ -91,13 +91,25 @@ export const config = {
   MAX_FILE_SIZE_PREMIUM: parseInt(process.env.MAX_FILE_SIZE_PREMIUM || '2147483648'), // 2GB (Serika+)
   MAX_AVATAR_SIZE: parseInt(process.env.MAX_AVATAR_SIZE || '5242880'), // 5MB
   MAX_BANNER_SIZE: parseInt(process.env.MAX_BANNER_SIZE || '10485760'), // 10MB
-  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const,
+  ALLOWED_IMAGE_TYPES: ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/svg+xml'] as const,
   ALLOWED_FILE_TYPES: [
-    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-    'audio/mpeg', 'audio/ogg', 'audio/wav',
-    'video/mp4', 'video/webm',
-    'application/pdf',
-    'text/plain',
+    // Images
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif', 'image/bmp', 'image/svg+xml',
+    // Audio
+    'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav', 'audio/flac', 'audio/aac', 'audio/mp4', 'audio/x-m4a', 'audio/webm',
+    // Video
+    'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-matroska',
+    // Documents
+    'application/pdf', 'text/plain', 'text/csv', 'text/markdown', 'application/json', 'application/rtf',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.oasis.opendocument.text', 'application/vnd.oasis.opendocument.spreadsheet',
+    'application/vnd.oasis.opendocument.presentation',
+    // Archives
+    'application/zip', 'application/gzip', 'application/x-tar',
+    // Fonts
+    'font/woff', 'font/woff2', 'font/ttf', 'font/otf',
   ] as const,
   
   // Message limits
