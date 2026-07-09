@@ -28,10 +28,32 @@ const nextConfig: NextConfig = {
   },
 
   // Transpile serika-dev-player for proper CSS/ESM handling
-  transpilePackages: ['serika-dev-player'],
-
-  // Keep native/CJS packages external so Turbopack doesn't try to bundle them
-  serverExternalPackages: ['pg', 'bcryptjs', 'ioredis'],
+  // Also transpile CJS/native packages that Turbopack auto-externalizes with hashed
+  // symlinks (e.g. pg-587764f78a6c7a9c). Bun's module resolver cannot follow these
+  // symlinks, so we force Turbopack to bundle them instead. See:
+  // https://github.com/vercel/next.js/issues/86866
+  transpilePackages: [
+    'serika-dev-player',
+    // DB drivers
+    'pg',
+    'ioredis',
+    // Auth / crypto
+    'bcryptjs',
+    'jose',
+    // AWS SDK (auto-externalized by default)
+    '@aws-sdk/client-s3',
+    '@aws-sdk/lib-storage',
+    // Security / sanitization (postcss is pulled in by sanitize-html)
+    'sanitize-html',
+    'postcss',
+    'xss',
+    // Rate limiting
+    'rate-limiter-flexible',
+    // WebSocket
+    'ws',
+    // ORM
+    'drizzle-orm',
+  ],
   
   // Image optimization requires a server, so disable it for mobile static export
   images: {

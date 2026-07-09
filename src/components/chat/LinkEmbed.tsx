@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, memo } from "react";
-import { ExternalLink, Play, X } from "lucide-react";
+import { ExternalLink, Play } from "lucide-react";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
@@ -59,6 +59,7 @@ const FIRST_PARTY_DOMAINS = [
   "serika.dev",
   "serika.chat",
   "serika.cc",
+  "serika.video",
   "waifu.ws",
   "gifs.serika.dev",
   "accounts.serika.dev",
@@ -83,13 +84,20 @@ function parseYouTubeUrl(url: string): string | null {
   return null;
 }
 
-function getUrlType(url: string): "youtube" | "twitter" | "spotify" | "giphy" | "tenor" | "klipy" | "generic" {
+function getUrlType(url: string): "youtube" | "twitter" | "spotify" | "giphy" | "tenor" | "klipy" | "niconico" | "bilibili" | "serikavideo" | "vimeo" | "dailymotion" | "twitch" | "streamable" | "generic" {
   if (/youtube\.com|youtu\.be/.test(url)) return "youtube";
   if (/twitter\.com|x\.com/.test(url)) return "twitter";
   if (/open\.spotify\.com/.test(url)) return "spotify";
   if (/giphy\.com/.test(url)) return "giphy";
   if (/tenor\.com/.test(url)) return "tenor";
   if (/klipy\.com|klipy\.dev/.test(url)) return "klipy";
+  if (/nicovideo\.jp|nico\.ms/.test(url)) return "niconico";
+  if (/bilibili\.com|b23\.tv/.test(url)) return "bilibili";
+  if (/serika\.video/.test(url)) return "serikavideo";
+  if (/vimeo\.com/.test(url)) return "vimeo";
+  if (/dailymotion\.com|dai\.ly/.test(url)) return "dailymotion";
+  if (/twitch\.tv/.test(url)) return "twitch";
+  if (/streamable\.com/.test(url)) return "streamable";
   return "generic";
 }
 
@@ -136,25 +144,58 @@ function parseTenorUrl(url: string): string | null {
   return null;
 }
 
+function parseNiconicoUrl(url: string): string | null {
+  // https://www.nicovideo.jp/watch/sm12345678 or https://nico.ms/sm12345678
+  const match = url.match(/(?:nicovideo\.jp\/watch\/|nico\.ms\/)([a-z]{0,2}\d+)/);
+  return match ? match[1] : null;
+}
+
+function parseBilibiliUrl(url: string): { bvid: string | null; aid: string | null } {
+  // https://www.bilibili.com/video/BV1xx411c7mD or https://b23.tv/shortlink
+  const bvMatch = url.match(/bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/);
+  if (bvMatch) return { bvid: bvMatch[1], aid: null };
+  const avMatch = url.match(/bilibili\.com\/video\/av(\d+)/);
+  if (avMatch) return { bvid: null, aid: avMatch[1] };
+  return { bvid: null, aid: null };
+}
+
+function YouTubeIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+    </svg>
+  );
+}
+
 function YouTubeEmbed({ videoId, url }: { videoId: string; url: string }) {
   const [showPlayer, setShowPlayer] = useState(false);
   const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
   const fallbackThumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
   const [imgSrc, setImgSrc] = useState(thumbnailUrl);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
 
   if (showPlayer) {
     return (
-      <div className="mt-2 relative max-w-[480px] rounded-lg overflow-hidden bg-black">
-        <button
-          onClick={() => setShowPlayer(false)}
-          className="absolute top-2 right-2 z-10 p-1 bg-black/70 hover:bg-black/90 rounded-full text-white transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
         <div className="aspect-video">
           <iframe
             src={`https://www.youtube.com/embed/${videoId}?autoplay=1`}
-            title="YouTube video player"
+            title={title || "YouTube video player"}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
             className="w-full h-full border-0"
@@ -166,27 +207,680 @@ function YouTubeEmbed({ videoId, url }: { videoId: string; url: string }) {
 
   return (
     <div
-      className="mt-2 relative max-w-[480px] rounded-lg overflow-hidden cursor-pointer group"
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
       onClick={() => setShowPlayer(true)}
     >
       <img
         src={imgSrc}
-        alt="YouTube thumbnail"
+        alt={title || "YouTube thumbnail"}
         loading="lazy"
         decoding="async"
-        className="w-full aspect-video object-cover"
+        className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
         onError={() => setImgSrc(fallbackThumbnail)}
       />
-      <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover:bg-black/50 transition-colors">
-        <div className="w-16 h-16 rounded-full bg-red-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-          <Play className="w-8 h-8 text-white ml-1" fill="white" />
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#FF0000] flex items-center justify-center shadow-2xl group-hover:scale-110 group-hover:bg-[#CC0000] transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
         </div>
       </div>
-      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/80 to-transparent">
-        <div className="flex items-center gap-2 text-white text-sm">
-          <span className="font-medium">YouTube</span>
-          <ExternalLink className="w-3 h-3 opacity-70" />
+      {/* YouTube branded bottom bar */}
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <YouTubeIcon className="w-5 h-3.5 text-[#FF0000] shrink-0" />
+          {title && (
+            <span className="text-white text-xs font-medium truncate">{title}</span>
+          )}
         </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function NiconicoEmbed({ videoId, url }: { videoId: string; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setThumbSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={`https://embed.nicovideo.jp/watch/${videoId}`}
+            title="Niconico video player"
+            allow="autoplay; fullscreen; encrypted-media"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {thumbSrc ? (
+        <img
+          src={thumbSrc}
+          alt="Niconico thumbnail"
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#252525] to-[#0d0d0d] flex items-center justify-center">
+          <div className="text-white/40 text-sm font-medium">niconico</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#252525] border-2 border-white/80 flex items-center justify-center shadow-2xl group-hover:scale-110 transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      {/* Niconico branded bottom bar */}
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-white text-sm font-bold tracking-tight shrink-0">niconico</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function BilibiliEmbed({ bvid, aid, url }: { bvid: string | null; aid: string | null; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  // Bilibili embed URL — danmaku=0 disables bullet comments to reduce script overhead
+  const embedUrl = bvid
+    ? `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=1&high_quality=1&danmaku=0`
+    : `https://player.bilibili.com/player.html?aid=${aid}&autoplay=1&high_quality=1&danmaku=0`;
+  const [coverSrc, setCoverSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!bvid && !aid) return;
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setCoverSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url, bvid, aid]);
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={embedUrl}
+            title="Bilibili video player"
+            allow="autoplay; fullscreen; encrypted-media"
+            allowFullScreen
+            referrerPolicy="no-referrer"
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {coverSrc ? (
+        <img
+          src={coverSrc}
+          alt={title || "Bilibili thumbnail"}
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#00A1D6]/20 to-[#FB7299]/20 flex items-center justify-center">
+          <div className="text-[#00A1D6] text-sm font-medium">bilibili</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#00A1D6] flex items-center justify-center shadow-2xl group-hover:scale-110 group-hover:bg-[#0091C2] transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      {/* Bilibili branded bottom bar */}
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Bilibili TV icon */}
+          <div className="w-5 h-5 rounded bg-[#00A1D6] flex items-center justify-center shrink-0">
+            <Play className="w-2.5 h-2.5 text-white ml-0.5" fill="white" />
+          </div>
+          <span className="text-white text-sm font-semibold tracking-tight shrink-0">bilibili</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function parseSerikaVideoUrl(url: string): string | null {
+  // https://serika.video/watch/{id} or https://serika.video/embed/{id}
+  const watchMatch = url.match(/serika\.video\/watch\/([a-zA-Z0-9]+)/);
+  if (watchMatch) return watchMatch[1];
+  const embedMatch = url.match(/serika\.video\/embed\/([a-zA-Z0-9]+)/);
+  if (embedMatch) return embedMatch[1];
+  return null;
+}
+
+function parseVimeoUrl(url: string): string | null {
+  // https://vimeo.com/{id} or https://player.vimeo.com/video/{id}
+  const match = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  return match ? match[1] : null;
+}
+
+function parseDailymotionUrl(url: string): string | null {
+  // https://www.dailymotion.com/video/{id} or https://dai.ly/{id}
+  const videoMatch = url.match(/dailymotion\.com\/video\/([a-zA-Z0-9]+)/);
+  if (videoMatch) return videoMatch[1];
+  const shortMatch = url.match(/dai\.ly\/([a-zA-Z0-9]+)/);
+  if (shortMatch) return shortMatch[1];
+  return null;
+}
+
+function parseTwitchUrl(url: string): { type: "clip" | "vod"; id: string; parent: string } | null {
+  // Clips: https://clips.twitch.tv/{slug} or https://www.twitch.tv/{channel}/clip/{slug}
+  const clipMatch = url.match(/clips\.twitch\.tv\/([a-zA-Z0-9_-]+)/);
+  if (clipMatch) return { type: "clip", id: clipMatch[1], parent: "localhost" };
+  const channelClipMatch = url.match(/twitch\.tv\/[^/]+\/clip\/([a-zA-Z0-9_-]+)/);
+  if (channelClipMatch) return { type: "clip", id: channelClipMatch[1], parent: "localhost" };
+  // VODs: https://www.twitch.tv/videos/{id}
+  const vodMatch = url.match(/twitch\.tv\/videos\/(\d+)/);
+  if (vodMatch) return { type: "vod", id: vodMatch[1], parent: "localhost" };
+  return null;
+}
+
+function parseStreamableUrl(url: string): string | null {
+  // https://streamable.com/{id}
+  const match = url.match(/streamable\.com\/([a-zA-Z0-9]+)/);
+  return match ? match[1] : null;
+}
+
+function SerikaVideoEmbed({ videoId, url }: { videoId: string; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setThumbSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={`https://serika.video/embed/${videoId}`}
+            title={title || "Serika Video player"}
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {thumbSrc ? (
+        <img
+          src={thumbSrc}
+          alt={title || "Serika Video thumbnail"}
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 flex items-center justify-center">
+          <div className="text-[#a78bfa] text-sm font-medium">Serika Video</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#8B5CF6] flex items-center justify-center shadow-2xl group-hover:scale-110 group-hover:bg-[#7C3AED] transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <img
+            src="https://serika.moe/favicon.ico"
+            alt="Serika"
+            width={18}
+            height={18}
+            className="shrink-0 object-contain"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+              const parent = (e.target as HTMLImageElement).parentElement;
+              if (parent) {
+                parent.innerHTML = `<span style="font-size:16px;line-height:1;color:#8B5CF6">✦</span>`;
+              }
+            }}
+          />
+          <span className="text-white text-sm font-semibold tracking-tight shrink-0">Serika Video</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function VimeoEmbed({ videoId, url }: { videoId: string; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setThumbSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={`https://player.vimeo.com/video/${videoId}?autoplay=1`}
+            title={title || "Vimeo video player"}
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowFullScreen
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {thumbSrc ? (
+        <img
+          src={thumbSrc}
+          alt={title || "Vimeo thumbnail"}
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#1AB7EA]/20 to-[#0d0d0d] flex items-center justify-center">
+          <div className="text-[#1AB7EA] text-sm font-medium">Vimeo</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#1AB7EA] flex items-center justify-center shadow-2xl group-hover:scale-110 transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[#1AB7EA] text-sm font-bold tracking-tight shrink-0">Vimeo</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function DailymotionEmbed({ videoId, url }: { videoId: string; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setThumbSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={`https://www.dailymotion.com/embed/video/${videoId}?autoplay=1`}
+            title={title || "Dailymotion video player"}
+            allow="autoplay; fullscreen; encrypted-media"
+            allowFullScreen
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {thumbSrc ? (
+        <img
+          src={thumbSrc}
+          alt={title || "Dailymotion thumbnail"}
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#0066DC]/20 to-[#0d0d0d] flex items-center justify-center">
+          <div className="text-[#0066DC] text-sm font-medium">Dailymotion</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#0066DC] flex items-center justify-center shadow-2xl group-hover:scale-110 transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[#0066DC] text-sm font-bold tracking-tight shrink-0">Dailymotion</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function TwitchEmbed({ clipId, vodId, url }: { clipId: string | null; vodId: string | null; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setThumbSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
+
+  const embedSrc = clipId
+    ? `https://clips.twitch.tv/embed?clip=${clipId}&parent=localhost`
+    : `https://player.twitch.tv/?video=${vodId}&parent=localhost&autoplay=true`;
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={embedSrc}
+            title={title || "Twitch video player"}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {thumbSrc ? (
+        <img
+          src={thumbSrc}
+          alt={title || "Twitch thumbnail"}
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#9146FF]/20 to-[#0d0d0d] flex items-center justify-center">
+          <div className="text-[#9146FF] text-sm font-medium">Twitch</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#9146FF] flex items-center justify-center shadow-2xl group-hover:scale-110 transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[#9146FF] text-sm font-bold tracking-tight shrink-0">Twitch</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function StreamableEmbed({ videoId, url }: { videoId: string; url: string }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const [thumbSrc, setThumbSrc] = useState<string | null>(null);
+  const [title, setTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!active || !data) return;
+        if (data.thumbnail) setThumbSrc(data.thumbnail);
+        if (data.title) setTitle(data.title);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [url]);
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden bg-black shadow-xl">
+        <div className="aspect-video">
+          <iframe
+            src={`https://streamable.com/e/${videoId}?autoplay=1`}
+            title={title || "Streamable video player"}
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mt-2 relative max-w-[480px] rounded-xl overflow-hidden cursor-pointer group bg-black shadow-lg"
+      onClick={() => setShowPlayer(true)}
+    >
+      {thumbSrc ? (
+        <img
+          src={thumbSrc}
+          alt={title || "Streamable thumbnail"}
+          loading="lazy"
+          decoding="async"
+          className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02] duration-300"
+        />
+      ) : (
+        <div className="w-full aspect-video bg-gradient-to-br from-[#0f9d58]/20 to-[#0d0d0d] flex items-center justify-center">
+          <div className="text-[#0f9d58] text-sm font-medium">Streamable</div>
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <div className="w-16 h-16 rounded-full bg-[#0f9d58] flex items-center justify-center shadow-2xl group-hover:scale-110 transition-all duration-300">
+          <Play className="w-7 h-7 text-white ml-1" fill="white" />
+        </div>
+      </div>
+      <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between gap-2 px-3 py-2 bg-gradient-to-t from-black/90 via-black/60 to-transparent">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[#0f9d58] text-sm font-bold tracking-tight shrink-0">Streamable</span>
+          {title && (
+            <span className="text-white/80 text-xs truncate">{title}</span>
+          )}
+        </div>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-white/70 hover:text-white transition-colors shrink-0"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
       </div>
     </div>
   );
@@ -425,6 +1119,55 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
     const videoId = parseYouTubeUrl(url);
     if (videoId) {
       return <YouTubeEmbed videoId={videoId} url={url} />;
+    }
+  }
+
+  if (urlType === "niconico") {
+    const videoId = parseNiconicoUrl(url);
+    if (videoId) {
+      return <NiconicoEmbed videoId={videoId} url={url} />;
+    }
+  }
+
+  if (urlType === "bilibili") {
+    const { bvid, aid } = parseBilibiliUrl(url);
+    if (bvid || aid) {
+      return <BilibiliEmbed bvid={bvid} aid={aid} url={url} />;
+    }
+  }
+
+  if (urlType === "serikavideo") {
+    const videoId = parseSerikaVideoUrl(url);
+    if (videoId) {
+      return <SerikaVideoEmbed videoId={videoId} url={url} />;
+    }
+  }
+
+  if (urlType === "vimeo") {
+    const videoId = parseVimeoUrl(url);
+    if (videoId) {
+      return <VimeoEmbed videoId={videoId} url={url} />;
+    }
+  }
+
+  if (urlType === "dailymotion") {
+    const videoId = parseDailymotionUrl(url);
+    if (videoId) {
+      return <DailymotionEmbed videoId={videoId} url={url} />;
+    }
+  }
+
+  if (urlType === "twitch") {
+    const twitchData = parseTwitchUrl(url);
+    if (twitchData) {
+      return <TwitchEmbed clipId={twitchData.type === "clip" ? twitchData.id : null} vodId={twitchData.type === "vod" ? twitchData.id : null} url={url} />;
+    }
+  }
+
+  if (urlType === "streamable") {
+    const videoId = parseStreamableUrl(url);
+    if (videoId) {
+      return <StreamableEmbed videoId={videoId} url={url} />;
     }
   }
 

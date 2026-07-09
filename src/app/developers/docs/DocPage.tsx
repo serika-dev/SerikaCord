@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { getPrevNext } from "@/lib/constants/docs-nav";
-import { ChevronLeft, ChevronRight, Info, AlertTriangle, AlertCircle, Copy } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, AlertTriangle, AlertCircle, Copy, Check, Hash } from "lucide-react";
 import { useState } from "react";
 
 export function DocPage({
@@ -22,6 +22,11 @@ export function DocPage({
   return (
     <article>
       <header className="mb-8 pb-6 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2 text-xs text-[#555] mb-3">
+          <span>Docs</span>
+          <ChevronRight className="size-3" />
+          <span className="text-[#8B5CF6]">{title}</span>
+        </div>
         <h1 className="text-2xl md:text-3xl font-bold text-white mb-2 tracking-tight">{title}</h1>
         {description && <p className="text-[#949ba4] text-base leading-relaxed">{description}</p>}
       </header>
@@ -71,20 +76,44 @@ export function CodeBlock({ children, lang = "bash" }: { children: string; lang?
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+  const langColors: Record<string, string> = {
+    bash: "text-green-400",
+    json: "text-amber-400",
+    javascript: "text-yellow-400",
+    typescript: "text-blue-400",
+    python: "text-sky-400",
+    sql: "text-pink-400",
+  };
   return (
-    <div className="my-4 rounded-lg border border-white/[0.08] overflow-hidden bg-[#0d0d0d]">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06] bg-white/[0.02]">
-        <span className="text-xs font-mono text-[#666] uppercase tracking-wide">{lang}</span>
+    <div className="my-4 rounded-xl border border-white/[0.08] overflow-hidden bg-[#0d0d0d]">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02]">
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1.5">
+            <span className="size-2.5 rounded-full bg-[#ff5f56]" />
+            <span className="size-2.5 rounded-full bg-[#ffbd2e]" />
+            <span className="size-2.5 rounded-full bg-[#27c93f]" />
+          </div>
+          <span className={`text-xs font-mono ${langColors[lang] || "text-[#666]"} uppercase tracking-wide ml-2`}>{lang}</span>
+        </div>
         <button
           onClick={handleCopy}
-          className="text-xs text-[#666] hover:text-white transition-colors flex items-center gap-1.5"
+          className="text-xs text-[#666] hover:text-white transition-colors flex items-center gap-1.5 px-2 py-1 rounded hover:bg-white/[0.06]"
         >
-          {copied ? "Copied!" : "Copy"}
-          <Copy className="size-3" />
+          {copied ? (
+            <>
+              <Check className="size-3 text-green-400" />
+              <span className="text-green-400">Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="size-3" />
+              <span>Copy</span>
+            </>
+          )}
         </button>
       </div>
-      <pre className="p-4 overflow-x-auto">
-        <code className={`language-${lang} text-[13px] font-mono text-[#dbdee1] leading-relaxed`}>{children}</code>
+      <pre className="p-4 overflow-x-auto text-[13px]">
+        <code className={`language-${lang} font-mono text-[#dbdee1] leading-relaxed`}>{children}</code>
       </pre>
     </div>
   );
@@ -100,20 +129,27 @@ export function Endpoint({
   children: React.ReactNode;
 }) {
   const methodColors: Record<string, string> = {
-    GET: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20",
-    POST: "bg-blue-500/15 text-blue-400 border-blue-500/20",
-    PUT: "bg-amber-500/15 text-amber-400 border-amber-500/20",
-    PATCH: "bg-orange-500/15 text-orange-400 border-orange-500/20",
-    DELETE: "bg-red-500/15 text-red-400 border-red-500/20",
+    GET: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    POST: "bg-sky-500/15 text-sky-400 border-sky-500/30",
+    PUT: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    PATCH: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+    DELETE: "bg-red-500/15 text-red-400 border-red-500/30",
+  };
+  const methodBg: Record<string, string> = {
+    GET: "from-emerald-500/[0.03]",
+    POST: "from-sky-500/[0.03]",
+    PUT: "from-amber-500/[0.03]",
+    PATCH: "from-orange-500/[0.03]",
+    DELETE: "from-red-500/[0.03]",
   };
 
   return (
-    <div className="my-4 rounded-lg border border-white/[0.08] overflow-hidden bg-[#111214]">
-      <div className="flex items-center gap-3 bg-[#161719] px-4 py-3 border-b border-white/[0.06]">
-        <span className={`text-xs font-bold px-2.5 py-1 rounded border ${methodColors[method] || "bg-white/10 text-white border-white/10"}`}>
+    <div className={`my-4 rounded-xl border border-white/[0.08] overflow-hidden bg-gradient-to-r ${methodBg[method] || ""} to-[#111214]`}>
+      <div className="flex items-center gap-3 bg-[#161719]/80 backdrop-blur-sm px-4 py-3 border-b border-white/[0.06]">
+        <span className={`text-xs font-bold px-2.5 py-1 rounded-md border ${methodColors[method] || "bg-white/10 text-white border-white/10"}`}>
           {method}
         </span>
-        <code className="text-sm font-mono text-[#dbdee1]">{path}</code>
+        <code className="text-sm font-mono text-[#dbdee1] flex-1 min-w-0 break-all">{path}</code>
       </div>
       <div className="p-4 text-[13px] text-[#949ba4] leading-relaxed">{children}</div>
     </div>
@@ -130,14 +166,19 @@ export function Callout({
   children: React.ReactNode;
 }) {
   const styles = {
-    info: "border-[#5865F2]/20 bg-[#5865F2]/[0.06]",
-    warning: "border-amber-500/20 bg-amber-500/[0.06]",
-    danger: "border-red-500/20 bg-red-500/[0.06]",
+    info: "border-[#5865F2]/25 bg-[#5865F2]/[0.07]",
+    warning: "border-amber-500/25 bg-amber-500/[0.07]",
+    danger: "border-red-500/25 bg-red-500/[0.07]",
   };
   const titleColors = {
-    info: "text-[#5865F2]",
+    info: "text-[#7983f5]",
     warning: "text-amber-400",
     danger: "text-red-400",
+  };
+  const iconBg = {
+    info: "bg-[#5865F2]/15 text-[#7983f5]",
+    warning: "bg-amber-500/15 text-amber-400",
+    danger: "bg-red-500/15 text-red-400",
   };
   const icons = {
     info: Info,
@@ -147,26 +188,28 @@ export function Callout({
   const Icon = icons[type];
 
   return (
-    <div className={`rounded-lg border p-4 my-4 ${styles[type]}`}>
+    <div className={`rounded-xl border p-4 my-4 ${styles[type]}`}>
       {title && (
-        <p className={`text-sm font-semibold mb-1.5 flex items-center gap-2 ${titleColors[type]}`}>
-          <Icon className="size-4 shrink-0" />
+        <p className={`text-sm font-semibold mb-1.5 flex items-center gap-2.5 ${titleColors[type]}`}>
+          <span className={`size-6 rounded-lg ${iconBg[type]} flex items-center justify-center shrink-0`}>
+            <Icon className="size-3.5" />
+          </span>
           {title}
         </p>
       )}
-      <div className="text-[13px] text-[#949ba4] leading-relaxed">{children}</div>
+      <div className={`text-[13px] text-[#949ba4] leading-relaxed ${title ? "pl-8.5" : ""}`}>{children}</div>
     </div>
   );
 }
 
 export function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
-    <div className="overflow-x-auto my-4 rounded-lg border border-white/[0.08]">
+    <div className="overflow-x-auto my-4 rounded-xl border border-white/[0.08]">
       <table className="w-full text-[13px]">
         <thead>
-          <tr className="border-b border-white/[0.08] bg-white/[0.02]">
+          <tr className="border-b border-white/[0.08] bg-white/[0.03]">
             {headers.map((h, i) => (
-              <th key={i} className="text-left py-2.5 px-4 font-semibold text-[#949ba4]">
+              <th key={i} className="text-left py-3 px-4 font-semibold text-[#949ba4] whitespace-nowrap">
                 {h}
               </th>
             ))}
@@ -174,9 +217,9 @@ export function Table({ headers, rows }: { headers: string[]; rows: string[][] }
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors">
+            <tr key={i} className={`border-b border-white/[0.04] last:border-0 hover:bg-white/[0.03] transition-colors ${i % 2 === 1 ? "bg-white/[0.01]" : ""}`}>
               {row.map((cell, j) => (
-                <td key={j} className="py-2.5 px-4 text-[#dbdee1]">
+                <td key={j} className="py-2.5 px-4 text-[#dbdee1] align-top">
                   {cell}
                 </td>
               ))}
@@ -190,8 +233,13 @@ export function Table({ headers, rows }: { headers: string[]; rows: string[][] }
 
 export function H2({ children, id }: { children: React.ReactNode; id?: string }) {
   return (
-    <h2 id={id} className="text-xl font-bold text-white mt-10 mb-3 scroll-mt-20 tracking-tight">
+    <h2 id={id} className="group text-xl font-bold text-white mt-10 mb-3 scroll-mt-20 tracking-tight flex items-center gap-2">
       {children}
+      {id && (
+        <a href={`#${id}`} className="opacity-0 group-hover:opacity-100 transition-opacity text-[#555] hover:text-[#8B5CF6]">
+          <Hash className="size-4" />
+        </a>
+      )}
     </h2>
   );
 }
@@ -213,7 +261,7 @@ export function UL({ children }: { children: React.ReactNode }) {
 }
 
 export function InlineCode({ children }: { children: React.ReactNode }) {
-  return <code className="bg-[#1e1f22] border border-white/[0.06] rounded px-1.5 py-0.5 text-[13px] font-mono text-[#a78bfa]">{children}</code>;
+  return <code className="bg-[#1e1f22] border border-white/[0.08] rounded-md px-1.5 py-0.5 text-[13px] font-mono text-[#a78bfa] inline-block">{children}</code>;
 }
 
 export function Strong({ children }: { children: React.ReactNode }) {
@@ -229,7 +277,7 @@ export function Link2({ href, children }: { href: string; children: React.ReactN
 }
 
 export function CardGrid({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-5">{children}</div>;
+  return <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-5">{children}</div>;
 }
 
 export function Card({
@@ -246,10 +294,10 @@ export function Card({
   external?: boolean;
 }) {
   const inner = (
-    <div className="group h-full rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] hover:border-[#8B5CF6]/30 p-4 transition-colors">
-      <div className="flex items-center gap-2.5 mb-1.5">
+    <div className="group h-full rounded-xl border border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.04] hover:border-[#8B5CF6]/30 p-5 transition-all duration-200 hover:shadow-lg hover:shadow-[#8B5CF6]/[0.03]">
+      <div className="flex items-center gap-2.5 mb-2">
         {icon && (
-          <span className="size-8 rounded-lg bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 flex items-center justify-center text-[#a78bfa] shrink-0">
+          <span className="size-9 rounded-lg bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 flex items-center justify-center text-[#a78bfa] shrink-0 group-hover:scale-110 transition-transform">
             {icon}
           </span>
         )}
@@ -280,11 +328,11 @@ export function Steps({ children }: { children: React.ReactNode }) {
 
 export function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
-    <li className="relative pl-11">
-      <span className="absolute left-0 top-0 size-8 rounded-full bg-[#8B5CF6]/15 border border-[#8B5CF6]/30 text-[#a78bfa] text-sm font-bold flex items-center justify-center">
+    <li className="relative pl-12">
+      <span className="absolute left-0 top-0 size-9 rounded-xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 border border-[#8B5CF6]/30 text-[#a78bfa] text-sm font-bold flex items-center justify-center shadow-lg shadow-[#8B5CF6]/[0.05]">
         {n}
       </span>
-      <h3 className="text-base font-semibold text-white mb-1 pt-1">{title}</h3>
+      <h3 className="text-base font-semibold text-white mb-1 pt-1.5">{title}</h3>
       <div className="text-[14px] text-[#dbdee1] leading-relaxed space-y-2">{children}</div>
     </li>
   );

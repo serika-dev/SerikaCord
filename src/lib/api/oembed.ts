@@ -144,6 +144,9 @@ const OEMBED_WHITELIST = [
   'bestbuy.com',
   'newegg.com',
   'bilibili.com',
+  'nicovideo.jp',
+  'nico.ms',
+  'serika.video',
   'pixiv.net',
   'artstation.com',
   'behance.net',
@@ -227,6 +230,115 @@ async function fetchYouTubeProviderOEmbed(url: string): Promise<OEmbedResponse |
   }
 }
 
+// Use the official niconico oEmbed endpoint for reliable thumbnails.
+// HTML meta scraping on nicovideo.jp often fails due to JS-rendered content.
+async function fetchNiconicoProviderOEmbed(url: string): Promise<OEmbedResponse | null> {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname !== 'www.nicovideo.jp' &&
+      hostname !== 'nicovideo.jp' &&
+      hostname !== 'nico.ms'
+    ) {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(
+      `https://www.nicovideo.jp/oembed?url=${encodeURIComponent(url)}`,
+      {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      }
+    );
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+    const data = await response.json() as {
+      title?: string;
+      author_name?: string;
+      provider_name?: string;
+      thumbnail_url?: string;
+      type?: string;
+    };
+
+    return {
+      url,
+      title: data.title,
+      description: data.author_name || 'niconico',
+      thumbnail: data.thumbnail_url,
+      siteName: 'niconico',
+      type: data.type || 'video',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Fetch bilibili video info via their public API for reliable thumbnails.
+// bilibili's OG image URLs (i1.hdslb.com) block external referrers, so we
+// proxy the cover through our oEmbed endpoint and let the client use referrerPolicy.
+async function fetchBilibiliProviderOEmbed(url: string): Promise<OEmbedResponse | null> {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname !== 'www.bilibili.com' &&
+      hostname !== 'bilibili.com' &&
+      hostname !== 'b23.tv'
+    ) {
+      return null;
+    }
+
+    // Extract BV id
+    const bvMatch = url.match(/bilibili\.com\/video\/(BV[a-zA-Z0-9]+)/);
+    const avMatch = url.match(/bilibili\.com\/video\/av(\d+)/);
+    const bvid = bvMatch?.[1];
+    const aid = avMatch?.[1];
+    if (!bvid && !aid) return null;
+
+    const apiUrl = bvid
+      ? `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`
+      : `https://api.bilibili.com/x/web-interface/view?aid=${aid}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const response = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'SerikaCord/1.0 (Link Preview Bot)',
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+    const data = await response.json() as {
+      code?: number;
+      data?: {
+        title?: string;
+        pic?: string;
+        owner?: { name?: string };
+      };
+    };
+
+    if (data.code !== 0 || !data.data) return null;
+
+    return {
+      url,
+      title: data.data.title,
+      description: data.data.owner?.name || 'bilibili',
+      thumbnail: data.data.pic,
+      siteName: 'bilibili',
+      type: 'video',
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Combined whitelist: defaults + admin-configured custom domains
 let cachedCustomWhitelist: string[] | null = null;
 let cacheExpiry = 0;
@@ -284,10 +396,20 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
     }
 
     // Provider-specific oEmbed endpoints give much better previews than
-    // scraping HTML meta tags (e.g. YouTube Music).
+    // scraping HTML meta tags (e.g. YouTube Music, niconico).
     const providerOEmbed = await fetchYouTubeProviderOEmbed(url);
     if (providerOEmbed) {
       return providerOEmbed;
+    }
+
+    const niconicoOEmbed = await fetchNiconicoProviderOEmbed(url);
+    if (niconicoOEmbed) {
+      return niconicoOEmbed;
+    }
+
+    const bilibiliOEmbed = await fetchBilibiliProviderOEmbed(url);
+    if (bilibiliOEmbed) {
+      return bilibiliOEmbed;
     }
     
     const whitelisted = await isWhitelistedDomainAsync(url);

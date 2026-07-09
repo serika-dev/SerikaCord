@@ -122,8 +122,8 @@ export default function DocsLayout({
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 md:px-10 py-8 md:py-12">{children}</div>
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 md:px-10 py-8 md:py-12">{children}</div>
       </div>
     </div>
   );
