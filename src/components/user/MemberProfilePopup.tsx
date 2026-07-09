@@ -99,15 +99,15 @@ export function MemberProfilePopup({
   if (isMobile) {
     return (
       <>
-        <span
-          className="contents"
+        <div
+          className="inline-flex"
           onClick={(e) => {
             e.stopPropagation();
             setFullProfileOpen(true);
           }}
         >
           {children}
-        </span>
+        </div>
         <FullProfileDialog
           user={fullProfile}
           open={fullProfileOpen}

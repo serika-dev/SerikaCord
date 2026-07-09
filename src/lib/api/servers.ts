@@ -420,6 +420,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       roles: [everyoneRole.id],
     });
 
+    // Auto-assign server_owner badge
+    const { recalculateUserBadges } = await import('@/lib/services/badges');
+    void recalculateUserBadges(user.id).catch(() => {});
+
     return {
       success: true,
       server: {
@@ -1263,6 +1267,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     ]);
 
     await Server.deleteById(server.id);
+
+    // Recalculate owner badges (may lose server_owner / partner)
+    const { recalculateUserBadges } = await import('@/lib/services/badges');
+    void recalculateUserBadges(server.ownerId).catch(() => {});
 
     return { success: true };
   }, {

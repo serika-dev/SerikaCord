@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { AuthProvider } from "@/contexts/AuthContext";
 import { NetworkStatus } from "@/components/ui/network-status";
 import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
 import { TauriUpdater } from "@/components/TauriUpdater";
@@ -69,10 +70,12 @@ export default function RootLayout({
         className={`${inter.variable} font-sans antialiased`}
       >
         <ThemeProvider>
-          {children}
-          <NetworkStatus />
-          <ToasterWrapper />
-          <TauriUpdater />
+          <AuthProvider>
+            {children}
+            <NetworkStatus />
+            <ToasterWrapper />
+            <TauriUpdater />
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>
