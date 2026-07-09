@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Logo } from "@/components/ui/Logo";
 import { PartnerSection } from "@/components/home/PartnerSection";
+import { HomeNavActions, HomeHeroActions } from "@/components/home/HomeNav";
 import { buildMetadata } from "@/lib/seo";
 import { 
   MessageSquare,
@@ -58,20 +59,7 @@ export default function HomePage() {
             </div>
             
             {/* Right actions */}
-            <div className="flex items-center gap-2">
-              <Link 
-                href="/login"
-                className="px-4 py-2 text-sm font-medium text-[#ccc] hover:text-white transition-colors"
-              >
-                Log In
-              </Link>
-              <Link 
-                href="/register"
-                className="px-4 py-2 text-sm font-semibold bg-white text-black hover:bg-white/90 rounded-full transition-all"
-              >
-                Sign Up
-              </Link>
-            </div>
+            <HomeNavActions />
           </div>
         </div>
       </nav>
@@ -106,21 +94,7 @@ export default function HomePage() {
             SerikaCord is where communities come together. Talk, build, and belong — all in one place.
           </p>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/register"
-              className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white text-black hover:bg-white/90 rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_0_0_rgba(255,255,255,0)] hover:shadow-[0_0_40px_rgba(255,255,255,0.12)]"
-            >
-              Get Started — it&apos;s free
-            </Link>
-            <Link
-              href="/channels/me"
-              className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_30px_rgba(139,92,246,0.35)] hover:shadow-[0_0_50px_rgba(139,92,246,0.5)] flex items-center justify-center gap-2"
-            >
-              Open in browser
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-          </div>
+          <HomeHeroActions />
         </div>
       </section>
 

@@ -141,6 +141,10 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     flags: 0,
   });
 
+  // Auto-assign active_developer badge
+  const { recalculateUserBadges } = await import('@/lib/services/badges');
+  void recalculateUserBadges(user.id).catch(() => {});
+
   return { application: sanitizeApp(app) };
 })
 
@@ -235,6 +239,11 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   ]);
 
   await Application.deleteById(app.id);
+
+  // Recalculate active_developer / verified_bot_developer badges
+  const { recalculateUserBadges } = await import('@/lib/services/badges');
+  void recalculateUserBadges(user.id).catch(() => {});
+
   return { success: true };
 })
 

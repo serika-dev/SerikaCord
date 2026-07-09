@@ -256,17 +256,22 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     }
 
     const oldBadges = [...(targetUser.badges || [])];
-    await User.updateById(targetUser.id, { badges });
+
+    // Only manual badges can be set by admin; auto badges are recalculated
+    const { recalculateUserBadges, MANUAL_BADGES } = await import('@/lib/services/badges');
+    const manualBadges = badges.filter((b) => (MANUAL_BADGES as readonly string[]).includes(b));
+    await User.updateById(targetUser.id, { badges: manualBadges });
+    const finalBadges = await recalculateUserBadges(targetUser.id);
 
     await logAdminAction(
       user.id,
       'edit_badges',
       'user',
       targetUser.id,
-      { oldBadges, newBadges: badges }
+      { oldBadges, newBadges: finalBadges || manualBadges }
     );
 
-    return { success: true, badges };
+    return { success: true, badges: finalBadges || manualBadges };
   }, {
     params: t.Object({
       userId: t.String(),
@@ -403,6 +408,10 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       partneredAt: newPartnerStatus ? new Date() : null,
     });
 
+    // Auto-assign/remove partner badge for the server owner
+    const { recalculateUserBadges } = await import('@/lib/services/badges');
+    void recalculateUserBadges(server.ownerId).catch(() => {});
+
     await logAdminAction(
       user.id,
       newPartnerStatus ? 'grant_partner' : 'revoke_partner',
@@ -480,6 +489,11 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
     const oldOwnerId = server.ownerId;
     await Server.updateById(server.id, { ownerId: newOwner.id });
+
+    // Recalculate badges for both old and new owner
+    const { recalculateUserBadges } = await import('@/lib/services/badges');
+    void recalculateUserBadges(oldOwnerId).catch(() => {});
+    void recalculateUserBadges(newOwner.id).catch(() => {});
 
     await logAdminAction(
       user.id,

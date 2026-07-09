@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
-import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { ServerProvider, useServer } from "@/contexts/ServerContext";
 import { UnreadProvider } from "@/contexts/UnreadContext";
 import { ServerSidebar } from "@/components/layout/ServerSidebar";
@@ -367,14 +367,12 @@ export default function ChannelsLayoutClient({
   children: React.ReactNode;
 }) {
   return (
-    <AuthProvider>
-      <ServerProvider>
-        <UnreadProvider>
-          <AuthGate>
-            <ChannelsContent>{children}</ChannelsContent>
-          </AuthGate>
-        </UnreadProvider>
-      </ServerProvider>
-    </AuthProvider>
+    <ServerProvider>
+      <UnreadProvider>
+        <AuthGate>
+          <ChannelsContent>{children}</ChannelsContent>
+        </AuthGate>
+      </UnreadProvider>
+    </ServerProvider>
   );
 }

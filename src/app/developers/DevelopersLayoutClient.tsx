@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogoInline } from "@/components/ui/Logo";
-import { AuthProvider } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
 import { Home, Book, Boxes, Users, ExternalLink } from "lucide-react";
 
@@ -23,8 +22,7 @@ export default function DevelopersLayoutClient({
   const isDocs = pathname?.startsWith("/developers/docs");
 
   return (
-    <AuthProvider>
-      <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
+    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
         {/* Top Navigation */}
         <header className="h-14 border-b border-white/[0.06] bg-[#0a0a0a] sticky top-0 z-50 flex items-center px-4 gap-6 backdrop-blur-sm">
           <Link href="/developers/home" className="flex items-center gap-2 shrink-0">
@@ -78,6 +76,5 @@ export default function DevelopersLayoutClient({
 
         <div className="flex-1 flex">{children}</div>
       </div>
-    </AuthProvider>
   );
 }

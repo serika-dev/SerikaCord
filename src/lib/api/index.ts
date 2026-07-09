@@ -268,6 +268,10 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
+    // Fire-and-forget badge recalculation to keep auto-badges in sync
+    const { recalculateUserBadges } = await import('@/lib/services/badges');
+    const updatedBadges = await recalculateUserBadges(user.id);
+
     return {
       id: user.id,
       username: user.username,
@@ -284,7 +288,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       isPremium: user.isPremium,
       premiumSince: user.premiumSince,
       premiumTier: user.premiumTier,
-      badges: user.badges || [],
+      badges: updatedBadges || user.badges || [],
       isVerified: user.isVerified,
       settings: user.settings,
       customization: user.customization || {},
