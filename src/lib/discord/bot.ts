@@ -83,13 +83,9 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<any> {
   if (discordAuthor.id) {
     const linkedUser = await User.findOne({ discordId: discordAuthor.id });
     if (linkedUser) {
-      // Update display name/avatar if changed
-      const newDisplayName = buildDisplayName(discordAuthor);
-      const newAvatar = getAvatarUrl(discordAuthor);
-      if (linkedUser.displayName !== newDisplayName || linkedUser.avatar !== newAvatar) {
+      // Only update discordUsername — NEVER overwrite the user's displayName or avatar
+      if (linkedUser.discordUsername !== discordAuthor.username) {
         const updated = await User.updateById(linkedUser.id, {
-          displayName: newDisplayName,
-          avatar: newAvatar,
           discordUsername: discordAuthor.username,
         });
         return updated || linkedUser;

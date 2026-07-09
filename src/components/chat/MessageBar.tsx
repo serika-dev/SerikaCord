@@ -674,7 +674,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[vol:50]</span>
-                            <span className="text-[var(--app-muted)]">Volume 0–500% (also: [vol:BASS] bass boost)</span>
+                            <span className="text-[var(--app-muted)]">Volume 0–500% (also: [vol:BASS] bass boost, [vol:EAR] max loudness)</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[steven]</span>

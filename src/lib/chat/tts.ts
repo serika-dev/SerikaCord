@@ -170,6 +170,7 @@ interface ParsedModifier {
   pitch?: number;
   volume?: number; // 0-5 (500%)
   bassBoost?: boolean;
+  earRape?: boolean;
   persona?: VoicePersona;
   fishReferenceId?: string;
 }
@@ -188,6 +189,7 @@ function parseModifier(keyword: string, voices?: TtsVoicePreset[]): ParsedModifi
   if (volMatch) {
     const val = volMatch[1].trim().toUpperCase();
     if (val === "BASS") return { bassBoost: true, volume: 1 };
+    if (val === "EAR") return { earRape: true, volume: 5 };
     const vol = parseInt(val);
     if (!isNaN(vol)) return { volume: Math.min(5, Math.max(0, vol / 100)) };
   }
@@ -310,6 +312,7 @@ async function playFishAudio(
   speed?: number,
   volume?: number,
   bassBoost?: boolean,
+  earRape?: boolean,
 ): Promise<void> {
   try {
     const res = await fetch("/api/tts/fish", {
@@ -325,11 +328,11 @@ async function playFishAudio(
     if (!res.ok) throw new Error(`Fish Audio error: ${res.status}`);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
-    await playSingleSound(url, volume ?? 1, bassBoost ?? false);
+    await playSingleSound(url, volume ?? 1, bassBoost ?? false, earRape ?? false);
     URL.revokeObjectURL(url);
   } catch (err) {
     console.error("Fish Audio playback failed, falling back to Web Speech:", err);
-    await speakSegment(text, speed ?? 1, null, 1, volume ?? 1, bassBoost ?? false);
+    await speakSegment(text, speed ?? 1, null, 1, volume ?? 1, bassBoost ?? false, earRape ?? false);
   }
 }
 
@@ -456,6 +459,7 @@ export interface SpeechSegment {
   pitch: number | null;
   volume: number | null;
   bassBoost: boolean;
+  earRape: boolean;
   persona: VoicePersona | null;
   fishReferenceId: string | null;
 }
@@ -501,6 +505,7 @@ export function parseTtsContent(raw: string, voices?: TtsVoicePreset[]): SpeechS
   let defPersona: VoicePersona | null = null;
   let defFishId: string | null = null;
   let defBassBoost = false;
+  let defEarRape = false;
 
   let modMatch: RegExpMatchArray | null;
   while ((modMatch = withoutPrefix.match(/^\s*\[([^\]]+)\]\s*/))) {
@@ -519,6 +524,7 @@ export function parseTtsContent(raw: string, voices?: TtsVoicePreset[]): SpeechS
     }
     if (mod.fishReferenceId) defFishId = mod.fishReferenceId;
     if (mod.bassBoost) defBassBoost = true;
+    if (mod.earRape) defEarRape = true;
     withoutPrefix = withoutPrefix.slice(modMatch[0].length);
   }
 
@@ -530,6 +536,7 @@ export function parseTtsContent(raw: string, voices?: TtsVoicePreset[]): SpeechS
   let curPersona = defPersona;
   let curFishId = defFishId;
   let curBassBoost = defBassBoost;
+  let curEarRape = defEarRape;
 
   const segments: SpeechSegment[] = [];
   let cursor = 0;
@@ -552,6 +559,7 @@ export function parseTtsContent(raw: string, voices?: TtsVoicePreset[]): SpeechS
       persona: curPersona,
       fishReferenceId: curFishId,
       bassBoost: curBassBoost,
+      earRape: curEarRape,
     });
 
     if (mod.gender) curGender = mod.gender;
@@ -569,6 +577,7 @@ export function parseTtsContent(raw: string, voices?: TtsVoicePreset[]): SpeechS
       curPersona = null;
     }
     if (mod.bassBoost) curBassBoost = true;
+    if (mod.earRape) curEarRape = true;
 
     cursor = inlineMatch.index + inlineMatch[0].length;
   }
@@ -584,6 +593,7 @@ export function parseTtsContent(raw: string, voices?: TtsVoicePreset[]): SpeechS
     persona: curPersona,
     fishReferenceId: curFishId,
     bassBoost: curBassBoost,
+    earRape: curEarRape,
   });
 
   const nonEmpty = segments.filter((s) => s.text);
@@ -716,10 +726,10 @@ function splitTextByTriggers(text: string, sounds: TtsSoundTrigger[]): TtsSegmen
 }
 
 /** Play a single audio file. Resolves when playback finishes (or fails).
- * Supports volume > 1 (amplification) and bass boost via Web Audio API. */
-function playSingleSound(path: string, volume: number = 1, bassBoost: boolean = false): Promise<void> {
+ * Supports volume > 1 (amplification), bass boost, and ear rape via Web Audio API. */
+function playSingleSound(path: string, volume: number = 1, bassBoost: boolean = false, earRape: boolean = false): Promise<void> {
   return new Promise<void>((resolve) => {
-    if (volume <= 1 && !bassBoost) {
+    if (volume <= 1 && !bassBoost && !earRape) {
       // Simple path — no Web Audio graph needed.
       try {
         const audio = new Audio(path);
@@ -752,9 +762,38 @@ function playSingleSound(path: string, volume: number = 1, bassBoost: boolean = 
         source.buffer = audioBuffer;
 
         const gain = ctx.createGain();
-        gain.gain.value = volume;
+        // Ear rape: very loud but still intelligible
+        gain.gain.value = earRape ? 8 : volume;
 
-        if (bassBoost) {
+        if (earRape) {
+          // Heavy distortion via WaveShaperNode
+          const distortion = ctx.createWaveShaper();
+          const curve = new Float32Array(44100);
+          for (let i = 0; i < curve.length; i++) {
+            const x = (i * 2) / curve.length - 1;
+            curve[i] = Math.tanh(x * 10); // strong clipping, not total destruction
+          }
+          distortion.curve = curve;
+          distortion.oversample = "4x";
+
+          // Aggressive bass boost
+          const lowShelf = ctx.createBiquadFilter();
+          lowShelf.type = "lowshelf";
+          lowShelf.frequency.value = 100;
+          lowShelf.gain.value = 25;
+
+          // Treble boost for harshness
+          const highShelf = ctx.createBiquadFilter();
+          highShelf.type = "highshelf";
+          highShelf.frequency.value = 3000;
+          highShelf.gain.value = 10;
+
+          source.connect(distortion);
+          distortion.connect(lowShelf);
+          lowShelf.connect(highShelf);
+          highShelf.connect(gain);
+          gain.connect(ctx.destination);
+        } else if (bassBoost) {
           // Deep sub-bass boost
           const lowShelf = ctx.createBiquadFilter();
           lowShelf.type = "lowshelf";
@@ -816,6 +855,7 @@ function speakSegment(
   pitch: number = 1,
   volume: number = 1,
   bassBoost: boolean = false,
+  earRape: boolean = false,
 ): Promise<void> {
   return new Promise((resolve) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window) || !text.trim()) {
@@ -826,10 +866,16 @@ function speakSegment(
     const finish = () => { if (!resolved) { resolved = true; resolve(); } };
 
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = Math.min(4, Math.max(0.25, rate || 1));
-    // Bass boost on Web Speech: drop pitch for a deeper, bass-heavy tone.
-    const effectivePitch = bassBoost ? Math.max(0.1, pitch * 0.4) : pitch;
-    utterance.pitch = Math.min(2, Math.max(0, effectivePitch));
+    // Ear rape: fast but still intelligible, extreme pitch
+    if (earRape) {
+      utterance.rate = 2;
+      utterance.pitch = 0;
+    } else {
+      utterance.rate = Math.min(4, Math.max(0.25, rate || 1));
+      // Bass boost on Web Speech: drop pitch for a deeper, bass-heavy tone.
+      const effectivePitch = bassBoost ? Math.max(0.1, pitch * 0.4) : pitch;
+      utterance.pitch = Math.min(2, Math.max(0, effectivePitch));
+    }
     // Web Speech volume is capped at 1.0 by the browser — can't amplify beyond that.
     utterance.volume = Math.min(1, Math.max(0, volume));
     if (voice) {
@@ -898,6 +944,7 @@ export async function playTts(opts: PlayTtsOptions): Promise<void> {
     const segPitch = segment.pitch ?? 1;
     const segVolume = segment.volume ?? 1;
     const segBass = segment.bassBoost;
+    const segEar = segment.earRape;
 
     // Prepend author name to the first segment only.
     const text = segIdx === 0 && authorName
@@ -910,15 +957,15 @@ export async function playTts(opts: PlayTtsOptions): Promise<void> {
     for (const ss of soundSegments) {
       if (ss.soundPath) {
         await delay(120);
-        await playSingleSound(ss.soundPath, segVolume, segBass);
+        await playSingleSound(ss.soundPath, segVolume, segBass, segEar);
         await delay(100);
       } else if (shouldSpeak && ss.text.trim()) {
         if (segment.fishReferenceId) {
           // FishAudio AI voice.
-          await playFishAudio(ss.text, segment.fishReferenceId, segRate, segVolume, segBass);
+          await playFishAudio(ss.text, segment.fishReferenceId, segRate, segVolume, segBass, segEar);
         } else if (useCloudFallback) {
           // Firefox fallback: use admin-configured default voice.
-          await playFishAudio(ss.text, defaultVoice!.referenceId, segRate, segVolume, segBass);
+          await playFishAudio(ss.text, defaultVoice!.referenceId, segRate, segVolume, segBass, segEar);
         } else {
           // Web Speech API.
           const effectiveGender = segment.gender ?? voiceGender;
@@ -929,9 +976,9 @@ export async function playTts(opts: PlayTtsOptions): Promise<void> {
           const voice = voiceCache.get(cacheKey)!;
           if (!voice && defaultVoice) {
             // No matching voice for requested language — fall back to default voice.
-            await playFishAudio(ss.text, defaultVoice.referenceId, segRate, segVolume, segBass);
+            await playFishAudio(ss.text, defaultVoice.referenceId, segRate, segVolume, segBass, segEar);
           } else {
-            await speakSegment(ss.text, segRate, voice, segPitch, segVolume, segBass);
+            await speakSegment(ss.text, segRate, voice, segPitch, segVolume, segBass, segEar);
           }
         }
       }

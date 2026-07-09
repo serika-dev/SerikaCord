@@ -283,11 +283,11 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
     description: "Send a message that will be spoken aloud using text-to-speech",
     usage: "/tts <message>",
     category: "fun",
-    hint: "Multi-speaker [m]/[f], speed [2x], volume [vol:50] up to [vol:500], bass boost [vol:BASS], personas [steven], accents [f-scottish], AI voices [fish:miku], auto-pause for sound triggers.",
+    hint: "Multi-speaker [m]/[f], speed [2x], volume [vol:50] up to [vol:500], bass boost [vol:BASS], ear rape [vol:EAR], personas [steven], accents [f-scottish], AI voices [fish:miku], auto-pause for sound triggers.",
     params: [
       {
         name: "message",
-        description: "Text to speak. Stack modifiers anywhere: [f] female, [m] male, [2x] speed, [vol:50] volume (up to 500), [vol:BASS] bass boost, [steven] robotic, [fish:miku] AI voice, [f-japanese] accent. Switch speakers mid-message: [m] hello [f] world.",
+        description: "Text to speak. Stack modifiers anywhere: [f] female, [m] male, [2x] speed, [vol:50] volume (up to 500), [vol:BASS] bass boost, [vol:EAR] max loudness + distortion, [steven] robotic, [fish:miku] AI voice, [f-japanese] accent. Switch speakers mid-message: [m] hello [f] world.",
         required: true,
         isFreeText: true,
       },

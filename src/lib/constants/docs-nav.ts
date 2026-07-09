@@ -51,6 +51,8 @@ export const docNav: DocNavSection[] = [
       { label: "Gateway", slug: "topics/gateway" },
       { label: "Webhooks", slug: "topics/webhooks" },
       { label: "Message Formatting", slug: "topics/message-formatting" },
+      { label: "Slash Commands", slug: "topics/slash-commands" },
+      { label: "Text-to-Speech (TTS)", slug: "topics/tts" },
       { label: "Reactions", slug: "topics/reactions" },
       { label: "Stickers", slug: "topics/stickers" },
       { label: "Teams", slug: "topics/teams" },

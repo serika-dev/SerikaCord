@@ -542,13 +542,10 @@ export async function handleDiscordOAuth(discordUser: {
   let user = await User.findOne({ discordId: discordUser.id });
 
   if (user) {
-    // Update Discord info
+    // Only update discordUsername — NEVER set the user's avatar from Discord
     const updateFields: Record<string, any> = {
       discordUsername: discordUser.username,
     };
-    if (discordUser.avatar && !user.avatar) {
-      updateFields.avatar = `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png`;
-    }
     user = await User.updateById(user.id, updateFields) || user;
 
     const { tokens } = await createSession(user.id, options);
@@ -570,14 +567,13 @@ export async function handleDiscordOAuth(discordUser: {
     }
   }
 
-  // Create new user
+  // Create new user — do NOT set avatar from Discord; it belongs only in the connection
   user = await User.create({
     discordId: discordUser.id,
     discordUsername: discordUser.username,
     username: discordUser.username,
     displayName: discordUser.username,
     email: discordUser.email?.toLowerCase(),
-    avatar: discordUser.avatar ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.png` : undefined,
     isVerified: !!discordUser.email,
   });
 
