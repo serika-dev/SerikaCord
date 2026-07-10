@@ -29,33 +29,9 @@
   "39909c949b4aac64": "Tools to keep your community safe and welcoming.",
   "566a2b9b23440077": "You're in Control",
   "c8106a75a8e3f3e1": "Manage who can contact you and how.",
-  "f492c3b45867d8fa": [
-    {
-      "t": "h1",
-      "i": 1,
-      "c": [
-        {
-          "t": "span",
-          "i": 2,
-          "c": "Your place to "
-        },
-        {
-          "t": "br",
-          "i": 3
-        },
-        {
-          "t": "span",
-          "i": 4,
-          "c": "talk & hang out"
-        }
-      ]
-    },
-    {
-      "t": "p",
-      "i": 5,
-      "c": "SerikaCord is where communities come together. Talk, build, and belong — all in one place."
-    }
-  ],
+  "6b039faf63ed0bb8": "Your place to",
+  "781cc8fdfc5c3f84": "talk & hang out",
+  "a6a2c6ed2e57b5dc": "SerikaCord is where communities come together. Talk, build, and belong — all in one place.",
   "43c2b64cb0941dc0": [
     {
       "t": "h2",
@@ -266,6 +242,9 @@
   "d16becc919e4b4c4": "View all releases on GitHub",
   "08b46216c05eff92": "Channel notifications muted",
   "4cdeeee9e42607cc": "Channel notifications enabled",
+  "927318561b54f149": "Today at {time}",
+  "fa1dfae305b98be1": "Yesterday at {time}",
+  "fd01731e7f921d1e": "{date} at {time}",
   "c031b365de63f800": "Select a channel",
   "147d740499600972": "Welcome to SerikaCord",
   "1aed1f10f5f85cfd": "Choose a channel from the sidebar to start chatting.",

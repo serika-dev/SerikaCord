@@ -9,7 +9,7 @@ import { formatMessageTimestamp } from "@/lib/chat/messages";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { cn } from "@/lib/utils";
-import { useGT } from "gt-next";
+import { useGT, useLocale } from "gt-next";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
 
@@ -63,6 +63,7 @@ interface GroupHeaderProps {
 /** Author name + staff pill + timestamp row above the first message of a group. */
 export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHeaderProps) {
   const gt = useGT();
+  const locale = useLocale();
   const { settings } = useTheme();
   const name = author.displayName || author.username || gt("Unknown");
   const styleClasses = getDisplayNameStyleClasses(author.customization?.displayNameStyle);
@@ -143,7 +144,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
         </span>
       )}
       <StaffPill badges={author.badges} />
-      <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formatMessageTimestamp(timestamp)}</span>
+      <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formatMessageTimestamp(timestamp, gt, locale)}</span>
     </div>
   );
 }

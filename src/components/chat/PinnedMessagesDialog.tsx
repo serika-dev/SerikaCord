@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
-import { T, useGT } from "gt-next";
+import { T, useGT, useLocale } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 
 interface PinnedMessagesDialogProps<M extends ChatMessage> {
@@ -35,6 +35,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
   onUnpin,
 }: PinnedMessagesDialogProps<M>) {
   const gt = useGT();
+  const locale = useLocale();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-2xl">
@@ -84,7 +85,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
                     {message.author?.displayName || message.author?.username || gt("Unknown")}
                   </span>
                   <span className="text-xs text-[var(--text-muted)]">
-                    {formatMessageTimestamp(message.createdAt)}
+                    {formatMessageTimestamp(message.createdAt, gt, locale)}
                   </span>
                   {onUnpin && (
                     <button
