@@ -3,6 +3,7 @@ import { Inter, Noto_Kufi_Arabic } from "next/font/google";
 import { GTProvider } from "gt-next";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { LocaleSync } from "@/components/LocaleSync";
 import { NetworkStatus } from "@/components/ui/network-status";
 import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
 import { TauriUpdater } from "@/components/TauriUpdater";
@@ -97,6 +98,7 @@ export default function RootLayout({
         className={`${inter.variable} ${notoKufi.variable} font-sans antialiased`}
       >
         <GTProvider>
+          <LocaleSync />
           <ThemeProvider>
             <AuthProvider>
               {children}
