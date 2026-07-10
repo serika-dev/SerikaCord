@@ -3,6 +3,7 @@
 import { FileText } from "lucide-react";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { formatFileSize } from "@/lib/chat/messages";
+import { useGT } from "gt-next";
 import type { MessageAttachment } from "@/lib/chat/types";
 
 interface MessageAttachmentsProps {
@@ -13,6 +14,7 @@ interface MessageAttachmentsProps {
 
 /** Renders a message's attachments: images, video/audio players, and file cards. */
 export function MessageAttachments({ attachments, messageId, onMediaClick }: MessageAttachmentsProps) {
+  const gt = useGT();
   if (!attachments?.length) return null;
 
   const imageAttachments = attachments.filter((a) => a.contentType.startsWith("image/"));
@@ -106,7 +108,7 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
               <div className="min-w-0">
                 <div className="text-[#8B5CF6] hover:underline truncate">{attachment.filename}</div>
                 <div className="text-xs text-[var(--app-muted)]">
-                  {formatFileSize(attachment.size) || "? KB"}
+                  {formatFileSize(attachment.size) || gt("? KB")}
                 </div>
               </div>
             </a>

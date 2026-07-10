@@ -644,3 +644,47 @@ html.theme-midnight body {
   min-width: 0 !important;
   width: 100% !important;
 }
+
+/* ─── RTL Support ─── */
+html.rtl {
+  --font-sans: var(--font-arabic), var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+html.rtl body {
+  font-family: var(--font-arabic), var(--font-inter), system-ui, sans-serif;
+}
+
+/* Flip flex directions in RTL */
+html.rtl .flex-row-reverse-rtl {
+  flex-direction: row-reverse;
+}
+
+/* Logical property helpers for RTL */
+html.rtl .rtl-flip-x {
+  transform: scaleX(-1);
+}
+
+/* In RTL, left becomes right and vice versa */
+html.rtl .rtl-left-auto {
+  left: auto;
+  right: 0;
+}
+
+html.rtl .rtl-right-auto {
+  right: auto;
+  left: 0;
+}
+
+/* Scrollbar position in RTL */
+html.rtl [data-radix-scroll-area-viewport] {
+  direction: rtl;
+}
+
+/* Text alignment defaults */
+html.rtl .text-left-rtl {
+  text-align: right;
+}
+
+html.rtl .text-right-rtl {
+  text-align: left;
+}

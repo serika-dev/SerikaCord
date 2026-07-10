@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Shield, Check, Server, Info, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useGT } from "gt-next";
 
 interface Guild {
   id: string;
@@ -40,7 +41,28 @@ const COMMON_PERMISSIONS = [
   { name: "Mute Members", bit: 22n, desc: "Allows muting other members in voice channels." },
 ];
 
+type GTFunc = ReturnType<typeof useGT>;
+
+function permLabel(bit: bigint, gt: GTFunc): { name: string; desc: string } {
+  switch (bit) {
+    case 3n: return { name: gt('Administrator'), desc: gt('Grants all permissions and bypasses channel permission overwrites. Extremely dangerous.') };
+    case 5n: return { name: gt('Manage Server'), desc: gt('Allows changing server name, region, and local settings.') };
+    case 28n: return { name: gt('Manage Roles'), desc: gt("Allows creating, editing, and deleting roles below this bot's role.") };
+    case 4n: return { name: gt('Manage Channels'), desc: gt('Allows creating, editing, and deleting channels.') };
+    case 1n: return { name: gt('Kick Members'), desc: gt('Allows removing members from the server.') };
+    case 2n: return { name: gt('Ban Members'), desc: gt('Allows banning members from the server.') };
+    case 11n: return { name: gt('Send Messages'), desc: gt('Allows sending text messages in channels.') };
+    case 13n: return { name: gt('Manage Messages'), desc: gt('Allows deleting and pinning messages sent by other users.') };
+    case 16n: return { name: gt('Read Message History'), desc: gt('Allows viewing past messages in text channels.') };
+    case 17n: return { name: gt('Mention Everyone'), desc: gt('Allows using @everyone, @here, and mentioning roles.') };
+    case 21n: return { name: gt('Speak'), desc: gt('Allows speaking in voice channels.') };
+    case 22n: return { name: gt('Mute Members'), desc: gt('Allows muting other members in voice channels.') };
+    default: return { name: '', desc: '' };
+  }
+}
+
 function AuthorizeForm() {
+  const gt = useGT();
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -80,7 +102,7 @@ function AuthorizeForm() {
 
         // 2. Fetch application details
         if (!clientId) {
-          setError("client_id query parameter is required.");
+          setError(gt("client_id query parameter is required."));
           setIsLoading(false);
           return;
         }
@@ -88,7 +110,7 @@ function AuthorizeForm() {
         const appRes = await fetch(`/api/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scopeParam)}&redirect_uri=${encodeURIComponent(redirectUri)}`);
         if (!appRes.ok) {
           const appErr = await appRes.json();
-          setError(appErr.error || "Failed to fetch application details.");
+          setError(appErr.error || gt("Failed to fetch application details."));
           setIsLoading(false);
           return;
         }
@@ -116,7 +138,7 @@ function AuthorizeForm() {
           }
         }
       } catch (err) {
-        setError("An unexpected error occurred while loading authorization data.");
+        setError(gt("An unexpected error occurred while loading authorization data."));
       } finally {
         setIsLoading(false);
       }
@@ -159,7 +181,7 @@ function AuthorizeForm() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to authorize application.");
+        throw new Error(data.error || gt("Failed to authorize application."));
       }
 
       if (data.redirect) {
@@ -174,7 +196,7 @@ function AuthorizeForm() {
         setSuccess(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to authorize application.");
+      setError(err instanceof Error ? err.message : gt("Failed to authorize application."));
     } finally {
       setIsSubmitting(false);
     }
@@ -202,7 +224,7 @@ function AuthorizeForm() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#070708] text-white">
         <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6] mb-4" />
-        <p className="text-[#888888] text-sm font-medium animate-pulse">Loading authorization details...</p>
+        <p className="text-[#888888] text-sm font-medium animate-pulse">{gt("Loading authorization details...")}</p>
       </div>
     );
   }
@@ -212,10 +234,10 @@ function AuthorizeForm() {
       <div className="flex items-center justify-center min-h-screen bg-[#070708] p-4 text-white">
         <div className="max-w-md w-full bg-[#0a0a0a]/90 border border-red-500/20 rounded-2xl p-8 shadow-2xl shadow-black/60 text-center">
           <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">OAuth2 Error</h2>
+          <h2 className="text-xl font-semibold mb-2">{gt("OAuth2 Error")}</h2>
           <p className="text-[#888888] text-sm mb-6">{error}</p>
           <Button onClick={handleCancel} className="w-full bg-[#1e1f22] hover:bg-[#2b2d31] text-white">
-            Go Back
+            {gt("Go Back")}
           </Button>
         </div>
       </div>
@@ -229,12 +251,12 @@ function AuthorizeForm() {
           <div className="w-16 h-16 bg-[#8B5CF6]/10 border border-[#8B5CF6]/30 rounded-full flex items-center justify-center mx-auto mb-6">
             <Check className="w-8 h-8 text-[#8B5CF6]" />
           </div>
-          <h2 className="text-2xl font-bold mb-2">Authorized!</h2>
+          <h2 className="text-2xl font-bold mb-2">{gt("Authorized!")}</h2>
           <p className="text-[#888888] text-sm mb-6">
-            You can now close this window or return to your app.
+            {gt("You can now close this window or return to your app.")}
           </p>
           <Button onClick={() => window.close()} className="w-full bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold">
-            Close Window
+            {gt("Close Window")}
           </Button>
         </div>
       </div>
@@ -249,9 +271,9 @@ function AuthorizeForm() {
       <div className="max-w-[520px] w-full bg-[#0a0a0a]/95 backdrop-blur-md border border-white/[0.08] rounded-2xl shadow-2xl shadow-black/80 overflow-hidden">
         {/* User Card Header */}
         <div className="bg-[#111214] px-8 py-4 border-b border-white/[0.04] flex items-center justify-between text-xs text-[#888888]">
-          <span className="font-medium">Signed in as <strong className="text-white">{currentUser?.username}</strong></span>
+          <span className="font-medium">{gt("Signed in as")}{" "}<strong className="text-white">{currentUser?.username}</strong></span>
           <button onClick={() => router.push("/login?redirect=" + encodeURIComponent(window.location.pathname + window.location.search))} className="text-[#8B5CF6] hover:underline font-semibold">
-            Not you?
+            {gt("Not you?")}
           </button>
         </div>
 
@@ -273,11 +295,11 @@ function AuthorizeForm() {
               <h1 className="text-xl font-bold text-white flex items-center gap-1.5">
                 {appData?.application.name}
                 <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#8B5CF6]/10 text-[#8B5CF6] border border-[#8B5CF6]/20">
-                  APP
+                  {gt("APP")}
                 </span>
               </h1>
               <p className="text-xs text-[#888888] mt-1 font-medium max-w-[320px] line-clamp-2">
-                {appData?.application.description || "No description provided."}
+                {appData?.application.description || gt("No description provided.")}
               </p>
             </div>
           </div>
@@ -286,14 +308,14 @@ function AuthorizeForm() {
             {/* Scopes section */}
             <div>
               <h3 className="text-xs font-semibold text-[#888888] uppercase tracking-wider mb-3">
-                This app wants to access:
+                {gt("This app wants to access:")}
               </h3>
               <div className="space-y-2">
                 {scopes.map((s) => (
                   <div key={s} className="flex items-start gap-2.5 text-sm text-[#e3e5e8]">
                     <Check className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
                     <span>
-                      {s === "bot" ? "Add a bot user to your server" : s === "applications.commands" ? "Create commands in your server" : `Access details matching scope '${s}'`}
+                      {s === "bot" ? gt("Add a bot user to your server") : s === "applications.commands" ? gt("Create commands in your server") : gt("Access details matching scope '{scope}'", { scope: s })}
                     </span>
                   </div>
                 ))}
@@ -304,7 +326,7 @@ function AuthorizeForm() {
             {isBotScope && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-[#888888] uppercase tracking-wider">
-                  Add Bot to Server:
+                  {gt("Add Bot to Server:")}
                 </h3>
                 {guilds.length > 0 ? (
                   <div className="relative">
@@ -326,7 +348,7 @@ function AuthorizeForm() {
                 ) : (
                   <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 flex gap-3 text-amber-400 text-xs">
                     <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>You do not have Manage Server permissions in any server to add this bot.</span>
+                    <span>{gt("You do not have Manage Server permissions in any server to add this bot.")}</span>
                   </div>
                 )}
               </div>
@@ -336,7 +358,7 @@ function AuthorizeForm() {
             {isBotScope && selectedGuildId && (
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-[#888888] uppercase tracking-wider">
-                  Permissions Requested:
+                  {gt("Permissions Requested:")}
                 </h3>
                 <div className="max-h-[180px] overflow-y-auto border border-white/[0.06] bg-[#111111] rounded-xl p-4 space-y-3 scrollbar-thin">
                   {COMMON_PERMISSIONS.map((perm) => {
@@ -352,10 +374,10 @@ function AuthorizeForm() {
                         />
                         <div>
                           <span className="text-xs font-semibold text-white group-hover:text-[#8B5CF6] transition-colors">
-                            {perm.name}
+                            {permLabel(perm.bit, gt).name}
                           </span>
                           <p className="text-[10px] text-[#888888] leading-normal mt-0.5">
-                            {perm.desc}
+                            {permLabel(perm.bit, gt).desc}
                           </p>
                         </div>
                       </label>
@@ -380,7 +402,7 @@ function AuthorizeForm() {
               onClick={handleCancel}
               className="flex-1 h-11 bg-transparent hover:bg-white/[0.04] text-white rounded-xl border border-white/[0.08] hover:border-white/[0.15] font-semibold transition-colors"
             >
-              Cancel
+              {gt("Cancel")}
             </Button>
             <Button
               type="button"
@@ -388,7 +410,7 @@ function AuthorizeForm() {
               onClick={handleAuthorize}
               className="flex-1 h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl shadow-[0_0_20px_rgba(139,92,246,0.25)] transition-all hover:scale-[1.01] active:scale-[0.99]"
             >
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Authorize"}
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : gt("Authorize")}
             </Button>
           </div>
         </div>
@@ -398,11 +420,12 @@ function AuthorizeForm() {
 }
 
 export default function AuthorizePage() {
+  const gt = useGT();
   return (
     <Suspense fallback={
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#070708] text-white">
         <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6] mb-4" />
-        <p className="text-[#888888] text-sm font-medium animate-pulse">Loading authorization details...</p>
+        <p className="text-[#888888] text-sm font-medium animate-pulse">{gt("Loading authorization details...")}</p>
       </div>
     }>
       <AuthorizeForm />

@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useAuth } from "@/contexts/AuthContext";
+import { useGT } from "gt-next";
+import { statusLabel } from "@/lib/statusLabels";
 
 interface FullProfileDialogProps {
   user: ProfileCardUser;
@@ -57,6 +59,7 @@ export function FullProfileDialog({
 }: FullProfileDialogProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
+  const gt = useGT();
   const isSelf = isCurrentUser || (currentUser?.id && user.id && currentUser.id === user.id);
 
   const [activeTab, setActiveTab] = useState<TabId>("board");
@@ -139,7 +142,7 @@ export function FullProfileDialog({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error("Could not copy username");
+      toast.error(gt("Could not copy username"));
     }
   };
 
@@ -157,22 +160,22 @@ export function FullProfileDialog({
       });
       if (response.ok) {
         setFriendRequestSent(true);
-        toast.success(`Friend request sent to ${displayName}`);
+        toast.success(gt("Friend request sent to {name}", { name: displayName }));
       } else {
         const data = await response.json().catch(() => null);
-        toast.error(data?.error || "Failed to send friend request");
+        toast.error(data?.error || gt("Failed to send friend request"));
       }
     } catch {
-      toast.error("Failed to send friend request. Check your connection.");
+      toast.error(gt("Failed to send friend request. Check your connection."));
     }
   };
 
   const tabs: Array<{ id: TabId; label: string }> = [
-    { id: "board", label: "Board" },
-    { id: "activity", label: "Activity" },
+    { id: "board", label: gt("Board") },
+    { id: "activity", label: gt("Activity") },
     ...(!isSelf ? [
-      { id: "friends" as TabId, label: "Mutual Friends" },
-      { id: "servers" as TabId, label: "Mutual Servers" },
+      { id: "friends" as TabId, label: gt("Mutual Friends") },
+      { id: "servers" as TabId, label: gt("Mutual Servers") },
     ] : []),
   ];
 
@@ -190,7 +193,7 @@ export function FullProfileDialog({
         )}
         style={getProfileBackgroundStyle(fullUser.customization, { opaque: true })}
       >
-        <DialogTitle className="sr-only">{displayName}&apos;s Profile</DialogTitle>
+        <DialogTitle className="sr-only">{gt("{name}'s Profile", { name: displayName })}</DialogTitle>
         {/* Grab handle (mobile sheet affordance) */}
         <div className="sm:hidden absolute top-0 inset-x-0 z-20 flex justify-center pt-2 pointer-events-none">
           <span className="h-1 w-10 rounded-full bg-white/40" />
@@ -225,7 +228,7 @@ export function FullProfileDialog({
                   <div
                     className="absolute bottom-1 right-1 w-6 h-6 rounded-full border-[4px] border-[#0c0c10]"
                     style={{ backgroundColor: STATUS_COLORS[status] }}
-                    title={STATUS_LABELS[status]}
+                    title={statusLabel(status, gt)}
                   />
                 </div>
               </div>
@@ -239,7 +242,7 @@ export function FullProfileDialog({
                       className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] active:scale-[0.97] text-white text-sm font-medium transition-all"
                     >
                       <MessageSquare className="w-4 h-4" />
-                      Message
+                      {gt("Message")}
                     </button>
                     {!isFriend && (
                       friendRequestSent ? (
@@ -248,13 +251,13 @@ export function FullProfileDialog({
                           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.06] text-[#9a9aad] text-sm font-medium cursor-not-allowed"
                         >
                           <Clock className="w-4 h-4" />
-                          Pending
+                          {gt("Pending")}
                         </button>
                       ) : (
                         <button
                           onClick={handleAddFriend}
-                          aria-label="Add friend"
-                          title="Add Friend"
+                          aria-label={gt("Add friend")}
+                          title={gt("Add Friend")}
                           className="p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-white transition-all"
                         >
                           <UserPlus className="w-4 h-4" />
@@ -275,7 +278,7 @@ export function FullProfileDialog({
                     {displayName}
                   </h3>
                   {showOwnerCrown && fullUser.isOwner && (
-                    <span title="Server Owner" className="shrink-0 text-[#F59E0B]">
+                    <span title={gt("Server Owner")} className="shrink-0 text-[#F59E0B]">
                       <Crown className="w-4 h-4" />
                     </span>
                   )}
@@ -283,7 +286,7 @@ export function FullProfileDialog({
                 <button
                   onClick={handleCopyUsername}
                   className="group flex items-center gap-1.5 text-sm text-[#9a9aad] hover:text-white transition-colors"
-                  title="Copy username"
+                  title={gt("Copy username")}
                 >
                   @{fullUser.username}
                   {copied ? (
@@ -300,7 +303,7 @@ export function FullProfileDialog({
                 )}
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[status] }} />
-                  <span className="text-xs text-[#9a9aad]">{STATUS_LABELS[status]}</span>
+                  <span className="text-xs text-[#9a9aad]">{statusLabel(status, gt)}</span>
                 </div>
                 {fullUser.showTimezone && fullUser.timezone && localTime && (
                   <div className="flex items-center gap-1.5 mt-1.5">
@@ -324,7 +327,7 @@ export function FullProfileDialog({
               {/* About Me */}
               {fullUser.bio && (
                 <div className="mt-4 rounded-lg bg-white/[0.03] border border-white/[0.05] p-3">
-                  <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">About Me</h4>
+                  <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">{gt("About Me")}</h4>
                   <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words"><MarkdownRenderer content={fullUser.bio} /></div>
                 </div>
               )}
@@ -332,7 +335,7 @@ export function FullProfileDialog({
               {/* Roles */}
               {memberRoles.length > 0 && (
                 <div className="mt-3">
-                  <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1.5">Roles</h4>
+                  <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1.5">{gt("Roles")}</h4>
                   <div className="flex flex-wrap gap-1">
                     {memberRoles.map((role) => (
                       <span
@@ -357,14 +360,14 @@ export function FullProfileDialog({
                   <CalendarDays className="w-4 h-4 shrink-0" />
                   <div className="flex flex-wrap gap-x-4 gap-y-0.5">
                     {fullUser.createdAt && (
-                      <span title="Account created">
-                        Joined SerikaCord{" "}
+                      <span title={gt("Account created")}>
+                        {gt("Joined SerikaCord")}{" "}
                         {new Date(fullUser.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
                       </span>
                     )}
                     {fullUser.joinedAt && (
-                      <span title="Joined this server">
-                        Member since{" "}
+                      <span title={gt("Joined this server")}>
+                        {gt("Member since")}{" "}
                         {new Date(fullUser.joinedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </span>
                     )}
@@ -406,7 +409,7 @@ export function FullProfileDialog({
                   {/* Connections */}
                   {fullUser.connections && fullUser.connections.length > 0 && (
                     <div>
-                      <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">Connections</h4>
+                      <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Connections")}</h4>
                       <div className="grid grid-cols-2 gap-2">
                         {fullUser.connections.map((conn) => {
                           const Icon = getConnectionIcon(conn.provider);
@@ -437,7 +440,7 @@ export function FullProfileDialog({
 
                   {/* Activity */}
                   <div>
-                    <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">Recent Activity</h4>
+                    <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Recent Activity")}</h4>
                     <div className="space-y-3">
                       {moeActivity && <NowWatchingCard activity={moeActivity} />}
                       {userActivity?.music && <MusicActivityCard music={userActivity.music} />}
@@ -446,7 +449,7 @@ export function FullProfileDialog({
                       ))}
                       {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && (
                         <div className="flex flex-col items-center justify-center text-center text-[#9a9aad] py-12 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                          <p className="text-sm">No recent activity to show.</p>
+                          <p className="text-sm">{gt("No recent activity to show.")}</p>
                         </div>
                       )}
                     </div>
@@ -463,7 +466,7 @@ export function FullProfileDialog({
                   ))}
                   {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-[#9a9aad] py-20">
-                      <p className="text-sm">No activity in the last 30 days.</p>
+                      <p className="text-sm">{gt("No activity in the last 30 days.")}</p>
                     </div>
                   )}
                 </div>
@@ -488,7 +491,7 @@ export function FullProfileDialog({
                     ))
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-center text-[#9a9aad] py-20">
-                      <p className="text-sm">No mutual friends.</p>
+                      <p className="text-sm">{gt("No mutual friends.")}</p>
                     </div>
                   )}
                 </div>
@@ -509,13 +512,13 @@ export function FullProfileDialog({
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-white truncate">{s.name}</p>
-                          {s.memberCount && <p className="text-xs text-[#9a9aad]">{s.memberCount} members</p>}
+                          {s.memberCount && <p className="text-xs text-[#9a9aad]">{s.memberCount} {gt("members")}</p>}
                         </div>
                       </div>
                     ))
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-center text-[#9a9aad] py-20">
-                      <p className="text-sm">No mutual servers.</p>
+                      <p className="text-sm">{gt("No mutual servers.")}</p>
                     </div>
                   )}
                 </div>

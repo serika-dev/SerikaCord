@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Table, Endpoint } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Bot Interactions",
@@ -15,42 +16,41 @@ export const metadata = buildMetadata({
   ],
 });
 
-export default function InteractionsDoc() {
+export default async function InteractionsDoc() {
+  const gt = await getGT();
   return (
     <DocPage
-      title="Interactions"
-      description="An interaction is what your app receives when a user invokes one of its commands. You can handle interactions over the gateway, or over HTTP with a signed webhook."
+      title={gt("Interactions")}
+      description={gt("An interaction is what your app receives when a user invokes one of its commands. You can handle interactions over the gateway, or over HTTP with a signed webhook.")}
     >
-      <H2 id="delivery">Two delivery modes</H2>
-      <Table headers={["Mode", "How it works", "Best for"]} rows={[
-        ["Gateway", "INTERACTION_CREATE dispatch event on your WebSocket", "Bots already connected to the Gateway"],
-        ["HTTP endpoint", "Signed POST to your Interactions Endpoint URL", "Serverless bots, lightweight bots without persistent connections"],
+      <H2 id="delivery">{gt("Two delivery modes")}</H2>
+      <Table headers={[gt("Mode"), gt("How it works"), gt("Best for")]} rows={[
+        [gt("Gateway"), gt("INTERACTION_CREATE dispatch event on your WebSocket"), gt("Bots already connected to the Gateway")],
+        [gt("HTTP endpoint"), gt("Signed POST to your Interactions Endpoint URL"), gt("Serverless bots, lightweight bots without persistent connections")],
       ]} />
       <P>
-        You can use both simultaneously. Many bots use the Gateway for message events and HTTP for
-        slash command interactions.
+        {gt("You can use both simultaneously. Many bots use the Gateway for message events and HTTP for slash command interactions.")}
       </P>
 
-      <H2 id="interaction-types">Interaction Types</H2>
-      <Table headers={["Type", "Name", "Description"]} rows={[
-        ["1", "PING", "Sent to verify your endpoint is valid (HTTP mode only)"],
-        ["2", "APPLICATION_COMMAND", "User invoked a slash command or context menu command"],
-        ["3", "MESSAGE_COMPONENT", "User clicked a button, select menu, or other component"],
-        ["4", "APPLICATION_COMMAND_AUTOCOMPLETE", "User is typing in an autocomplete option"],
-        ["5", "MODAL_SUBMIT", "User submitted a modal form"],
+      <H2 id="interaction-types">{gt("Interaction Types")}</H2>
+      <Table headers={[gt("Type"), gt("Name"), gt("Description")]} rows={[
+        ["1", "PING", gt("Sent to verify your endpoint is valid (HTTP mode only)")],
+        ["2", "APPLICATION_COMMAND", gt("User invoked a slash command or context menu command")],
+        ["3", "MESSAGE_COMPONENT", gt("User clicked a button, select menu, or other component")],
+        ["4", "APPLICATION_COMMAND_AUTOCOMPLETE", gt("User is typing in an autocomplete option")],
+        ["5", "MODAL_SUBMIT", gt("User submitted a modal form")],
       ]} />
 
-      <H2 id="verifying">Verifying signatures (HTTP mode)</H2>
+      <H2 id="verifying">{gt("Verifying signatures (HTTP mode)")}</H2>
       <P>
-        Every POST includes two headers. You <Strong>must</Strong> verify them and reject anything that
-        fails with <InlineCode>401</InlineCode> — this proves the request came from SerikaCord.
+        {gt("Every POST includes two headers. You")}{" "}<Strong>{gt("must")}</Strong> {gt("verify them and reject anything that fails with")}{" "}<InlineCode>401</InlineCode> — {gt("this proves the request came from SerikaCord.")}
       </P>
-      <Table headers={["Header", "Meaning"]} rows={[
-        ["X-Signature-Ed25519", "Hex signature of (timestamp + raw body)"],
-        ["X-Signature-Timestamp", "Unix timestamp used in the signed message"],
+      <Table headers={[gt("Header"), gt("Meaning")]} rows={[
+        ["X-Signature-Ed25519", gt("Hex signature of (timestamp + raw body)")],
+        ["X-Signature-Timestamp", gt("Unix timestamp used in the signed message")],
       ]} />
       <P>
-        Verify against the <Strong>Public Key</Strong> shown on your Bot tab (a 64-char hex string):
+        {gt("Verify against the")}{" "}<Strong>{gt("Public Key")}</Strong> {gt("shown on your Bot tab (a 64-char hex string):")}
       </P>
       <CodeBlock lang="javascript">{`import nacl from "tweetnacl";
 
@@ -63,25 +63,24 @@ function verify(req, rawBody, PUBLIC_KEY) {
     Buffer.from(PUBLIC_KEY, "hex"),
   );
 }`}</CodeBlock>
-      <Callout type="warning" title="Endpoint validation">
-        When you save an Interactions Endpoint URL, we immediately send a signed{" "}
-        <InlineCode>PING</InlineCode> (<InlineCode>type: 1</InlineCode>). Your endpoint must verify the
-        signature and reply <InlineCode>{`{ "type": 1 }`}</InlineCode> or the URL is rejected.
+      <Callout type="warning" title={gt("Endpoint validation")}>
+        {gt("When you save an Interactions Endpoint URL, we immediately send a signed")}{" "}
+        <InlineCode>PING</InlineCode> (<InlineCode>type: 1</InlineCode>). {gt("Your endpoint must verify the signature and reply")}{" "}<InlineCode>{`{ "type": 1 }`}</InlineCode> {gt("or the URL is rejected.")}
       </Callout>
 
-      <H2 id="responding">Responding</H2>
-      <P>Reply to the POST with an interaction response object. The common types:</P>
-      <Table headers={["Type", "Name", "Effect"]} rows={[
-        ["1", "PONG", "Acknowledge a PING (validation only)"],
-        ["4", "CHANNEL_MESSAGE_WITH_SOURCE", "Reply with a message immediately"],
-        ["5", "DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE", "Show a loading state, follow up later"],
-        ["6", "DEFERRED_UPDATE_MESSAGE", "Acknowledge a component interaction, update later"],
-        ["7", "UPDATE_MESSAGE", "Update the message the component was attached to"],
-        ["8", "APPLICATION_COMMAND_AUTOCOMPLETE_RESULT", "Respond to autocomplete with choices"],
-        ["9", "MODAL", "Show a modal popup to the user"],
+      <H2 id="responding">{gt("Responding")}</H2>
+      <P>{gt("Reply to the POST with an interaction response object. The common types:")}</P>
+      <Table headers={[gt("Type"), gt("Name"), gt("Effect")]} rows={[
+        ["1", "PONG", gt("Acknowledge a PING (validation only)")],
+        ["4", "CHANNEL_MESSAGE_WITH_SOURCE", gt("Reply with a message immediately")],
+        ["5", "DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE", gt("Show a loading state, follow up later")],
+        ["6", "DEFERRED_UPDATE_MESSAGE", gt("Acknowledge a component interaction, update later")],
+        ["7", "UPDATE_MESSAGE", gt("Update the message the component was attached to")],
+        ["8", "APPLICATION_COMMAND_AUTOCOMPLETE_RESULT", gt("Respond to autocomplete with choices")],
+        ["9", "MODAL", gt("Show a modal popup to the user")],
       ]} />
 
-      <H3 id="example">Example handler (Express)</H3>
+      <H3 id="example">{gt("Example handler (Express)")}</H3>
       <CodeBlock lang="javascript">{`app.post("/interactions", express.raw({ type: "application/json" }), (req, res) => {
   const rawBody = req.body.toString();
   if (!verify(req, rawBody, PUBLIC_KEY)) {
@@ -118,8 +117,8 @@ function verify(req, rawBody, PUBLIC_KEY) {
   }
 });`}</CodeBlock>
 
-      <H2 id="payload">Interaction payload</H2>
-      <P>The full payload for an <InlineCode>APPLICATION_COMMAND</InlineCode> interaction:</P>
+      <H2 id="payload">{gt("Interaction payload")}</H2>
+      <P>{gt("The full payload for an")} <InlineCode>APPLICATION_COMMAND</InlineCode> {gt("interaction:")}</P>
       <CodeBlock lang="json">{`{
   "id": "1180000000000000000",
   "application_id": "1170000000000000000",
@@ -159,21 +158,21 @@ function verify(req, rawBody, PUBLIC_KEY) {
         ["data", "object", "Command data: name, options, resolved, etc."],
       ]} />
 
-      <H2 id="followups">Follow-up messages</H2>
+      <H2 id="followups">{gt("Follow-up messages")}</H2>
       <P>
-        After the initial response, you can send follow-up messages using the interaction token:
+        {gt("After the initial response, you can send follow-up messages using the interaction token:")}
       </P>
       <Endpoint method="POST" path="/interactions/{'{interaction.id}'}/{'{interaction.token}'}/callback">
-        Initial interaction response (must be within 3 seconds).
+        {gt("Initial interaction response (must be within 3 seconds).")}
       </Endpoint>
       <Endpoint method="PATCH" path="/webhooks/{'{application.id}'}/{'{interaction.token}'}/messages/@original">
-        Edit the original response.
+        {gt("Edit the original response.")}
       </Endpoint>
       <Endpoint method="POST" path="/webhooks/{'{application.id}'}/{'{interaction.token}'}">
-        Send a follow-up message.
+        {gt("Send a follow-up message.")}
       </Endpoint>
       <Endpoint method="DELETE" path="/webhooks/{'{application.id}'}/{'{interaction.token}'}/messages/{'{message.id}'}">
-        Delete a follow-up message.
+        {gt("Delete a follow-up message.")}
       </Endpoint>
       <CodeBlock lang="bash">{`# Send a follow-up message
 curl -X POST \\
@@ -182,11 +181,9 @@ curl -X POST \\
   -d '{"content":"Follow-up message!"}' \\
   https://api.serika.chat/api/v10/webhooks/APP_ID/INTERACTION_TOKEN`}</CodeBlock>
 
-      <H2 id="message-components">Message components</H2>
+      <H2 id="message-components">{gt("Message components")}</H2>
       <P>
-        Interactions can include buttons and select menus in responses. When a user clicks a button or
-        selects from a menu, you receive a <InlineCode>MESSAGE_COMPONENT</InlineCode> interaction
-        (type 3) with <InlineCode>data.custom_id</InlineCode> identifying which component was used.
+        {gt("Interactions can include buttons and select menus in responses. When a user clicks a button or selects from a menu, you receive a")}{" "}<InlineCode>MESSAGE_COMPONENT</InlineCode> {gt("interaction (type 3) with")}{" "}<InlineCode>data.custom_id</InlineCode> {gt("identifying which component was used.")}
       </P>
       <CodeBlock lang="json">{`{
   "type": 4,
@@ -214,10 +211,9 @@ curl -X POST \\
   }
 }`}</CodeBlock>
 
-      <H2 id="modals">Modals</H2>
+      <H2 id="modals">{gt("Modals")}</H2>
       <P>
-        Respond with type <InlineCode>9</InlineCode> to show a modal popup. The user fills it in and
-        submits, triggering a <InlineCode>MODAL_SUBMIT</InlineCode> interaction (type 5):
+        {gt("Respond with type")}{" "}<InlineCode>9</InlineCode> {gt("to show a modal popup. The user fills it in and submits, triggering a")}{" "}<InlineCode>MODAL_SUBMIT</InlineCode> {gt("interaction (type 5):")}
       </P>
       <CodeBlock lang="json">{`{
   "type": 9,
@@ -241,10 +237,8 @@ curl -X POST \\
   }
 }`}</CodeBlock>
 
-      <Callout type="info" title="Prefer the gateway?">
-        If you use a full library like discord.js, you generally don&apos;t need an HTTP endpoint —
-        interactions arrive on your socket. The HTTP path exists for serverless and lightweight bots.
-        Learn to register commands in <Link2 href="/developers/docs/bots/slash-commands">Slash Commands</Link2>.
+      <Callout type="info" title={gt("Prefer the gateway?")}>
+        {gt("If you use a full library like discord.js, you generally don't need an HTTP endpoint — interactions arrive on your socket. The HTTP path exists for serverless and lightweight bots. Learn to register commands in")}{" "}<Link2 href="/developers/docs/bots/slash-commands">{gt("Slash Commands")}</Link2>.
       </Callout>
     </DocPage>
   );

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Loader2, Activity, TrendingUp, Server, Users } from "lucide-react";
+import { useGT } from "gt-next";
 
 interface AnalyticsData {
   server_count: number;
@@ -16,6 +17,7 @@ interface AnalyticsData {
 }
 
 export default function AnalyticsPage() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading } = useApplication(appId);
@@ -45,22 +47,22 @@ export default function AnalyticsPage() {
 
   const stats = [
     {
-      label: "Active Servers",
+      label: gt("Active Servers"),
       value: analytics?.server_count ?? app?.serverCount ?? 0,
       icon: Server,
     },
     {
-      label: "Active Users",
+      label: gt("Active Users"),
       value: analytics?.active_users ?? 0,
       icon: Users,
     },
     {
-      label: "Commands Used",
+      label: gt("Commands Used"),
       value: range === "24h" ? analytics?.commands_used_today ?? 0 : analytics?.commands_used_30d ?? 0,
       icon: TrendingUp,
     },
     {
-      label: "Interactions",
+      label: gt("Interactions"),
       value: range === "24h" ? analytics?.interactions_today ?? 0 : analytics?.interactions_30d ?? 0,
       icon: Activity,
     },
@@ -69,16 +71,16 @@ export default function AnalyticsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-bold">Analytics</h1>
+        <h1 className="text-xl font-bold">{gt("Analytics")}</h1>
         <select
           value={range}
           onChange={(e) => setRange(e.target.value)}
           className="bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]/50"
         >
-          <option value="24h">Last 24 hours</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="90d">Last 90 days</option>
+          <option value="24h">{gt("Last 24 hours")}</option>
+          <option value="7d">{gt("Last 7 days")}</option>
+          <option value="30d">{gt("Last 30 days")}</option>
+          <option value="90d">{gt("Last 90 days")}</option>
         </select>
       </div>
 
@@ -106,7 +108,7 @@ export default function AnalyticsPage() {
 
           {/* Chart Placeholder */}
           <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-6">
-            <h3 className="text-sm font-semibold mb-4">Server Growth Over Time</h3>
+            <h3 className="text-sm font-semibold mb-4">{gt("Server Growth Over Time")}</h3>
             <div className="h-48 flex items-end justify-between gap-1">
               {Array.from({ length: 30 }).map((_, i) => {
                 const height = Math.max(4, Math.sin(i / 5) * 30 + 40 + (analytics?.server_count ?? 0) / 10);
@@ -120,13 +122,13 @@ export default function AnalyticsPage() {
               })}
             </div>
             <div className="flex justify-between mt-2 text-xs text-[#555]">
-              <span>30 days ago</span>
-              <span>Today</span>
+              <span>{gt("30 days ago")}</span>
+              <span>{gt("Today")}</span>
             </div>
           </div>
 
           <p className="text-xs text-[#555] mt-6 text-center">
-            Analytics data updates every 24 hours. More detailed metrics available after verification.
+            {gt("Analytics data updates every 24 hours. More detailed metrics available after verification.")}
           </p>
         </>
       )}

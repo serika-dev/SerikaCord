@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Voice",
@@ -8,10 +9,11 @@ export const metadata = buildMetadata({
   keywords: ["SerikaCord voice", "voice state", "voice region", "voice connection"],
 });
 
-export default function VoiceDoc() {
+export default async function VoiceDoc() {
+  const gt = await getGT();
   return (
-    <DocPage title="Voice" description="Connect to and manage voice connections via the Gateway and REST API.">
-      <H2 id="voice-states">Voice State Object</H2>
+    <DocPage title={gt("Voice")} description={gt("Connect to and manage voice connections via the Gateway and REST API.")}>
+      <H2 id="voice-states">{gt("Voice State Object")}</H2>
       <CodeBlock lang="json">{`{
   "guild_id": "1234567890",
   "channel_id": "1234567890",
@@ -27,13 +29,13 @@ export default function VoiceDoc() {
   "request_to_speak_timestamp": null
 }`}</CodeBlock>
 
-      <H2 id="endpoints">Endpoints</H2>
-      <Endpoint method="GET" path="/guilds/{guild.id}/voice-states/{user.id}">Get a user's voice state in a guild.</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/@me">Update own voice state (requires <InlineCode>CONNECT</InlineCode>).</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/{user.id}">Update another user's voice state (requires <InlineCode>MUTE_MEMBERS</InlineCode> / <InlineCode>MOVE_MEMBERS</InlineCode>).</Endpoint>
-      <Endpoint method="GET" path="/voice/regions">List available voice regions.</Endpoint>
+      <H2 id="endpoints">{gt("Endpoints")}</H2>
+      <Endpoint method="GET" path="/guilds/{guild.id}/voice-states/{user.id}">{gt("Get a user's voice state in a guild.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/@me">{gt("Update own voice state (requires")}{" "}<InlineCode>CONNECT</InlineCode>{")."}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/{user.id}">{gt("Update another user's voice state (requires")}{" "}<InlineCode>MUTE_MEMBERS</InlineCode> {gt("/")}{" "}<InlineCode>MOVE_MEMBERS</InlineCode>{")."}</Endpoint>
+      <Endpoint method="GET" path="/voice/regions">{gt("List available voice regions.")}</Endpoint>
 
-      <H2 id="voice-regions">Voice Regions</H2>
+      <H2 id="voice-regions">{gt("Voice Regions")}</H2>
       <CodeBlock lang="json">{`{
   "id": "us-west",
   "name": "US West",
@@ -42,20 +44,19 @@ export default function VoiceDoc() {
   "custom": false
 }`}</CodeBlock>
 
-      <H2 id="connecting">Connecting to Voice</H2>
-      <P>Voice connections require a separate WebSocket connection:</P>
+      <H2 id="connecting">{gt("Connecting to Voice")}</H2>
+      <P>{gt("Voice connections require a separate WebSocket connection:")}</P>
       <UL>
-        <li>1. Send <InlineCode>VOICE_STATE_UPDATE</InlineCode> via main Gateway</li>
-        <li>2. Receive <InlineCode>VOICE_STATE_UPDATE</InlineCode> with session_id and <InlineCode>VOICE_SERVER_UPDATE</InlineCode> with endpoint + token</li>
-        <li>3. Connect to the voice WebSocket at <InlineCode>wss://VOICE_ENDPOINT/?v=8</InlineCode></li>
-        <li>4. Identify with server_id, user_id, session_id, and token</li>
-        <li>5. Select a voice protocol and encrypt audio</li>
+        <li>{gt("1. Send")}{" "}<InlineCode>VOICE_STATE_UPDATE</InlineCode> {gt("via main Gateway")}</li>
+        <li>{gt("2. Receive")}{" "}<InlineCode>VOICE_STATE_UPDATE</InlineCode> {gt("with session_id and")}{" "}<InlineCode>VOICE_SERVER_UPDATE</InlineCode> {gt("with endpoint + token")}</li>
+        <li>{gt("3. Connect to the voice WebSocket at")}{" "}<InlineCode>wss://VOICE_ENDPOINT/?v=8</InlineCode></li>
+        <li>{gt("4. Identify with server_id, user_id, session_id, and token")}</li>
+        <li>{gt("5. Select a voice protocol and encrypt audio")}</li>
       </UL>
 
-      <Callout type="warning" title="Voice Complexity">
-        Voice connections are complex and require UDP for audio transport. Use a library like{" "}
-        <InlineCode>serika.js/voice</InlineCode> or <InlineCode>serika.py/voice</InlineCode> for
-        easier implementation.
+      <Callout type="warning" title={gt("Voice Complexity")}>
+        {gt("Voice connections are complex and require UDP for audio transport. Use a library like")}{" "}
+        <InlineCode>serika.js/voice</InlineCode> {gt("or")}{" "}<InlineCode>serika.py/voice</InlineCode> {gt("for easier implementation.")}
       </Callout>
     </DocPage>
   );

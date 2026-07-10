@@ -35,6 +35,8 @@ import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/comp
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { ExternalLink } from "lucide-react";
+import { useGT } from "gt-next";
+import { statusLabel } from "@/lib/statusLabels";
 
 export interface ProfileCardUser {
   id: string;
@@ -145,6 +147,7 @@ export function ProfileCard({
 }: ProfileCardProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
+  const gt = useGT();
   const isSelf = isCurrentUser || (currentUser?.id && user.id && currentUser.id === user.id);
   const localTime = useCurrentTime(user.timezone);
 
@@ -207,7 +210,7 @@ export function ProfileCard({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error("Could not copy username");
+      toast.error(gt("Could not copy username"));
     }
   };
 
@@ -227,9 +230,9 @@ export function ProfileCard({
       });
       if (!res.ok) throw new Error("Failed to update roles");
       setMemberRoles(serverRoles.filter((r) => nextRoleIds.includes(r.id) || r.isDefault));
-      toast.success("Roles updated");
+      toast.success(gt("Roles updated"));
     } catch {
-      toast.error("Failed to update roles");
+      toast.error(gt("Failed to update roles"));
     } finally {
       setIsUpdatingRoles(false);
     }
@@ -255,13 +258,13 @@ export function ProfileCard({
       });
       if (response.ok) {
         setFriendRequestSent(true);
-        toast.success(`Friend request sent to ${displayName}`);
+        toast.success(gt("Friend request sent to {name}", { name: displayName }));
       } else {
         const data = await response.json().catch(() => null);
-        toast.error(data?.error || "Failed to send friend request");
+        toast.error(data?.error || gt("Failed to send friend request"));
       }
     } catch {
-      toast.error("Failed to send friend request. Check your connection.");
+      toast.error(gt("Failed to send friend request. Check your connection."));
     }
   };
 
@@ -311,7 +314,7 @@ export function ProfileCard({
             <div
               className="absolute bottom-1 right-1 w-6 h-6 rounded-full border-[4px] border-[#0c0c10]"
               style={{ backgroundColor: STATUS_COLORS[status] }}
-              title={STATUS_LABELS[status]}
+              title={statusLabel(status, gt)}
             />
           </div>
         </div>
@@ -326,7 +329,7 @@ export function ProfileCard({
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] active:scale-[0.97] text-white text-sm font-medium transition-all"
                 >
                   <MessageSquare className="w-4 h-4" />
-                  Message
+                  {gt("Message")}
                 </button>
               )}
               {!isFriend && (
@@ -336,13 +339,13 @@ export function ProfileCard({
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.06] text-[#9a9aad] text-sm font-medium cursor-not-allowed"
                   >
                     <Clock className="w-4 h-4" />
-                    Pending
+                    {gt("Pending")}
                   </button>
                 ) : (
                   <button
                     onClick={handleAddFriend}
-                    aria-label="Add friend"
-                    title="Add Friend"
+                    aria-label={gt("Add friend")}
+                    title={gt("Add Friend")}
                     className="p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-white transition-all"
                   >
                     <UserPlus className="w-4 h-4" />
@@ -370,16 +373,16 @@ export function ProfileCard({
                   : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
               )}>
                 {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
-                Bot
+                {gt("Bot")}
               </span>
             )}
             {showOwnerCrown && user.isOwner && (
-              <span title="Server Owner" className="shrink-0 text-[#F59E0B]">
+              <span title={gt("Server Owner")} className="shrink-0 text-[#F59E0B]">
                 <Crown className="w-4 h-4" />
               </span>
             )}
             {user.isPremium && (
-              <span title="Premium" className="shrink-0">
+              <span title={gt("Premium")} className="shrink-0">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M12 2L14.5 8.5L21 9.5L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9.5L9.5 8.5L12 2Z" fill="#F59E0B" stroke="#F59E0B" strokeWidth="1" strokeLinejoin="round"/>
                 </svg>
@@ -389,7 +392,7 @@ export function ProfileCard({
           <button
             onClick={handleCopyUsername}
             className="group flex items-center gap-1.5 text-sm text-[#9a9aad] hover:text-white transition-colors"
-            title="Copy username"
+            title={gt("Copy username")}
           >
             @{user.username}
             {copied ? (
@@ -409,7 +412,7 @@ export function ProfileCard({
               className="w-2 h-2 rounded-full shrink-0"
               style={{ backgroundColor: STATUS_COLORS[status] }}
             />
-            <span className="text-xs text-[#9a9aad]">{STATUS_LABELS[status]}</span>
+            <span className="text-xs text-[#9a9aad]">{statusLabel(status, gt)}</span>
           </div>
           {user.showTimezone && user.timezone && localTime && (
             <div className="flex items-center gap-1.5 mt-1.5">
@@ -448,7 +451,7 @@ export function ProfileCard({
         {/* Connections */}
         {!hideConnections && user.connections && user.connections.length > 0 && (
           <div className="mt-4">
-            <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">Connections</h4>
+            <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Connections")}</h4>
             <div className="space-y-1">
               {user.connections.map((conn) => {
                 const Icon = getConnectionIcon(conn.provider);
@@ -483,14 +486,14 @@ export function ProfileCard({
           <div className="mt-4 rounded-lg bg-white/[0.03] border border-white/[0.05] p-3 space-y-3">
             {user.bio && (
               <div>
-                <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">About Me</h4>
+                <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">{gt("About Me")}</h4>
                 <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words"><MarkdownRenderer content={user.bio} /></div>
               </div>
             )}
 
             {(memberRoles.length > 0 || canManageRoles) && serverId && (
               <div>
-                <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1.5">Roles</h4>
+                <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1.5">{gt("Roles")}</h4>
                 <div className="flex flex-wrap gap-1">
                   {memberRoles.map((role) => (
                     <span
@@ -516,7 +519,7 @@ export function ProfileCard({
                             onClick={() => removeRole(role.id)}
                             disabled={isUpdatingRoles}
                             className="ml-0.5 p-0.5 rounded-full hover:bg-white/20 text-current opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Remove role"
+                            title={gt("Remove role")}
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -529,10 +532,10 @@ export function ProfileCard({
                         <button
                           disabled={isUpdatingRoles}
                           className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-white/[0.06] bg-white/[0.04] hover:bg-white/[0.10] text-white transition-colors"
-                          title="Add role"
+                          title={gt("Add role")}
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          Add Role
+                          {gt("Add Role")}
                         </button>
                       </PopoverTrigger>
                       <PopoverContent
@@ -544,7 +547,7 @@ export function ProfileCard({
                             (r) => !r.isDefault && !memberRoles.some((m) => m.id === r.id)
                           );
                           return assignable.length === 0 ? (
-                            <p className="px-2 py-1.5 text-xs text-[#949ba4]">No roles to assign</p>
+                            <p className="px-2 py-1.5 text-xs text-[#949ba4]">{gt("No roles to assign")}</p>
                           ) : (
                             assignable.map((role) => (
                               <button
@@ -573,14 +576,14 @@ export function ProfileCard({
                 <CalendarDays className="w-4 h-4 shrink-0" />
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5">
                   {user.createdAt && (
-                    <span title="Account created">
-                      Joined SerikaCord{" "}
+                    <span title={gt("Account created")}>
+                      {gt("Joined SerikaCord")}{" "}
                       {new Date(user.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
                     </span>
                   )}
                   {user.joinedAt && (
-                    <span title="Joined this server">
-                      Member since{" "}
+                    <span title={gt("Joined this server")}>
+                      {gt("Member since")}{" "}
                       {new Date(user.joinedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                     </span>
                   )}
@@ -605,7 +608,7 @@ export function ProfileCard({
               className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-sm font-medium text-white transition-all"
             >
               <ExternalLink className="w-4 h-4" />
-              View Full Profile
+              {gt("View Full Profile")}
             </button>
           </div>
         )}

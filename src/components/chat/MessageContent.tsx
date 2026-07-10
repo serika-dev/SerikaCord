@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useMemo, memo } from "react";
 import twemoji from "twemoji";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -92,6 +93,7 @@ export const MessageContent = memo(function MessageContent({
   onImageClick,
   messageId,
 }: MessageContentProps) {
+  const gt = useGT();
   const textRef = useRef<HTMLSpanElement>(null);
   const mentionUserMap = useMemo(() => {
     const map = new Map<string, MentionUser>();
@@ -278,7 +280,7 @@ export const MessageContent = memo(function MessageContent({
           onClick={() => handleMediaClick(sticker.imageUrl, sticker.name)}
           loading="lazy"
         />
-        {edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
+        {edited && <span className="text-xs text-[#555555] ml-1">({gt("edited")})</span>}
       </div>
     );
   }
@@ -291,9 +293,9 @@ export const MessageContent = memo(function MessageContent({
         <div className={cn("relative group", onlyGif ? "inline-flex rounded-lg chat-gif-wrap" : "inline-block w-fit")}>
           <img
             src={imageOnlyUrl}
-            alt="Image"
+            alt={gt("Image")}
             className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
-            onClick={() => handleMediaClick(imageOnlyUrl, "Image")}
+            onClick={() => handleMediaClick(imageOnlyUrl, gt("Image"))}
             loading="lazy"
           />
           {onlyGif && (
@@ -302,7 +304,7 @@ export const MessageContent = memo(function MessageContent({
             </div>
           )}
         </div>
-        {edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
+        {edited && <span className="text-xs text-[#555555] ml-1">({gt("edited")})</span>}
       </div>
     );
   }
@@ -335,9 +337,9 @@ export const MessageContent = memo(function MessageContent({
               <span className={cn("relative group", inlineGif && "inline-flex rounded-lg chat-gif-wrap")}>
                 <img
                   src={part.url}
-                  alt="Image"
+                  alt={gt("Image")}
                   className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
-                  onClick={() => handleMediaClick(part.url!, "Image")}
+                  onClick={() => handleMediaClick(part.url!, gt("Image"))}
                   loading="lazy"
                   />
                   {inlineGif && (
@@ -370,7 +372,7 @@ export const MessageContent = memo(function MessageContent({
         if (part.type === "mention-user" && part.mentionId) {
           const mentionUser = mentionUserMap.get(part.mentionId);
           const isResolved = Boolean(mentionUser);
-          const mentionLabel = mentionUser?.displayName || mentionUser?.username || "Unknown User";
+          const mentionLabel = mentionUser?.displayName || mentionUser?.username || gt("Unknown User");
           const isSelfMention = Boolean(currentUserId && currentUserId === part.mentionId);
           const mentionSpan = (
             <span
@@ -419,7 +421,7 @@ export const MessageContent = memo(function MessageContent({
         }
         if (part.type === "mention-role" && part.mentionId) {
           const mentionRole = mentionRoleMap.get(part.mentionId);
-          const mentionLabel = mentionRole?.name || "role";
+          const mentionLabel = mentionRole?.name || gt("role");
           const roleColor = mentionRole?.color || "var(--app-accent)";
           const roleBackgroundColor = roleColor.startsWith("#") ? `${roleColor}22` : "rgba(124, 58, 237, 0.2)";
           return (
@@ -450,10 +452,10 @@ export const MessageContent = memo(function MessageContent({
       })}
       {isTtsMessage && (
         <span className="inline-flex items-center gap-1 ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-400 align-middle select-none">
-          🔊 TTS
+          🔊 {gt("TTS")}
         </span>
       )}
-      {edited && <span className="text-xs text-[#555555] ml-1">(edited)</span>}
+      {edited && <span className="text-xs text-[#555555] ml-1">({gt("edited")})</span>}
     </span>
   );
 });

@@ -30,6 +30,7 @@ import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
+import { T, useGT } from "gt-next";
 
 const statusColors = {
   online: "#23A559",
@@ -51,10 +52,11 @@ interface Recipient extends MessageAuthor {
 }
 
 export default function DMConversationPage() {
+  const gt = useGT();
   const params = useParams();
   const router = useRouter();
   const recipientId = params.recipientId as string;
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
   const isMobile = useIsMobile();
 
@@ -94,7 +96,7 @@ export default function DMConversationPage() {
       const ttsEnabled = user?.settings?.accessibility?.tts === true;
       const hasTtsPrefix = typeof message.content === "string" && message.content.startsWith("/tts ");
       if ((ttsEnabled || hasTtsPrefix) && message.content) {
-        const authorName = message.author?.displayName || message.author?.username || "Someone";
+        const authorName = message.author?.displayName || message.author?.username || gt("Someone");
         void playTts({
           content: message.content,
           authorName,
@@ -183,12 +185,18 @@ export default function DMConversationPage() {
       .catch(() => {});
   }, []);
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (with recheck to prevent loops)
+  const dmRecheckRef = useRef(false);
   useEffect(() => {
     if (!authLoading && !user) {
+      if (!dmRecheckRef.current) {
+        dmRecheckRef.current = true;
+        void refresh();
+        return;
+      }
       router.push("/login");
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, refresh]);
 
   // Fetch recipient info
   useEffect(() => {
@@ -265,7 +273,7 @@ export default function DMConversationPage() {
           </Avatar>
           <h2 className={cn("text-2xl font-bold text-[var(--text-primary)]", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>{recipientName}</h2>
           <p className="text-[var(--text-secondary)]">
-            This is the beginning of your direct message history with{" "}
+            <T>This is the beginning of your direct message history with</T>{" "}
             <span className="font-semibold text-[var(--text-primary)]">{recipientName}</span>
           </p>
         </>
@@ -302,7 +310,7 @@ export default function DMConversationPage() {
 
             <div className="flex items-center gap-2 min-w-0">
               <span className={cn("font-semibold text-[var(--text-primary)] truncate self-center", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>
-                {recipientName || "Loading..."}
+                {recipientName || gt("Loading...")}
               </span>
               <SystemPill isSystem={recipient?.isSystem} />
               <StaffPill badges={recipient?.badges} />
@@ -313,21 +321,21 @@ export default function DMConversationPage() {
             <button
               onClick={() => void voiceService.joinChannel(`dm:${recipientId}`)}
               className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
-              title="Start Voice Call"
+              title={gt("Start Voice Call")}
             >
               <Phone className="w-5 h-5" />
             </button>
             <button
               onClick={() => void voiceService.joinChannel(`dm:${recipientId}`, true)}
               className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
-              title="Start Video Call"
+              title={gt("Start Video Call")}
             >
               <Video className="w-5 h-5" />
             </button>
             <button
               onClick={() => setShowPins(true)}
               className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
-              title="Pinned Messages"
+              title={gt("Pinned Messages")}
             >
               <Pin className="w-5 h-5" />
             </button>
@@ -362,7 +370,7 @@ export default function DMConversationPage() {
           onMediaClick={lightbox.openMediaViewer}
           onReplyFocus={focusComposer}
           welcomeHeader={welcomeHeader}
-          emptyText={`Say hi to ${recipientName || "your friend"}!`}
+          emptyText={`${gt("Say hi to")} ${recipientName || gt("your friend")}!`}
           resetKey={recipientId}
         />
 
@@ -373,13 +381,13 @@ export default function DMConversationPage() {
           {recipient?.isSystem ? (
             <div className="flex items-center gap-2 px-4 py-3 bg-[var(--bg-card)]/50 border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] text-sm">
               <Shield className="w-4 h-4 text-blue-400 flex-shrink-0" />
-              <span>This is an official Serika system account used to share important updates and announcements with the community.</span>
+              <span><T>This is an official Serika system account used to share important updates and announcements with the community.</T></span>
             </div>
           ) : (
             <MessageBar
               ref={messageBarRef}
-              placeholder={`Message @${recipientName || "..."}`}
-              ariaLabel={`Message @${recipientName || "..."}`}
+              placeholder={`${gt("Message")} @${recipientName || "..."}`}
+              ariaLabel={`${gt("Message")} @${recipientName || "..."}`}
               onSend={() => void handleSend()}
               onChange={handleMessageInputChange}
               onKeyDown={handleKeyPress}
@@ -396,7 +404,7 @@ export default function DMConversationPage() {
 
           {/* Voice call UI for DM calls */}
           <VideoGrid />
-          <VoiceBar channelName={recipientName || "DM Call"} />
+          <VoiceBar channelName={recipientName || gt("DM Call")} />
         </div>
       </div>
 

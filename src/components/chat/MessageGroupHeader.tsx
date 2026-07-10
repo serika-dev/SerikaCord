@@ -9,6 +9,7 @@ import { formatMessageTimestamp } from "@/lib/chat/messages";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
 
@@ -61,8 +62,9 @@ interface GroupHeaderProps {
 
 /** Author name + staff pill + timestamp row above the first message of a group. */
 export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHeaderProps) {
+  const gt = useGT();
   const { settings } = useTheme();
-  const name = author.displayName || author.username || "Unknown";
+  const name = author.displayName || author.username || gt("Unknown");
   const styleClasses = getDisplayNameStyleClasses(author.customization?.displayNameStyle);
   const styleInline = getDisplayNameStyleInline(author.customization?.displayNameStyle);
   const hasCustomStyle = Boolean(author.customization?.displayNameStyle && (author.customization.displayNameStyle.color || author.customization.displayNameStyle.gradient?.length || author.customization.displayNameStyle.effect !== 'solid' || author.customization.displayNameStyle.font !== 'default'));
@@ -100,7 +102,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
             )}
             {author.isDiscord && (
               <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">
-                Discord
+                {gt("Discord")}
               </span>
             )}
             {author.isBot && !author.isSystem && !author.isDiscord && (
@@ -111,7 +113,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
                   : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
               )}>
                 {author.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
-                Bot
+                {gt("Bot")}
               </span>
             )}
           </button>
@@ -124,7 +126,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
           )}
           {author.isDiscord && (
             <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">
-              Discord
+              {gt("Discord")}
             </span>
           )}
           {author.isBot && !author.isSystem && !author.isDiscord && (
@@ -135,7 +137,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
                 : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
             )}>
               {author.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
-              Bot
+              {gt("Bot")}
             </span>
           )}
         </span>

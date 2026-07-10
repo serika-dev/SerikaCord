@@ -14,6 +14,7 @@ import {
   type Ref,
 } from "react";
 import { Loader2, ArrowDown } from "lucide-react";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { MessageSkeleton } from "@/components/ui/skeleton";
@@ -93,13 +94,14 @@ function MessageListInner<M extends ChatMessage>(
     onMediaClick,
     onReplyFocus,
     welcomeHeader,
-    emptyText = "No messages yet. Be the first to say something!",
+    emptyText,
     className,
     onAtBottomChange,
     resetKey,
   }: MessageListProps<M>,
   ref: Ref<MessageListHandle>
 ) {
+  const gt = useGT();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
@@ -300,7 +302,7 @@ function MessageListInner<M extends ChatMessage>(
         <div className="absolute top-0 left-0 right-0 z-10 flex justify-center py-2 pointer-events-none">
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] bg-[var(--bg-app)]/80 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Loading older messages
+            {gt("Loading older messages")}
           </div>
         </div>
       )}
@@ -319,7 +321,7 @@ function MessageListInner<M extends ChatMessage>(
             {isLoading ? (
               <MessageSkeleton count={5} />
             ) : groups.length === 0 ? (
-              <div className="text-center text-[var(--text-muted)] py-8">{emptyText}</div>
+              <div className="text-center text-[var(--text-muted)] py-8">{emptyText || gt("No messages yet. Be the first to say something!")}</div>
             ) : (
               groups.map((group, idx) => {
                 const shouldAnimate = animateIn && idx < 12;
@@ -387,7 +389,7 @@ function MessageListInner<M extends ChatMessage>(
           className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--accent-color)] text-white text-sm shadow-lg hover:opacity-90 transition-opacity animate-fade-in-up"
         >
           <ArrowDown className="w-4 h-4" />
-          {newMessagesCount} new message{newMessagesCount === 1 ? "" : "s"}
+          {gt("{count} new messages", { count: newMessagesCount })}
         </button>
       )}
     </div>

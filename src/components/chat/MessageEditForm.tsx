@@ -1,6 +1,7 @@
 "use client";
 
 import { Textarea } from "@/components/ui/textarea";
+import { useGT } from "gt-next";
 
 interface MessageEditFormProps {
   value: string;
@@ -12,6 +13,7 @@ interface MessageEditFormProps {
 
 /** Inline message edit box with escape/enter hints. */
 export function MessageEditForm({ value, onChange, onKeyDown, onCancel, onSave }: MessageEditFormProps) {
+  const gt = useGT();
   return (
     <div className="mt-1">
       <Textarea
@@ -23,13 +25,13 @@ export function MessageEditForm({ value, onChange, onKeyDown, onCancel, onSave }
         rows={2}
       />
       <div className="text-xs text-[var(--text-muted)] mt-1">
-        escape to{" "}
+        {gt("escape to")}{" "}
         <button onClick={onCancel} className="text-[#8B5CF6] hover:underline">
-          cancel
+          {gt("cancel")}
         </button>
-        {" • "}enter to{" "}
+        {" • "}{gt("enter to")}{" "}
         <button onClick={onSave} className="text-[#8B5CF6] hover:underline">
-          save
+          {gt("save")}
         </button>
       </div>
     </div>

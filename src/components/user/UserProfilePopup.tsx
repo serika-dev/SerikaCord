@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getProfileBannerStyle, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
+import { useGT } from "gt-next";
+import { statusLabelInvisible } from "@/lib/statusLabels";
 
 interface UserProfilePopupProps {
   children: React.ReactNode;
@@ -50,6 +52,7 @@ type StatusValue = typeof statusOptions[number]['value'];
 export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupProps) {
   const { user, refresh, updateUser } = useAuth();
   const localTime = useCurrentTime(user?.timezone);
+  const gt = useGT();
   const [open, setOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -188,7 +191,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
               <>
                 <div className="h-px bg-[#222222] my-2" />
                 <div className="text-xs text-[#888888] uppercase font-semibold mb-1.5">
-                  Badges
+                  {gt("Badges")}
                 </div>
                 {renderBadges()}
               </>
@@ -211,7 +214,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
             {/* View Full Bio */}
             {user.bio && user.bio.length > 100 && (
               <button className="text-sm text-[#888888] hover:text-white transition-colors mb-2">
-                View Full Bio
+                {gt("View Full Bio")}
               </button>
             )}
 
@@ -231,7 +234,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
 
             {/* Member Since */}
             <div className="text-xs text-[#888888] uppercase font-semibold mb-1">
-              SerikaCord Member Since
+              {gt("SerikaCord Member Since")}
             </div>
             <p className="text-sm text-[#dcddde]">
               {user.createdAt
@@ -240,7 +243,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                     day: "numeric",
                     year: "numeric",
                   })
-                : "Unknown"}
+                : gt("Unknown")}
             </p>
           </div>
 
@@ -252,7 +255,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
               className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors text-left"
             >
               <Pencil className="w-4 h-4 text-[#888888]" />
-              <span className="text-sm text-[#dcddde]">Edit Profiles</span>
+              <span className="text-sm text-[#dcddde]">{gt("Edit Profiles")}</span>
             </button>
 
             {/* Status Selector - Using Popover to prevent overflow */}
@@ -270,7 +273,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                         <div className="w-2 h-0.5 bg-[#111111] rounded" />
                       )}
                     </div>
-                    <span className="text-sm text-[#dcddde]">{currentStatusOption.label}</span>
+                    <span className="text-sm text-[#dcddde]">{statusLabelInvisible(currentStatus, gt)}</span>
                   </div>
                   <ChevronRight className={cn(
                     "w-4 h-4 text-[#888888] transition-transform",
@@ -294,7 +297,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: status.color }}
                       />
-                      <span className="text-sm text-[#dcddde]">{status.label}</span>
+                      <span className="text-sm text-[#dcddde]">{statusLabelInvisible(status.value, gt)}</span>
                     </div>
                     {currentStatus === status.value && (
                       <Check className="w-4 h-4 text-[var(--accent-color)]" />
@@ -315,7 +318,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                     if (e.key === "Enter") handleSaveStatus();
                     if (e.key === "Escape") setEditingStatus(false);
                   }}
-                  placeholder="What's on your mind?"
+                  placeholder={gt("What's on your mind?")}
                   autoFocus
                   maxLength={200}
                   className="w-full px-2 py-1.5 rounded bg-[#1a1a1a] text-sm text-[#dcddde] placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[var(--accent-color)]"
@@ -325,13 +328,13 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                     onClick={handleSaveStatus}
                     className="px-3 py-1 rounded bg-[var(--accent-color)] text-white text-xs hover:brightness-110 transition"
                   >
-                    Save
+                    {gt("Save")}
                   </button>
                   <button
                     onClick={() => setEditingStatus(false)}
                     className="px-3 py-1 rounded bg-[#1a1a1a] text-[#888] text-xs hover:bg-[#222] transition"
                   >
-                    Cancel
+                    {gt("Cancel")}
                   </button>
                   {user?.customStatus && (
                     <button
@@ -354,7 +357,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                       }}
                       className="px-3 py-1 rounded text-[#888] text-xs hover:text-red-400 transition ml-auto"
                     >
-                      Clear
+                      {gt("Clear")}
                     </button>
                   )}
                 </div>
@@ -366,7 +369,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
               >
                 <Pencil className="w-4 h-4 text-[#888888]" />
                 <span className="text-sm text-[#dcddde]">
-                  {user?.customStatus ? "Edit Custom Status" : "Set Custom Status"}
+                  {user?.customStatus ? gt("Edit Custom Status") : gt("Set Custom Status")}
                 </span>
               </button>
             )}
@@ -383,7 +386,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
             >
               <div className="flex items-center gap-3">
                 <Users className="w-4 h-4 text-[#888888]" />
-                <span className="text-sm text-[#dcddde]">Switch Accounts</span>
+                <span className="text-sm text-[#dcddde]">{gt("Switch Accounts")}</span>
               </div>
               <ChevronRight className="w-4 h-4 text-[#888888]" />
             </button>
@@ -399,7 +402,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                 <Copy className="w-4 h-4 text-[#888888]" />
               )}
               <span className="text-sm text-[#dcddde]">
-                {copied ? "Copied!" : "Copy User ID"}
+                {copied ? gt("Copied!") : gt("Copy User ID")}
               </span>
             </button>
           </div>

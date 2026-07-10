@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Copy, Check, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 export default function InformationPage() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading, saving, saveApp } = useApplication(appId);
@@ -26,7 +28,7 @@ export default function InformationPage() {
 
   const handleSave = async () => {
     const ok = await saveApp({ name, description, tags });
-    if (ok) toast.success("Changes saved");
+    if (ok) toast.success(gt("Changes saved"));
   };
 
   const copyId = () => {
@@ -53,12 +55,12 @@ export default function InformationPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-6">General Information</h1>
+      <h1 className="text-xl font-bold mb-6">{gt("General Information")}</h1>
 
       {/* Application ID */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Application ID
+          {gt("Application ID")}
         </label>
         <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-md px-4 py-2.5">
           <code className="text-sm text-[#ccc] flex-1 truncate">{appId}</code>
@@ -70,14 +72,14 @@ export default function InformationPage() {
           </button>
         </div>
         <p className="text-xs text-[#666] mt-1.5">
-          Use this ID for API requests and OAuth2 flows.
+          {gt("Use this ID for API requests and OAuth2 flows.")}
         </p>
       </div>
 
       {/* Name */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Name <span className="text-red-400">*</span>
+          {gt("Name")} <span className="text-red-400">*</span>
         </label>
         <input
           type="text"
@@ -92,7 +94,7 @@ export default function InformationPage() {
       {/* Description */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Description
+          {gt("Description")}
         </label>
         <textarea
           value={description}
@@ -100,7 +102,7 @@ export default function InformationPage() {
           maxLength={400}
           rows={4}
           className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-md px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]/50 resize-none"
-          placeholder="Describe what your application does..."
+          placeholder={gt("Describe what your application does...")}
         />
         <p className="text-xs text-[#666] mt-1.5">{description.length}/400</p>
       </div>
@@ -108,10 +110,10 @@ export default function InformationPage() {
       {/* Tags */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Tags
+          {gt("Tags")}
         </label>
         <p className="text-xs text-[#666] mb-2">
-          Help users discover your app. Max 5 tags.
+          {gt("Help users discover your app. Max 5 tags.")}
         </p>
         <div className="flex flex-wrap gap-2 mb-2">
           {tags.map((tag) => (
@@ -136,7 +138,7 @@ export default function InformationPage() {
               value={newTag}
               onChange={(e) => setNewTag(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addTag()}
-              placeholder="Add a tag..."
+              placeholder={gt("Add a tag...")}
               maxLength={20}
               className="flex-1 bg-[#1a1a1a] border border-white/[0.08] rounded-md px-3 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]/50"
             />
@@ -144,7 +146,7 @@ export default function InformationPage() {
               onClick={addTag}
               className="px-3 py-2 bg-white/5 hover:bg-white/10 text-sm rounded-md transition-colors"
             >
-              Add
+              {gt("Add")}
             </button>
           </div>
         )}
@@ -152,15 +154,15 @@ export default function InformationPage() {
 
       {/* Verification Status */}
       <div className="mb-6 rounded-lg border border-white/[0.08] bg-white/[0.02] p-4">
-        <h3 className="text-sm font-semibold mb-2">Verification Status</h3>
+        <h3 className="text-sm font-semibold mb-2">{gt("Verification Status")}</h3>
         {app?.verified ? (
           <p className="text-sm text-green-400">
-            ✓ This application is verified and can be in 100+ servers.
+            {gt("✓ This application is verified and can be in 100+ servers.")}
           </p>
         ) : (
           <>
             <p className="text-sm text-[#888] mb-2">
-              Your bot must be in <strong className="text-white">100 or more servers</strong> to be eligible for verification.
+              {gt("Your bot must be in 100 or more servers to be eligible for verification.")}
             </p>
             <div className="flex items-center gap-3">
               <div className="flex-1 h-2 bg-[#1a1a1a] rounded-full overflow-hidden">
@@ -170,16 +172,16 @@ export default function InformationPage() {
                 />
               </div>
               <span className="text-xs text-[#888]">
-                {app?.serverCount || 0}/100 servers
+                {gt("{count}/100 servers", { count: app?.serverCount || 0 })}
               </span>
             </div>
             {(app?.serverCount || 0) >= 100 ? (
               <button className="mt-3 px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] text-white text-sm font-medium rounded-md transition-colors">
-                Apply for Verification
+                {gt("Apply for Verification")}
               </button>
             ) : (
               <p className="text-xs text-[#555] mt-3">
-                Reach 100 servers to unlock the verification application.
+                {gt("Reach 100 servers to unlock the verification application.")}
               </p>
             )}
           </>
@@ -194,7 +196,7 @@ export default function InformationPage() {
           className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-md transition-colors"
         >
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          Save Changes
+          {gt("Save Changes")}
         </button>
       </div>
     </div>

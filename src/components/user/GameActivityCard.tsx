@@ -3,16 +3,17 @@
 import { useEffect, useState } from "react";
 import { Gamepad2, Code2, Music, Layers, Terminal, Bot, Wind } from "lucide-react";
 import type { GameActivity } from "@/hooks/useMoeActivity";
+import { useGT } from "gt-next";
 
-function formatElapsed(startedAt: string | null): string {
+function formatElapsed(startedAt: string | null, gt: (key: string, vars?: Record<string, unknown>) => string): string {
   if (!startedAt) return "";
   const ms = Date.now() - new Date(startedAt).getTime();
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m elapsed`;
-  if (m > 0) return `${m}m elapsed`;
-  return "just started";
+  if (h > 0) return gt("{h}h {m}m elapsed", { h, m });
+  if (m > 0) return gt("{m}m elapsed", { m });
+  return gt("just started");
 }
 
 const typeConfig: Record<string, { label: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }> = {
@@ -27,7 +28,23 @@ const typeConfig: Record<string, { label: string; Icon: React.ComponentType<{ cl
   other:   { label: "Using an App",         Icon: Layers,   color: "#8B5CF6" },
 };
 
+function gameTypeLabel(type: string, gt: ReturnType<typeof useGT>): string {
+  switch (type) {
+    case 'game': return gt('Playing a Game');
+    case 'vscode': return gt('Working in VS Code:');
+    case 'music': return gt('Listening to Music');
+    case 'windsurf': return gt('Coding in Windsurf');
+    case 'devin': return gt('Coding in Devin Desktop');
+    case 'cursor': return gt('Coding in Cursor');
+    case 'zed': return gt('Coding in Zed');
+    case 'claude': return gt('Working with Claude');
+    case 'other': return gt('Using an App');
+    default: return gt('Using an App');
+  }
+}
+
 export function GameActivityCard({ game }: { game: GameActivity }) {
+  const gt = useGT();
   const [, tick] = useState(0);
   useEffect(() => {
     if (!game.startedAt) return;
@@ -44,7 +61,7 @@ export function GameActivityCard({ game }: { game: GameActivity }) {
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
         <h4 className="text-[11px] font-bold uppercase tracking-wide text-[#9a9aad] flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color }} />
-          {cfg.label}
+          {gameTypeLabel(game.type, gt)}
         </h4>
       </div>
 
@@ -85,7 +102,7 @@ export function GameActivityCard({ game }: { game: GameActivity }) {
             <p className="text-xs text-[#9a9aad] truncate mt-0.5">{game.state}</p>
           )}
           {game.startedAt && (
-            <p className="text-[10px] text-[#9a9aad]/70 mt-1">{formatElapsed(game.startedAt)}</p>
+            <p className="text-[10px] text-[#9a9aad]/70 mt-1">{formatElapsed(game.startedAt, gt)}</p>
           )}
         </div>
       </div>

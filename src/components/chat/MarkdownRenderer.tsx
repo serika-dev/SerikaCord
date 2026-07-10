@@ -6,54 +6,57 @@ import { cn } from "@/lib/utils";
 import { Hash } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
 import { useRouter } from "next/navigation";
+import { useGT } from "gt-next";
+
+type GTFunc = (str: string, params?: Record<string, unknown>) => string;
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
 }
 
-function formatRelativeTime(targetMs: number): string {
+function formatRelativeTime(targetMs: number, gt: GTFunc): string {
   const diffMs = targetMs - Date.now();
   const diffSecs = Math.round(diffMs / 1000);
   const absSecs = Math.abs(diffSecs);
 
   if (absSecs < 60) {
-    return diffSecs >= 0 ? "in a few seconds" : "a few seconds ago";
+    return diffSecs >= 0 ? gt("in a few seconds") : gt("a few seconds ago");
   }
 
   const diffMins = Math.round(diffSecs / 60);
   const absMins = Math.abs(diffMins);
   if (absMins < 60) {
-    return diffSecs >= 0 ? `in ${absMins} minute${absMins === 1 ? "" : "s"}` : `${absMins} minute${absMins === 1 ? "" : "s"} ago`;
+    return diffSecs >= 0 ? gt("in {n} minutes", { n: absMins }) : gt("{n} minutes ago", { n: absMins });
   }
 
   const diffHours = Math.round(diffMins / 60);
   const absHours = Math.abs(diffHours);
   if (absHours < 24) {
-    return diffSecs >= 0 ? `in ${absHours} hour${absHours === 1 ? "" : "s"}` : `${absHours} hour${absHours === 1 ? "" : "s"} ago`;
+    return diffSecs >= 0 ? gt("in {n} hours", { n: absHours }) : gt("{n} hours ago", { n: absHours });
   }
 
   const diffDays = Math.round(diffHours / 24);
   const absDays = Math.abs(diffDays);
   if (absDays < 30) {
-    return diffSecs >= 0 ? `in ${absDays} day${absDays === 1 ? "" : "s"}` : `${absDays} day${absDays === 1 ? "" : "s"} ago`;
+    return diffSecs >= 0 ? gt("in {n} days", { n: absDays }) : gt("{n} days ago", { n: absDays });
   }
 
   const diffMonths = Math.round(diffDays / 30);
   const absMonths = Math.abs(diffMonths);
   if (absMonths < 12) {
-    return diffSecs >= 0 ? `in ${absMonths} month${absMonths === 1 ? "" : "s"}` : `${absMonths} month${absMonths === 1 ? "" : "s"} ago`;
+    return diffSecs >= 0 ? gt("in {n} months", { n: absMonths }) : gt("{n} months ago", { n: absMonths });
   }
 
   const diffYears = Math.round(diffMonths / 12);
   const absYears = Math.abs(diffYears);
-  return diffSecs >= 0 ? `in ${absYears} year${absYears === 1 ? "" : "s"}` : `${absYears} year${absYears === 1 ? "" : "s"} ago`;
+  return diffSecs >= 0 ? gt("in {n} years", { n: absYears }) : gt("{n} years ago", { n: absYears });
 }
 
-function formatCountdown(targetMs: number): string {
+function formatCountdown(targetMs: number, gt: GTFunc): string {
   const diffMs = targetMs - Date.now();
   if (diffMs <= 0) {
-    return "00:00:00 (Passed)";
+    return gt("00:00:00 (Passed)");
   }
 
   const totalSecs = Math.floor(diffMs / 1000);
@@ -121,6 +124,7 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
   format?: string;
   options?: string;
 }) {
+  const gt = useGT();
   const parsedOptions = useMemo(() => parseTimestampOptions(options || ""), [options]);
   const endOption = parsedOptions.end;
   const colorOption = parsedOptions.color;
@@ -157,17 +161,17 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
       case "F":
         return d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) + " " + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
       case "R":
-        return formatRelativeTime(targetMs);
+        return formatRelativeTime(targetMs, gt);
       case "C": {
         const isPassed = Date.now() >= targetMs;
         return isPassed
-          ? (endOption || "00:00:00 (Passed)")
-          : formatCountdown(targetMs);
+          ? (endOption || gt("00:00:00 (Passed)"))
+          : formatCountdown(targetMs, gt);
       }
       default:
         return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + " " + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
     }
-  }, [targetMs, format, endOption]);
+  }, [targetMs, format, endOption, gt]);
 
   const [liveText, setLiveText] = useState(() => computeDisplayText());
 
@@ -177,7 +181,7 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
 
     if (format === "R") {
       const interval = setInterval(() => {
-        setLiveText(formatRelativeTime(targetMs));
+        setLiveText(formatRelativeTime(targetMs, gt));
       }, 10_000);
       return () => clearInterval(interval);
     }
@@ -186,15 +190,15 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
       const interval = setInterval(() => {
         const now = Date.now();
         if (now >= targetMs) {
-          setLiveText(endOption || "00:00:00 (Passed)");
+          setLiveText(endOption || gt("00:00:00 (Passed)"));
           clearInterval(interval);
         } else {
-          setLiveText(formatCountdown(targetMs));
+          setLiveText(formatCountdown(targetMs, gt));
         }
       }, 1000);
       return () => clearInterval(interval);
     }
-  }, [targetMs, format, endOption, computeDisplayText]);
+  }, [targetMs, format, endOption, computeDisplayText, gt]);
 
   if (format === "C") {
     return (
@@ -219,6 +223,7 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
 });
 
 const ChannelMention = memo(function ChannelMention({ channelId }: { channelId: string }) {
+  const gt = useGT();
   const router = useRouter();
   const { channels, currentServer } = useServer();
 
@@ -239,7 +244,7 @@ const ChannelMention = memo(function ChannelMention({ channelId }: { channelId: 
       className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--app-accent)]/15 hover:bg-[var(--app-accent)]/25 text-[var(--app-accent)] text-[0.9em] font-medium cursor-pointer transition-colors duration-150 align-baseline"
     >
       <Hash className="w-3.5 h-3.5 shrink-0" />
-      {channelName || `unknown-channel`}
+      {channelName || gt("unknown-channel")}
     </span>
   );
 });

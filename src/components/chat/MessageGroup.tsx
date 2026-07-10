@@ -13,6 +13,7 @@ import { MessageHoverActions, type PickerEmoji } from "@/components/chat/Message
 import { MessageEditForm } from "@/components/chat/MessageEditForm";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
+import { useGT } from "gt-next";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 
 interface MentionUser {
@@ -105,6 +106,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onMediaClick,
   onJumpToMessage,
 }: MessageGroupProps<M>) {
+  const gt = useGT();
   // Merge mention users with message authors and referenced message authors
   // so that mentions resolve even for users who left the server or aren't in
   // the member list fetched for autocomplete.
@@ -156,13 +158,13 @@ function MessageGroupInner<M extends ChatMessage>({
     if (!swipeEnabled) return [];
     const actions: SwipeAction[] = [
       {
-        label: "Reply",
+        label: gt("Reply"),
         icon: <Reply className="w-5 h-5" />,
         onAction: () => onReply(message),
         className: "bg-[#8B5CF6]",
       },
       {
-        label: "React",
+        label: gt("React"),
         icon: <Smile className="w-5 h-5" />,
         onAction: () => onOpenReactionPicker(message.id),
         className: "bg-[#6366f1]",
@@ -171,7 +173,7 @@ function MessageGroupInner<M extends ChatMessage>({
     const isOwnMessage = message.authorId === currentUserId;
     if (isOwnMessage) {
       actions.push({
-        label: "Edit",
+        label: gt("Edit"),
         icon: <Pencil className="w-5 h-5" />,
         onAction: () => onEdit(message),
         className: "bg-[#3b82f6]",
@@ -179,7 +181,7 @@ function MessageGroupInner<M extends ChatMessage>({
     }
     if (isOwnMessage || canModerate) {
       actions.push({
-        label: "Delete",
+        label: gt("Delete"),
         icon: <Trash2 className="w-5 h-5" />,
         onAction: () => onDelete(message),
         className: "bg-red-500",
@@ -230,7 +232,7 @@ function MessageGroupInner<M extends ChatMessage>({
                       >
                         <Reply className="w-3.5 h-3.5 flex-shrink-0" />
                         <span className="truncate">
-                          Replying to{" "}
+                          {gt("Replying to")}{" "}
                           {message.referencedMessage.author?.id ? (
                             <MemberProfilePopup
                               member={{
@@ -252,9 +254,9 @@ function MessageGroupInner<M extends ChatMessage>({
                               </span>
                             </MemberProfilePopup>
                           ) : (
-                            "message"
+                            gt("message")
                           )}
-                          : {message.referencedMessage.content ? decodeHtmlEntities(message.referencedMessage.content) : "(attachment)"}
+                          : {message.referencedMessage.content ? decodeHtmlEntities(message.referencedMessage.content) : gt("(attachment)")}
                         </span>
                       </div>
                     )}
@@ -276,14 +278,14 @@ function MessageGroupInner<M extends ChatMessage>({
                     {message.pending && (
                       <span className="inline-flex items-center gap-1 ml-1 text-[11px] text-[var(--app-muted)] align-middle">
                         <Clock className="w-3 h-3 animate-pulse" />
-                        Sending…
+                        {gt("Sending…")}
                       </span>
                     )}
 
                     {message.pinned && (
                       <div className="mt-1 text-[11px] text-[var(--app-muted)] inline-flex items-center gap-1">
                         <Pin className="w-3 h-3" />
-                        Pinned message
+                        {gt("Pinned message")}
                       </div>
                     )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,25 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Loader2, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { T, useGT } from "gt-next";
+import { useAuth } from "@/contexts/AuthContext";
 
 const passwordRequirements = [
-  { id: 'length', label: 'At least 8 characters', test: (p: string) => p.length >= 8 },
-  { id: 'number', label: 'Contains a number', test: (p: string) => /\d/.test(p) },
-  { id: 'special', label: 'Contains a special character', test: (p: string) => /[!@#$%^&*(),.?":{}|<>]/.test(p) },
+  { id: 'length', labelKey: 'At least 8 characters', test: (p: string) => p.length >= 8 },
+  { id: 'number', labelKey: 'Contains a number', test: (p: string) => /\d/.test(p) },
+  { id: 'special', labelKey: 'Contains a special character', test: (p: string) => /[!@#$%^&*(),.?":{}|<>]/.test(p) },
 ];
 
 function RegisterForm() {
+  const gt = useGT();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, isLoading: authLoading, register } = useAuth();
   const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     displayName: "",
@@ -29,25 +34,21 @@ function RegisterForm() {
     password: "",
   });
 
+  // Redirect if already authenticated (via AuthContext)
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace(redirectTo);
+    }
+  }, [user, authLoading, router, redirectTo]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
 
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to register");
-      }
-
-      router.push(redirectTo);
+      await register(formData);
+      setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -60,14 +61,27 @@ function RegisterForm() {
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-2xl font-semibold text-white mb-2">
-          Create an account
+          <T>Create an account</T>
         </h1>
         <p className="text-[#888888] text-sm">
-          Join SerikaCord and start chatting
+          <T>Join SerikaCord and start chatting</T>
         </p>
       </div>
 
       {/* Form */}
+      {success ? (
+        <div className="space-y-5">
+          <div className="p-4 rounded-md bg-green-500/10 border border-green-500/20 text-green-400 text-sm text-center">
+            <T>Account created! Please check your email to verify your account before signing in.</T>
+          </div>
+          <Button
+            onClick={() => router.push("/login")}
+            className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] shadow-[0_0_20px_rgba(139,92,246,0.25)]"
+          >
+            {gt("Go to Login")}
+          </Button>
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -78,7 +92,7 @@ function RegisterForm() {
         {/* Email Field */}
         <div className="space-y-2">
           <Label className="text-sm font-medium text-[#888888]">
-            Email
+            {gt("Email")}
           </Label>
           <Input
             type="email"
@@ -86,14 +100,14 @@ function RegisterForm() {
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
-            placeholder="you@example.com"
+            placeholder={gt("you@example.com")}
           />
         </div>
 
         {/* Display Name Field */}
         <div className="space-y-2">
           <Label className="text-sm font-medium text-[#888888]">
-            Display Name
+            {gt("Display Name")}
           </Label>
           <Input
             type="text"
@@ -101,14 +115,14 @@ function RegisterForm() {
             value={formData.displayName}
             onChange={(e) => setFormData({ ...formData, displayName: e.target.value })}
             className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
-            placeholder="John Doe"
+            placeholder={gt("John Doe")}
           />
         </div>
 
         {/* Username Field */}
         <div className="space-y-2">
           <Label className="text-sm font-medium text-[#888888]">
-            Username
+            {gt("Username")}
           </Label>
           <Input
             type="text"
@@ -116,15 +130,15 @@ function RegisterForm() {
             value={formData.username}
             onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })}
             className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
-            placeholder="johndoe"
+            placeholder={gt("johndoe")}
           />
-          <p className="text-xs text-[#555555]">Only letters, numbers, and underscores</p>
+          <p className="text-xs text-[#555555]"><T>Only letters, numbers, and underscores</T></p>
         </div>
 
         {/* Password Field */}
         <div className="space-y-2">
           <Label className="text-sm font-medium text-[#888888]">
-            Password
+            {gt("Password")}
           </Label>
           <div className="relative">
             <Input
@@ -134,7 +148,7 @@ function RegisterForm() {
               value={formData.password}
               onChange={(e) => setFormData({ ...formData, password: e.target.value })}
               className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors pr-11"
-              placeholder="Create a password"
+              placeholder={gt("Create a password")}
             />
             <button
               type="button"
@@ -161,7 +175,7 @@ function RegisterForm() {
                   ) : (
                     <X className="w-3 h-3" />
                   )}
-                  {req.label}
+                  {req.id === 'length' ? gt('At least 8 characters') : req.id === 'number' ? gt('Contains a number') : req.id === 'special' ? gt('Contains a special character') : req.labelKey}
                 </div>
               ))}
             </div>
@@ -177,33 +191,34 @@ function RegisterForm() {
           {isLoading ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
-            "Create account"
+            gt("Create account")
           )}
         </Button>
 
         {/* Terms */}
         <p className="text-xs text-[#555555] leading-relaxed">
-          By registering, you agree to our{" "}
+          <T>By registering, you agree to our</T>{" "}
           <Link href="/terms" className="text-[#8B5CF6] hover:underline">
-            Terms of Service
+            <T>Terms of Service</T>
           </Link>{" "}
-          and{" "}
+          <T>and</T>{" "}
           <Link href="/privacy" className="text-[#8B5CF6] hover:underline">
-            Privacy Policy
+            <T>Privacy Policy</T>
           </Link>
         </p>
 
         {/* Login Link */}
         <p className="text-sm text-center text-[#888888] pt-2">
-          Already have an account?{" "}
+          <T>Already have an account?</T>{" "}
           <Link 
             href="/login" 
             className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
           >
-            Sign in
+            <T>Sign in</T>
           </Link>
         </p>
       </form>
+      )}
     </div>
   );
 }

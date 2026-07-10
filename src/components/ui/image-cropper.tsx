@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
+import { useGT } from "gt-next";
 
 interface ImageCropperProps {
   open: boolean;
@@ -52,10 +53,13 @@ export function ImageCropper({
   imageUrl,
   aspectRatio = 1,
   onCropComplete,
-  title = "Crop Image",
-  description = "Adjust the crop area to select the portion of the image you want to use.",
+  title,
+  description,
   circular = false,
 }: ImageCropperProps) {
+  const gt = useGT();
+  const resolvedTitle = title ?? gt("Crop Image");
+  const resolvedDescription = description ?? gt("Adjust the crop area to select the portion of the image you want to use.");
   const [crop, setCrop] = useState<Crop>();
   const [scale, setScale] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -147,8 +151,8 @@ export function ImageCropper({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogTitle>{resolvedTitle}</DialogTitle>
+          <DialogDescription>{resolvedDescription}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
@@ -164,7 +168,7 @@ export function ImageCropper({
               <img
                 ref={imgRef}
                 src={imageUrl}
-                alt="Crop preview"
+                alt={gt("Crop preview")}
                 style={{ transform: `scale(${scale})` }}
                 onLoad={onImageLoad}
                 className="max-w-full max-h-[380px] object-contain"
@@ -192,14 +196,14 @@ export function ImageCropper({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {gt("Cancel")}
           </Button>
           <Button
             onClick={handleSave}
             disabled={isProcessing}
             className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white disabled:opacity-60"
           >
-            {isProcessing ? "Processing..." : "Apply"}
+            {isProcessing ? gt("Processing...") : gt("Apply")}
           </Button>
         </DialogFooter>
       </DialogContent>

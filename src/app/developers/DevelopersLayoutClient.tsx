@@ -5,21 +5,23 @@ import { usePathname } from "next/navigation";
 import { LogoInline } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 import { Home, Book, Boxes, Users, ExternalLink } from "lucide-react";
-
-const navItems = [
-  { label: "Home", href: "/developers/home", icon: Home },
-  { label: "Applications", href: "/developers/applications", icon: Boxes },
-  { label: "Teams", href: "/developers/teams", icon: Users },
-  { label: "Documentation", href: "/developers/docs/intro", icon: Book },
-];
+import { useGT } from "gt-next";
 
 export default function DevelopersLayoutClient({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const gt = useGT();
   const pathname = usePathname();
   const isDocs = pathname?.startsWith("/developers/docs");
+
+  const navItems = [
+    { label: gt("Home"), href: "/developers/home", icon: Home },
+    { label: gt("Applications"), href: "/developers/applications", icon: Boxes },
+    { label: gt("Teams"), href: "/developers/teams", icon: Users },
+    { label: gt("Documentation"), href: "/developers/docs/intro", icon: Book },
+  ];
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
@@ -28,7 +30,7 @@ export default function DevelopersLayoutClient({
           <Link href="/developers/home" className="flex items-center gap-2 shrink-0">
             <LogoInline size={28} />
             <span className="font-bold text-sm hidden sm:inline">
-              SerikaCord Developers
+              {gt("SerikaCord Developers")}
             </span>
           </Link>
 
@@ -63,13 +65,13 @@ export default function DevelopersLayoutClient({
               href="/developers/docs/intro"
               className="text-xs text-[#777] hover:text-white transition-colors hidden md:flex items-center gap-1"
             >
-              API Docs <ExternalLink className="size-3" />
+              {gt("API Docs")} <ExternalLink className="size-3" />
             </Link>
             <Link
               href="/channels/me"
               className="text-xs text-[#777] hover:text-white transition-colors"
             >
-              Open SerikaCord
+              {gt("Open SerikaCord")}
             </Link>
           </div>
         </header>

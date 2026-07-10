@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Loader2, Copy, Check, Save, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 const allScopes = [
   "bot", "applications.commands", "applications.commands.permissions.update",
@@ -99,7 +100,56 @@ const permissions = [
   { name: "Moderate Members", value: "MODERATE_MEMBERS" },
 ];
 
+type GTFunc = ReturnType<typeof useGT>;
+
+function permNameLabel(value: string, gt: GTFunc): string {
+  switch (value) {
+    case 'CREATE_INSTANT_INVITE': return gt('Create Invite');
+    case 'KICK_MEMBERS': return gt('Kick Members');
+    case 'BAN_MEMBERS': return gt('Ban Members');
+    case 'ADMINISTRATOR': return gt('Administrator');
+    case 'MANAGE_CHANNELS': return gt('Manage Channels');
+    case 'MANAGE_GUILD': return gt('Manage Server');
+    case 'ADD_REACTIONS': return gt('Add Reactions');
+    case 'VIEW_AUDIT_LOG': return gt('View Audit Log');
+    case 'VIEW_GUILD_INSIGHTS': return gt('View Server Insights');
+    case 'SEND_MESSAGES': return gt('Send Messages');
+    case 'SEND_TTS_MESSAGES': return gt('Send TTS Messages');
+    case 'MANAGE_MESSAGES': return gt('Manage Messages');
+    case 'EMBED_LINKS': return gt('Embed Links');
+    case 'ATTACH_FILES': return gt('Attach Files');
+    case 'READ_MESSAGE_HISTORY': return gt('Read Message History');
+    case 'MENTION_EVERYONE': return gt('Mention Everyone');
+    case 'USE_EXTERNAL_EMOJIS': return gt('Use External Emojis');
+    case 'VIEW_GUILD_EVENTS': return gt('View Server Events');
+    case 'CONNECT': return gt('Connect');
+    case 'SPEAK': return gt('Speak');
+    case 'MUTE_MEMBERS': return gt('Mute Members');
+    case 'DEAFEN_MEMBERS': return gt('Deafen Members');
+    case 'MOVE_MEMBERS': return gt('Move Members');
+    case 'USE_VAD': return gt('Use Voice Activity');
+    case 'PRIORITY_SPEAKER': return gt('Priority Speaker');
+    case 'CHANGE_NICKNAME': return gt('Change Nickname');
+    case 'MANAGE_NICKNAMES': return gt('Manage Nicknames');
+    case 'MANAGE_ROLES': return gt('Manage Roles');
+    case 'MANAGE_WEBHOOKS': return gt('Manage Webhooks');
+    case 'MANAGE_EMOJIS_AND_STICKERS': return gt('Manage Emojis');
+    case 'USE_APPLICATION_COMMANDS': return gt('Use Application Commands');
+    case 'REQUEST_TO_SPEAK': return gt('Request to Speak');
+    case 'MANAGE_EVENTS': return gt('Manage Events');
+    case 'MANAGE_THREADS': return gt('Manage Threads');
+    case 'CREATE_PUBLIC_THREADS': return gt('Create Public Threads');
+    case 'CREATE_PRIVATE_THREADS': return gt('Create Private Threads');
+    case 'USE_EXTERNAL_STICKERS': return gt('Use External Stickers');
+    case 'SEND_MESSAGES_IN_THREADS': return gt('Send Messages in Threads');
+    case 'USE_EMBEDDED_ACTIVITIES': return gt('Use Embedded Activities');
+    case 'MODERATE_MEMBERS': return gt('Moderate Members');
+    default: return value;
+  }
+}
+
 export default function InstallationPage() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading, saving, saveApp } = useApplication(appId);
@@ -142,7 +192,7 @@ export default function InstallationPage() {
       installParams: { scopes: selectedScopes, permissions: String(permBitmask) },
       customInstallUrl,
     });
-    toast.success("Installation settings saved");
+    toast.success(gt("Installation settings saved"));
   };
 
   const copyLink = () => {
@@ -161,12 +211,12 @@ export default function InstallationPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-6">Installation</h1>
+      <h1 className="text-xl font-bold mb-6">{gt("Installation")}</h1>
 
       {/* Install Link */}
       <div className="mb-8">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Install Link
+          {gt("Install Link")}
         </label>
         <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-md px-4 py-2.5">
           <code className="text-sm text-[#ccc] flex-1 truncate font-mono">
@@ -184,7 +234,7 @@ export default function InstallationPage() {
       {/* Custom Install URL */}
       <div className="mb-8">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Custom Install URL (Optional)
+          {gt("Custom Install URL (Optional)")}
         </label>
         <input
           type="text"
@@ -194,15 +244,15 @@ export default function InstallationPage() {
           className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-md px-4 py-2.5 text-sm text-white placeholder:text-[#555] focus:outline-none focus:border-[#8B5CF6]/50"
         />
         <p className="text-xs text-[#666] mt-1.5">
-          Override the default install link with your own.
+          {gt("Override the default install link with your own.")}
         </p>
       </div>
 
       {/* OAuth2 Scopes */}
       <div className="mb-8">
-        <h3 className="text-sm font-semibold mb-3">Authorization Scopes</h3>
+        <h3 className="text-sm font-semibold mb-3">{gt("Authorization Scopes")}</h3>
         <p className="text-xs text-[#666] mb-3">
-          Select the scopes your app requests during installation.
+          {gt("Select the scopes your app requests during installation.")}
         </p>
         <div className="grid grid-cols-2 gap-2">
           {allScopes.map((scope) => (
@@ -224,9 +274,9 @@ export default function InstallationPage() {
 
       {/* Bot Permissions */}
       <div className="mb-8">
-        <h3 className="text-sm font-semibold mb-3">Bot Permissions</h3>
+        <h3 className="text-sm font-semibold mb-3">{gt("Bot Permissions")}</h3>
         <p className="text-xs text-[#666] mb-3">
-          Select the permissions your bot needs. These are requested during installation.
+          {gt("Select the permissions your bot needs. These are requested during installation.")}
         </p>
         <div className="grid grid-cols-2 gap-2">
           {permissions.map((perm) => (
@@ -240,7 +290,7 @@ export default function InstallationPage() {
                 onChange={() => togglePerm(perm.value)}
                 className="accent-[#8B5CF6]"
               />
-              <span className="text-xs text-[#ccc]">{perm.name}</span>
+              <span className="text-xs text-[#ccc]">{permNameLabel(perm.value, gt)}</span>
             </label>
           ))}
         </div>
@@ -254,7 +304,7 @@ export default function InstallationPage() {
           className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-md transition-colors"
         >
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          Save Changes
+          {gt("Save Changes")}
         </button>
       </div>
     </div>

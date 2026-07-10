@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Home, MessageSquare, Bell, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface NavItem {
   icon: React.ElementType;
@@ -31,6 +32,7 @@ export function BottomNavigation({
   const router = useRouter();
   const { setCurrentServer, setCurrentChannel } = useServer();
   const { user } = useAuth();
+  const gt = useGT();
 
   // Hide inside an open conversation (channel chat or DM) so the composer
   // gets the full viewport and the keyboard doesn't fight the nav.
@@ -41,27 +43,27 @@ export function BottomNavigation({
   const navItems: NavItem[] = [
     {
       icon: Home,
-      label: "Servers",
+      label: gt("Servers"),
       href: "/channels/me",
       clearServer: true,
     },
     {
       icon: MessageSquare,
-      label: "Messages",
+      label: gt("Messages"),
       href: "/channels/messages",
       badge: messageCount,
       clearServer: true,
     },
     {
       icon: Bell,
-      label: "Notifications",
+      label: gt("Notifications"),
       href: "/channels/notifications",
       badge: notificationCount,
       clearServer: true,
     },
     {
       icon: User,
-      label: "You",
+      label: gt("You"),
       href: "/channels/profile",
       clearServer: true,
       isProfile: true,

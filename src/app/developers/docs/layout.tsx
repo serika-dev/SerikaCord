@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { docNav } from "@/lib/constants/docs-nav";
 import { Search, Menu, X, ExternalLink } from "lucide-react";
+import { useGT } from "gt-next";
 
 export default function DocsLayout({
   children,
@@ -13,6 +14,7 @@ export default function DocsLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const gt = useGT();
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -69,7 +71,7 @@ export default function DocsLayout({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search docs..."
+              placeholder={gt("Search docs...")}
               className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder:text-[#555] focus:outline-none focus:border-[#8B5CF6]/50 transition-colors"
             />
           </div>

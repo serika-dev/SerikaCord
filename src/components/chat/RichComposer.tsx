@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 export interface ComposerEmoji {
   id: string;
@@ -126,6 +127,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
     { placeholder, disabled = false, className, "aria-label": ariaLabel, onChange, onCaretMove, onKeyDown },
     ref
   ) {
+    const gt = useGT();
     const editorRef = useRef<HTMLDivElement>(null);
     const isEmptyRef = useRef(true);
     const [isEmpty, setIsEmpty] = useState(true);
@@ -438,7 +440,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         {/* Markdown supported indicator */}
         {hasMarkdown && !isEmpty && (
           <span className="absolute bottom-0.5 left-10 sm:left-14 text-[10px] text-[var(--app-muted)] pointer-events-none opacity-60">
-            Markdown
+            {gt("Markdown")}
           </span>
         )}
       </div>

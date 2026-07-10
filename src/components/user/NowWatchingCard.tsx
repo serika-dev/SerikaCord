@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Play, Pause, CheckCircle2 } from "lucide-react";
 import type { MoeActivity } from "@/hooks/useMoeActivity";
+import { useGT } from "gt-next";
 
 function formatTime(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
@@ -13,12 +14,12 @@ function formatTime(totalSeconds: number): string {
   return h > 0 ? `${h}:${mm}:${String(sec).padStart(2, "0")}` : `${mm}:${String(sec).padStart(2, "0")}`;
 }
 
-function subtitle(activity: MoeActivity): string {
+function subtitle(activity: MoeActivity, gt: (key: string, vars?: Record<string, unknown>) => string): string {
   const parts: string[] = [];
   if (activity.seasonNumber != null && activity.episodeNumber != null) {
-    parts.push(`S${activity.seasonNumber} · E${activity.episodeNumber}`);
+    parts.push(gt("S{season} · E{episode}", { season: activity.seasonNumber, episode: activity.episodeNumber }));
   } else if (activity.episodeNumber != null) {
-    parts.push(`Episode ${activity.episodeNumber}`);
+    parts.push(gt("Episode {episode}", { episode: activity.episodeNumber }));
   }
   if (activity.episodeName) parts.push(activity.episodeName);
   return parts.join("  ·  ");
@@ -34,6 +35,7 @@ type PlaybackState = "playing" | "paused" | "finished";
  * (playing / paused / finished) for a clearer, nicer status presentation.
  */
 export function NowWatchingCard({ activity }: { activity: MoeActivity }) {
+  const gt = useGT();
   const duration = activity.durationSeconds ?? 0;
 
   // Estimate current progress: server progress + elapsed since last update
@@ -52,7 +54,7 @@ export function NowWatchingCard({ activity }: { activity: MoeActivity }) {
     duration || Number.MAX_SAFE_INTEGER
   );
   const pct = duration > 0 ? Math.min(100, (current / duration) * 100) : 0;
-  const line2 = subtitle(activity);
+  const line2 = subtitle(activity, gt);
 
   // Consider the episode finished once we're within a few seconds of the end.
   const isFinished = duration > 0 && current >= duration - 2;
@@ -60,17 +62,17 @@ export function NowWatchingCard({ activity }: { activity: MoeActivity }) {
 
   const stateConfig: Record<PlaybackState, { label: string; icon: ReactNode; dot: string }> = {
     playing: {
-      label: "Playing",
+      label: gt("Playing"),
       icon: <Play className="w-3 h-3 fill-[#8B5CF6] text-[#8B5CF6]" />,
       dot: "bg-[#8B5CF6] animate-pulse",
     },
     paused: {
-      label: "Paused",
+      label: gt("Paused"),
       icon: <Pause className="w-3 h-3 fill-[#9a9aad] text-[#9a9aad]" />,
       dot: "bg-[#9a9aad]",
     },
     finished: {
-      label: "Finished",
+      label: gt("Finished"),
       icon: <CheckCircle2 className="w-3 h-3 text-[#22c55e]" />,
       dot: "bg-[#22c55e]",
     },
@@ -82,7 +84,7 @@ export function NowWatchingCard({ activity }: { activity: MoeActivity }) {
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
         <h4 className="text-[11px] font-bold uppercase tracking-wide text-[#9a9aad]">
-          Watching on serika.moe
+          {gt("Watching on serika.moe")}
         </h4>
         <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#c8c8d8]">
           <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />

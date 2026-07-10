@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 export interface ApplicationData {
   id: string;
@@ -35,6 +36,7 @@ export interface ApplicationData {
 }
 
 export function useApplication(appId: string) {
+  const gt = useGT();
   const [app, setApp] = useState<ApplicationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -76,11 +78,11 @@ export function useApplication(appId: string) {
         return true;
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to save changes");
+        toast.error(err.error || gt("Failed to save changes"));
         return false;
       }
     } catch {
-      toast.error("Failed to save changes");
+      toast.error(gt("Failed to save changes"));
       return false;
     } finally {
       setSaving(false);

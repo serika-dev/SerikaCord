@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Play, Pause, Scissors, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 
 interface AudioTrimmerDialogProps {
@@ -85,6 +86,7 @@ export function AudioTrimmerDialog({
   maxDuration = 30,
   onTrimmed,
 }: AudioTrimmerDialogProps) {
+  const gt = useGT();
   const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
   const [isDecoding, setIsDecoding] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -139,7 +141,7 @@ export function AudioTrimmerDialog({
         setSelEnd(Math.min(maxDuration, decoded.duration));
       } catch {
         if (!cancelled) {
-          toast.error("Could not decode this audio file");
+          toast.error(gt("Could not decode this audio file"));
           onOpenChange(false);
         }
       } finally {
@@ -288,7 +290,7 @@ export function AudioTrimmerDialog({
       onTrimmed(blob, file.name.replace(/\.[^/.]+$/, ""));
       onOpenChange(false);
     } catch {
-      toast.error("Failed to trim audio");
+      toast.error(gt("Failed to trim audio"));
     } finally {
       setIsExporting(false);
     }
@@ -365,7 +367,7 @@ export function AudioTrimmerDialog({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Trim audio"
+        aria-label={gt("Trim audio")}
         className="relative w-full max-w-xl mx-4 bg-[#111114] border border-[#222230] rounded-2xl shadow-2xl p-6"
       >
         {/* Header */}
@@ -374,7 +376,7 @@ export function AudioTrimmerDialog({
             <div className="size-8 rounded-lg bg-[#8B5CF6]/15 flex items-center justify-center">
               <Scissors className="w-4.5 h-4.5 text-[#8B5CF6]" />
             </div>
-            <h2 className="text-white font-semibold text-lg">Trim Sound</h2>
+            <h2 className="text-white font-semibold text-lg">{gt("Trim Sound")}</h2>
           </div>
           <button
             onClick={() => onOpenChange(false)}
@@ -384,13 +386,13 @@ export function AudioTrimmerDialog({
           </button>
         </div>
         <p className="text-sm text-[#777] mb-5">
-          Select up to {maxDuration}s. Drag the handles or use the sliders.
+          {gt("Select up to {max}s. Drag the handles or use the sliders.", { max: maxDuration })}
         </p>
 
         {isDecoding ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
-            <p className="text-xs text-[#666]">Decoding audio...</p>
+            <p className="text-xs text-[#666]">{gt("Decoding audio...")}</p>
           </div>
         ) : audioBuffer ? (
           <>
@@ -461,7 +463,7 @@ export function AudioTrimmerDialog({
             <div className="space-y-3 mb-5">
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-[#555] font-semibold mb-1.5 block">
-                  Start
+                  {gt("Start")}
                 </label>
                 <input
                   type="range"
@@ -470,13 +472,13 @@ export function AudioTrimmerDialog({
                   step={0.1}
                   value={selStart}
                   onChange={(e) => handleStartChange(Number(e.target.value))}
-                  aria-label="Selection start"
+                  aria-label={gt("Selection start")}
                   className="w-full accent-[#8B5CF6]"
                 />
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-[#555] font-semibold mb-1.5 block">
-                  End
+                  {gt("End")}
                 </label>
                 <input
                   type="range"
@@ -485,7 +487,7 @@ export function AudioTrimmerDialog({
                   step={0.1}
                   value={selEnd}
                   onChange={(e) => handleEndChange(Number(e.target.value))}
-                  aria-label="Selection end"
+                  aria-label={gt("Selection end")}
                   className="w-full accent-[#8B5CF6]"
                 />
               </div>
@@ -503,7 +505,7 @@ export function AudioTrimmerDialog({
                 )}
               >
                 {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                {isPlaying ? "Stop" : "Preview"}
+                {isPlaying ? gt("Stop") : gt("Preview")}
               </button>
 
               <div className="flex items-center gap-2">
@@ -511,7 +513,7 @@ export function AudioTrimmerDialog({
                   onClick={() => onOpenChange(false)}
                   className="px-4 py-2.5 rounded-xl text-sm text-[#888] hover:text-white hover:bg-white/5 transition-colors"
                 >
-                  Cancel
+                  {gt("Cancel")}
                 </button>
                 <button
                   onClick={handleConfirm}
@@ -523,7 +525,7 @@ export function AudioTrimmerDialog({
                   ) : (
                     <Check className="w-4 h-4" />
                   )}
-                  Use This Clip
+                  {gt("Use This Clip")}
                 </button>
               </div>
             </div>

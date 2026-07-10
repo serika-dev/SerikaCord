@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Volume2, Plus, Trash2, Loader2, Play, Power } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface TtsSound {
   id: string;
@@ -15,6 +16,7 @@ interface TtsSound {
 }
 
 export function AdminTtsSoundsPanel() {
+  const gt = useGT();
   const [sounds, setSounds] = useState<TtsSound[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -30,7 +32,7 @@ export function AdminTtsSoundsPanel() {
       setSounds(data.sounds || []);
     } catch (err) {
       console.error("Failed to load TTS sounds", err);
-      toast.error("Failed to load TTS sounds");
+      toast.error(gt("Failed to load TTS sounds"));
     } finally {
       setLoading(false);
     }
@@ -54,7 +56,7 @@ export function AdminTtsSoundsPanel() {
     const trigger = newTrigger.trim().toLowerCase();
     const path = newPath.trim();
     if (!trigger || !path) {
-      toast.error("Trigger word and path are required");
+      toast.error(gt("Trigger word and path are required"));
       return;
     }
     setIsCreating(true);
@@ -68,13 +70,13 @@ export function AdminTtsSoundsPanel() {
         const data = await res.json().catch(() => null);
         throw new Error(data?.error || "Failed to create");
       }
-      toast.success("Sound trigger added");
+      toast.success(gt("Sound trigger added"));
       setNewTrigger("");
       setNewPath("");
       setNewLabel("");
       await fetchSounds();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create");
+      toast.error(err instanceof Error ? err.message : gt("Failed to create"));
     } finally {
       setIsCreating(false);
     }
@@ -90,7 +92,7 @@ export function AdminTtsSoundsPanel() {
       if (!res.ok) throw new Error();
       await fetchSounds();
     } catch {
-      toast.error("Failed to update");
+      toast.error(gt("Failed to update"));
     }
   };
 
@@ -98,19 +100,19 @@ export function AdminTtsSoundsPanel() {
     try {
       const res = await fetch(`/api/admin/tts-sounds/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
-      toast.success("Deleted");
+      toast.success(gt("Deleted"));
       await fetchSounds();
     } catch {
-      toast.error("Failed to delete");
+      toast.error(gt("Failed to delete"));
     }
   };
 
   const preview = (path: string) => {
     try {
       const audio = new Audio(path);
-      audio.play().catch(() => toast.error("Could not play — check the path"));
+      audio.play().catch(() => toast.error(gt("Could not play — check the path")));
     } catch {
-      toast.error("Could not play — check the path");
+      toast.error(gt("Could not play — check the path"));
     }
   };
 
@@ -119,7 +121,7 @@ export function AdminTtsSoundsPanel() {
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <Volume2 className="w-5 h-5 text-[#8B5CF6]" />
-          TTS Sound Triggers
+          {gt("TTS Sound Triggers")}
         </h2>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
           When a TTS message contains a trigger word, every listener plays a random sound from that
@@ -133,7 +135,7 @@ export function AdminTtsSoundsPanel() {
       <div className="rounded-xl border border-[var(--border-color)] bg-[var(--bg-card)] p-4 space-y-3">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Trigger word</label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">{gt("Trigger word")}</label>
             <input
               value={newTrigger}
               onChange={(e) => setNewTrigger(e.target.value)}
@@ -142,7 +144,7 @@ export function AdminTtsSoundsPanel() {
             />
           </div>
           <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Public path</label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">{gt("Public path")}</label>
             <input
               value={newPath}
               onChange={(e) => setNewPath(e.target.value)}
@@ -153,7 +155,7 @@ export function AdminTtsSoundsPanel() {
         </div>
         <div className="flex items-end gap-3">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">Label (optional)</label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">{gt("Label (optional)")}</label>
             <input
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
@@ -167,7 +169,7 @@ export function AdminTtsSoundsPanel() {
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
           >
             {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Add
+            {gt("Add")}
           </button>
         </div>
       </div>
@@ -179,7 +181,7 @@ export function AdminTtsSoundsPanel() {
         </div>
       ) : grouped.length === 0 ? (
         <div className="text-center text-[var(--text-secondary)] py-8 text-sm">
-          No sound triggers configured yet.
+          {gt("No sound triggers configured yet.")}
         </div>
       ) : (
         <div className="space-y-4">
@@ -204,7 +206,7 @@ export function AdminTtsSoundsPanel() {
                   >
                     <button
                       onClick={() => preview(s.path)}
-                      title="Preview"
+                      title={gt("Preview")}
                       className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-white"
                     >
                       <Play className="w-4 h-4" />
@@ -215,7 +217,7 @@ export function AdminTtsSoundsPanel() {
                     </div>
                     <button
                       onClick={() => handleToggle(s)}
-                      title={s.enabled ? "Disable" : "Enable"}
+                      title={s.enabled ? gt("Disable") : gt("Enable")}
                       className={cn(
                         "p-1.5 rounded-md hover:bg-[var(--bg-hover)]",
                         s.enabled ? "text-green-400" : "text-[var(--text-muted)]"
@@ -225,7 +227,7 @@ export function AdminTtsSoundsPanel() {
                     </button>
                     <button
                       onClick={() => handleDelete(s.id)}
-                      title="Delete"
+                      title={gt("Delete")}
                       className="p-1.5 rounded-md hover:bg-red-500/10 text-[var(--text-muted)] hover:text-red-400"
                     >
                       <Trash2 className="w-4 h-4" />

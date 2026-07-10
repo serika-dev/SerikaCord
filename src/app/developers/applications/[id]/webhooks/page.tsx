@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Loader2, Plus, Trash2, Webhook, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 interface Webhook {
   id: string;
@@ -28,6 +29,7 @@ const WEBHOOK_EVENTS = [
 ];
 
 export default function WebhooksPage() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading } = useApplication(appId);
@@ -78,33 +80,33 @@ export default function WebhooksPage() {
         setNewUrl("");
         setNewEvents([]);
         setShowAdd(false);
-        toast.success("Webhook created!");
+        toast.success(gt("Webhook created!"));
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to create webhook");
+        toast.error(err.error || gt("Failed to create webhook"));
       }
     } catch {
-      toast.error("Failed to create webhook");
+      toast.error(gt("Failed to create webhook"));
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Delete this webhook?")) return;
+    if (!confirm(gt("Delete this webhook?"))) return;
     try {
       const res = await fetch(`/api/developers/applications/${appId}/webhooks/${id}`, {
         method: "DELETE",
       });
       if (res.ok) {
         setWebhooks(webhooks.filter((w) => w.id !== id));
-        toast.success("Webhook deleted");
+        toast.success(gt("Webhook deleted"));
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to delete webhook");
+        toast.error(err.error || gt("Failed to delete webhook"));
       }
     } catch {
-      toast.error("Failed to delete webhook");
+      toast.error(gt("Failed to delete webhook"));
     }
   };
 
@@ -118,12 +120,12 @@ export default function WebhooksPage() {
       });
       if (res.ok) {
         setWebhooks(webhooks.map((w) => w.id === id ? { ...w, active: !current } : w));
-        toast.success(`Webhook ${!current ? "activated" : "deactivated"}`);
+        toast.success(gt("Webhook {state}", { state: !current ? gt("activated") : gt("deactivated") }));
       } else {
-        toast.error("Failed to toggle webhook");
+        toast.error(gt("Failed to toggle webhook"));
       }
     } catch {
-      toast.error("Failed to toggle webhook");
+      toast.error(gt("Failed to toggle webhook"));
     } finally {
       setTogglingId(null);
     }
@@ -147,16 +149,16 @@ export default function WebhooksPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold">Webhooks</h1>
+          <h1 className="text-xl font-bold">{gt("Webhooks")}</h1>
           <p className="text-sm text-[#888] mt-1">
-            Manage webhooks for your application to receive real-time events.
+            {gt("Manage webhooks for your application to receive real-time events.")}
           </p>
         </div>
         <button
           onClick={() => setShowAdd(!showAdd)}
           className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-medium rounded-lg transition-colors"
         >
-          <Plus className="size-4" /> Add Webhook
+          <Plus className="size-4" /> {gt("Add Webhook")}
         </button>
       </div>
 
@@ -164,7 +166,7 @@ export default function WebhooksPage() {
         <div className="mb-6 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-              Name
+              {gt("Name")}
             </label>
             <input
               type="text"
@@ -176,7 +178,7 @@ export default function WebhooksPage() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-              Webhook URL
+              {gt("Webhook URL")}
             </label>
             <input
               type="url"
@@ -188,7 +190,7 @@ export default function WebhooksPage() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-              Events
+              {gt("Events")}
             </label>
             <div className="flex flex-wrap gap-2">
               {WEBHOOK_EVENTS.map((event) => (
@@ -212,7 +214,7 @@ export default function WebhooksPage() {
             className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
           >
             {creating ? <Loader2 className="size-4 animate-spin" /> : null}
-            Create Webhook
+            {gt("Create Webhook")}
           </button>
         </div>
       )}
@@ -220,7 +222,7 @@ export default function WebhooksPage() {
       {webhooks.length === 0 ? (
         <div className="text-center py-20">
           <Webhook className="size-12 text-[#333] mx-auto mb-4" />
-          <p className="text-[#888] text-sm">No webhooks yet. Add one to receive events.</p>
+          <p className="text-[#888] text-sm">{gt("No webhooks yet. Add one to receive events.")}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -239,7 +241,7 @@ export default function WebhooksPage() {
                     <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
                       webhook.active ? "bg-green-500/10 text-green-400" : "bg-[#333] text-[#888]"
                     }`}>
-                      {webhook.active ? "Active" : "Inactive"}
+                      {webhook.active ? gt("Active") : gt("Inactive")}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1">

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FlaskConical, Plus, Trash2, Loader2, Play, Pause } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface Experiment {
   _id: string;
@@ -17,6 +18,7 @@ interface Experiment {
 }
 
 export function AdminExperimentsPanel() {
+  const gt = useGT();
   const [experiments, setExperiments] = useState<Experiment[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
@@ -33,7 +35,7 @@ export function AdminExperimentsPanel() {
       setExperiments(data.experiments || []);
     } catch (err) {
       console.error("Failed to load experiments", err);
-      toast.error("Failed to load experiments");
+      toast.error(gt("Failed to load experiments"));
     } finally {
       setLoading(false);
     }
@@ -61,23 +63,23 @@ export function AdminExperimentsPanel() {
         body: JSON.stringify({ status: next }),
       });
       if (!res.ok) throw new Error("Failed to update experiment");
-      toast.success(`Experiment ${next}`);
+      toast.success(gt("Experiment {status}", { status: next }));
       await fetchExperiments();
     } catch (err) {
-      toast.error("Failed to update experiment");
+      toast.error(gt("Failed to update experiment"));
       console.error(err);
     }
   };
 
   const handleDelete = async (experiment: Experiment) => {
-    if (!confirm(`Delete experiment "${experiment.name}"?`)) return;
+    if (!confirm(gt("Delete experiment \"{name}\"?", { name: experiment.name }))) return;
     try {
       const res = await fetch(`/api/admin/experiments/${experiment._id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete experiment");
-      toast.success("Experiment deleted");
+      toast.success(gt("Experiment deleted"));
       await fetchExperiments();
     } catch (err) {
-      toast.error("Failed to delete experiment");
+      toast.error(gt("Failed to delete experiment"));
       console.error(err);
     }
   };
@@ -105,14 +107,14 @@ export function AdminExperimentsPanel() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Failed to create experiment");
       }
-      toast.success("Experiment created");
+      toast.success(gt("Experiment created"));
       setNewName("");
       setNewKey("");
       setNewDescription("");
       setNewRollout(100);
       await fetchExperiments();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create experiment");
+      toast.error(err instanceof Error ? err.message : gt("Failed to create experiment"));
       console.error(err);
     } finally {
       setIsCreating(false);
@@ -120,13 +122,13 @@ export function AdminExperimentsPanel() {
   };
 
   const handleRemoveInactive = async () => {
-    if (!confirm(`Delete ${inactiveExperiments.length} inactive experiments? This cannot be undone.`)) return;
+    if (!confirm(gt("Delete {count} inactive experiments? This cannot be undone.", { count: inactiveExperiments.length }))) return;
     await Promise.all(
       inactiveExperiments.map((exp) =>
         fetch(`/api/admin/experiments/${exp._id}`, { method: "DELETE" }).catch(console.error)
       )
     );
-    toast.success("Inactive experiments removed");
+    toast.success(gt("Inactive experiments removed"));
     await fetchExperiments();
   };
 
@@ -134,27 +136,27 @@ export function AdminExperimentsPanel() {
     <div>
       <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
         <FlaskConical className="w-6 h-6 text-[var(--accent-color)]" />
-        Platform Experiments
+        {gt("Platform Experiments")}
       </h2>
 
       {/* Create experiment */}
       <div className="mb-6 p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
           <Plus className="w-4 h-4 text-[var(--accent-color)]" />
-          Create Experiment
+          {gt("Create Experiment")}
         </h3>
         <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <input
               type="text"
-              placeholder="Name"
+              placeholder={gt("Name")}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white text-sm"
             />
             <input
               type="text"
-              placeholder="Key (e.g. new_feature)"
+              placeholder={gt("Key (e.g. new_feature)")}
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
               className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white text-sm"
@@ -162,13 +164,13 @@ export function AdminExperimentsPanel() {
           </div>
           <input
             type="text"
-            placeholder="Description (optional)"
+            placeholder={gt("Description (optional)")}
             value={newDescription}
             onChange={(e) => setNewDescription(e.target.value)}
             className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white text-sm"
           />
           <div className="flex items-center gap-3">
-            <span className="text-sm text-[var(--text-secondary)] whitespace-nowrap">Rollout {newRollout}%</span>
+            <span className="text-sm text-[var(--text-secondary)] whitespace-nowrap">{gt("Rollout {percent}%", { percent: newRollout })}</span>
             <input
               type="range"
               min="0"
@@ -182,7 +184,7 @@ export function AdminExperimentsPanel() {
               disabled={isCreating || !newName.trim() || !newKey.trim()}
               className="px-3 py-1.5 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all"
             >
-              {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create"}
+              {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : gt("Create")}
             </button>
           </div>
         </div>
@@ -191,14 +193,14 @@ export function AdminExperimentsPanel() {
       {/* Experiment list */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[var(--text-primary)]">Database Experiments</h3>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{gt("Database Experiments")}</h3>
           {inactiveExperiments.length > 0 && (
             <button
               onClick={handleRemoveInactive}
               className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
             >
               <Trash2 className="w-3 h-3" />
-              Remove {inactiveExperiments.length} inactive
+              {gt("Remove {count} inactive", { count: inactiveExperiments.length })}
             </button>
           )}
         </div>
@@ -208,7 +210,7 @@ export function AdminExperimentsPanel() {
             <Loader2 className="w-6 h-6 text-[var(--accent-color)] animate-spin" />
           </div>
         ) : activeExperiments.length === 0 && inactiveExperiments.length === 0 ? (
-          <p className="text-sm text-[var(--text-muted)]">No database experiments yet.</p>
+          <p className="text-sm text-[var(--text-muted)]">{gt("No database experiments yet.")}</p>
         ) : (
           <div className="space-y-2">
             {[...activeExperiments, ...inactiveExperiments].map((exp) => (
@@ -239,14 +241,14 @@ export function AdminExperimentsPanel() {
                   <button
                     onClick={() => handleToggleStatus(exp)}
                     className="p-2 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] transition-colors"
-                    title={exp.status === "running" ? "Pause" : "Start"}
+                    title={exp.status === "running" ? gt("Pause") : gt("Start")}
                   >
                     {exp.status === "running" ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                   </button>
                   <button
                     onClick={() => handleDelete(exp)}
                     className="p-2 rounded-md hover:bg-red-500/10 text-red-400 transition-colors"
-                    title="Delete"
+                    title={gt("Delete")}
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

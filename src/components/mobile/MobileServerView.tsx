@@ -20,6 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { voiceService } from "@/lib/services/voiceService";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useGT } from "gt-next";
 
 interface MobileServerViewProps {
   onBack?: () => void;
@@ -39,6 +40,7 @@ interface ExtendedChannel {
 
 export function MobileServerView({ onBack }: MobileServerViewProps) {
   const router = useRouter();
+  const gt = useGT();
   const { currentServer, channels, setCurrentChannel } = useServer();
   const { can, isAdmin } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
@@ -220,7 +222,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
               <div className="flex items-center gap-3 mt-1">
                 <span className="flex items-center gap-1.5 text-sm text-neutral-300">
                   <Users className="w-4 h-4" />
-                  {server.memberCount || 0} members
+                  {server.memberCount || 0} {gt("members")}
                 </span>
               </div>
             </div>
@@ -228,7 +230,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
               {canManageServer && (
                 <button
                   onClick={() => window.dispatchEvent(new CustomEvent("openServerSettings"))}
-                  aria-label="Server settings"
+                  aria-label={gt("Server settings")}
                   className="p-2.5 rounded-xl bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors active:scale-95"
                 >
                   <Settings className="w-5 h-5 text-white" />
@@ -245,7 +247,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
           <div className="flex-1 flex items-center gap-2">
             <input
               type="text"
-              placeholder="Search channels..."
+              placeholder={gt("Search channels...")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               autoFocus
@@ -268,11 +270,11 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
               className="flex-1 flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--bg-card)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] transition-colors"
             >
               <Search className="w-4 h-4" />
-              <span className="text-sm">Search channels</span>
+              <span className="text-sm">{gt("Search channels")}</span>
             </button>
             <button
               onClick={() => window.dispatchEvent(new CustomEvent("openInviteDialog"))}
-              aria-label="Invite people"
+              aria-label={gt("Invite people")}
               className="p-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] transition-colors active:scale-95"
             >
               <UserPlus className="w-5 h-5 text-[var(--text-muted)]" />
@@ -295,9 +297,9 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
               <div className="w-16 h-16 rounded-2xl bg-[var(--bg-card)] flex items-center justify-center mb-4">
                 <Search className="w-8 h-8 text-[var(--text-muted)]" />
               </div>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">No channels found</h3>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{gt("No channels found")}</h3>
               <p className="text-[var(--text-muted)] text-sm">
-                Try a different search term
+                {gt("Try a different search term")}
               </p>
             </div>
           ) : (

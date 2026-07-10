@@ -14,6 +14,8 @@ import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
+import { T, useGT } from "gt-next";
+import { LocaleSelector } from "@/components/ui/LocaleSelector";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -31,6 +33,26 @@ const sectionTitles: Record<string, string> = {
   profiles: "Profiles",
   connections: "Connections",
 };
+
+function getSectionTitle(section: string, gt: (s: string) => string): string {
+  const titles: Record<string, string> = {
+    privacy: gt("Privacy & Safety"),
+    apps: gt("Authorized Apps"),
+    notifications: gt("Notifications"),
+    appearance: gt("Appearance"),
+    accessibility: gt("Accessibility"),
+    voice: gt("Voice & Video"),
+    language: gt("Language"),
+    premium: gt("SerikaCord Premium"),
+    help: gt("Help & Support"),
+    "bug-report": gt("Report a Bug"),
+    feedback: gt("Give Feedback"),
+    status: gt("Status"),
+    profiles: gt("Profiles"),
+    connections: gt("Connections"),
+  };
+  return titles[section] || sectionTitles[section] || section;
+}
 
 const CONNECTION_PROVIDERS: Array<{
   id: string; label: string; color: string; bg: string;
@@ -61,6 +83,39 @@ const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
   { id: "social",    label: "Social" },
 ];
 
+type GTFunc = ReturnType<typeof useGT>;
+
+function connectionCategoryLabel(id: string, gt: GTFunc): string {
+  switch (id) {
+    case 'music': return gt('Music');
+    case 'gaming': return gt('Gaming');
+    case 'streaming': return gt('Streaming');
+    case 'social': return gt('Social');
+    default: return id;
+  }
+}
+
+function connectionProviderHint(id: string, gt: GTFunc): string {
+  switch (id) {
+    case 'lastfm': return gt('Authorise via Last.fm — shows your live scrobbles on your profile.');
+    case 'spotify': return gt('Authorise via Spotify.');
+    case 'youtube': return gt('Authorise via Google/YouTube.');
+    case 'twitch': return gt('Authorise via Twitch.');
+    case 'steam': return gt('Authorise via Steam.');
+    case 'xbox': return gt('Authorise via Microsoft/Xbox.');
+    case 'psn': return gt('Authorise via PlayStation Network.');
+    case 'battlenet': return gt('Authorise via Battle.net.');
+    case 'roblox': return gt('Authorise via Roblox.');
+    case 'github': return gt('Authorise via GitHub.');
+    case 'twitter': return gt('Authorise via X.');
+    case 'instagram': return gt('Authorise via Instagram.');
+    case 'discord': return gt('Managed through your Serika account.');
+    case 'serika': return gt('Managed through your Serika account.');
+    case 'website': return gt('Enter your personal website URL.');
+    default: return '';
+  }
+}
+
 const statusOptions = ["online", "idle", "dnd", "offline"] as const;
 
 type SettingsObject = Record<string, any>;
@@ -69,6 +124,7 @@ export default function MobileSettingsSectionPage() {
   const params = useParams();
   const router = useRouter();
   const { user, updateUser } = useAuth();
+  const gt = useGT();
   const { applyUserSettingsPatch } = useTheme();
   const section = (params.section as string) || "privacy";
 
@@ -183,19 +239,19 @@ export default function MobileSettingsSectionPage() {
       if (response.ok) {
         const data = await response.json();
         updateUser(data.user || data);
-        toast.success("Profile saved successfully!");
+        toast.success(gt("Profile saved successfully!"));
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to save profile");
+        toast.error(data.error || gt("Failed to save profile"));
       }
     } catch {
-      toast.error("Failed to save profile");
+      toast.error(gt("Failed to save profile"));
     } finally {
       setIsSaving(false);
     }
   };
 
-  const title = sectionTitles[section] || "Settings";
+  const title = getSectionTitle(section, gt);
 
   const fetchAll = async () => {
     setIsLoading(true);
@@ -242,7 +298,7 @@ export default function MobileSettingsSectionPage() {
       }
     } catch (error) {
       console.error("Failed to load settings section:", error);
-      toast.error("Failed to load settings");
+      toast.error(gt("Failed to load settings"));
     } finally {
       setIsLoading(false);
     }
@@ -269,10 +325,10 @@ export default function MobileSettingsSectionPage() {
       setSettings((prev) => ({ ...(prev || {}), ...patch }));
       applyUserSettingsPatch(patch);
       if (patch.notifications) setUserNotificationSettings(patch.notifications);
-      toast.success("Settings saved");
+      toast.success(gt("Settings saved"));
     } catch (error) {
       console.error("Failed to save settings:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to save settings");
+      toast.error(error instanceof Error ? error.message : gt("Failed to save settings"));
     } finally {
       setIsSaving(false);
     }
@@ -293,9 +349,9 @@ export default function MobileSettingsSectionPage() {
               });
               if (response.ok) {
                 updateUser({ status: status as any });
-                toast.success(`Status set to ${status}`);
+                toast.success(gt("Status set to {status}", { status }));
               } else {
-                toast.error("Failed to update status");
+                toast.error(gt("Failed to update status"));
               }
             }}
             className={`w-full p-4 rounded-xl border text-left capitalize ${user?.status === status ? "bg-[var(--bg-active)] border-[var(--app-accent)] text-[var(--text-primary)]" : "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"}`}
@@ -328,26 +384,26 @@ export default function MobileSettingsSectionPage() {
         {section === "privacy" && settings && (
           <div className="space-y-4">
             <ToggleRow
-              label="Allow direct messages"
+              label={gt("Allow direct messages")}
               checked={settings.privacy?.directMessages === "everyone"}
               onChange={(checked) =>
                 saveSettings({ privacy: { ...(settings.privacy || {}), directMessages: checked ? "everyone" : "friends" } })
               }
             />
             <ToggleRow
-              label="Allow friend requests"
+              label={gt("Allow friend requests")}
               checked={settings.privacy?.friendRequests !== "none"}
               onChange={(checked) =>
                 saveSettings({ privacy: { ...(settings.privacy || {}), friendRequests: checked ? "everyone" : "none" } })
               }
             />
             <ToggleRow
-              label="Activity status"
+              label={gt("Activity status")}
               checked={Boolean(settings.privacy?.showActivity)}
               onChange={(checked) => saveSettings({ privacy: { ...(settings.privacy || {}), showActivity: checked } })}
             />
             <ToggleRow
-              label="Crash reports"
+              label={gt("Crash reports")}
               checked={Boolean(settings.dataPrivacy?.allowCrashReports)}
               onChange={(checked) => saveSettings({ dataPrivacy: { ...(settings.dataPrivacy || {}), allowCrashReports: checked } })}
             />
@@ -356,33 +412,33 @@ export default function MobileSettingsSectionPage() {
 
         {section === "notifications" && settings && (
           <div className="space-y-4">
-            <ToggleRow label="Desktop notifications" checked={Boolean(settings.notifications?.desktop)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), desktop: checked } })} />
-            <ToggleRow label="Sounds" checked={Boolean(settings.notifications?.sounds)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), sounds: checked } })} />
-            <ToggleRow label="Mentions" checked={Boolean(settings.notifications?.mentions)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), mentions: checked } })} />
-            <ToggleRow label="Direct messages" checked={Boolean(settings.notifications?.directMessages)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), directMessages: checked } })} />
-            <ToggleRow label="Do Not Disturb" checked={Boolean(settings.notifications?.dnd)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), dnd: checked } })} />
-            <ToggleRow label="Focus Mode" checked={Boolean(settings.notifications?.focusMode)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), focusMode: checked } })} />
-            <ToggleRow label="Mute @everyone" checked={Boolean(settings.notifications?.muteEveryone)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), muteEveryone: checked } })} />
-            <ToggleRow label="Show message preview" checked={settings.notifications?.showPreview !== false} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), showPreview: checked } })} />
+            <ToggleRow label={gt("Desktop notifications")} checked={Boolean(settings.notifications?.desktop)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), desktop: checked } })} />
+            <ToggleRow label={gt("Sounds")} checked={Boolean(settings.notifications?.sounds)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), sounds: checked } })} />
+            <ToggleRow label={gt("Mentions")} checked={Boolean(settings.notifications?.mentions)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), mentions: checked } })} />
+            <ToggleRow label={gt("Direct messages")} checked={Boolean(settings.notifications?.directMessages)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), directMessages: checked } })} />
+            <ToggleRow label={gt("Do Not Disturb")} checked={Boolean(settings.notifications?.dnd)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), dnd: checked } })} />
+            <ToggleRow label={gt("Focus Mode")} checked={Boolean(settings.notifications?.focusMode)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), focusMode: checked } })} />
+            <ToggleRow label={gt("Mute @everyone")} checked={Boolean(settings.notifications?.muteEveryone)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), muteEveryone: checked } })} />
+            <ToggleRow label={gt("Show message preview")} checked={settings.notifications?.showPreview !== false} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), showPreview: checked } })} />
           </div>
         )}
 
         {section === "appearance" && settings && (
           <div className="space-y-4">
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-              <label className="text-sm text-[var(--text-secondary)]">Theme</label>
+              <label className="text-sm text-[var(--text-secondary)]">{gt("Theme")}</label>
               <select
                 value={settings.appearance?.theme || settings.appearance?.themeStyle || "dark"}
                 onChange={(e) => saveSettings({ appearance: { ...(settings.appearance || {}), theme: e.target.value } })}
                 className="mt-2 w-full h-10 rounded-md bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] px-3 text-[var(--text-primary)]"
               >
-                <option value="dark">Dark</option>
-                <option value="midnight">Midnight</option>
-                <option value="light">Light</option>
+                <option value="dark">{gt("Dark")}</option>
+                <option value="midnight">{gt("Midnight")}</option>
+                <option value="light">{gt("Light")}</option>
               </select>
             </div>
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-              <label className="text-sm text-[var(--text-secondary)]">Accent Colour</label>
+              <label className="text-sm text-[var(--text-secondary)]">{gt("Accent Colour")}</label>
               <input
                 type="color"
                 value={settings.appearance?.accentColor || "#8B5CF6"}
@@ -392,17 +448,17 @@ export default function MobileSettingsSectionPage() {
             </div>
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
               <div className="flex items-center justify-between">
-                <label className="text-sm text-[var(--text-secondary)]">Text Colour</label>
+                <label className="text-sm text-[var(--text-secondary)]">{gt("Text Colour")}</label>
                 {(settings.appearance?.textColor || "").trim() && (
                   <button
                     onClick={() => saveSettings({ appearance: { ...(settings.appearance || {}), textColor: "" } })}
                     className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                   >
-                    Reset to default
+                    {gt("Reset to default")}
                   </button>
                 )}
               </div>
-              <p className="text-xs text-[var(--text-muted)] mt-1 mb-2">Override the default text color for the current theme.</p>
+              <p className="text-xs text-[var(--text-muted)] mt-1 mb-2">{gt("Override the default text color for the current theme.")}</p>
               <input
                 type="color"
                 value={settings.appearance?.textColor || "#d5d9e8"}
@@ -410,65 +466,48 @@ export default function MobileSettingsSectionPage() {
                 className="h-10 w-full rounded-md bg-transparent"
               />
             </div>
-            <ToggleRow label="Compact mode" checked={Boolean(settings.appearance?.compactMode)} onChange={(checked) => saveSettings({ appearance: { ...(settings.appearance || {}), compactMode: checked } })} />
+            <ToggleRow label={gt("Compact mode")} checked={Boolean(settings.appearance?.compactMode)} onChange={(checked) => saveSettings({ appearance: { ...(settings.appearance || {}), compactMode: checked } })} />
           </div>
         )}
 
         {section === "accessibility" && settings && (
           <div className="space-y-4">
-            <ToggleRow label="Reduced motion" checked={Boolean(settings.accessibility?.reducedMotion)} onChange={(checked) => saveSettings({ accessibility: { ...(settings.accessibility || {}), reducedMotion: checked } })} />
-            <ToggleRow label="High contrast" checked={Boolean(settings.accessibility?.highContrast)} onChange={(checked) => saveSettings({ accessibility: { ...(settings.accessibility || {}), highContrast: checked } })} />
-            <ToggleRow label="Dyslexic font" checked={Boolean(settings.accessibility?.dyslexicFont)} onChange={(checked) => saveSettings({ accessibility: { ...(settings.accessibility || {}), dyslexicFont: checked } })} />
+            <ToggleRow label={gt("Reduced motion")} checked={Boolean(settings.accessibility?.reducedMotion)} onChange={(checked) => saveSettings({ accessibility: { ...(settings.accessibility || {}), reducedMotion: checked } })} />
+            <ToggleRow label={gt("High contrast")} checked={Boolean(settings.accessibility?.highContrast)} onChange={(checked) => saveSettings({ accessibility: { ...(settings.accessibility || {}), highContrast: checked } })} />
+            <ToggleRow label={gt("Dyslexic font")} checked={Boolean(settings.accessibility?.dyslexicFont)} onChange={(checked) => saveSettings({ accessibility: { ...(settings.accessibility || {}), dyslexicFont: checked } })} />
           </div>
         )}
 
         {section === "voice" && settings && (
           <div className="space-y-4">
-            <ToggleRow label="Noise suppression" checked={Boolean(settings.voiceVideo?.noiseSuppression)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), noiseSuppression: checked } })} />
-            <ToggleRow label="Echo cancellation" checked={Boolean(settings.voiceVideo?.echoCancellation)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), echoCancellation: checked } })} />
-            <ToggleRow label="Push to talk" checked={Boolean(settings.voiceVideo?.pushToTalk)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), pushToTalk: checked } })} />
+            <ToggleRow label={gt("Noise suppression")} checked={Boolean(settings.voiceVideo?.noiseSuppression)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), noiseSuppression: checked } })} />
+            <ToggleRow label={gt("Echo cancellation")} checked={Boolean(settings.voiceVideo?.echoCancellation)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), echoCancellation: checked } })} />
+            <ToggleRow label={gt("Push to talk")} checked={Boolean(settings.voiceVideo?.pushToTalk)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), pushToTalk: checked } })} />
           </div>
         )}
 
         {section === "language" && settings && (
           <div className="space-y-4">
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-              <label className="text-sm text-[var(--text-secondary)]">Language</label>
-              <select
-                value={settings.language?.locale || "en-US"}
-                onChange={(e) => saveSettings({ language: { locale: e.target.value } })}
-                className="mt-2 w-full h-10 rounded-md bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] px-3 text-[var(--text-primary)]"
-              >
-                <option value="en-US">English (US)</option>
-                <option value="en-GB">English (UK)</option>
-                <option value="es-ES">Español</option>
-                <option value="fr-FR">Français</option>
-                <option value="de-DE">Deutsch</option>
-                <option value="ja-JP">日本語</option>
-                <option value="ko-KR">한국어</option>
-                <option value="zh-CN">中文 (简体)</option>
-                <option value="zh-TW">中文 (繁體)</option>
-                <option value="pt-BR">Português (Brasil)</option>
-                <option value="it-IT">Italiano</option>
-                <option value="ru-RU">Русский</option>
-              </select>
+              <label className="text-sm text-[var(--text-secondary)] mb-3 block"><T>Language</T></label>
+              <LocaleSelector />
             </div>
           </div>
         )}
 
         {section === "apps" && (
           <div className="space-y-3">
-            {apps.length === 0 ? <p className="text-[var(--text-secondary)] text-sm">No authorized apps.</p> : apps.map((app) => (
+            {apps.length === 0 ? <p className="text-[var(--text-secondary)] text-sm">{gt("No authorized apps.")}</p> : apps.map((app) => (
               <div key={app.id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 flex items-center justify-between">
                 <div>
                   <p className="text-[var(--text-primary)] font-medium">{app.name}</p>
-                  <p className="text-xs text-[var(--text-secondary)]">{app.description || "No description"}</p>
+                  <p className="text-xs text-[var(--text-secondary)]">{app.description || gt("No description")}</p>
                 </div>
                 <button
                   onClick={async () => {
                     await fetch(`/api/users/me/authorized-apps/${app.id}`, { method: "DELETE" });
                     setApps((prev) => prev.filter((a) => a.id !== app.id));
-                    toast.success("App access revoked");
+                    toast.success(gt("App access revoked"));
                   }}
                   className="p-2 rounded-md hover:bg-red-500/10 text-red-400"
                 >
@@ -481,8 +520,8 @@ export default function MobileSettingsSectionPage() {
 
         {section === "premium" && (
           <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
-            <p className="text-[var(--text-primary)] font-semibold">{user?.isPremium ? "Your Premium is Active" : "Premium is not active"}</p>
-            <p className="text-sm text-[var(--text-secondary)] mt-2">Premium unlocks profile cosmetics and extra media limits.</p>
+            <p className="text-[var(--text-primary)] font-semibold">{user?.isPremium ? gt("Your Premium is Active") : gt("Premium is not active")}</p>
+            <p className="text-sm text-[var(--text-secondary)] mt-2">{gt("Premium unlocks profile cosmetics and extra media limits.")}</p>
           </div>
         )}
 
@@ -491,7 +530,7 @@ export default function MobileSettingsSectionPage() {
             <textarea
               value={supportText}
               onChange={(e) => setSupportText(e.target.value)}
-              placeholder={section === "bug-report" ? "Describe the bug..." : "Write your message..."}
+              placeholder={section === "bug-report" ? gt("Describe the bug...") : gt("Write your message...")}
               className="w-full min-h-[140px] rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-[var(--text-primary)]"
             />
             <button
@@ -499,11 +538,11 @@ export default function MobileSettingsSectionPage() {
                 if (!supportText.trim()) return;
                 localStorage.setItem(`support-${section}-${Date.now()}`, supportText.trim());
                 setSupportText("");
-                toast.success("Submitted. Thank you.");
+                toast.success(gt("Submitted. Thank you."));
               }}
               className="px-4 py-2 rounded-md bg-[var(--app-accent)] text-white hover:opacity-90 transition-opacity"
             >
-              Submit
+              {gt("Submit")}
             </button>
           </div>
         )}
@@ -526,33 +565,33 @@ export default function MobileSettingsSectionPage() {
             </div>
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-3">
               <div>
-                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">Display Name</label>
-                <p className="text-sm text-[var(--text-primary)] mt-0.5">{user?.displayName || "Not set"}</p>
+                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">{gt("Display Name")}</label>
+                <p className="text-sm text-[var(--text-primary)] mt-0.5">{user?.displayName || gt("Not set")}</p>
               </div>
               <div>
-                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">Username</label>
+                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">{gt("Username")}</label>
                 <p className="text-sm text-[var(--text-primary)] mt-0.5">@{user?.username}</p>
               </div>
               <div>
-                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">Email</label>
-                <p className="text-sm text-[var(--text-primary)] mt-0.5">{user?.email || "Not set"}</p>
+                <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">{gt("Email")}</label>
+                <p className="text-sm text-[var(--text-primary)] mt-0.5">{user?.email || gt("Not set")}</p>
               </div>
               {user?.isPremium && (
                 <div>
-                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">Premium</label>
-                  <p className="text-sm text-[var(--app-accent)] mt-0.5">Active</p>
+                  <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">{gt("Premium")}</label>
+                  <p className="text-sm text-[var(--app-accent)] mt-0.5">{gt("Active")}</p>
                 </div>
               )}
             </div>
             <Link href="/channels/profile" className="block w-full text-center py-2.5 rounded-lg bg-[var(--app-accent)] text-white text-sm font-medium hover:opacity-90 transition-opacity">
-              Edit Profile
+              {gt("Edit Profile")}
             </Link>
           </div>
         )}
 
         {section === "apps" && (
           <div className="mt-6 space-y-3">
-            <h3 className="text-sm text-[var(--text-secondary)]">Connected Devices</h3>
+            <h3 className="text-sm text-[var(--text-secondary)]">{gt("Connected Devices")}</h3>
             {devices.map((device) => (
               <div key={device.id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 flex items-center justify-between">
                 <div>
@@ -564,18 +603,18 @@ export default function MobileSettingsSectionPage() {
                     onClick={async () => {
                       await fetch(`/api/users/me/devices/${device.id}`, { method: "DELETE" });
                       setDevices((prev) => prev.filter((d) => d.id !== device.id));
-                      toast.success("Device removed");
+                      toast.success(gt("Device removed"));
                     }}
                     className="text-red-400 text-xs"
                   >
-                    Revoke
+                    {gt("Revoke")}
                   </button>
                 )}
               </div>
             ))}
 
-            <h3 className="text-sm text-[var(--text-secondary)] pt-2">Connections</h3>
-            {connections.length === 0 ? <p className="text-xs text-[var(--text-muted)]">No social connections.</p> : connections.map((connection) => (
+            <h3 className="text-sm text-[var(--text-secondary)] pt-2">{gt("Connections")}</h3>
+            {connections.length === 0 ? <p className="text-xs text-[var(--text-muted)]">{gt("No social connections.")}</p> : connections.map((connection) => (
               <div key={connection.id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 flex items-center justify-between">
                 <div>
                   <p className="text-[var(--text-primary)] text-sm capitalize">{connection.provider}</p>
@@ -585,11 +624,11 @@ export default function MobileSettingsSectionPage() {
                   onClick={async () => {
                     await fetch(`/api/users/me/connections/${connection.id}`, { method: "DELETE" });
                     setConnections((prev) => prev.filter((c) => c.id !== connection.id));
-                    toast.success("Disconnected");
+                    toast.success(gt("Disconnected"));
                   }}
                   className="text-red-400 text-xs"
                 >
-                  Disconnect
+                  {gt("Disconnect")}
                 </button>
               </div>
             ))}
@@ -600,7 +639,7 @@ export default function MobileSettingsSectionPage() {
           <div className="space-y-6">
             {/* Avatar & Banner section */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
-              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Avatar & Banner</h3>
+              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Avatar & Banner")}</h3>
               
               <div className="space-y-4">
                 {/* Avatar preview and upload */}
@@ -624,8 +663,8 @@ export default function MobileSettingsSectionPage() {
                     </button>
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)]">Profile Avatar</h4>
-                    <p className="text-xs text-[var(--text-muted)] mt-0.5">Click image to upload new avatar</p>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)]">{gt("Profile Avatar")}</h4>
+                    <p className="text-xs text-[var(--text-muted)] mt-0.5">{gt("Click image to upload new avatar")}</p>
                     <input
                       ref={avatarInputRef}
                       type="file"
@@ -645,13 +684,13 @@ export default function MobileSettingsSectionPage() {
                           if (res.ok) {
                             const data = await res.json();
                             updateUser({ avatar: data.url });
-                            toast.success("Avatar updated!");
+                            toast.success(gt("Avatar updated!"));
                           } else {
                             const data = await res.json();
-                            toast.error(data.error || "Failed to upload avatar");
+                            toast.error(data.error || gt("Failed to upload avatar"));
                           }
                         } catch {
-                          toast.error("Failed to upload avatar");
+                          toast.error(gt("Failed to upload avatar"));
                         } finally {
                           setIsUploadingAvatar(false);
                         }
@@ -663,8 +702,8 @@ export default function MobileSettingsSectionPage() {
                 {/* Banner preview and upload */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-[var(--text-primary)]">Profile Banner</h4>
-                    <p className="text-xs text-[var(--text-muted)]">Click banner to upload</p>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)]">{gt("Profile Banner")}</h4>
+                    <p className="text-xs text-[var(--text-muted)]">{gt("Click banner to upload")}</p>
                   </div>
                   <div
                     onClick={() => bannerInputRef.current?.click()}
@@ -675,7 +714,7 @@ export default function MobileSettingsSectionPage() {
                     ) : (
                       <div className="flex flex-col items-center justify-center text-[var(--text-muted)] gap-1">
                         <Image className="w-6 h-6" />
-                        <span className="text-xs">No banner set</span>
+                        <span className="text-xs">{gt("No banner set")}</span>
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
@@ -705,13 +744,13 @@ export default function MobileSettingsSectionPage() {
                         if (res.ok) {
                           const data = await res.json();
                           updateUser({ banner: data.url });
-                          toast.success("Banner updated!");
+                          toast.success(gt("Banner updated!"));
                         } else {
                           const data = await res.json();
-                          toast.error(data.error || "Failed to upload banner");
+                          toast.error(data.error || gt("Failed to upload banner"));
                         }
                       } catch {
-                        toast.error("Failed to upload banner");
+                        toast.error(gt("Failed to upload banner"));
                       } finally {
                         setIsUploadingBanner(false);
                       }
@@ -723,12 +762,12 @@ export default function MobileSettingsSectionPage() {
 
             {/* Basic Info section */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
-              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Basic Info</h3>
+              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Basic Info")}</h3>
               
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                    Display Name
+                    {gt("Display Name")}
                   </label>
                   <input
                     type="text"
@@ -740,11 +779,11 @@ export default function MobileSettingsSectionPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                    Pronouns
+                    {gt("Pronouns")}
                   </label>
                   <input
                     type="text"
-                    placeholder="Add your pronouns"
+                    placeholder={gt("Add your pronouns")}
                     value={pronouns}
                     onChange={(e) => setPronouns(e.target.value)}
                     className="w-full h-11 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] px-3 text-sm focus:outline-none focus:border-[var(--app-accent)]"
@@ -753,14 +792,14 @@ export default function MobileSettingsSectionPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                    Timezone
+                    {gt("Timezone")}
                   </label>
                   <select
                     value={timezone}
                     onChange={(e) => setTimezone(e.target.value)}
                     className="w-full h-11 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] px-3 text-sm focus:outline-none focus:border-[var(--app-accent)]"
                   >
-                    <option value="">Select your timezone</option>
+                    <option value="">{gt("Select your timezone")}</option>
                     {Intl.supportedValuesOf("timeZone").map((tz) => (
                       <option key={tz} value={tz}>{tz}</option>
                     ))}
@@ -772,7 +811,7 @@ export default function MobileSettingsSectionPage() {
                       onChange={(e) => setShowTimezone(e.target.checked)}
                       className="w-4 h-4 rounded accent-[var(--app-accent)] bg-[var(--bg-app)] border-[var(--border-subtle)]"
                     />
-                    <span className="text-xs text-[var(--text-secondary)]">Display my current time on my profile</span>
+                    <span className="text-xs text-[var(--text-secondary)]">{gt("Display my current time on my profile")}</span>
                   </label>
                 </div>
               </div>
@@ -780,14 +819,14 @@ export default function MobileSettingsSectionPage() {
 
             {/* About Me section */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
-              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">About Me</h3>
+              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("About Me")}</h3>
               <div>
                 <textarea
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   maxLength={user?.isPremium ? 500 : 190}
                   className="w-full min-h-[100px] rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] p-3 text-sm focus:outline-none focus:border-[var(--app-accent)] resize-y"
-                  placeholder="Tell us about yourself..."
+                  placeholder={gt("Tell us about yourself...")}
                 />
                 <p className="text-xs text-[var(--text-muted)] text-right mt-1">{bio.length}/{user?.isPremium ? 500 : 190}</p>
               </div>
@@ -795,18 +834,18 @@ export default function MobileSettingsSectionPage() {
 
             {/* Status & Custom Status */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
-              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Status & Custom Status</h3>
+              <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Status & Custom Status")}</h3>
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                    Online Status
+                    {gt("Online Status")}
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { value: "online", label: "Online", color: "#23A559" },
-                      { value: "idle", label: "Idle", color: "#F0B232" },
-                      { value: "dnd", label: "Do Not Disturb", color: "#EF4444" },
-                      { value: "offline", label: "Invisible", color: "#888888" },
+                      { value: "online", label: gt("Online"), color: "#23A559" },
+                      { value: "idle", label: gt("Idle"), color: "#F0B232" },
+                      { value: "dnd", label: gt("Do Not Disturb"), color: "#EF4444" },
+                      { value: "offline", label: gt("Invisible"), color: "#888888" },
                     ].map((opt) => (
                       <button
                         key={opt.value}
@@ -828,14 +867,14 @@ export default function MobileSettingsSectionPage() {
 
                 <div>
                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                    Custom Status
+                    {gt("Custom Status")}
                   </label>
                   <input
                     type="text"
                     value={customStatus}
                     onChange={(e) => setCustomStatus(e.target.value)}
                     maxLength={128}
-                    placeholder="What's on your mind?"
+                    placeholder={gt("What's on your mind?")}
                     className="w-full h-11 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] px-3 text-sm focus:outline-none focus:border-[var(--app-accent)]"
                   />
                 </div>
@@ -845,27 +884,27 @@ export default function MobileSettingsSectionPage() {
             {/* Display Name Style */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Display Name Style</h3>
+                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Display Name Style")}</h3>
                 <button
                   onClick={() => setDisplayNameStyle({ font: "default", effect: "solid", color: "", gradient: [] })}
                   className="text-xs text-[var(--app-accent)] flex items-center gap-1 hover:underline"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" /> Reset
+                  <RotateCcw className="w-3.5 h-3.5" /> {gt("Reset")}
                 </button>
               </div>
 
               <div className="space-y-4">
                 {/* Font */}
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Choose Font</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">{gt("Choose Font")}</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { value: "default", label: "Default" },
-                      { value: "serif", label: "Serif" },
-                      { value: "mono", label: "Mono" },
-                      { value: "rounded", label: "Rounded" },
-                      { value: "cursive", label: "Cursive" },
-                      { value: "bold", label: "Bold" },
+                      { value: "default", label: gt("Default") },
+                      { value: "serif", label: gt("Serif") },
+                      { value: "mono", label: gt("Mono") },
+                      { value: "rounded", label: gt("Rounded") },
+                      { value: "cursive", label: gt("Cursive") },
+                      { value: "bold", label: gt("Bold") },
                     ].map((f) => {
                       const isSelected = displayNameStyle.font === f.value;
                       return (
@@ -891,14 +930,14 @@ export default function MobileSettingsSectionPage() {
 
                 {/* Effect */}
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Choose Effect</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">{gt("Choose Effect")}</label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
-                      { value: "solid", label: "Solid" },
-                      { value: "gradient", label: "Gradient" },
-                      { value: "neon", label: "Neon" },
-                      { value: "toon", label: "Toon" },
-                      { value: "pop", label: "Pop" },
+                      { value: "solid", label: gt("Solid") },
+                      { value: "gradient", label: gt("Gradient") },
+                      { value: "neon", label: gt("Neon") },
+                      { value: "toon", label: gt("Toon") },
+                      { value: "pop", label: gt("Pop") },
                     ].map((eff) => {
                       const isSelected = displayNameStyle.effect === eff.value;
                       return (
@@ -927,7 +966,7 @@ export default function MobileSettingsSectionPage() {
 
                 {/* Colours / Presets */}
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Colour Preset</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">{gt("Colour Preset")}</label>
                   {displayNameStyle.effect === "gradient" ? (
                     <div className="space-y-3">
                       {/* Custom gradient bar */}
@@ -936,7 +975,7 @@ export default function MobileSettingsSectionPage() {
                         const g1 = displayNameStyle.gradient?.[1] || "#EC4899";
                         return (
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                            <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
                             <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
                               <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                                 <input type="color" value={g0} onChange={(e) => setDisplayNameStyle((s) => ({ ...s, gradient: [e.target.value, s.gradient?.[1] || "#EC4899"] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
@@ -1018,8 +1057,8 @@ export default function MobileSettingsSectionPage() {
             {/* Nameplate */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
               <div>
-                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Nameplate</h3>
-                <p className="text-xs text-[var(--text-muted)] mt-1">A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.</p>
+                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Nameplate")}</h3>
+                <p className="text-xs text-[var(--text-muted)] mt-1">{gt("A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.")}</p>
               </div>
 
               {/* Live preview */}
@@ -1043,10 +1082,10 @@ export default function MobileSettingsSectionPage() {
               {/* Type selector — segmented */}
               <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                 {([
-                  { id: "none", label: "None" },
-                  { id: "color", label: "Solid" },
-                  { id: "gradient", label: "Gradient" },
-                  { id: "preset", label: "Presets" },
+                  { id: "none", label: gt("None") },
+                  { id: "color", label: gt("Solid") },
+                  { id: "gradient", label: gt("Gradient") },
+                  { id: "preset", label: gt("Presets") },
                 ] as const).map((opt) => (
                   <button
                     key={opt.id}
@@ -1095,7 +1134,7 @@ export default function MobileSettingsSectionPage() {
                 return (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                      <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
                       <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
                         <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                           <input type="color" value={g0} onChange={(e) => setNameplate((n) => ({ ...n, type: "gradient", gradient: [e.target.value, g1] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
@@ -1157,7 +1196,7 @@ export default function MobileSettingsSectionPage() {
             {/* Profile Theme Colour */}
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Profile Theme</h3>
+                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Profile Theme")}</h3>
                 <button
                   onClick={() => {
                     setProfileColor("");
@@ -1174,13 +1213,13 @@ export default function MobileSettingsSectionPage() {
                   }}
                   className="text-xs text-[var(--app-accent)] flex items-center gap-1 hover:underline"
                 >
-                  <RotateCcw className="w-3.5 h-3.5" /> Reset
+                  <RotateCcw className="w-3.5 h-3.5" /> {gt("Reset")}
                 </button>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Theme Colour</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">{gt("Theme Colour")}</label>
                   <div className="flex flex-wrap gap-2">
                     <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all shrink-0 border border-white/20" style={{ backgroundColor: profileColor || "#8B5CF6" }}>
                       <input
@@ -1219,7 +1258,7 @@ export default function MobileSettingsSectionPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Gradient Background (Optional)</label>
+                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">{gt("Gradient Background (Optional)")}</label>
                   <div className="flex flex-wrap gap-2 mb-4">
                     {[
                       ["#FF3366", "#FFD12A"], ["#00E676", "#00B0FF"], ["#D500F9", "#FF1744"], ["#1DE9B6", "#3D5AFE"],
@@ -1252,7 +1291,7 @@ export default function MobileSettingsSectionPage() {
                   const g1 = profileGradient?.[1] || "#EC4899";
                   return (
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                      <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
                       <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(135deg, ${g0}, ${g1})` }}>
                         <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                           <input type="color" value={g0} onChange={(e) => setProfileGradient([e.target.value, g1])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
@@ -1267,14 +1306,14 @@ export default function MobileSettingsSectionPage() {
 
                 {/* Premium Card Effects */}
                 <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
-                  <h3 className="text-sm font-bold text-[var(--text-primary)] mb-3">Premium Card Effect</h3>
+                  <h3 className="text-sm font-bold text-[var(--text-primary)] mb-3">{gt("Premium Card Effect")}</h3>
                   <div className="grid grid-cols-2 gap-3 mb-6">
                     {[
-                      { id: 'normal', name: 'Normal', desc: 'Default profile styling' },
-                      { id: 'glassmorphism', name: 'Glassmorphism', desc: 'Frosted glass look' },
-                      { id: 'glow', name: 'Outer Glow', desc: 'Luminous ambient aura' },
-                      { id: 'neon', name: 'Neon Border', desc: 'Vibrant neon edges' },
-                      { id: 'holographic', name: 'Holographic', desc: 'Animated color shift' }
+                      { id: 'normal', name: gt('Normal'), desc: gt('Default profile styling') },
+                      { id: 'glassmorphism', name: gt('Glassmorphism'), desc: gt('Frosted glass look') },
+                      { id: 'glow', name: gt('Outer Glow'), desc: gt('Luminous ambient aura') },
+                      { id: 'neon', name: gt('Neon Border'), desc: gt('Vibrant neon edges') },
+                      { id: 'holographic', name: gt('Holographic'), desc: gt('Animated color shift') }
                     ].map((effect) => {
                       const isSelected = profileCardEffect === effect.id;
                       return (
@@ -1304,7 +1343,7 @@ export default function MobileSettingsSectionPage() {
                     <div className="grid grid-cols-2 gap-4 p-4 bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-lg mb-6">
                       <div>
                         <div className="flex justify-between items-center mb-2">
-                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Backdrop Blur</label>
+                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">{gt("Backdrop Blur")}</label>
                           <span className="text-xs font-mono text-[var(--text-muted)]">{profileCardBlur}px</span>
                         </div>
                         <input 
@@ -1318,7 +1357,7 @@ export default function MobileSettingsSectionPage() {
                       </div>
                       <div>
                         <div className="flex justify-between items-center mb-2">
-                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Card Opacity</label>
+                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">{gt("Card Opacity")}</label>
                           <span className="text-xs font-mono text-[var(--text-muted)]">{Math.round(profileCardOpacity * 100)}%</span>
                         </div>
                         <input 
@@ -1345,7 +1384,7 @@ export default function MobileSettingsSectionPage() {
                           className="rounded border-[var(--border-subtle)] text-[var(--app-accent)] focus:ring-[var(--app-accent)] bg-transparent"
                         />
                         <label htmlFor="borderGlow" className="text-xs font-bold text-[var(--text-primary)] cursor-pointer">
-                          Enable Border Glow
+                          {gt("Enable Border Glow")}
                         </label>
                       </div>
                       {profileCardBorderColor && (
@@ -1354,7 +1393,7 @@ export default function MobileSettingsSectionPage() {
                           onClick={() => setProfileCardBorderColor("")} 
                           className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-[10px]"
                         >
-                          Reset Colour
+                          {gt("Reset Colour")}
                         </button>
                       )}
                     </div>
@@ -1362,7 +1401,7 @@ export default function MobileSettingsSectionPage() {
                     <div className="grid grid-cols-2 gap-4 font-medium text-xs">
                       <div>
                         <div className="flex justify-between items-center mb-2">
-                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">Border Width</label>
+                          <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">{gt("Border Width")}</label>
                           <span className="text-xs font-mono text-[var(--text-muted)]">{profileCardBorderWidth}px</span>
                         </div>
                         <input 
@@ -1375,7 +1414,7 @@ export default function MobileSettingsSectionPage() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">Border Colour</label>
+                        <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">{gt("Border Colour")}</label>
                         <div className="flex items-center gap-2">
                           <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all border border-[var(--border-subtle)]" style={{ backgroundColor: profileCardBorderColor || '#ffffff' }}>
                             <input
@@ -1386,7 +1425,7 @@ export default function MobileSettingsSectionPage() {
                             />
                           </label>
                           <span className="text-xs font-mono text-[var(--text-muted)] select-all">
-                            {profileCardBorderColor ? profileCardBorderColor.toUpperCase() : "MATCH THEME"}
+                            {profileCardBorderColor ? profileCardBorderColor.toUpperCase() : gt("MATCH THEME")}
                           </span>
                         </div>
                       </div>
@@ -1403,7 +1442,7 @@ export default function MobileSettingsSectionPage() {
               className="w-full py-3 rounded-lg bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 transition-opacity active:scale-[0.99] flex items-center justify-center gap-2"
             >
               {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              Save Changes
+              {gt("Save Changes")}
             </button>
           </div>
         )}
@@ -1414,20 +1453,20 @@ export default function MobileSettingsSectionPage() {
               <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-3">
                 <Lock className="w-5 h-5 text-yellow-400 shrink-0" />
                 <div>
-                  <p className="text-yellow-400 font-semibold text-sm">Connections are temporarily disabled</p>
-                  <p className="text-yellow-400/70 text-xs">Account linking has been turned off by staff. You can still disconnect existing accounts.</p>
+                  <p className="text-yellow-400 font-semibold text-sm">{gt("Connections are temporarily disabled")}</p>
+                  <p className="text-yellow-400/70 text-xs">{gt("Account linking has been turned off by staff. You can still disconnect existing accounts.")}</p>
                 </div>
               </div>
             )}
             <p className="text-sm text-[var(--text-muted)]">
-              Connect your accounts to display them on your profile.
+              {gt("Connect your accounts to display them on your profile.")}
             </p>
             {CONNECTION_CATEGORIES.map((cat) => {
               const catProviders = CONNECTION_PROVIDERS.filter((p) => p.category === cat.id);
               return (
                 <div key={cat.id} className="space-y-3">
                   <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider px-1">
-                    {cat.label}
+                    {connectionCategoryLabel(cat.id, gt)}
                   </h3>
                   <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-card)] divide-y divide-[var(--border-subtle)]">
                     {catProviders.map((prov) => {
@@ -1454,14 +1493,14 @@ export default function MobileSettingsSectionPage() {
                                     {conn.displayName || conn.username || conn.accountId}
                                   </p>
                                 ) : (
-                                  <p className="text-xs text-[var(--text-muted)]">{prov.hint}</p>
+                                  <p className="text-xs text-[var(--text-muted)]">{connectionProviderHint(prov.id, gt)}</p>
                                 )}
                               </div>
                             </div>
                             {conn ? (
                               prov.id === "serika" || prov.id === "discord" ? (
                                 <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
-                                  Managed
+                                  {gt("Managed")}
                                 </span>
                               ) : (
                                 <button
@@ -1469,26 +1508,26 @@ export default function MobileSettingsSectionPage() {
                                     const res = await fetch(`/api/users/me/connections/${conn.id}`, { method: "DELETE" });
                                     if (res.ok) {
                                       setConnections((prev) => prev.filter((c) => c.id !== conn.id));
-                                      toast.success(`${prov.label} disconnected`);
+                                      toast.success(gt("{provider} disconnected", { provider: prov.label }));
                                     } else {
-                                      toast.error("Failed to disconnect");
+                                      toast.error(gt("Failed to disconnect"));
                                     }
                                   }}
                                   className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                                 >
-                                  Disconnect
+                                  {gt("Disconnect")}
                                 </button>
                               )
                             ) : prov.id === "serika" || prov.id === "discord" ? (
                               <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
-                                Managed
+                                {gt("Managed")}
                               </span>
                             ) : disabledProviders.includes(prov.id) ? (
                               <button
                                 disabled
                                 className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400/50 cursor-not-allowed border border-red-500/20"
                               >
-                                Disabled
+                                {gt("Disabled")}
                               </button>
                             ) : connectionsEnabled ? (
                               prov.id === "website" ? (
@@ -1500,7 +1539,7 @@ export default function MobileSettingsSectionPage() {
                                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90"
                                   style={{ backgroundColor: prov.color }}
                                 >
-                                  {isExpanded ? "Cancel" : "Connect"}
+                                  {isExpanded ? gt("Cancel") : gt("Connect")}
                                 </button>
                               ) : (
                                 <a
@@ -1508,7 +1547,7 @@ export default function MobileSettingsSectionPage() {
                                   className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90 inline-block"
                                   style={{ backgroundColor: prov.color }}
                                 >
-                                  Connect
+                                  {gt("Connect")}
                                 </a>
                               )
                             ) : (
@@ -1516,14 +1555,14 @@ export default function MobileSettingsSectionPage() {
                                 disabled
                                 className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/[0.04] text-[#555] cursor-not-allowed"
                               >
-                                Connect
+                                {gt("Connect")}
                               </button>
                             )}
                           </div>
 
                           {conn && (
                             <div className="flex items-center justify-between pt-2 border-t border-[var(--border-subtle)]/40">
-                              <span className="text-xs text-[var(--text-muted)]">Show on profile</span>
+                              <span className="text-xs text-[var(--text-muted)]">{gt("Show on profile")}</span>
                               <ToggleSwitch
                                 size="sm"
                                 checked={conn.visible !== false}
@@ -1539,12 +1578,12 @@ export default function MobileSettingsSectionPage() {
                                       setConnections((prev) =>
                                         prev.map((c) => (c.id === conn.id ? data.connection : c))
                                       );
-                                      toast.success("Visibility updated");
+                                      toast.success(gt("Visibility updated"));
                                     } else {
-                                      toast.error("Failed to update visibility");
+                                      toast.error(gt("Failed to update visibility"));
                                     }
                                   } catch {
-                                    toast.error("Failed to update visibility");
+                                    toast.error(gt("Failed to update visibility"));
                                   }
                                 }}
                               />
@@ -1572,20 +1611,20 @@ export default function MobileSettingsSectionPage() {
                                     if (res.ok) {
                                       const data = await res.json();
                                       setConnections((prev) => [data.connection, ...prev.filter((c) => c.provider !== "website")]);
-                                      toast.success("Website connected");
+                                      toast.success(gt("Website connected"));
                                       setConnectingProvider(null);
                                       setConnectingValue("");
                                     } else {
                                       const err = await res.json().catch(() => ({}));
-                                      toast.error(err.error || "Failed to connect");
+                                      toast.error(err.error || gt("Failed to connect"));
                                     }
                                   } catch {
-                                    toast.error("Failed to connect");
+                                    toast.error(gt("Failed to connect"));
                                   }
                                 }}
                                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--app-accent)] text-white hover:opacity-90 transition-opacity"
                               >
-                                Save
+                                {gt("Save")}
                               </button>
                             </div>
                           )}
@@ -1603,7 +1642,7 @@ export default function MobileSettingsSectionPage() {
       {isSaving && (
         <div className="absolute bottom-6 right-6 px-3 py-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" />
-          Saving...
+          {gt("Saving...")}
         </div>
       )}
     </div>

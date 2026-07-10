@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withGTConfig } from "gt-next/config";
 
 const isMobileBuild = process.env.MOBILE_BUILD === '1';
 
@@ -116,4 +117,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withGTConfig(nextConfig);

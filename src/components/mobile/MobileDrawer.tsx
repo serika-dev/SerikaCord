@@ -21,6 +21,7 @@ import {
     MessageSquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface DrawerItem {
     icon: React.ElementType;
@@ -51,6 +52,7 @@ export function MobileDrawer({
 }: MobileDrawerProps) {
     const router = useRouter();
     const { user, logout } = useAuth();
+    const gt = useGT();
 
     // Prevent body scroll when drawer is open
     useEffect(() => {
@@ -89,7 +91,7 @@ export function MobileDrawer({
     const quickActions: DrawerItem[] = [
         {
             icon: Plus,
-            label: "Create Server",
+            label: gt("Create Server"),
             onClick: () => {
                 onCreateServer?.();
                 onClose();
@@ -97,7 +99,7 @@ export function MobileDrawer({
         },
         {
             icon: Users,
-            label: "Add Friend",
+            label: gt("Add Friend"),
             onClick: () => {
                 onAddFriend?.();
                 onClose();
@@ -107,29 +109,29 @@ export function MobileDrawer({
 
     const settingsSections: DrawerSection[] = [
         {
-            title: "Account",
+            title: gt("Account"),
             items: [
-                { icon: User, label: "My Account", href: "/channels/settings/account" },
-                { icon: Bell, label: "Notifications", href: "/channels/settings/notifications" },
-                { icon: Shield, label: "Privacy & Safety", href: "/channels/settings/privacy" },
+                { icon: User, label: gt("My Account"), href: "/channels/settings/account" },
+                { icon: Bell, label: gt("Notifications"), href: "/channels/settings/notifications" },
+                { icon: Shield, label: gt("Privacy & Safety"), href: "/channels/settings/privacy" },
             ],
         },
         {
-            title: "App Settings",
+            title: gt("App Settings"),
             items: [
-                { icon: Palette, label: "Appearance", href: "/channels/settings/appearance" },
+                { icon: Palette, label: gt("Appearance"), href: "/channels/settings/appearance" },
                 {
                     icon: Sparkles,
-                    label: "SerikaCord Premium",
+                    label: gt("SerikaCord Premium"),
                     href: "/channels/settings/premium",
-                    badge: user?.isPremium ? "Active" : undefined,
+                    badge: user?.isPremium ? gt("Active") : undefined,
                 },
             ],
         },
         {
-            title: "Support",
+            title: gt("Support"),
             items: [
-                { icon: HelpCircle, label: "Help & Support", href: "/channels/settings/help" },
+                { icon: HelpCircle, label: gt("Help & Support"), href: "/channels/settings/help" },
             ],
         },
     ];
@@ -155,13 +157,13 @@ export function MobileDrawer({
                 className={cn("mobile-drawer", isOpen && "open")}
                 role="dialog"
                 aria-modal="true"
-                aria-label="Navigation menu"
+                aria-label={gt("Navigation menu")}
             >
                 {/* Close Button */}
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 p-2 rounded-xl hover:bg-[var(--bg-hover)] transition-colors z-10"
-                    aria-label="Close menu"
+                    aria-label={gt("Close menu")}
                 >
                     <X className="w-5 h-5 text-[var(--text-muted)]" />
                 </button>
@@ -256,7 +258,7 @@ export function MobileDrawer({
                             className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-red-500/10 transition-all active:scale-[0.98] text-red-400"
                         >
                             <LogOut className="w-5 h-5" />
-                            <span className="flex-1 text-left font-medium">Log Out</span>
+                            <span className="flex-1 text-left font-medium">{gt("Log Out")}</span>
                             <ChevronRight className="w-4 h-4 text-red-400/50" />
                         </button>
 

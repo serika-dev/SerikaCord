@@ -30,6 +30,8 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
+import { statusLabelInvisible } from "@/lib/statusLabels";
 
 const STATUS_COLORS: Record<string, string> = {
   online: "#23A559",
@@ -44,6 +46,8 @@ const STATUS_LABELS: Record<string, string> = {
   dnd: "Do Not Disturb",
   offline: "Invisible",
 };
+
+// STATUS_LABELS is static; we'll use gt() at render time instead
 
 interface SettingsItem {
   icon: React.ElementType;
@@ -63,6 +67,7 @@ interface SettingsSection {
 export function MobileProfileView() {
   const router = useRouter();
   const { user, logout } = useAuth();
+  const gt = useGT();
 
   const status = user?.status ?? "offline";
   const displayName = user?.displayName || user?.username || "";
@@ -82,40 +87,40 @@ export function MobileProfileView() {
 
   const settingsSections: SettingsSection[] = [
     {
-      title: "Account",
+      title: gt("Account"),
       items: [
-        { icon: User, label: "My Account", href: "/channels/settings/account" },
-        { icon: LinkIcon, label: "Connections", href: "/channels/settings/connections" },
-        { icon: Shield, label: "Privacy & Safety", href: "/channels/settings/privacy" },
-        { icon: Lock, label: "Authorized Apps", href: "/channels/settings/apps" },
+        { icon: User, label: gt("My Account"), href: "/channels/settings/account" },
+        { icon: LinkIcon, label: gt("Connections"), href: "/channels/settings/connections" },
+        { icon: Shield, label: gt("Privacy & Safety"), href: "/channels/settings/privacy" },
+        { icon: Lock, label: gt("Authorized Apps"), href: "/channels/settings/apps" },
       ],
     },
     {
-      title: "App Settings",
+      title: gt("App Settings"),
       items: [
-        { icon: Bell, label: "Notifications", href: "/channels/settings/notifications" },
-        { icon: Palette, label: "Appearance", href: "/channels/settings/appearance" },
-        { icon: Accessibility, label: "Accessibility", href: "/channels/settings/accessibility" },
-        { icon: Volume2, label: "Voice & Video", href: "/channels/settings/voice" },
-        { icon: Languages, label: "Language", href: "/channels/settings/language" },
+        { icon: Bell, label: gt("Notifications"), href: "/channels/settings/notifications" },
+        { icon: Palette, label: gt("Appearance"), href: "/channels/settings/appearance" },
+        { icon: Accessibility, label: gt("Accessibility"), href: "/channels/settings/accessibility" },
+        { icon: Volume2, label: gt("Voice & Video"), href: "/channels/settings/voice" },
+        { icon: Languages, label: gt("Language"), href: "/channels/settings/language" },
       ],
     },
     {
-      title: "Premium",
+      title: gt("Premium"),
       items: [
         {
           icon: Sparkles,
-          label: "SerikaCord Premium",
+          label: gt("SerikaCord Premium"),
           href: "/channels/settings/premium",
-          badge: user?.isPremium ? "Active" : "Upgrade",
+          badge: user?.isPremium ? gt("Active") : gt("Upgrade"),
         },
       ],
     },
     {
-      title: "Support",
+      title: gt("Support"),
       items: [
-        { icon: HelpCircle, label: "Help & Support", onClick: () => openExternal("https://serika.cc/serika") },
-        { icon: MessageSquare, label: "Feedback & Bug Reports", onClick: () => openExternal("https://serika.cc/serika") },
+        { icon: HelpCircle, label: gt("Help & Support"), onClick: () => openExternal("https://serika.cc/serika") },
+        { icon: MessageSquare, label: gt("Feedback & Bug Reports"), onClick: () => openExternal("https://serika.cc/serika") },
       ],
     },
   ];
@@ -153,7 +158,7 @@ export function MobileProfileView() {
                 <span
                   className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full border-4 border-[var(--bg-app)]"
                   style={{ backgroundColor: STATUS_COLORS[status] }}
-                  title={STATUS_LABELS[status]}
+                  title={statusLabelInvisible(status, gt)}
                 />
               </div>
 
@@ -174,7 +179,7 @@ export function MobileProfileView() {
               {/* Online status pill */}
               <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)]">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
-                <span className="text-sm font-semibold text-[var(--text-primary)]">{STATUS_LABELS[status]}</span>
+                <span className="text-sm font-semibold text-[var(--text-primary)]">{statusLabelInvisible(status, gt)}</span>
               </div>
 
               {/* Badges */}
@@ -193,14 +198,14 @@ export function MobileProfileView() {
               className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--app-accent)] text-white text-sm font-semibold shadow-lg shadow-[var(--app-accent)]/20 active:scale-[0.98] transition-transform"
             >
               <Palette className="w-4 h-4" />
-              Customize Profile
+              {gt("Customize Profile")}
             </button>
             <button
               onClick={() => router.push("/channels/settings/status")}
               className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm font-semibold active:scale-[0.98] transition-transform"
             >
               <User className="w-4 h-4" />
-              Set Status
+              {gt("Set Status")}
             </button>
           </div>
 
@@ -238,7 +243,7 @@ export function MobileProfileView() {
                         {item.badge && (
                           <span className={cn(
                             "px-2.5 py-1 rounded-full text-xs font-bold",
-                            item.badge === "Active"
+                            item.badge === gt("Active")
                               ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)]"
                               : "bg-[#F59E0B]/20 text-[#F59E0B]"
                           )}>
@@ -265,7 +270,7 @@ export function MobileProfileView() {
                 <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-red-500/10 text-red-500 shrink-0">
                   <LogOut className="w-[18px] h-[18px]" />
                 </span>
-                <span className="flex-1 text-left font-medium">Log Out</span>
+                <span className="flex-1 text-left font-medium">{gt("Log Out")}</span>
                 <ChevronRight className="w-4 h-4 text-red-500/50" />
               </button>
             </div>

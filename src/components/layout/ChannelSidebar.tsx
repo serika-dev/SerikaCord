@@ -56,6 +56,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { ChannelSettingsDialog } from "@/components/dialogs/ChannelSettingsDialog";
+import { T, useGT } from "gt-next";
 import { toast } from "sonner";
 
 interface DMChannel {
@@ -104,6 +105,7 @@ export function ChannelSidebar({
   const { user } = useAuth();
   const router = useRouter();
   const { can, isAdmin } = usePermissions(currentServer?.id);
+  const gt = useGT();
   const canManageChannels = can("MANAGE_CHANNELS");
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
@@ -257,9 +259,9 @@ export function ChannelSidebar({
 
     try {
       await reorderChannels(currentServer.id, updates);
-      toast.success(`Moved #${draggedChannel.name}`);
+      toast.success(gt("Moved #{name}", { name: draggedChannel.name }));
     } catch (err) {
-      toast.error("Failed to move channel");
+      toast.error(gt("Failed to move channel"));
     }
     setDraggedChannel(null);
   };
@@ -341,9 +343,9 @@ export function ChannelSidebar({
 
     try {
       await reorderChannels(currentServer.id, updates);
-      toast.success(`Moved ${draggedChannel.type === "category" ? "" : "#"}${draggedChannel.name}`);
+      toast.success(gt("Moved {name}", { name: `${draggedChannel.type === "category" ? "" : "#"}${draggedChannel.name}` }));
     } catch (err) {
-      toast.error("Failed to move channel");
+      toast.error(gt("Failed to move channel"));
     }
     setDraggedChannel(null);
   };
@@ -367,9 +369,9 @@ export function ChannelSidebar({
 
       try {
         await reorderChannels(currentServer.id, updates);
-        toast.success(`Moved category ${draggedChannel.name} to bottom`);
+        toast.success(gt("Moved category {name} to bottom", { name: draggedChannel.name }));
       } catch (err) {
-        toast.error("Failed to move category");
+        toast.error(gt("Failed to move category"));
       }
     } else {
       const targetCategory = categories.length > 0 ? categories[categories.length - 1] : null;
@@ -392,23 +394,23 @@ export function ChannelSidebar({
 
       try {
         await reorderChannels(currentServer.id, updates);
-        toast.success(`Moved #${draggedChannel.name} to bottom`);
+        toast.success(gt("Moved #{name} to bottom", { name: draggedChannel.name }));
       } catch (err) {
-        toast.error("Failed to move channel");
+        toast.error(gt("Failed to move channel"));
       }
     }
     setDraggedChannel(null);
   };
 
   const handleDeleteChannel = async () => {
-    if (contextMenu?.channel && confirm(`Are you sure you want to delete #${contextMenu.channel.name}?`)) {
+    if (contextMenu?.channel && confirm(gt("Are you sure you want to delete #{channel}?", { channel: contextMenu.channel.name }))) {
       try {
         await deleteChannel(contextMenu.channel.id);
         closeContextMenu();
-        toast.success("Channel deleted");
+        toast.success(gt("Channel deleted"));
       } catch (error) {
         console.error("Failed to delete channel:", error);
-        toast.error("Failed to delete channel");
+        toast.error(gt("Failed to delete channel"));
       }
     }
   };
@@ -417,7 +419,7 @@ export function ChannelSidebar({
     if (contextMenu?.channel) {
       navigator.clipboard.writeText(contextMenu.channel.id);
       closeContextMenu();
-      toast.success("Channel ID copied");
+      toast.success(gt("Channel ID copied"));
     }
   };
 
@@ -426,7 +428,7 @@ export function ChannelSidebar({
       const link = `${window.location.origin}/channels/${currentServer.id}/${contextMenu.channel.id}`;
       navigator.clipboard.writeText(link);
       closeContextMenu();
-      toast.success("Channel link copied");
+      toast.success(gt("Channel link copied"));
     }
   };
 
@@ -921,7 +923,7 @@ export function ChannelSidebar({
         {/* DM Header */}
         <div className="h-12 px-3 flex items-center border-b border-[var(--border-subtle)] shrink-0">
           <button className="w-full h-7 px-2.5 rounded-md bg-[var(--bg-sidebar-elevated)] text-[var(--text-muted)] text-sm text-left hover:brightness-110 transition-all truncate">
-            Find or start a conversation
+            {gt("Find or start a conversation")}
           </button>
         </div>
 
@@ -937,7 +939,7 @@ export function ChannelSidebar({
             )}
           >
             <Users className="w-5 h-5 shrink-0" />
-            <span className="font-medium truncate">Friends</span>
+            <span className="font-medium truncate"><T>Friends</T></span>
           </Link>
         </div>
 
@@ -946,7 +948,7 @@ export function ChannelSidebar({
           <div className="px-2 py-1">
             <div className="px-2 mb-1 flex items-center justify-between">
               <span className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide">
-                Direct Messages
+                <T>Direct Messages</T>
               </span>
               <button className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0">
                 <PlusCircle className="w-4 h-4" />
@@ -1098,7 +1100,7 @@ export function ChannelSidebar({
                 className="text-[var(--app-accent)] focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
               >
                 <UserPlus className="w-4 h-4 mr-2" />
-                Invite People
+                {gt("Invite People")}
               </DropdownMenuItem>
               <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
             </>
@@ -1109,7 +1111,7 @@ export function ChannelSidebar({
               className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
             >
               <Settings className="w-4 h-4 mr-2" />
-              Server Settings
+              {gt("Server Settings")}
             </DropdownMenuItem>
           )}
           {canManageChannels && (
@@ -1119,37 +1121,37 @@ export function ChannelSidebar({
                 className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
               >
                 <PlusCircle className="w-4 h-4 mr-2" />
-                Create Channel
+                {gt("Create Channel")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onCreateChannel?.("category")}
                 className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
               >
                 <Folder className="w-4 h-4 mr-2" />
-                Create Category
+                {gt("Create Category")}
               </DropdownMenuItem>
             </>
           )}
           {canManageAny && <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />}
           <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
             <Bell className="w-4 h-4 mr-2" />
-            Notification Settings
+            {gt("Notification Settings")}
           </DropdownMenuItem>
           <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
             <Shield className="w-4 h-4 mr-2" />
-            Privacy Settings
+            {gt("Privacy Settings")}
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
           <DropdownMenuItem
             onClick={async () => {
-              if (currentServer && confirm(`Are you sure you want to leave ${currentServer.name}?`)) {
+              if (currentServer && confirm(gt("Are you sure you want to leave {server}?", { server: currentServer.name }))) {
                 await leaveServer(currentServer.id);
               }
             }}
             className="text-red-500 focus:bg-red-500 focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <LogOut className="w-4 h-4 mr-2" />
-            Leave Server
+            {gt("Leave Server")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -1289,7 +1291,7 @@ export function ChannelSidebar({
               className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
             >
               <Edit2 className="w-4 h-4" />
-              Edit Channel
+              {gt("Edit Channel")}
             </button>
           )}
           {canInvite && (
@@ -1298,7 +1300,7 @@ export function ChannelSidebar({
               className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
             >
               <UserPlus className="w-4 h-4" />
-              Invite People
+              {gt("Invite People")}
             </button>
           )}
           {(canManageChannels || canInvite) && <div className="h-px bg-[var(--border-subtle)] my-1" />}
@@ -1307,14 +1309,14 @@ export function ChannelSidebar({
             className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <LinkIcon className="w-4 h-4" />
-            Copy Link
+            {gt("Copy Link")}
           </button>
           <button
             onClick={handleCopyChannelId}
             className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <Copy className="w-4 h-4" />
-            Copy Channel ID
+            {gt("Copy Channel ID")}
           </button>
           <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
@@ -1323,8 +1325,8 @@ export function ChannelSidebar({
                 const nowMuted = toggleChannelMute(contextMenu.channel.id);
                 toast.success(
                   nowMuted
-                    ? `#${contextMenu.channel.name} muted`
-                    : `#${contextMenu.channel.name} unmuted`
+                    ? gt("#{name} muted", { name: contextMenu.channel.name })
+                    : gt("#{name} unmuted", { name: contextMenu.channel.name })
                 );
               }
               closeContextMenu();
@@ -1332,7 +1334,7 @@ export function ChannelSidebar({
             className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <BellOff className="w-4 h-4" />
-            {contextMenu?.channel && isChannelMuted(contextMenu.channel.id) ? "Unmute Channel" : "Mute Channel"}
+            {contextMenu?.channel && isChannelMuted(contextMenu.channel.id) ? gt("Unmute Channel") : gt("Mute Channel")}
           </button>
           {canManageChannels && (
             <>
@@ -1342,7 +1344,7 @@ export function ChannelSidebar({
                 className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-red-400 hover:bg-red-500 hover:text-[var(--text-primary)] transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete Channel
+                {gt("Delete Channel")}
               </button>
             </>
           )}
@@ -1383,6 +1385,7 @@ interface UserPanelProps {
 }
 
 function UserPanel({ user }: UserPanelProps) {
+  const gt = useGT();
   const [isMuted, setIsMuted] = useState(voiceService.muted);
   const [isDeafened, setIsDeafened] = useState(voiceService.deafened);
 
@@ -1450,7 +1453,7 @@ function UserPanel({ user }: UserPanelProps) {
           </div>
           <div className="relative flex-1 min-w-0 text-left">
             <div className={cn("text-sm font-bold truncate", getDisplayNameStyleClasses(user?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(user?.customization?.displayNameStyle)}>
-              {user?.displayName || "Unknown"}
+              {user?.displayName || gt("Unknown")}
             </div>
           </div>
         </button>
@@ -1462,7 +1465,7 @@ function UserPanel({ user }: UserPanelProps) {
             "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
             isMuted ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
-          title={isMuted ? "Unmute" : "Mute"}
+          title={isMuted ? gt("Unmute") : gt("Mute")}
         >
           {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
@@ -1472,14 +1475,14 @@ function UserPanel({ user }: UserPanelProps) {
             "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
             isDeafened ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
-          title={isDeafened ? "Undeafen" : "Deafen"}
+          title={isDeafened ? gt("Undeafen") : gt("Deafen")}
         >
           {isDeafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
         </button>
         <button
           onClick={handleSettingsClick}
           className="p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-          title="User Settings"
+          title={gt("User Settings")}
         >
           <Settings className="w-5 h-5" />
         </button>

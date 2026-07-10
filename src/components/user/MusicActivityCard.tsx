@@ -2,8 +2,10 @@
 
 import { Music2, ExternalLink } from "lucide-react";
 import type { MusicActivity } from "@/hooks/useMoeActivity";
+import { useGT } from "gt-next";
 
 export function MusicActivityCard({ music }: { music: MusicActivity }) {
+  const gt = useGT();
   return (
     <a
       href={music.url}
@@ -15,7 +17,7 @@ export function MusicActivityCard({ music }: { music: MusicActivity }) {
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
         <h4 className="text-[11px] font-bold uppercase tracking-wide text-[#9a9aad] flex items-center gap-1.5">
           <Music2 className="w-3 h-3" />
-          Listening on Last.fm
+          {gt("Listening on Last.fm")}
         </h4>
         <ExternalLink className="w-3 h-3 text-[#9a9aad] opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>

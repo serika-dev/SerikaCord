@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Loader2, Users, Plus, Crown, Shield, User, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 interface TeamMember {
   id: string;
@@ -14,6 +15,7 @@ interface TeamMember {
 }
 
 export default function TeamPage() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading } = useApplication(appId);
@@ -51,31 +53,31 @@ export default function TeamPage() {
         setMembers([...members, data.member]);
         setInviteUsername("");
         setShowInvite(false);
-        toast.success("Team member invited!");
+        toast.success(gt("Team member invited!"));
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to invite member");
+        toast.error(err.error || gt("Failed to invite member"));
       }
     } catch {
-      toast.error("Failed to invite member");
+      toast.error(gt("Failed to invite member"));
     }
   };
 
   const handleRemove = async (id: string) => {
-    if (!confirm("Remove this team member?")) return;
+    if (!confirm(gt("Remove this team member?"))) return;
     try {
       const res = await fetch(`/api/developers/applications/${appId}/team/${id}`, {
         method: "DELETE",
       });
       if (res.ok) {
         setMembers(members.filter((m) => m.id !== id));
-        toast.success("Member removed");
+        toast.success(gt("Member removed"));
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to remove member");
+        toast.error(err.error || gt("Failed to remove member"));
       }
     } catch {
-      toast.error("Failed to remove member");
+      toast.error(gt("Failed to remove member"));
     }
   };
 
@@ -105,16 +107,16 @@ export default function TeamPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold">Team</h1>
+          <h1 className="text-xl font-bold">{gt("Team")}</h1>
           <p className="text-sm text-[#888] mt-1">
-            Manage who has access to this application.
+            {gt("Manage who has access to this application.")}
           </p>
         </div>
         <button
           onClick={() => setShowInvite(!showInvite)}
           className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-medium rounded-md transition-colors"
         >
-          <Plus className="size-4" /> Add Member
+          <Plus className="size-4" /> {gt("Add Member")}
         </button>
       </div>
 
@@ -122,7 +124,7 @@ export default function TeamPage() {
         <div className="mb-6 rounded-lg border border-white/[0.08] bg-white/[0.02] p-4 space-y-3">
           <div>
             <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-              Username
+              {gt("Username")}
             </label>
             <input
               type="text"
@@ -134,16 +136,16 @@ export default function TeamPage() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-              Role
+              {gt("Role")}
             </label>
             <select
               value={inviteRole}
               onChange={(e) => setInviteRole(e.target.value as TeamMember["role"])}
               className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-md px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]/50"
             >
-              <option value="developer">Developer</option>
-              <option value="admin">Admin</option>
-              <option value="viewer">Viewer</option>
+              <option value="developer">{gt("Developer")}</option>
+              <option value="admin">{gt("Admin")}</option>
+              <option value="viewer">{gt("Viewer")}</option>
             </select>
           </div>
           <button
@@ -151,7 +153,7 @@ export default function TeamPage() {
             disabled={!inviteUsername.trim()}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-md transition-colors"
           >
-            Send Invite
+            {gt("Send Invite")}
           </button>
         </div>
       )}
@@ -159,7 +161,7 @@ export default function TeamPage() {
       {members.length === 0 ? (
         <div className="text-center py-20">
           <Users className="size-12 text-[#333] mx-auto mb-4" />
-          <p className="text-[#888] text-sm">No team members yet. Invite someone to collaborate.</p>
+          <p className="text-[#888] text-sm">{gt("No team members yet. Invite someone to collaborate.")}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -183,7 +185,7 @@ export default function TeamPage() {
                   <h3 className="font-semibold text-sm">{member.username}</h3>
                   <div className={`flex items-center gap-1.5 text-xs ${roleColors[member.role]}`}>
                     <RoleIcon className="size-3" />
-                    <span className="capitalize">{member.role}</span>
+                    <span className="capitalize">{member.role === 'owner' ? gt('Owner') : member.role === 'admin' ? gt('Admin') : member.role === 'developer' ? gt('Developer') : member.role}</span>
                   </div>
                 </div>
                 {member.role !== "owner" && (

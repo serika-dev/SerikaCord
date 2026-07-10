@@ -7,10 +7,12 @@ import { ChatArea } from "@/components/chat/ChatArea";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Loader2 } from "lucide-react";
+import { useGT } from "gt-next";
 
 export default function ServerPage() {
   const params = useParams();
   const router = useRouter();
+  const gt = useGT();
   const { servers, setCurrentServer, channels, setCurrentChannel, isLoading, currentServer } = useServer();
   const [showMembers, setShowMembers] = useState(true);
   const isMobile = useIsMobile();
@@ -59,7 +61,7 @@ export default function ServerPage() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[var(--bg-app)] text-[var(--text-secondary)]">
         <Loader2 className="w-8 h-8 animate-spin text-[#8B5CF6] mb-4" />
-        <p>Loading channels...</p>
+        <p>{gt("Loading channels...")}</p>
       </div>
     );
   }

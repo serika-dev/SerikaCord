@@ -1,7 +1,8 @@
 "use client";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Badge, getBadgeMeta, type BadgeId } from "@/components/ui/badges";
+import { Badge, badgeLabel, getBadgeMeta, type BadgeId } from "@/components/ui/badges";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 
 interface StaffPillProps {
@@ -18,6 +19,7 @@ const STAFF_RANKS: BadgeId[] = [
 ];
 
 export function StaffPill({ badges, className }: StaffPillProps) {
+  const gt = useGT();
   if (!badges || badges.length === 0) return null;
 
   const rank = STAFF_RANKS.find((r) => badges.includes(r));
@@ -30,7 +32,7 @@ export function StaffPill({ badges, className }: StaffPillProps) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={meta?.name || "Badge"}
+          aria-label={meta?.name || gt("Badge")}
           className={cn("self-center shrink-0 rounded-md cursor-pointer", className)}
         >
           {/* Hover tooltip on desktop; the popover handles tap on touch. */}
@@ -43,8 +45,8 @@ export function StaffPill({ badges, className }: StaffPillProps) {
           align="start"
           className="w-auto max-w-[220px] p-2.5 bg-[#0a0a0a] border-[#222222]"
         >
-          <div className="text-sm font-semibold text-white" style={{ color: meta.color }}>{meta.name}</div>
-          <div className="text-xs text-[#888888] mt-0.5">{meta.description}</div>
+          <div className="text-sm font-semibold text-white" style={{ color: meta.color }}>{badgeLabel(rank, gt).name}</div>
+          <div className="text-xs text-[#888888] mt-0.5">{badgeLabel(rank, gt).description}</div>
         </PopoverContent>
       )}
     </Popover>

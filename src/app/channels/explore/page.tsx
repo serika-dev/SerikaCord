@@ -34,6 +34,40 @@ import {
   Briefcase,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { T, useGT } from "gt-next";
+
+type GTFunc = ReturnType<typeof useGT>;
+
+function categoryLabel(id: string, gt: GTFunc): string {
+  switch (id) {
+    case 'all': return gt('All Communities');
+    case 'gaming': return gt('Gaming');
+    case 'music': return gt('Music');
+    case 'tech': return gt('Tech & Programming');
+    case 'art': return gt('Art & Design');
+    case 'education': return gt('Education');
+    case 'entertainment': return gt('Entertainment');
+    case 'anime': return gt('Anime & Manga');
+    case 'science': return gt('Science');
+    case 'sports': return gt('Sports & Fitness');
+    case 'food': return gt('Food & Drink');
+    case 'travel': return gt('Travel');
+    case 'languages': return gt('Languages');
+    case 'photography': return gt('Photography');
+    case 'business': return gt('Business');
+    case 'lifestyle': return gt('Lifestyle');
+    default: return id;
+  }
+}
+
+function sortLabel(id: SortMode, gt: GTFunc): string {
+  switch (id) {
+    case 'popular': return gt('Popular');
+    case 'trending': return gt('Trending');
+    case 'new': return gt('New');
+    default: return id;
+  }
+}
 
 interface Server {
   id: string;
@@ -147,6 +181,7 @@ function ServerCard({
   onJoin: () => void;
   joining: boolean;
 }) {
+  const gt = useGT();
   const gradient = getServerGradient(server.id + server.name);
   const isNew = isNewServer(server.createdAt);
 
@@ -175,7 +210,7 @@ function ServerCard({
         {isNew && (
           <div className="absolute top-2 right-2 px-2 py-0.5 bg-[#23A55A] text-white text-[10px] font-bold rounded-full flex items-center gap-1 shadow-lg z-10">
             <Sparkles className="w-2.5 h-2.5" />
-            NEW
+            {gt("NEW")}
           </div>
         )}
         {/* Online pulse on banner */}
@@ -185,7 +220,7 @@ function ServerCard({
               <div className="w-2 h-2 rounded-full bg-[#23A55A]" />
               <div className="absolute inset-0 w-2 h-2 rounded-full bg-[#23A55A] animate-ping opacity-75" />
             </div>
-            <span className="text-[10px] text-white font-medium">{formatMemberCount(server.onlineCount || 0)} online</span>
+            <span className="text-[10px] text-white font-medium">{formatMemberCount(server.onlineCount || 0)} {gt("online")}</span>
           </div>
         )}
       </div>
@@ -219,18 +254,18 @@ function ServerCard({
         </div>
 
         <p className="text-[#949ba4] text-sm line-clamp-2 mt-1.5 min-h-[2.5rem]">
-          {server.description || "No description"}
+          {server.description || gt("No description")}
         </p>
 
         {/* Stats row */}
         <div className="flex items-center gap-4 mt-3 text-xs text-[#949ba4]">
           <span className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full bg-[#23A55A]" />
-            {formatMemberCount(server.onlineCount || 0)} Online
+            {formatMemberCount(server.onlineCount || 0)} {gt("Online")}
           </span>
           <span className="flex items-center gap-1">
             <Users className="w-3.5 h-3.5" />
-            {formatMemberCount(server.memberCount)} Members
+            {formatMemberCount(server.memberCount)} {gt("Members")}
           </span>
         </div>
 
@@ -249,7 +284,7 @@ function ServerCard({
                     backgroundColor: `${cat?.color || "#949ba4"}10`,
                   }}
                 >
-                  {cat?.name || tag}
+                  {cat ? categoryLabel(cat.id, gt) : tag}
                 </span>
               );
             })}
@@ -265,7 +300,7 @@ function ServerCard({
           disabled={joining}
           className="mt-4 w-full px-4 py-2 rounded-full bg-[#5865F2] hover:bg-[#4752c4] text-white text-sm font-medium transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-60 disabled:hover:scale-100"
         >
-          {joining ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : server.joinMode === "apply_to_join" ? "Apply to Join" : "Join Server"}
+          {joining ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : server.joinMode === "apply_to_join" ? gt("Apply to Join") : gt("Join Server")}
         </button>
       </div>
     </div>
@@ -273,6 +308,7 @@ function ServerCard({
 }
 
 export default function ExplorePage() {
+  const gt = useGT();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -353,7 +389,7 @@ export default function ExplorePage() {
       if (response.ok) {
         setApplyServer(null);
         setApplyAnswer("");
-        alert("Application submitted! You will be notified when it is reviewed.");
+        alert(gt("Application submitted! You will be notified when it is reviewed."));
       }
     } catch (error) {
       console.error("Failed to submit application:", error);
@@ -380,7 +416,7 @@ export default function ExplorePage() {
       <aside className="w-64 hidden md:flex flex-col border-r border-[#1f1f22] bg-[#111214] flex-shrink-0">
         <div className="p-4 flex-1 overflow-y-auto">
           <h2 className="text-xs font-bold text-[#949ba4] uppercase tracking-wider mb-3">
-            Discover
+            <T>Discover</T>
           </h2>
           <nav className="space-y-1">
             {categories.map((category) => {
@@ -402,7 +438,7 @@ export default function ExplorePage() {
                     className="w-4 h-4 flex-shrink-0"
                     style={isActive ? { color: category.color } : undefined}
                   />
-                  <span className="flex-1 text-left truncate">{category.name}</span>
+                  <span className="flex-1 text-left truncate">{categoryLabel(category.id, gt)}</span>
                   {count > 0 && (
                     <span
                       className={cn(
@@ -424,21 +460,21 @@ export default function ExplorePage() {
           <div className="flex items-center justify-between text-xs">
             <span className="text-[#949ba4] flex items-center gap-1.5">
               <Globe className="w-3.5 h-3.5" />
-              Communities
+              <T>Communities</T>
             </span>
             <span className="text-white font-bold">{formatMemberCount(stats.totalServers)}</span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-[#949ba4] flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5" />
-              Total Members
+              <T>Total Members</T>
             </span>
             <span className="text-white font-bold">{formatMemberCount(stats.totalMembers)}</span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-[#949ba4] flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-[#23A55A]" />
-              Online Now
+              <T>Online Now</T>
             </span>
             <span className="text-[#23A55A] font-bold">{formatMemberCount(stats.totalOnline)}</span>
           </div>
@@ -462,10 +498,10 @@ export default function ExplorePage() {
 
           <div className="relative h-full flex flex-col items-center justify-center px-4 text-center">
             <h1 className="text-3xl md:text-5xl font-extrabold text-white mb-2 drop-shadow-lg">
-              Find your community
+              <T>Find your community</T>
             </h1>
             <p className="text-white/80 text-sm md:text-lg max-w-xl mb-6">
-              From gaming, to music, to learning, there&apos;s a place for you.
+              <T>From gaming, to music, to learning, there's a place for you.</T>
             </p>
 
             <div className="w-full max-w-xl relative">
@@ -473,7 +509,7 @@ export default function ExplorePage() {
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Explore communities..."
+                placeholder={gt("Explore communities...")}
                 className="pl-12 h-12 bg-[#111111]/90 backdrop-blur border-none text-white text-base placeholder:text-[#888888] rounded-full"
               />
               {searchQuery && (
@@ -507,7 +543,7 @@ export default function ExplorePage() {
                   style={isActive ? { backgroundColor: category.color } : undefined}
                 >
                   <Icon className="w-4 h-4" />
-                  {category.name}
+                  {categoryLabel(category.id, gt)}
                 </button>
               );
             })}
@@ -520,14 +556,14 @@ export default function ExplorePage() {
             <div>
               <h2 className="text-xl font-bold text-white">
                 {debouncedSearch
-                  ? `Results for "${debouncedSearch}"`
+                  ? <>{gt("Results for")} "{debouncedSearch}"</>
                   : selectedCategory === "all"
-                  ? sortMode === "new" ? "Newest Communities" : sortMode === "trending" ? "Trending Now" : "Popular Communities"
-                  : `${selectedCat?.name ?? "Communities"}`}
+                  ? sortMode === "new" ? gt("Newest Communities") : sortMode === "trending" ? gt("Trending Now") : gt("Popular Communities")
+                  : selectedCat ? categoryLabel(selectedCat.id, gt) : gt("Communities")}
               </h2>
               <p className="text-sm text-[#949ba4] mt-0.5">
-                {filteredServers.length} {filteredServers.length === 1 ? "community" : "communities"}
-                {selectedCategory === "all" && !debouncedSearch && ` • ${formatMemberCount(stats.totalMembers)} total members`}
+                {filteredServers.length} {filteredServers.length === 1 ? gt("community") : gt("communities")}
+                {selectedCategory === "all" && !debouncedSearch && ` • ${formatMemberCount(stats.totalMembers)} ${gt("total members")}`}
               </p>
             </div>
 
@@ -548,7 +584,7 @@ export default function ExplorePage() {
                     )}
                   >
                     <Icon className="w-3.5 h-3.5" />
-                    {option.label}
+                    {sortLabel(option.id, gt)}
                   </button>
                 );
               })}
@@ -560,9 +596,9 @@ export default function ExplorePage() {
             <section className="mb-10">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-5 bg-gradient-to-b from-[#FFD12A] to-[#FF5722] rounded-full" />
-                <h3 className="text-lg font-bold text-white">Featured Communities</h3>
+                <h3 className="text-lg font-bold text-white"><T>Featured Communities</T></h3>
                 <span className="px-2 py-0.5 bg-[#FFD12A]/10 text-[#FFD12A] text-[10px] font-bold rounded-full border border-[#FFD12A]/20">
-                  PARTNERED
+                  <T>PARTNERED</T>
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -604,19 +640,19 @@ export default function ExplorePage() {
                   <Search className="w-10 h-10 text-[#555555]" />
                 </div>
                 <h3 className="text-xl font-bold text-white mb-2">
-                  {debouncedSearch ? "No communities found" : "No communities in this category yet"}
+                  {debouncedSearch ? gt("No communities found") : gt("No communities in this category yet")}
                 </h3>
                 <p className="text-[#888888] text-sm max-w-md mx-auto">
                   {debouncedSearch
-                    ? "Try a different search term or browse other categories."
-                    : "Be the first to list your server in this category! Enable Discoverable in your server settings."}
+                    ? gt("Try a different search term or browse other categories.")
+                    : gt("Be the first to list your server in this category! Enable Discoverable in your server settings.")}
                 </p>
                 {!debouncedSearch && selectedCategory !== "all" && (
                   <button
                     onClick={() => setSelectedCategory("all")}
                     className="mt-4 px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] text-white text-sm font-medium rounded-full transition-colors"
                   >
-                    Browse all communities
+                    <T>Browse all communities</T>
                   </button>
                 )}
               </div>
@@ -640,15 +676,15 @@ export default function ExplorePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md bg-[#111214] rounded-xl border border-[#1f1f22] p-6 space-y-4">
             <div>
-              <h3 className="text-xl font-bold text-white">Apply to join {applyServer.name}</h3>
+              <h3 className="text-xl font-bold text-white">{gt("Apply to join")} {applyServer.name}</h3>
               <p className="text-sm text-[#949ba4] mt-1">
-                This server requires an application. Tell them a bit about yourself.
+                <T>This server requires an application. Tell them a bit about yourself.</T>
               </p>
             </div>
             <textarea
               value={applyAnswer}
               onChange={(e) => setApplyAnswer(e.target.value)}
-              placeholder="Why would you like to join?"
+              placeholder={gt("Why would you like to join?")}
               rows={4}
               className="w-full p-3 rounded-lg bg-[#1f1f22] border border-[#2b2d31] text-white placeholder:text-[#949ba4] focus:outline-none focus:border-[#5865F2] resize-none"
             />
@@ -657,14 +693,14 @@ export default function ExplorePage() {
                 onClick={() => setApplyServer(null)}
                 className="px-4 py-2 text-white hover:bg-[#2b2d31] rounded-lg transition-colors"
               >
-                Cancel
+                <T>Cancel</T>
               </button>
               <button
                 onClick={() => void handleSubmitApplication()}
                 disabled={!applyAnswer.trim() || isSubmittingApply}
                 className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] disabled:opacity-60 text-white rounded-lg transition-colors"
               >
-                {isSubmittingApply ? "Submitting..." : "Submit Application"}
+                {isSubmittingApply ? gt("Submitting...") : gt("Submit Application")}
               </button>
             </div>
           </div>

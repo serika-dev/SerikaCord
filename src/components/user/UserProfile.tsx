@@ -37,6 +37,7 @@ import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
+import { useGT } from "gt-next";
 
 interface UserProfileProps {
   user: {
@@ -97,6 +98,7 @@ const statusLabels = {
 export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurrentUser = false }: UserProfileProps) {
   const [copiedId, setCopiedId] = useState(false);
   const router = useRouter();
+  const gt = useGT();
 
   const copyUserId = () => {
     navigator.clipboard.writeText(user.id);
@@ -111,7 +113,7 @@ export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurren
   };
 
   const formatDate = (date?: Date) => {
-    if (!date) return 'Unknown';
+    if (!date) return gt('Unknown');
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
@@ -186,6 +188,7 @@ interface ProfileContentProps {
 function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expanded, isCurrentUser, openSettings }: ProfileContentProps) {
   const currentUser = useAuth().user;
   const localTime = useCurrentTime(user.timezone);
+  const gt = useGT();
   const bgStyle = getProfileBackgroundStyle(user.customization);
   const hasBgOverride = Boolean(bgStyle.background || bgStyle.backgroundColor);
   const isHolographic = user.customization?.profileCardEffect === 'holographic';
@@ -248,7 +251,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                   className="bg-[#5865F2] hover:bg-[#4752c4] text-white h-9 rounded-full px-4"
                 >
                   <Edit3 className="w-4 h-4 mr-1.5" />
-                  Edit Profile
+                  {gt('Edit Profile')}
                 </Button>
                 
                 <Button
@@ -267,7 +270,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                   className="bg-[#5865F2] hover:bg-[#4752c4] text-white h-9 rounded-full px-4"
                 >
                   <MessageCircle className="w-4 h-4 mr-1.5" />
-                  Message
+                  {gt('Message')}
                 </Button>
                 
                 <DropdownMenu>
@@ -283,29 +286,29 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                   <DropdownMenuContent align="end" className="bg-[#111214] border-[#1e1f22] text-[#b5bac1]">
                     <DropdownMenuItem className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
                       <UserPlus className="w-4 h-4 mr-2" />
-                      Add Friend
+                      {gt('Add Friend')}
                     </DropdownMenuItem>
                     <DropdownMenuItem className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
                       <Volume2 className="w-4 h-4 mr-2" />
-                      Call
+                      {gt('Call')}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator className="bg-[#2b2d31]" />
                     <DropdownMenuItem onClick={copyUserId} className="hover:bg-[#5865F2] hover:text-white cursor-pointer">
                       {copiedId ? <Check className="w-4 h-4 mr-2" /> : <Copy className="w-4 h-4 mr-2" />}
-                      {copiedId ? 'Copied!' : 'Copy User ID'}
+                      {copiedId ? gt('Copied!') : gt('Copy User ID')}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator className="bg-[#2b2d31]" />
                     <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
                       <VolumeX className="w-4 h-4 mr-2" />
-                      Mute
+                      {gt('Mute')}
                     </DropdownMenuItem>
                     <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
                       <Ban className="w-4 h-4 mr-2" />
-                      Block
+                      {gt('Block')}
                     </DropdownMenuItem>
                     <DropdownMenuItem className="hover:bg-[#ED4245] hover:text-white cursor-pointer text-[#ED4245]">
                       <Flag className="w-4 h-4 mr-2" />
-                      Report
+                      {gt('Report')}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -341,7 +344,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                       : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
                   )}>
                     {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
-                    Bot
+                    {gt('Bot')}
                   </span>
                 )}
                 {user.badges && user.badges.length > 0 && (
@@ -388,15 +391,15 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
             <Tabs defaultValue="about" className="w-full">
               <TabsList className="w-full bg-[#1e1f22] rounded-lg h-10">
                 <TabsTrigger value="about" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
-                  About Me
+                  {gt('About Me')}
                 </TabsTrigger>
                 {!isCurrentUser && (
                   <>
                     <TabsTrigger value="servers" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
-                      Mutual Servers
+                      {gt('Mutual Servers')}
                     </TabsTrigger>
                     <TabsTrigger value="friends" className="flex-1 data-[state=active]:bg-[#5865F2] data-[state=active]:text-white rounded-md">
-                      Mutual Friends
+                      {gt('Mutual Friends')}
                     </TabsTrigger>
                   </>
                 )}
@@ -409,7 +412,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                       <div className="text-sm text-[#dbdee1] whitespace-pre-wrap"><MarkdownRenderer content={user.bio} /></div>
                     ) : (
                       <div className="text-center py-4">
-                        <p className="text-sm text-[#6d6f78] mb-3">You haven't set a bio yet</p>
+                        <p className="text-sm text-[#6d6f78] mb-3">{gt("You haven't set a bio yet")}</p>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -417,20 +420,20 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                           className="text-[#00A8FC] hover:text-[#00A8FC] hover:bg-[#00A8FC]/10"
                         >
                           <Edit3 className="w-4 h-4 mr-1.5" />
-                          Add Bio
+                          {gt('Add Bio')}
                         </Button>
                       </div>
                     )}
                     
                     <div className="mt-4 space-y-2">
                       <div>
-                        <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">Member Since</h4>
+                        <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">{gt('Member Since')}</h4>
                         <p className="text-sm text-[#dbdee1]">{formatDate(user.createdAt)}</p>
                       </div>
                       {user.premiumSince ? (
                         <div>
                           <h4 className="text-xs font-bold uppercase text-[#F0B232] mb-1 flex items-center gap-1">
-                            ✨ Serika+ Since
+                            ✨ {gt('Serika+ Since')}
                           </h4>
                           <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
                         </div>
@@ -438,9 +441,9 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                         <div className="mt-4 p-3 rounded-lg bg-gradient-to-r from-[#F0B232]/10 to-[#8B5CF6]/10 border border-[#F0B232]/20">
                           <div className="flex items-center gap-2 mb-2">
                             <Sparkles className="w-4 h-4 text-[#F0B232]" />
-                            <span className="text-sm font-semibold text-[#F0B232]">Get Serika+</span>
+                            <span className="text-sm font-semibold text-[#F0B232]">{gt('Get Serika+')}</span>
                           </div>
-                          <p className="text-xs text-[#b5bac1]">Unlock custom profiles, animated avatars, and more!</p>
+                          <p className="text-xs text-[#b5bac1]">{gt('Unlock custom profiles, animated avatars, and more!')}</p>
                         </div>
                       )}
                     </div>
@@ -450,18 +453,18 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                     {user.bio ? (
                       <div className="text-sm text-[#dbdee1] whitespace-pre-wrap"><MarkdownRenderer content={user.bio} /></div>
                     ) : (
-                      <p className="text-sm text-[#6d6f78] italic">No bio yet</p>
+                      <p className="text-sm text-[#6d6f78] italic">{gt('No bio yet')}</p>
                     )}
                     
                     <div className="mt-4 space-y-2">
                       <div>
-                        <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">Member Since</h4>
+                        <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1">{gt('Member Since')}</h4>
                         <p className="text-sm text-[#dbdee1]">{formatDate(user.createdAt)}</p>
                       </div>
                       {user.premiumSince && (
                         <div>
                           <h4 className="text-xs font-bold uppercase text-[#F0B232] mb-1 flex items-center gap-1">
-                            ✨ Serika+ Since
+                            ✨ {gt('Serika+ Since')}
                           </h4>
                           <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
                         </div>
@@ -490,7 +493,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-[#6d6f78] italic text-center py-8">No mutual servers</p>
+                        <p className="text-sm text-[#6d6f78] italic text-center py-8">{gt('No mutual servers')}</p>
                       )}
                     </ScrollArea>
                   </TabsContent>
@@ -512,7 +515,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-[#6d6f78] italic text-center py-8">No mutual friends</p>
+                        <p className="text-sm text-[#6d6f78] italic text-center py-8">{gt('No mutual friends')}</p>
                       )}
                     </ScrollArea>
                   </TabsContent>
@@ -524,14 +527,14 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
               {/* About Me */}
               {user.bio && (
                 <div className="mb-3">
-                  <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1.5">About Me</h4>
+                  <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1.5">{gt('About Me')}</h4>
                   <div className="text-sm text-[#dbdee1] whitespace-pre-wrap break-words line-clamp-3"><MarkdownRenderer content={user.bio} /></div>
                 </div>
               )}
 
               {/* Member Since */}
               <div>
-                <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1.5">Member Since</h4>
+                <h4 className="text-xs font-bold uppercase text-[#b5bac1] mb-1.5">{gt('Member Since')}</h4>
                 <p className="text-sm text-[#dbdee1]">{formatDate(user.createdAt)}</p>
               </div>
 
@@ -539,7 +542,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
               {user.premiumSince && (
                 <div className="mt-2">
                   <h4 className="text-xs font-bold uppercase text-[#F0B232] mb-1.5 flex items-center gap-1">
-                    ✨ Serika+ Since
+                    ✨ {gt('Serika+ Since')}
                   </h4>
                   <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
                 </div>

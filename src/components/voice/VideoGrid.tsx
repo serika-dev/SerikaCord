@@ -6,8 +6,10 @@ import { MicOff, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
+import { useGT } from "gt-next";
 
 export function VideoGrid() {
+  const gt = useGT();
   const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
   const [isVideoOn, setIsVideoOn] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
@@ -94,7 +96,7 @@ export function VideoGrid() {
                 className="w-full h-full object-cover video-mirror"
               />
               <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white">
-                You
+                {gt("You")}
               </div>
             </div>
           )}
@@ -111,7 +113,7 @@ export function VideoGrid() {
               />
               <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] text-white flex items-center gap-1">
                 <Monitor className="w-3 h-3" />
-                Your Screen
+                {gt("Your Screen")}
               </div>
             </div>
           )}
@@ -154,6 +156,7 @@ function RemoteVideo({
   isScreen: boolean;
   speaking?: boolean;
 }) {
+  const gt = useGT();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -181,7 +184,7 @@ function RemoteVideo({
         {isScreen && <Monitor className="w-3 h-3 flex-shrink-0" />}
         <span className="truncate">
           {participant.displayName || participant.username}
-          {isScreen ? "'s screen" : ""}
+          {isScreen ? gt("'s screen") : ""}
         </span>
         {!isScreen && !participant.audio && <MicOff className="w-3 h-3 text-red-400 flex-shrink-0" />}
       </div>

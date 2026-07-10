@@ -61,8 +61,11 @@ import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badge
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
+import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
+import { T, useGT } from "gt-next";
+import { LocaleSelector } from "@/components/ui/LocaleSelector";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -93,7 +96,8 @@ type SettingsTab =
   | "admin-logs"
   | "admin-experiments"
   | "admin-tts-sounds"
-  | "admin-tts-voices";
+  | "admin-tts-voices"
+  | "admin-translations";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -131,6 +135,39 @@ const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
   { id: "social",    label: "Social" },
 ];
 
+type GTFunc = ReturnType<typeof useGT>;
+
+function connectionCategoryLabel(id: string, gt: GTFunc): string {
+  switch (id) {
+    case 'music': return gt('Music');
+    case 'gaming': return gt('Gaming');
+    case 'streaming': return gt('Streaming');
+    case 'social': return gt('Social');
+    default: return id;
+  }
+}
+
+function connectionProviderHint(id: string, gt: GTFunc): string {
+  switch (id) {
+    case 'lastfm': return gt('Authorise via Last.fm — shows your live scrobbles on your profile.');
+    case 'spotify': return gt('Authorise via Spotify.');
+    case 'youtube': return gt('Authorise via Google/YouTube.');
+    case 'twitch': return gt('Authorise via Twitch.');
+    case 'steam': return gt('Authorise via Steam.');
+    case 'xbox': return gt('Authorise via Microsoft/Xbox.');
+    case 'psn': return gt('Authorise via PlayStation Network.');
+    case 'battlenet': return gt('Authorise via Battle.net.');
+    case 'roblox': return gt('Authorise via Roblox.');
+    case 'github': return gt('Authorise via GitHub.');
+    case 'twitter': return gt('Authorise via X.');
+    case 'instagram': return gt('Authorise via Instagram.');
+    case 'discord': return gt('Managed through your Serika account.');
+    case 'serika': return gt('Managed through your Serika account.');
+    case 'website': return gt('Enter your personal website URL.');
+    default: return '';
+  }
+}
+
 function ConnectionsTabContent({
   userConnections,
   setUserConnections,
@@ -150,6 +187,7 @@ function ConnectionsTabContent({
   connectionsEnabled?: boolean;
   disabledProviders?: string[];
 }) {
+  const gt = useGT();
   const connectedMap = Object.fromEntries(userConnections.map((c) => [c.provider, c]));
 
   // Handle OAuth return (success/error params in URL)
@@ -160,7 +198,7 @@ function ConnectionsTabContent({
     const error = params.get("error");
     if (success) {
       const label = CONNECTION_PROVIDERS.find((p) => p.id === success)?.label || success;
-      toast.success(`${label} connected!`);
+      toast.success(gt("{label} connected!", { label }));
       // Refresh connections
       fetch("/api/users/me/connections")
         .then((r) => r.json())
@@ -170,17 +208,17 @@ function ConnectionsTabContent({
       window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
     } else if (error) {
       const msgs: Record<string, string> = {
-        denied: "Authorisation was cancelled.",
-        state_missing: "Session expired. Please try again.",
-        session_failed: "Failed to complete authorisation. Please try again.",
-        error: "An error occurred while linking the account.",
-        not_configured: "This provider is not configured on this instance.",
-        connections_disabled: "Connections have been temporarily disabled by staff.",
-        unauthorized: "You must be logged in to connect an account.",
+        denied: gt("Authorisation was cancelled."),
+        state_missing: gt("Session expired. Please try again."),
+        session_failed: gt("Failed to complete authorisation. Please try again."),
+        error: gt("An error occurred while linking the account."),
+        not_configured: gt("This provider is not configured on this instance."),
+        connections_disabled: gt("Connections have been temporarily disabled by staff."),
+        unauthorized: gt("You must be logged in to connect an account."),
       };
       // Match prefix errors like "lastfm_denied", "github_denied", etc.
       const base = error.includes("_") ? error.split("_").slice(1).join("_") : error;
-      toast.error(msgs[base] || "Connection failed.");
+      toast.error(msgs[base] || gt("Connection failed."));
       params.delete("error");
       window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
     }
@@ -201,15 +239,15 @@ function ConnectionsTabContent({
           const filtered = prev.filter((c) => c.provider !== provider);
           return [data.connection, ...filtered];
         });
-        toast.success(`${CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label} connected`);
+        toast.success(gt("{label} connected", { label: CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label || provider }));
         setConnectingProvider(null);
         setConnectingValue("");
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error((err as any).error || "Failed to connect");
+        toast.error((err as any).error || gt("Failed to connect"));
       }
     } catch {
-      toast.error("Failed to connect");
+      toast.error(gt("Failed to connect"));
     }
   };
 
@@ -217,9 +255,9 @@ function ConnectionsTabContent({
     const res = await fetch(`/api/users/me/connections/${connectionId}`, { method: "DELETE" });
     if (res.ok) {
       setUserConnections((prev) => prev.filter((c) => c._id !== connectionId));
-      toast.success(`${CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label} disconnected`);
+      toast.success(gt("{label} disconnected", { label: CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label || provider }));
     } else {
-      toast.error("Failed to disconnect");
+      toast.error(gt("Failed to disconnect"));
     }
   };
 
@@ -229,17 +267,17 @@ function ConnectionsTabContent({
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-white mb-1">Connections</h2>
+      <h2 className="text-xl font-bold text-white mb-1">{gt("Connections")}</h2>
       <p className="text-sm text-[var(--text-muted)] mb-6">
-        Link your accounts to show them on your profile. Some connections display live activity.
+        {gt("Link your accounts to show them on your profile. Some connections display live activity.")}
       </p>
 
       {!connectionsEnabled && (
         <div className="mb-6 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-3">
           <Lock className="w-5 h-5 text-yellow-400 shrink-0" />
           <div>
-            <p className="text-yellow-400 font-semibold text-sm">Connections are temporarily disabled</p>
-            <p className="text-yellow-400/70 text-xs">Account linking has been turned off by staff. You can still disconnect existing accounts.</p>
+            <p className="text-yellow-400 font-semibold text-sm">{gt("Connections are temporarily disabled")}</p>
+            <p className="text-yellow-400/70 text-xs">{gt("Account linking has been turned off by staff. You can still disconnect existing accounts.")}</p>
           </div>
         </div>
       )}
@@ -254,7 +292,7 @@ function ConnectionsTabContent({
             >
               {activeProviderDef.label[0]}
             </div>
-            <p className="text-white font-semibold text-sm">Connect {activeProviderDef.label}</p>
+            <p className="text-white font-semibold text-sm">{gt("Connect {label}", { label: activeProviderDef.label })}</p>
             <button
               onClick={() => { setConnectingProvider(null); setConnectingValue(""); }}
               className="ml-auto text-[var(--text-muted)] hover:text-white transition-colors"
@@ -262,14 +300,14 @@ function ConnectionsTabContent({
               <X className="w-4 h-4" />
             </button>
           </div>
-          <p className="text-xs text-[var(--text-muted)] mb-3">{activeProviderDef.hint}</p>
+          <p className="text-xs text-[var(--text-muted)] mb-3">{connectionProviderHint(activeProviderDef.id, gt)}</p>
           <div className="flex gap-2">
             <Input
               autoFocus
               value={connectingValue}
               onChange={(e) => setConnectingValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void handleConnect(connectingProvider, connectingValue)}
-              placeholder="https://yoursite.com"
+              placeholder={gt("https://yoursite.com")}
               className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
             />
             <button
@@ -278,7 +316,7 @@ function ConnectionsTabContent({
               className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-40 font-medium transition-opacity"
               style={{ backgroundColor: activeProviderDef.color }}
             >
-              Connect
+              {gt("Connect")}
             </button>
           </div>
         </div>
@@ -290,7 +328,7 @@ function ConnectionsTabContent({
           const catProviders = CONNECTION_PROVIDERS.filter((p) => p.category === catId);
           return (
             <div key={catId}>
-              <p className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide mb-2">{catLabel}</p>
+              <p className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide mb-2">{connectionCategoryLabel(catId, gt)}</p>
               <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)]">
                 {catProviders.map((p, i) => {
                   const conn = connectedMap[p.id];
@@ -314,13 +352,13 @@ function ConnectionsTabContent({
                             {conn.displayName || conn.username || conn.accountId}
                           </p>
                         ) : (
-                          <p className="text-xs text-[var(--text-muted)]">{p.hint}</p>
+                          <p className="text-xs text-[var(--text-muted)]">{connectionProviderHint(p.id, gt)}</p>
                         )}
                       </div>
                       {conn ? (
                         <div className="flex items-center gap-4 shrink-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs text-[var(--text-muted)]">Show on profile</span>
+                            <span className="text-xs text-[var(--text-muted)]">{gt("Show on profile")}</span>
                             <ToggleSwitch
                               size="sm"
                               checked={conn.visible !== false}
@@ -336,39 +374,39 @@ function ConnectionsTabContent({
                                     setUserConnections((prev) =>
                                       prev.map((c) => (c._id === conn._id ? data.connection : c))
                                     );
-                                    toast.success("Visibility updated");
+                                    toast.success(gt("Visibility updated"));
                                   } else {
-                                    toast.error("Failed to update visibility");
+                                    toast.error(gt("Failed to update visibility"));
                                   }
                                 } catch {
-                                  toast.error("Failed to update visibility");
+                                  toast.error(gt("Failed to update visibility"));
                                 }
                               }}
                             />
                           </div>
                           {p.id === "serika" || p.id === "discord" ? (
                             <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)] shrink-0">
-                              Managed
+                              {gt("Managed")}
                             </span>
                           ) : (
                             <button
                               onClick={() => void handleDisconnect(conn._id, p.id)}
                               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                             >
-                              Disconnect
+                              {gt("Disconnect")}
                             </button>
                           )}
                         </div>
                       ) : p.id === "serika" || p.id === "discord" ? (
                         <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)] shrink-0">
-                          Managed
+                          {gt("Managed")}
                         </span>
                       ) : disabledProviders.includes(p.id) ? (
                         <button
                           disabled
                           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400/50 cursor-not-allowed shrink-0 border border-red-500/20"
                         >
-                          Disabled
+                          {gt("Disabled")}
                         </button>
                       ) : connectionsEnabled ? (
                         p.id === "website" ? (
@@ -377,7 +415,7 @@ function ConnectionsTabContent({
                             className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90"
                             style={{ backgroundColor: p.color }}
                           >
-                            {isExpanded ? "Cancel" : "Connect"}
+                            {isExpanded ? gt("Cancel") : gt("Connect")}
                           </button>
                         ) : (
                           <a
@@ -385,7 +423,7 @@ function ConnectionsTabContent({
                             className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
                             style={{ backgroundColor: p.color }}
                           >
-                            Connect
+                            {gt("Connect")}
                           </a>
                         )
                       ) : (
@@ -393,7 +431,7 @@ function ConnectionsTabContent({
                           disabled
                           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/[0.04] text-[#555] cursor-not-allowed shrink-0"
                         >
-                          Connect
+                          {gt("Connect")}
                         </button>
                       )}
                     </div>
@@ -410,6 +448,7 @@ function ConnectionsTabContent({
 
 export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
+  const gt = useGT();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const { servers } = useServer();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
@@ -700,14 +739,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         setUserSettings((prev) => ({ ...(prev || {}), ...patch }));
         applyUserSettingsPatch(patch);
         if (patch.notifications) setUserNotificationSettings(patch.notifications);
-        toast.success("Settings saved");
+        toast.success(gt("Settings saved"));
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to save settings");
+        toast.error(data.error || gt("Failed to save settings"));
       }
     } catch (error) {
       console.error("Failed to save settings:", error);
-      toast.error("Failed to save settings");
+      toast.error(gt("Failed to save settings"));
     } finally {
       setIsSavingSettings(null);
     }
@@ -892,11 +931,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             },
           });
           setHasChanges(false);
-          toast.success("Profile saved!");
+          toast.success(gt("Profile saved!"));
           // Refresh to get full updated data
           await refresh();
         } else {
-          toast.error("Failed to save profile");
+          toast.error(gt("Failed to save profile"));
         }
       } else {
         // Save server profile
@@ -915,16 +954,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           setInitialServerAvatar(serverAvatar);
           setInitialServerBanner(serverBanner);
           setHasChanges(false);
-          toast.success("Server profile saved!");
+          toast.success(gt("Server profile saved!"));
           await refresh();
         } else {
           const data = await response.json();
-          toast.error(data.error || "Failed to save server profile");
+          toast.error(data.error || gt("Failed to save server profile"));
         }
       }
     } catch (error) {
       console.error("Failed to save settings:", error);
-      toast.error("Failed to save profile");
+      toast.error(gt("Failed to save profile"));
     } finally {
       setIsSaving(false);
     }
@@ -933,7 +972,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const handleLogout = async () => {
     await logout();
     onOpenChange(false);
-    toast.success("Logged out");
+    toast.success(gt("Logged out"));
   };
 
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -941,12 +980,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(gt("Please select an image file"));
       return;
     }
 
     if (file.size > 8 * 1024 * 1024) {
-      toast.error("Image must be less than 8MB");
+      toast.error(gt("Image must be less than 8MB"));
       return;
     }
 
@@ -968,14 +1007,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(gt("Please select an image file"));
       return;
     }
 
     // GIFs bypass the cropper to preserve animation
     if (file.type === "image/gif") {
       if (file.size > 50 * 1024 * 1024) {
-        toast.error("GIF must be less than 50MB");
+        toast.error(gt("GIF must be less than 50MB"));
         return;
       }
       handleGifBannerUpload(file);
@@ -986,7 +1025,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
 
     if (file.size > 8 * 1024 * 1024) {
-      toast.error("Image must be less than 8MB");
+      toast.error(gt("Image must be less than 8MB"));
       return;
     }
 
@@ -1027,14 +1066,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         } else {
           setServerBanner(data.url);
         }
-        toast.success("Banner updated!");
+        toast.success(gt("Banner updated!"));
         await refresh();
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to upload banner");
+        toast.error(data.error || gt("Failed to upload banner"));
       }
     } catch {
-      toast.error("Failed to upload banner");
+      toast.error(gt("Failed to upload banner"));
     } finally {
       setIsUploadingBanner(false);
     }
@@ -1076,14 +1115,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             setServerBanner(data.url);
           }
         }
-        toast.success(`${isAvatar ? "Avatar" : "Banner"} updated!`);
+        toast.success(gt("{type} updated!", { type: isAvatar ? gt("Avatar") : gt("Banner") }));
         await refresh();
       } else {
         const data = await response.json();
-        toast.error(data.error || `Failed to upload ${cropperType}`);
+        toast.error(data.error || gt("Failed to upload {type}", { type: cropperType }));
       }
     } catch (error) {
-      toast.error(`Failed to upload ${cropperType}`);
+      toast.error(gt("Failed to upload {type}", { type: cropperType }));
     } finally {
       setUploading(false);
     }
@@ -1103,10 +1142,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           return data.users.find((u: any) => u.id === prev.id) || null;
         });
       } else {
-        toast.error("Failed to search users");
+        toast.error(gt("Failed to search users"));
       }
     } catch (error) {
-      toast.error("Failed to search users");
+      toast.error(gt("Failed to search users"));
     } finally {
       setIsLoadingAdmin(false);
     }
@@ -1137,10 +1176,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           return data.servers.find((s: any) => s.id === prev.id) || null;
         });
       } else {
-        toast.error("Failed to search servers");
+        toast.error(gt("Failed to search servers"));
       }
     } catch (error) {
-      toast.error("Failed to search servers");
+      toast.error(gt("Failed to search servers"));
     } finally {
       setIsLoadingAdmin(false);
     }
@@ -1178,7 +1217,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         throw new Error(data?.error || `${response.status} ${response.statusText}`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to fetch platform settings";
+      const message = error instanceof Error ? error.message : gt("Failed to fetch platform settings");
       console.error("Failed to fetch platform settings:", error);
       toast.error(message);
     }
@@ -1208,14 +1247,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({ reason }),
       });
       if (response.ok) {
-        toast.success("User banned");
+        toast.success(gt("User banned"));
         searchAdminUsers();
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to ban user");
+        toast.error(data.error || gt("Failed to ban user"));
       }
     } catch (error) {
-      toast.error("Failed to ban user");
+      toast.error(gt("Failed to ban user"));
     }
   };
 
@@ -1225,13 +1264,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         method: "POST",
       });
       if (response.ok) {
-        toast.success("User unbanned");
+        toast.success(gt("User unbanned"));
         searchAdminUsers();
       } else {
-        toast.error("Failed to unban user");
+        toast.error(gt("Failed to unban user"));
       }
     } catch (error) {
-      toast.error("Failed to unban user");
+      toast.error(gt("Failed to unban user"));
     }
   };
 
@@ -1245,12 +1284,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       const data = await safeParseJSON(response);
       if (response.ok && data) {
         setPlatformSettings(data);
-        toast.success("Settings updated");
+        toast.success(gt("Settings updated"));
       } else {
         throw new Error(data?.error || `${response.status} ${response.statusText}`);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to update settings";
+      const message = error instanceof Error ? error.message : gt("Failed to update settings");
       toast.error(message);
       console.error("Failed to update platform settings:", error);
     }
@@ -1271,7 +1310,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({ globalAnnouncement: cleanedAnnouncement }),
       });
       if (!settingsResponse.ok) {
-        toast.error("Failed to publish announcement");
+        toast.error(gt("Failed to publish announcement"));
         return;
       }
       const settingsData = await settingsResponse.json().catch(() => null);
@@ -1287,15 +1326,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         const broadcastData = await broadcastResponse.json().catch(() => null);
         const dmCount = broadcastData?.dmsSent ?? 0;
         if (dmCount === -1) {
-          toast.success("Announcement published — DMs are being sent in the background");
+          toast.success(gt("Announcement published — DMs are being sent in the background"));
         } else {
-          toast.success(`Announcement published${dmCount > 0 ? ` (${dmCount} DMs sent)` : ""}`);
+          toast.success(dmCount > 0 ? gt("Announcement published ({count} DMs sent)", { count: dmCount }) : gt("Announcement published"));
         }
       } else {
-        toast.error("Announcement saved but broadcast failed");
+        toast.error(gt("Announcement saved but broadcast failed"));
       }
     } catch (error) {
-      toast.error("Failed to publish announcement");
+      toast.error(gt("Failed to publish announcement"));
     }
   };
 
@@ -1305,13 +1344,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         method: "POST",
       });
       if (response.ok) {
-        toast.success("Partner status toggled");
+        toast.success(gt("Partner status toggled"));
         searchAdminServers();
       } else {
-        toast.error("Failed to toggle partner status");
+        toast.error(gt("Failed to toggle partner status"));
       }
     } catch (error) {
-      toast.error("Failed to toggle partner status");
+      toast.error(gt("Failed to toggle partner status"));
     }
   };
 
@@ -1321,18 +1360,18 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         method: "POST",
       });
       if (response.ok) {
-        toast.success("Discovery status toggled");
+        toast.success(gt("Discovery status toggled"));
         searchAdminServers();
       } else {
-        toast.error("Failed to toggle discovery status");
+        toast.error(gt("Failed to toggle discovery status"));
       }
     } catch (error) {
-      toast.error("Failed to toggle discovery status");
+      toast.error(gt("Failed to toggle discovery status"));
     }
   };
 
   const handleDeleteServer = async (serverId: string, reason?: string) => {
-    if (!confirm("Are you sure you want to delete this server? This action cannot be undone.")) return;
+    if (!confirm(gt("Are you sure you want to delete this server? This action cannot be undone."))) return;
     try {
       const response = await fetch(`/api/admin/servers/${serverId}`, {
         method: "DELETE",
@@ -1340,13 +1379,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({ reason }),
       });
       if (response.ok) {
-        toast.success("Server deleted");
+        toast.success(gt("Server deleted"));
         searchAdminServers();
       } else {
-        toast.error("Failed to delete server");
+        toast.error(gt("Failed to delete server"));
       }
     } catch (error) {
-      toast.error("Failed to delete server");
+      toast.error(gt("Failed to delete server"));
     }
   };
 
@@ -1369,26 +1408,26 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         setAdminUsers((prev) =>
           prev.map((u) => (u.id === selectedUser.id ? { ...u, badges: updatedBadges } : u))
         );
-        toast.success("Badges updated");
+        toast.success(gt("Badges updated"));
       } else {
         const data = await response.json().catch(() => null);
-        toast.error(data?.error || "Failed to update badges");
+        toast.error(data?.error || gt("Failed to update badges"));
       }
     } catch {
-      toast.error("Failed to update badges");
+      toast.error(gt("Failed to update badges"));
     }
   };
 
   const handleTransferOwnership = async () => {
     if (!selectedServer) {
-      toast.info("Select a server first");
+      toast.info(gt("Select a server first"));
       return;
     }
 
-    const newOwnerId = prompt("Enter the new owner user ID");
+    const newOwnerId = prompt(gt("Enter the new owner user ID"));
     if (!newOwnerId) return;
 
-    const reason = prompt("Reason for transfer (optional)") || undefined;
+    const reason = prompt(gt("Reason for transfer (optional)")) || undefined;
 
     try {
       const response = await fetch(`/api/admin/servers/${selectedServer.id}/transfer`, {
@@ -1397,14 +1436,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({ newOwnerId, reason }),
       });
       if (response.ok) {
-        toast.success("Ownership transferred");
+        toast.success(gt("Ownership transferred"));
         void searchAdminServers();
       } else {
         const data = await response.json().catch(() => null);
-        toast.error(data?.error || "Failed to transfer ownership");
+        toast.error(data?.error || gt("Failed to transfer ownership"));
       }
     } catch {
-      toast.error("Failed to transfer ownership");
+      toast.error(gt("Failed to transfer ownership"));
     }
   };
 
@@ -1458,33 +1497,33 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
   const menuSections = [
     {
-      title: "User Settings",
+      title: gt("User Settings"),
       items: [
-        { id: "profiles" as SettingsTab, label: "Profiles", icon: User },
-        { id: "content-social" as SettingsTab, label: "Content & Social", icon: MessageSquare },
-        { id: "data-privacy" as SettingsTab, label: "Data & Privacy", icon: Lock },
-        { id: "authorized-apps" as SettingsTab, label: "Authorized Apps", icon: Plug },
-        { id: "devices" as SettingsTab, label: "Devices", icon: Smartphone },
-        { id: "connections" as SettingsTab, label: "Connections", icon: Link2 },
+        { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User },
+        { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare },
+        { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock },
+        { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
+        { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
+        { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
       ],
     },
     {
-      title: "Billing Settings",
+      title: gt("Billing Settings"),
       items: [
-        { id: "premium" as SettingsTab, label: "Serika+", icon: Crown },
+        { id: "premium" as SettingsTab, label: gt("Serika+"), icon: Crown },
       ],
     },
     {
-      title: "App Settings",
+      title: gt("App Settings"),
       items: [
-        { id: "appearance" as SettingsTab, label: "Appearance", icon: Palette },
-        { id: "accessibility" as SettingsTab, label: "Accessibility", icon: Accessibility },
-        { id: "voice-video" as SettingsTab, label: "Voice & Video", icon: Mic },
-        { id: "text-images" as SettingsTab, label: "Text & Images", icon: Image },
-        { id: "notifications" as SettingsTab, label: "Notifications", icon: Bell },
-        { id: "keybinds" as SettingsTab, label: "Keybinds", icon: Keyboard },
-        { id: "language" as SettingsTab, label: "Language", icon: Languages },
-        { id: "advanced" as SettingsTab, label: "Advanced", icon: Settings },
+        { id: "appearance" as SettingsTab, label: gt("Appearance"), icon: Palette },
+        { id: "accessibility" as SettingsTab, label: gt("Accessibility"), icon: Accessibility },
+        { id: "voice-video" as SettingsTab, label: gt("Voice & Video"), icon: Mic },
+        { id: "text-images" as SettingsTab, label: gt("Text & Images"), icon: Image },
+        { id: "notifications" as SettingsTab, label: gt("Notifications"), icon: Bell },
+        { id: "keybinds" as SettingsTab, label: gt("Keybinds"), icon: Keyboard },
+        { id: "language" as SettingsTab, label: gt("Language"), icon: Languages },
+        { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings },
       ],
     },
   ];
@@ -1496,27 +1535,28 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
   if (isStaff) {
     menuSections.push({
-      title: "Admin — Users",
+      title: gt("Admin — Users"),
       items: [
-        { id: "admin-users" as SettingsTab, label: "User Management", icon: Users },
-        { id: "admin-badges" as SettingsTab, label: "Badge Management", icon: Award },
+        { id: "admin-users" as SettingsTab, label: gt("User Management"), icon: Users },
+        { id: "admin-badges" as SettingsTab, label: gt("Badge Management"), icon: Award },
       ],
     });
     menuSections.push({
-      title: "Admin — Platform",
+      title: gt("Admin — Platform"),
       items: [
-        { id: "admin-servers" as SettingsTab, label: "Server Management", icon: Database },
-        { id: "admin-announcements" as SettingsTab, label: "Announcements", icon: Megaphone },
-        { id: "admin-settings" as SettingsTab, label: "Platform Settings", icon: Settings },
+        { id: "admin-servers" as SettingsTab, label: gt("Server Management"), icon: Database },
+        { id: "admin-announcements" as SettingsTab, label: gt("Announcements"), icon: Megaphone },
+        { id: "admin-settings" as SettingsTab, label: gt("Platform Settings"), icon: Settings },
       ],
     });
     menuSections.push({
-      title: "Admin — System",
+      title: gt("Admin — System"),
       items: [
-        { id: "admin-logs" as SettingsTab, label: "Activity Logs", icon: Activity },
-        { id: "admin-experiments" as SettingsTab, label: "Experiments", icon: FlaskConical },
-        { id: "admin-tts-sounds" as SettingsTab, label: "TTS Sounds", icon: Volume2 },
-        { id: "admin-tts-voices" as SettingsTab, label: "TTS Voices", icon: Mic2 },
+        { id: "admin-logs" as SettingsTab, label: gt("Activity Logs"), icon: Activity },
+        { id: "admin-experiments" as SettingsTab, label: gt("Experiments"), icon: FlaskConical },
+        { id: "admin-tts-sounds" as SettingsTab, label: gt("TTS Sounds"), icon: Volume2 },
+        { id: "admin-tts-voices" as SettingsTab, label: gt("TTS Voices"), icon: Mic2 },
+        { id: "admin-translations" as SettingsTab, label: gt("Translations"), icon: Languages },
       ],
     });
   }
@@ -1536,7 +1576,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       <div className="h-full flex flex-col md:flex-row">
         {/* Mobile Header */}
         <div className="md:hidden flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Settings</h2>
+          <h2 className="text-lg font-semibold text-[var(--text-primary)]">{gt("Settings")}</h2>
           <button
             onClick={() => onOpenChange(false)}
             className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
@@ -1565,7 +1605,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   className="text-xs text-[var(--text-secondary)] hover:text-[#8B5CF6] flex items-center gap-1 transition-colors"
                 >
                   <Pencil className="w-3 h-3" />
-                  Edit Profiles
+                  {gt("Edit Profiles")}
                 </button>
               </div>
             </div>
@@ -1578,7 +1618,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search"
+                placeholder={gt("Search")}
                 className="pl-9 h-8 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] text-sm placeholder:text-[#555555]"
               />
             </div>
@@ -1618,7 +1658,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 className="w-full flex items-center gap-3 px-2.5 py-1.5 rounded text-sm text-red-400 hover:bg-red-500/10 transition-colors"
               >
                 <LogOut className="w-5 h-5" />
-                Log Out
+                {gt("Log Out")}
               </button>
             </div>
           </ScrollArea>
@@ -1661,7 +1701,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {activeTab === "admin-logs" && (
                 <div>
                   <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-[var(--text-primary)]">Activity Logs</h2>
+                    <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Activity Logs")}</h2>
                     <div className="flex gap-2">
                       {/* Filter Dropdown would go here */}
                     </div>
@@ -1676,7 +1716,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               {log.action}
                             </span>
                             <span className="text-sm text-[var(--text-muted)]">
-                              by {log.admin.displayName || log.admin.username}
+                              {gt("by {name}", { name: log.admin.displayName || log.admin.username })}
                             </span>
                           </div>
                           <span className="text-xs text-[var(--text-muted)]">
@@ -1702,8 +1742,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Profiles Tab */}
               {activeTab === "profiles" && (
                 <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">Profiles</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-5">Customize how others see you across SerikaCord</p>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Profiles")}</h2>
+                  <p className="text-sm text-[var(--text-muted)] mb-5">{gt("Customize how others see you across SerikaCord")}</p>
 
                   {/* Tabs */}
                   <div className="flex gap-1 p-1 bg-[var(--bg-app)] rounded-lg w-fit mb-8 relative">
@@ -1713,7 +1753,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         if (!hasChanges) {
                           setProfileTab("main");
                         } else {
-                          toast.error("Please save or reset your changes first.");
+                          toast.error(gt("Please save or reset your changes first."));
                         }
                       }}
                       className={cn(
@@ -1730,7 +1770,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           transition={{ type: "spring", stiffness: 300, damping: 25 }}
                         />
                       )}
-                      Main Profile
+                      {gt("Main Profile")}
                     </button>
                     <button
                       type="button"
@@ -1738,7 +1778,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         if (!hasChanges) {
                           setProfileTab("server");
                         } else {
-                          toast.error("Please save or reset your changes first.");
+                          toast.error(gt("Please save or reset your changes first."));
                         }
                       }}
                       className={cn(
@@ -1755,7 +1795,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           transition={{ type: "spring", stiffness: 300, damping: 25 }}
                         />
                       )}
-                      Per-server Profiles
+                      {gt("Per-server Profiles")}
                     </button>
                   </div>
 
@@ -1774,7 +1814,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           >
                           {/* Avatar & Banner Section */}
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">Avatar & Banner</h3>
+                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">{gt("Avatar & Banner")}</h3>
                             <div className="flex gap-5 items-start">
                               <div>
                                 <div
@@ -1782,7 +1822,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   className="relative w-[72px] h-[72px] rounded-full bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                 >
                                   {user?.avatar ? (
-                                    <img src={user.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                                    <img src={user.avatar} alt={gt("Avatar")} className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                       <Camera className="w-5 h-5" />
@@ -1810,7 +1850,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   className="relative w-full h-[72px] rounded-lg bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                 >
                                   {user?.banner ? (
-                                    <img src={user.banner} alt="Banner" className="w-full h-full object-cover" />
+                                    <img src={user.banner} alt={gt("Banner")} className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                       <Image className="w-5 h-5" />
@@ -1837,11 +1877,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                           {/* Basic Info Section */}
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Basic Info</h3>
+                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Basic Info")}</h3>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                               <div>
                                 <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                  Display Name
+                                  {gt("Display Name")}
                                 </label>
                                 <Input
                                   value={displayName}
@@ -1851,27 +1891,27 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </div>
                               <div>
                                 <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                  Pronouns
+                                  {gt("Pronouns")}
                                 </label>
                                 <Input
                                   value={pronouns}
                                   onChange={(e) => setPronouns(e.target.value)}
                                   className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10"
-                                  placeholder="Add your pronouns"
+                                  placeholder={gt("Add your pronouns")}
                                 />
                               </div>
                             </div>
 
                             <div>
                               <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                Timezone
+                                {gt("Timezone")}
                               </label>
                               <select
                                 value={timezone}
                                 onChange={(e) => setTimezone(e.target.value)}
                                 className="w-full h-10 rounded-md bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)] px-3 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--app-accent)]"
                               >
-                                <option value="">Select your timezone</option>
+                                <option value="">{gt("Select your timezone")}</option>
                                 {Intl.supportedValuesOf("timeZone").map((tz) => (
                                   <option key={tz} value={tz}>{tz}</option>
                                 ))}
@@ -1883,17 +1923,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   onChange={(e) => setShowTimezone(e.target.checked)}
                                   className="w-4 h-4 rounded accent-[var(--app-accent)]"
                                 />
-                                <span className="text-sm text-[var(--text-secondary)]">Display my current time on my profile</span>
+                                <span className="text-sm text-[var(--text-secondary)]">{gt("Display my current time on my profile")}</span>
                               </label>
                             </div>
                           </div>
 
                           {/* About & Status Section */}
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">About & Status</h3>
+                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("About & Status")}</h3>
                             <div>
                               <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                About Me
+                                {gt("About Me")}
                               </label>
                               <Textarea
                                 value={bio}
@@ -1906,13 +1946,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                             <div>
                               <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                Custom Status
+                                {gt("Custom Status")}
                               </label>
                               <Input
                                 value={customStatus}
                                 onChange={(e) => setCustomStatus(e.target.value)}
                                 className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10"
-                                placeholder="What's on your mind?"
+                                placeholder={gt("What's on your mind?")}
                                 maxLength={128}
                               />
                             </div>
@@ -1920,22 +1960,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                           {/* Display Name Style */}
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">Display Name Style</h3>
+                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">{gt("Display Name Style")}</h3>
                             <div className="space-y-6">
                                 {/* Font */}
                                 <div className="mb-6">
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Font</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, font: 'default' }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Font"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Font")}</span>
+                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, font: 'default' }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Font")}><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
                                     {([
-                                      { value: 'default', label: 'Default' },
-                                      { value: 'serif', label: 'Serif' },
-                                      { value: 'mono', label: 'Mono' },
-                                      { value: 'rounded', label: 'Rounded' },
-                                      { value: 'cursive', label: 'Cursive' },
-                                      { value: 'bold', label: 'Bold' },
+                                      { value: 'default', label: gt("Default") },
+                                      { value: 'serif', label: gt("Serif") },
+                                      { value: 'mono', label: gt("Mono") },
+                                      { value: 'rounded', label: gt("Rounded") },
+                                      { value: 'cursive', label: gt("Cursive") },
+                                      { value: 'bold', label: gt("Bold") },
                                     ] as const).map((font) => {
                                       const isSelected = displayNameStyle.font === font.value;
                                       return (
@@ -1970,16 +2010,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 {/* Effect */}
                                 <div className="mb-6">
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Effect</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: 'solid' }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Effect"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Effect")}</span>
+                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: 'solid' }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Effect")}><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
                                     {([
-                                      { value: 'solid', label: 'Solid' },
-                                      { value: 'gradient', label: 'Gradient' },
-                                      { value: 'neon', label: 'Neon' },
-                                      { value: 'toon', label: 'Toon' },
-                                      { value: 'pop', label: 'Pop' },
+                                      { value: 'solid', label: gt("Solid") },
+                                      { value: 'gradient', label: gt("Gradient") },
+                                      { value: 'neon', label: gt("Neon") },
+                                      { value: 'toon', label: gt("Toon") },
+                                      { value: 'pop', label: gt("Pop") },
                                     ] as const).map((effect) => (
                                       <button
                                         key={effect.value}
@@ -2008,8 +2048,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 {/* Colour */}
                                 <div>
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Colour</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, color: '', gradient: [] }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Colour"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Colour")}</span>
+                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, color: '', gradient: [] }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Colour")}><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   {displayNameStyle.effect === 'gradient' ? (
                                     <div className="space-y-3">
@@ -2019,7 +2059,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                         const g1 = displayNameStyle.gradient?.[1] || '#EC4899';
                                         return (
                                           <div className="flex items-center gap-2">
-                                            <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                                            <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
                                             <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
                                               <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                                                 <input type="color" value={g0} onChange={(e) => setDisplayNameStyle((s) => ({ ...s, gradient: [e.target.value, s.gradient?.[1] || '#EC4899'] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
@@ -2100,8 +2140,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                             {/* Nameplate */}
                             <div className="mt-8">
-                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">Nameplate</h2>
-                              <p className="text-xs text-[var(--text-muted)] mb-3">A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.</p>
+                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">{gt("Nameplate")}</h2>
+                              <p className="text-xs text-[var(--text-muted)] mb-3">{gt("A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.")}</p>
                               <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-4 space-y-3">
                                 {/* Live preview — mirrors the sidebar user panel */}
                                 <div className="relative rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
@@ -2114,7 +2154,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       className={cn("text-sm font-bold text-[var(--text-primary)] truncate", getDisplayNameStyleClasses(displayNameStyle))}
                                       style={getDisplayNameStyleInline(displayNameStyle)}
                                     >
-                                      {displayName || user?.username || "Your name"}
+                                      {displayName || user?.username || gt("Your name")}
                                     </span>
                                   </div>
                                 </div>
@@ -2122,10 +2162,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 {/* Type selector — segmented */}
                                 <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-sidebar)] border border-[var(--border-subtle)]">
                                   {([
-                                    { id: 'none', label: 'None' },
-                                    { id: 'color', label: 'Solid' },
-                                    { id: 'gradient', label: 'Gradient' },
-                                    { id: 'preset', label: 'Presets' },
+                                    { id: 'none', label: gt("None") },
+                                    { id: 'color', label: gt("Solid") },
+                                    { id: 'gradient', label: gt("Gradient") },
+                                    { id: 'preset', label: gt("Presets") },
                                   ] as const).map((opt) => (
                                     <button
                                       key={opt.id}
@@ -2172,7 +2212,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   return (
                                     <div className="space-y-2.5">
                                       <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
                                         <div className="flex items-center justify-between flex-1 rounded-md h-9 px-2" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
                                           <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                                             <input type="color" value={g0} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [e.target.value, g1] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
@@ -2232,13 +2272,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                             {/* Profile Colour */}
                             <div className="mt-8">
-                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-4">Profile Colour</h2>
+                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-4">{gt("Profile Colour")}</h2>
                               <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-5">
                                 {/* Colour */}
                                 <div className="mb-6">
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Choose Colour</span>
-                                    <button onClick={() => setProfileColor('')} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Colour"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Colour")}</span>
+                                    <button onClick={() => setProfileColor('')} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Colour")}><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   <div className="flex flex-wrap gap-2.5">
                                     <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: profileColor || '#8B5CF6' }}>
@@ -2262,8 +2302,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 {/* Gradient Background */}
                                 <div>
                                   <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">Gradient Background (Optional)</span>
-                                    <button onClick={() => setProfileGradient([])} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title="Reset Gradient"><RotateCcw className="w-4 h-4" /></button>
+                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Gradient Background (Optional)")}</span>
+                                    <button onClick={() => setProfileGradient([])} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Gradient")}><RotateCcw className="w-4 h-4" /></button>
                                   </div>
                                   <div className="flex flex-wrap gap-2.5 mb-4">
                                     {[
@@ -2286,7 +2326,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     const g1 = profileGradient?.[1] || '#EC4899';
                                     return (
                                       <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">Custom</span>
+                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
                                         <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(135deg, ${g0}, ${g1})` }}>
                                           <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
                                             <input type="color" value={g0} onChange={(e) => setProfileGradient([e.target.value, g1])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
@@ -2315,11 +2355,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
                             <div className="flex items-center justify-between mb-2">
                               <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">
-                                Select Server
+                                {gt("Select Server")}
                               </label>
                               {hasChanges && (
                                 <span className="text-xs text-amber-500 font-medium animate-pulse">
-                                  Save changes before switching servers
+                                  {gt("Save changes before switching servers")}
                                 </span>
                               )}
                             </div>
@@ -2340,16 +2380,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           {serverMemberLoading ? (
                             <div className="py-8 flex flex-col items-center justify-center text-[var(--text-secondary)]">
                               <Loader2 className="w-8 h-8 animate-spin text-[var(--app-accent)] mb-2" />
-                              <span className="text-sm font-medium">Loading server profile...</span>
+                              <span className="text-sm font-medium">{gt("Loading server profile...")}</span>
                             </div>
                           ) : (
                             <div className="space-y-6">
                               {/* Nickname & Avatar Card */}
                               <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Server Identity</h3>
+                                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Server Identity")}</h3>
                                 <div>
                                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                    Server Nickname
+                                    {gt("Server Nickname")}
                                   </label>
                                   <Input
                                     value={serverNickname}
@@ -2362,7 +2402,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                                 <div>
                                   <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                    Server Avatar Override
+                                    {gt("Server Avatar Override")}
                                   </label>
                                   <div className="flex items-center gap-4">
                                     <div
@@ -2370,7 +2410,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       className="relative w-16 h-16 rounded-full bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                     >
                                       {serverAvatar || user?.avatar ? (
-                                        <img src={serverAvatar || user?.avatar} alt="Avatar" className="w-full h-full object-cover" />
+                                        <img src={serverAvatar || user?.avatar} alt={gt("Avatar")} className="w-full h-full object-cover" />
                                       ) : (
                                         <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                           <Camera className="w-5 h-5" />
@@ -2392,7 +2432,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                         }}
                                         className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium transition-colors"
                                       >
-                                        Reset to Global
+                                        {gt("Reset to Global")}
                                       </button>
                                     )}
                                   </div>
@@ -2408,14 +2448,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Server Banner override card */}
                               <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Server Banner Override</h3>
+                                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Server Banner Override")}</h3>
                                 <div className="flex flex-col gap-2.5">
                                   <div
                                     onClick={() => bannerInputRef.current?.click()}
                                     className="relative w-full h-[72px] rounded-lg bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                   >
                                     {serverBanner || user?.banner ? (
-                                      <img src={serverBanner || user?.banner} alt="Banner" className="w-full h-full object-cover" />
+                                      <img src={serverBanner || user?.banner} alt={gt("Banner")} className="w-full h-full object-cover" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                         <Image className="w-5 h-5" />
@@ -2437,7 +2477,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       }}
                                       className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium transition-colors self-start"
                                     >
-                                      Reset to Global
+                                      {gt("Reset to Global")}
                                     </button>
                                   )}
                                 </div>
@@ -2451,9 +2491,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </div>
 
                               <div className="p-4 bg-[var(--bg-sidebar)] rounded-xl border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed space-y-1">
-                                <p className="font-semibold text-[var(--text-primary)]">About Server Profiles</p>
-                                <p>Custom nickname, avatar overrides, and banners apply only to the selected server.</p>
-                                <p>Global attributes (about me, custom status, and name styles) will fall back to your main profile settings.</p>
+                                <p className="font-semibold text-[var(--text-primary)]">{gt("About Server Profiles")}</p>
+                                <p>{gt("Custom nickname, avatar overrides, and banners apply only to the selected server.")}</p>
+                                <p>{gt("Global attributes (about me, custom status, and name styles) will fall back to your main profile settings.")}</p>
                               </div>
                             </div>
                           )}
@@ -2464,7 +2504,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                     {/* Preview */}
                     <div className="md:sticky md:top-5 self-start">
-                      <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-3">Preview</h3>
+                      <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-3">{gt("Preview")}</h3>
                       <ProfileCard
                         user={previewUser}
                         isCurrentUser={true}
@@ -2477,43 +2517,42 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Premium Tab */}
               {activeTab === "premium" && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5">Serika+</h2>
+                  <h2 className="text-xl font-bold text-white mb-5">{gt("Serika+")}</h2>
                   {user?.isPremium ? (
                     <div className="bg-gradient-to-r from-[#8B5CF6]/20 to-[#6366F1]/20 rounded-lg p-6 border border-[#8B5CF6]/30">
                       <div className="flex items-center gap-3 mb-4">
                         <Crown className="w-10 h-10 text-[#8B5CF6]" />
                         <div>
-                          <h3 className="text-lg font-bold text-white">You have Serika+!</h3>
+                          <h3 className="text-lg font-bold text-white">{gt("You have Serika+!")}</h3>
                           <p className="text-sm text-[var(--text-secondary)]">
-                            Member since{" "}
+                            {gt("Member since")}{" "}
                             {user.premiumSince
                               ? new Date(user.premiumSince).toLocaleDateString()
-                              : "Unknown"}
+                              : gt("Unknown")}
                           </p>
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-4 mt-6">
                         <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ Custom profile themes</p>
+                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Custom profile themes")}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ Animated avatars</p>
+                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Animated avatars")}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ Extended file uploads</p>
+                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Extended file uploads")}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ Exclusive badge</p>
+                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Exclusive badge")}</p>
                         </div>
                       </div>
                     </div>
                   ) : (
                     <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
                       <Crown className="w-16 h-16 text-[#8B5CF6] mx-auto mb-4" />
-                      <h3 className="text-2xl font-bold text-white mb-2">Upgrade to Serika+</h3>
+                      <h3 className="text-2xl font-bold text-white mb-2">{gt("Upgrade to Serika+")}</h3>
                       <p className="text-[var(--text-secondary)] max-w-md mx-auto mb-6">
-                        Get exclusive features like animated avatars, custom themes, enhanced upload
-                        limits, and more.
+                        {gt("Get exclusive features like animated avatars, custom themes, enhanced upload limits, and more.")}
                       </p>
                       <a
                         href="https://serika.dev/premium"
@@ -2521,7 +2560,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-2 px-8 py-3 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium rounded-md transition-colors"
                       >
-                        Subscribe to Serika+
+                        {gt("Subscribe to Serika+")}
                         <ExternalLink className="w-4 h-4" />
                       </a>
                     </div>
@@ -2532,24 +2571,24 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Appearance Tab */}
               {activeTab === "appearance" && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)]">Appearance</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Appearance")}</h2>
 
                   {userSettings && (
                     <div className="rounded-lg p-5 space-y-4 border border-[var(--border-subtle)] bg-[var(--bg-card)]">
                       <div>
-                        <label className="block text-sm text-[var(--text-secondary)] mb-2">Theme style</label>
+                        <label className="block text-sm text-[var(--text-secondary)] mb-2">{gt("Theme style")}</label>
                         <select
                           value={userSettings.appearance?.theme || userSettings.appearance?.themeStyle || themeSettings.theme || "dark"}
                           onChange={(e) => saveAppearancePatch({ theme: e.target.value })}
                           className="w-full rounded-md px-3 py-2 bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                         >
-                          <option value="dark">Dark</option>
-                          <option value="midnight">Midnight</option>
-                          <option value="light">Light</option>
+                          <option value="dark">{gt("Dark")}</option>
+                          <option value="midnight">{gt("Midnight")}</option>
+                          <option value="light">{gt("Light")}</option>
                         </select>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-[var(--text-primary)]">Compact mode</span>
+                        <span className="text-[var(--text-primary)]">{gt("Compact mode")}</span>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)} onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })} />
                       </div>
                     </div>
@@ -2557,12 +2596,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Theme Selection */}
                   <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">Theme</h3>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">{gt("Theme")}</h3>
                     <div className="grid grid-cols-3 gap-3">
                       {[
-                        { id: "dark", label: "Dark", stripA: "#111111", stripB: "#0f0f0f", body: "#0a0a0a" },
-                        { id: "midnight", label: "Midnight", stripA: "#0b1020", stripB: "#101728", body: "#050913" },
-                        { id: "light", label: "Light", stripA: "#e5e5e5", stripB: "#f0f0f0", body: "#ffffff" },
+                        { id: "dark", label: gt("Dark"), stripA: "#111111", stripB: "#0f0f0f", body: "#0a0a0a" },
+                        { id: "midnight", label: gt("Midnight"), stripA: "#0b1020", stripB: "#101728", body: "#050913" },
+                        { id: "light", label: gt("Light"), stripA: "#e5e5e5", stripB: "#f0f0f0", body: "#ffffff" },
                       ].map((themeOption) => {
                         const selected = (userSettings?.appearance?.theme || userSettings?.appearance?.themeStyle || themeSettings.theme || "dark") === themeOption.id;
                         return (
@@ -2593,18 +2632,18 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Accent Colour */}
                   <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">Accent Colour</h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4">Choose your primary accent colour</p>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">{gt("Accent Colour")}</h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Choose your primary accent colour")}</p>
                     <div className="flex gap-2 flex-wrap">
                       {[
-                        { color: '#8B5CF6', name: 'Purple' },
-                        { color: '#6366F1', name: 'Indigo' },
-                        { color: '#3B82F6', name: 'Blue' },
-                        { color: '#06B6D4', name: 'Cyan' },
-                        { color: '#10B981', name: 'Emerald' },
-                        { color: '#F59E0B', name: 'Amber' },
-                        { color: '#EF4444', name: 'Red' },
-                        { color: '#EC4899', name: 'Pink' },
+                        { color: '#8B5CF6', name: gt("Purple") },
+                        { color: '#6366F1', name: gt("Indigo") },
+                        { color: '#3B82F6', name: gt("Blue") },
+                        { color: '#06B6D4', name: gt("Cyan") },
+                        { color: '#10B981', name: gt("Emerald") },
+                        { color: '#F59E0B', name: gt("Amber") },
+                        { color: '#EF4444', name: gt("Red") },
+                        { color: '#EC4899', name: gt("Pink") },
                       ].map((c) => (
                         <button
                           key={c.color}
@@ -2628,8 +2667,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Font Size */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-2">Chat Font Size</h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4">Adjust the size of text in chat</p>
+                    <h3 className="text-base font-bold text-white mb-2">{gt("Chat Font Size")}</h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Adjust the size of text in chat")}</p>
                     <div className="flex items-center gap-4">
                       <span className="text-xs text-[var(--text-secondary)]">12px</span>
                       <input
@@ -2643,25 +2682,25 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <span className="text-xs text-[var(--text-secondary)]">20px</span>
                     </div>
                     <p className="text-sm text-[#dcddde] mt-3">
-                      Preview ({userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}px): This is how your chat will look.
+                      {gt("Preview ({size}px): This is how your chat will look.", { size: userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14 })}
                     </p>
                   </div>
 
                   {/* Message Display */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-4">Message Display</h3>
+                    <h3 className="text-base font-bold text-white mb-4">{gt("Message Display")}</h3>
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">Show Timestamps</p>
-                          <p className="text-sm text-[var(--text-secondary)]">Display message timestamps</p>
+                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Show Timestamps")}</p>
+                          <p className="text-sm text-[var(--text-secondary)]">{gt("Display message timestamps")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.showTimestamps ?? themeSettings.showTimestamps)} onCheckedChange={(checked) => saveAppearancePatch({ showTimestamps: checked })} />
                       </label>
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">Show Role Colours</p>
-                          <p className="text-sm text-[var(--text-secondary)]">Colour usernames by their highest role</p>
+                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Show Role Colours")}</p>
+                          <p className="text-sm text-[var(--text-secondary)]">{gt("Colour usernames by their highest role")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)} onCheckedChange={(checked) => saveAppearancePatch({ showRoleColors: checked })} />
                       </label>
@@ -2670,19 +2709,19 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Animations */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-4">Animations</h3>
+                    <h3 className="text-base font-bold text-white mb-4">{gt("Animations")}</h3>
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">Enable Animations</p>
-                          <p className="text-sm text-[var(--text-secondary)]">Show smooth transitions and animations</p>
+                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Enable Animations")}</p>
+                          <p className="text-sm text-[var(--text-secondary)]">{gt("Show smooth transitions and animations")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)} onCheckedChange={(checked) => saveAppearancePatch({ enableAnimations: checked })} />
                       </label>
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">Animated Emojis</p>
-                          <p className="text-sm text-[var(--text-secondary)]">Play animated emojis automatically</p>
+                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Animated Emojis")}</p>
+                          <p className="text-sm text-[var(--text-secondary)]">{gt("Play animated emojis automatically")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings?.textImages?.gifAutoplay ?? themeSettings.animatedEmojis)} onCheckedChange={(checked) => {
                             setUserSettings((prev) => ({
@@ -2704,33 +2743,33 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Voice & Video Tab */}
               {activeTab === "voice-video" && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5">Voice & Video</h2>
+                  <h2 className="text-xl font-bold text-white mb-5">{gt("Voice & Video")}</h2>
                   <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <div className="flex items-center gap-4 mb-4">
                       <Volume2 className="w-10 h-10 text-[#8B5CF6]" />
                       <div>
-                        <h3 className="text-white font-bold">Voice Settings</h3>
-                        <p className="text-sm text-[var(--text-secondary)]">Configure microphone and audio output</p>
+                        <h3 className="text-white font-bold">{gt("Voice Settings")}</h3>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Configure microphone and audio output")}</p>
                       </div>
                     </div>
                     {isLoadingSettings || !userSettings ? (
-                      <div className="text-[var(--text-muted)] text-sm">Loading settings...</div>
+                      <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
                     ) : (
                       <div className="space-y-3">
                         <label className="flex items-center justify-between">
-                          <span className="text-white">Noise suppression</span>
+                          <span className="text-white">{gt("Noise suppression")}</span>
                           <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.noiseSuppression)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")} />
                         </label>
                         <label className="flex items-center justify-between">
-                          <span className="text-white">Echo cancellation</span>
+                          <span className="text-white">{gt("Echo cancellation")}</span>
                           <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.echoCancellation)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")} />
                         </label>
                         <label className="flex items-center justify-between">
-                          <span className="text-white">Push to talk</span>
+                          <span className="text-white">{gt("Push to talk")}</span>
                           <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.pushToTalk)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")} />
                         </label>
                         <label className="flex items-center justify-between">
-                          <span className="text-white">Stream preview</span>
+                          <span className="text-white">{gt("Stream preview")}</span>
                           <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.streamPreview)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), streamPreview: checked } }, "voice-video")} />
                         </label>
                       </div>
@@ -2742,19 +2781,19 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Notifications Tab */}
               {activeTab === "notifications" && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-bold text-white">Notifications</h2>
+                  <h2 className="text-xl font-bold text-white">{gt("Notifications")}</h2>
 
                   {/* DND / Do Not Disturb */}
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
                     <div className="flex items-center gap-2 mb-1">
                       <MinusCircle className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Do Not Disturb</h3>
+                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Do Not Disturb")}</h3>
                     </div>
 
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Enable Do Not Disturb</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Suppresses all sounds, desktop notifications, and toasts</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Enable Do Not Disturb")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Suppresses all sounds, desktop notifications, and toasts")}</p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -2767,10 +2806,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <div className="ml-0 p-4 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] space-y-3">
                         <div className="flex items-center gap-2">
                           <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                          <p className="text-xs font-semibold text-[var(--text-secondary)]">Scheduled Quiet Hours</p>
+                          <p className="text-xs font-semibold text-[var(--text-secondary)]">{gt("Scheduled Quiet Hours")}</p>
                         </div>
                         <label className="flex items-center justify-between cursor-pointer">
-                          <span className="text-sm text-[var(--text-primary)]">Enable schedule</span>
+                          <span className="text-sm text-[var(--text-primary)]">{gt("Enable schedule")}</span>
                           <ToggleSwitch
                             size="sm"
                             checked={Boolean(userSettings?.notifications?.dndSchedule?.enabled)}
@@ -2780,7 +2819,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         {userSettings?.notifications?.dndSchedule?.enabled && (
                           <div className="flex items-center gap-3">
                             <div className="flex-1">
-                              <label className="text-xs text-[var(--text-muted)]">Start</label>
+                              <label className="text-xs text-[var(--text-muted)]">{gt("Start")}</label>
                               <Input
                                 type="time"
                                 value={userSettings?.notifications?.dndSchedule?.start || "22:00"}
@@ -2789,7 +2828,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               />
                             </div>
                             <div className="flex-1">
-                              <label className="text-xs text-[var(--text-muted)]">End</label>
+                              <label className="text-xs text-[var(--text-muted)]">{gt("End")}</label>
                               <Input
                                 type="time"
                                 value={userSettings?.notifications?.dndSchedule?.end || "08:00"}
@@ -2807,12 +2846,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
                     <div className="flex items-center gap-2 mb-1">
                       <Target className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Focus Mode</h3>
+                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Focus Mode")}</h3>
                     </div>
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Enable Focus Mode</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Suppress everything except direct @mentions and DMs</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Enable Focus Mode")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Suppress everything except direct @mentions and DMs")}</p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -2826,12 +2865,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
                     <div className="flex items-center gap-2 mb-1">
                       <MonitorSmartphone className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Desktop Notifications</h3>
+                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Desktop Notifications")}</h3>
                     </div>
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Enable Desktop &amp; Push Notifications</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Receive native notifications on desktop, mobile and browser</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Enable Desktop & Push Notifications")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Receive native notifications on desktop, mobile and browser")}</p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -2840,7 +2879,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           if (checked) {
                             const granted = await requestNotificationPermission();
                             if (!granted) {
-                              toast.error("Notification permission denied. Please enable it in your browser/OS settings.");
+                              toast.error(gt("Notification permission denied. Please enable it in your browser/OS settings."));
                               return;
                             }
                           }
@@ -2850,16 +2889,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </div>
                     {userSettings?.notifications?.desktop && typeof Notification !== "undefined" && Notification.permission !== "granted" && (
                       <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <p className="text-xs text-amber-400">Browser permission not granted yet.</p>
+                        <p className="text-xs text-amber-400">{gt("Browser permission not granted yet.")}</p>
                         <button
                           onClick={async () => {
                             const granted = await requestNotificationPermission();
-                            if (granted) toast.success("Notifications enabled!");
-                            else toast.error("Permission denied. Check browser settings.");
+                            if (granted) toast.success(gt("Notifications enabled!"));
+                            else toast.error(gt("Permission denied. Check browser settings."));
                           }}
                           className="text-xs font-semibold text-amber-300 hover:text-amber-200 underline"
                         >
-                          Grant Permission
+                          {gt("Grant Permission")}
                         </button>
                       </div>
                     )}
@@ -2868,8 +2907,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Mentions only <span className="ml-1.5 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">Default</span></p>
-                        <p className="text-sm text-[var(--text-secondary)]">Only send desktop notifications when you are mentioned. Turn off to notify on all messages.</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Mentions only")} <span className="ml-1.5 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">{gt("Default")}</span></p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Only send desktop notifications when you are mentioned. Turn off to notify on all messages.")}</p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -2882,8 +2921,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Mute @everyone and @here</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Suppress popup notifications for @everyone and @here pings</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Mute @everyone and @here")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Suppress popup notifications for @everyone and @here pings")}</p>
                       </div>
                       <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.muteEveryone)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), muteEveryone: checked } }, "notifications")} />
                     </label>
@@ -2892,8 +2931,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Show message preview</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Display message content in desktop notifications</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Show message preview")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Display message content in desktop notifications")}</p>
                       </div>
                       <ToggleSwitch size="sm" checked={userSettings?.notifications?.showPreview !== false} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), showPreview: checked } }, "notifications")} />
                     </label>
@@ -2903,13 +2942,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-5">
                     <div className="flex items-center gap-2 mb-1">
                       <Volume2 className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Sound</h3>
+                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Sound")}</h3>
                     </div>
 
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Message Sounds</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Play a sound when a new message arrives</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Message Sounds")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Play a sound when a new message arrives")}</p>
                       </div>
                       <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.sounds)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: checked } }, "notifications")} />
                     </label>
@@ -2919,14 +2958,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <div className="h-px bg-[var(--border-subtle)]" />
 
                         <div className="space-y-2">
-                          <label className="text-sm text-[var(--text-primary)] font-medium">Sound type</label>
+                          <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Sound type")}</label>
                           <div className="grid grid-cols-5 gap-2">
                             {([
-                              { value: 'chime', label: 'Chime' },
-                              { value: 'ding', label: 'Ding' },
-                              { value: 'pop', label: 'Pop' },
-                              { value: 'coin', label: 'Coin' },
-                              { value: 'none', label: 'Silent' },
+                              { value: 'chime', label: gt("Chime") },
+                              { value: 'ding', label: gt("Ding") },
+                              { value: 'pop', label: gt("Pop") },
+                              { value: 'coin', label: gt("Coin") },
+                              { value: 'none', label: gt("Silent") },
                             ] as const).map((opt) => (
                               <button
                                 key={opt.value}
@@ -2948,7 +2987,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
-                            <label className="text-sm text-[var(--text-primary)] font-medium">Volume</label>
+                            <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Volume")}</label>
                             <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings?.notifications?.soundVolume ?? 50}%</span>
                           </div>
                           <input
@@ -2968,8 +3007,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                         <label className="flex items-center justify-between cursor-pointer">
                           <div>
-                            <p className="text-[var(--text-primary)] font-medium">Suppress sound when tab is focused</p>
-                            <p className="text-sm text-[var(--text-secondary)]">Don't play notification sound when you're already viewing the app</p>
+                            <p className="text-[var(--text-primary)] font-medium">{gt("Suppress sound when tab is focused")}</p>
+                            <p className="text-sm text-[var(--text-secondary)]">{gt("Don't play notification sound when you're already viewing the app")}</p>
                           </div>
                           <ToggleSwitch
                             size="sm"
@@ -2985,12 +3024,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
                     <div className="flex items-center gap-2 mb-1">
                       <BellRing className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">In-App Toasts</h3>
+                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("In-App Toasts")}</h3>
                     </div>
                     <label className="flex items-center justify-between cursor-pointer">
                       <div>
-                        <p className="text-[var(--text-primary)] font-medium">Suppress in-app toast notifications</p>
-                        <p className="text-sm text-[var(--text-secondary)]">Hide the toast popups that appear in-app for new messages</p>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Suppress in-app toast notifications")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Hide the toast popups that appear in-app for new messages")}</p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -3017,7 +3056,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               )}
 
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-badges", "admin-announcements", "connections"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 capitalize">
                     {activeTab.replace(/-/g, " ")}
@@ -3030,27 +3069,27 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <div className="space-y-2">
                       {authorizedApps.length === 0 ? (
                         <div className="bg-[var(--bg-app)] rounded-lg p-6 text-center text-[var(--text-secondary)] text-sm">
-                          No authorized apps connected.
+                          {gt("No authorized apps connected.")}
                         </div>
                       ) : authorizedApps.map((app) => (
                         <div key={app._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
                             <p className="text-white font-medium">{app.name}</p>
-                            <p className="text-xs text-[var(--text-secondary)]">{app.description || "No description"}</p>
+                            <p className="text-xs text-[var(--text-secondary)]">{app.description || gt("No description")}</p>
                           </div>
                           <button
                             onClick={async () => {
                               const response = await fetch(`/api/users/me/authorized-apps/${app._id}`, { method: "DELETE" });
                               if (response.ok) {
                                 setAuthorizedApps((prev) => prev.filter((item) => item._id !== app._id));
-                                toast.success("App access revoked");
+                                toast.success(gt("App access revoked"));
                               } else {
-                                toast.error("Failed to revoke app");
+                                toast.error(gt("Failed to revoke app"));
                               }
                             }}
                             className="px-3 py-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20"
                           >
-                            Revoke
+                            {gt("Revoke")}
                           </button>
                         </div>
                       ))}
@@ -3069,14 +3108,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 const response = await fetch(`/api/users/me/devices/${device._id}`, { method: "DELETE" });
                                 if (response.ok) {
                                   setDeviceSessions((prev) => prev.filter((item) => item._id !== device._id));
-                                  toast.success("Device revoked");
+                                  toast.success(gt("Device revoked"));
                                 } else {
-                                  toast.error("Failed to revoke device");
+                                  toast.error(gt("Failed to revoke device"));
                                 }
                               }}
                               className="px-3 py-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20"
                             >
-                              Revoke
+                              {gt("Revoke")}
                             </button>
                           )}
                         </div>
@@ -3086,26 +3125,26 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <div className="space-y-4 bg-[var(--bg-app)] rounded-lg p-5">
                       {activeTab === "content-social" && (
                         <>
-                          <label className="block text-sm text-[var(--text-secondary)]">Sensitive Content Filter</label>
+                          <label className="block text-sm text-[var(--text-secondary)]">{gt("Sensitive Content Filter")}</label>
                           <select
                             value={userSettings.contentSocial?.explicitFilter || "moderate"}
                             onChange={(e) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), explicitFilter: e.target.value } }, "content-social")}
                             className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
                           >
-                            <option value="disabled">Disabled</option>
-                            <option value="moderate">Moderate</option>
-                            <option value="strict">Strict</option>
+                            <option value="disabled">{gt("Disabled")}</option>
+                            <option value="moderate">{gt("Moderate")}</option>
+                            <option value="strict">{gt("Strict")}</option>
                           </select>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Show sensitive media</span>
+                            <span className="text-white">{gt("Show sensitive media")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.contentSocial?.showSensitiveMedia)} onCheckedChange={(checked) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), showSensitiveMedia: checked } }, "content-social")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Allow direct messages from server members</span>
+                            <span className="text-white">{gt("Allow direct messages from server members")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowServerMembers)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowServerMembers: checked } }, "content-social")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Allow friend requests from everyone</span>
+                            <span className="text-white">{gt("Allow friend requests from everyone")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowEveryone)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowEveryone: checked } }, "content-social")} />
                           </label>
                         </>
@@ -3114,15 +3153,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {activeTab === "data-privacy" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Allow data personalization</span>
+                            <span className="text-white">{gt("Allow data personalization")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Allow crash reports</span>
+                            <span className="text-white">{gt("Allow crash reports")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowCrashReports)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowCrashReports: checked } }, "data-privacy")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Allow analytics</span>
+                            <span className="text-white">{gt("Allow analytics")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowAnalytics)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowAnalytics: checked } }, "data-privacy")} />
                           </label>
                         </>
@@ -3131,45 +3170,45 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {activeTab === "accessibility" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Reduced motion</span>
+                            <span className="text-white">{gt("Reduced motion")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.reducedMotion)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">High contrast</span>
+                            <span className="text-white">{gt("High contrast")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.highContrast)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Text-to-Speech</span>
+                            <span className="text-white">{gt("Text-to-Speech")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.tts)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "accessibility")} />
                           </label>
 
                           {/* TTS Usage Guide */}
                           <div className="mt-2 mb-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
-                            <p className="text-xs font-semibold text-[var(--app-accent)]">TTS Usage Guide</p>
+                            <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>
                             <p className="text-xs text-[var(--text-muted)]">
-                              Type <code className="px-1 py-0.5 rounded bg-white/10 text-white">/tts</code> before your message to send it as speech.
+                              {gt("Type")} <code className="px-1 py-0.5 rounded bg-white/10 text-white">/tts</code> {gt("before your message to send it as speech.")}
                             </p>
                             <p className="text-xs text-[var(--text-muted)]">
-                              Switch voice per message with keywords:
+                              {gt("Switch voice per message with keywords:")}
                             </p>
                             <p className="text-xs text-white pl-3">
-                              <code className="px-1 py-0.5 rounded bg-white/10">/tts [f] Hello</code> — female voice
+                              <code className="px-1 py-0.5 rounded bg-white/10">/tts [f] Hello</code> — {gt("female voice")}
                             </p>
                             <p className="text-xs text-white pl-3">
-                              <code className="px-1 py-0.5 rounded bg-white/10">/tts [m] Hello</code> — male voice
+                              <code className="px-1 py-0.5 rounded bg-white/10">/tts [m] Hello</code> — {gt("male voice")}
                             </p>
                             <p className="text-xs text-[var(--text-muted)]">
-                              Keywords: <span className="text-white">[f]</span>, <span className="text-white">[female]</span>, <span className="text-white">[girl]</span> for female &middot; <span className="text-white">[m]</span>, <span className="text-white">[male]</span>, <span className="text-white">[boy]</span> for male
+                              {gt("Keywords:")} <span className="text-white">[f]</span>, <span className="text-white">[female]</span>, <span className="text-white">[girl]</span> {gt("for female")} &middot; <span className="text-white">[m]</span>, <span className="text-white">[male]</span>, <span className="text-white">[boy]</span> {gt("for male")}
                             </p>
                             <p className="text-xs text-[var(--text-muted)]">
-                              Voices are English-only. Set a default below or override per message.
+                              {gt("Voices are English-only. Set a default below or override per message.")}
                             </p>
                           </div>
 
                           {/* Reading speed */}
                           <div className="py-2">
                             <div className="flex items-center justify-between mb-1">
-                              <span className="text-white">Reading speed</span>
+                              <span className="text-white">{gt("Reading speed")}</span>
                               <span className="text-sm text-[var(--text-secondary)]">
                                 {(userSettings.accessibility?.ttsRate ?? 1).toFixed(1)}×
                               </span>
@@ -3187,15 +3226,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                           {/* Voice gender */}
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Voice</span>
+                            <span className="text-white">{gt("Voice")}</span>
                             <select
                               value={userSettings.accessibility?.ttsVoice ?? "auto"}
                               onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsVoice: e.target.value } }, "accessibility")}
                               className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
                             >
-                              <option value="auto">Automatic</option>
-                              <option value="female">Female</option>
-                              <option value="male">Male</option>
+                              <option value="auto">{gt("Automatic")}</option>
+                              <option value="female">{gt("Female")}</option>
+                              <option value="male">{gt("Male")}</option>
                             </select>
                           </label>
                         </>
@@ -3204,15 +3243,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {activeTab === "text-images" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Inline media</span>
+                            <span className="text-white">{gt("Inline media")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineMedia)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Inline embeds</span>
+                            <span className="text-white">{gt("Inline embeds")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineEmbeds)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">GIF autoplay</span>
+                            <span className="text-white">{gt("GIF autoplay")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.gifAutoplay)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images")} />
                           </label>
                         </>
@@ -3220,44 +3259,42 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                       {activeTab === "keybinds" && (
                         <>
-                          <label className="block text-sm text-[var(--text-secondary)]">Preset</label>
+                          <label className="block text-sm text-[var(--text-secondary)]">{gt("Preset")}</label>
                           <select
                             value={userSettings.keybinds?.preset || "default"}
                             onChange={(e) => saveSettingsPatch({ keybinds: { ...(userSettings.keybinds || {}), preset: e.target.value } }, "keybinds")}
                             className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
                           >
-                            <option value="default">Default</option>
-                            <option value="gaming">Gaming</option>
-                            <option value="vim">Vim-style</option>
+                            <option value="default">{gt("Default")}</option>
+                            <option value="gaming">{gt("Gaming")}</option>
+                            <option value="vim">{gt("Vim-style")}</option>
                           </select>
                         </>
                       )}
 
                       {activeTab === "language" && (
                         <>
-                          <label className="block text-sm text-[var(--text-secondary)]">Locale</label>
-                          <input
-                            defaultValue={userSettings.language?.locale || "en-US"}
-                            onBlur={(e) => saveSettingsPatch({ language: { ...(userSettings.language || {}), locale: e.target.value } }, "language")}
-                            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
-                          />
+                          <label className="block text-sm text-[var(--text-secondary)] mb-3"><T>Language</T></label>
+                          <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-4">
+                            <LocaleSelector />
+                          </div>
                         </>
                       )}
 
                       {activeTab === "advanced" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">Developer Mode</span>
+                            <span className="text-white"><T>Developer Mode</T></span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.advanced?.developerMode)} onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), developerMode: checked } }, "advanced")} />
                           </label>
                           <p className="text-xs text-[var(--text-secondary)]">
-                            Enables extra technical information, such as copying IDs from context menus.
+                            <T>Enables extra technical information, such as copying IDs from context menus.</T>
                           </p>
                         </>
                       )}
 
                       <div className="text-xs text-[var(--text-muted)]">
-                        {isSavingSettings ? `Saving ${isSavingSettings}...` : "Changes are saved instantly."}
+                        {isSavingSettings ? `${gt("Saving")} ${isSavingSettings}...` : gt("Changes are saved instantly.")}
                       </div>
                     </div>
                   )}
@@ -3269,7 +3306,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
                     <ShieldCheck className="w-6 h-6 text-[#8B5CF6]" />
-                    User Management
+                    {gt("User Management")}
                   </h2>
 
                   {/* Search bar */}
@@ -3279,7 +3316,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         value={adminUserSearch}
                         onChange={(e) => setAdminUserSearch(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && searchAdminUsers()}
-                        placeholder="Search users by email or username..."
+                        placeholder={gt("Search users by email or username...")}
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
                       />
                       <button
@@ -3288,7 +3325,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
                       >
                         {isLoadingAdmin && <Loader2 className="w-4 h-4 animate-spin" />}
-                        Search
+                        {gt("Search")}
                       </button>
                     </div>
                   </div>
@@ -3299,7 +3336,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {/* Left: User list */}
                       <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
                         <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
-                          <p className="text-white font-semibold text-sm">Results ({adminUsers.length})</p>
+                          <p className="text-white font-semibold text-sm">{gt("Results ({count})", { count: adminUsers.length })}</p>
                         </div>
                         <ScrollArea className="flex-1 min-h-0">
                           <div className="p-1.5 space-y-1">
@@ -3329,10 +3366,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 </div>
                                 <div className="flex flex-col items-end gap-0.5">
                                   {u.isBanned && (
-                                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded">Banned</span>
+                                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded">{gt("Banned")}</span>
                                   )}
                                   {u.isStaff && (
-                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">Staff</span>
+                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">{gt("Staff")}</span>
                                   )}
                                 </div>
                               </button>
@@ -3364,11 +3401,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               {selectedUser.stats && (
                                 <div className="grid grid-cols-2 gap-2">
                                   <div className="bg-[var(--bg-card)] rounded-lg p-3">
-                                    <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">Servers</p>
+                                    <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{gt("Servers")}</p>
                                     <p className="text-lg text-white font-bold">{selectedUser.stats.servers}</p>
                                   </div>
                                   <div className="bg-[var(--bg-card)] rounded-lg p-3">
-                                    <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">Messages</p>
+                                    <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{gt("Messages")}</p>
                                     <p className="text-lg text-white font-bold">{selectedUser.stats.messages}</p>
                                   </div>
                                 </div>
@@ -3376,29 +3413,29 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Account info */}
                               <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Account</p>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Account")}</p>
                                 <div className="bg-[var(--bg-card)] rounded-lg p-3 space-y-2">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">Verified</span>
+                                    <span className="text-sm text-[var(--text-muted)]">{gt("Verified")}</span>
                                     <span className={cn("text-sm font-medium", selectedUser.isVerified ? "text-green-400" : "text-[var(--text-muted)]")}>
-                                      {selectedUser.isVerified ? "Yes" : "No"}
+                                      {selectedUser.isVerified ? gt("Yes") : gt("No")}
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">Staff</span>
+                                    <span className="text-sm text-[var(--text-muted)]">{gt("Staff")}</span>
                                     <span className={cn("text-sm font-medium", selectedUser.isStaff ? "text-[#8B5CF6]" : "text-[var(--text-muted)]")}>
-                                      {selectedUser.isStaff ? selectedUser.staffRole || "Yes" : "No"}
+                                      {selectedUser.isStaff ? selectedUser.staffRole || gt("Yes") : gt("No")}
                                     </span>
                                   </div>
                                   <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">Premium</span>
+                                    <span className="text-sm text-[var(--text-muted)]">{gt("Premium")}</span>
                                     <span className={cn("text-sm font-medium", selectedUser.isPremium ? "text-[#F47FFF]" : "text-[var(--text-muted)]")}>
-                                      {selectedUser.isPremium ? "Yes" : "No"}
+                                      {selectedUser.isPremium ? gt("Yes") : gt("No")}
                                     </span>
                                   </div>
                                   {selectedUser.createdAt && (
                                     <div className="flex items-center justify-between">
-                                      <span className="text-sm text-[var(--text-muted)]">Joined</span>
+                                      <span className="text-sm text-[var(--text-muted)]">{gt("Joined")}</span>
                                       <span className="text-sm text-white">{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
                                     </div>
                                   )}
@@ -3407,12 +3444,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Moderation toggles */}
                               <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Moderation</p>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Moderation")}</p>
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
                                     <div>
-                                      <p className="text-sm text-white font-medium">Banned</p>
-                                      <p className="text-xs text-[var(--text-muted)]">Prevent user from accessing the platform</p>
+                                      <p className="text-sm text-white font-medium">{gt("Banned")}</p>
+                                      <p className="text-xs text-[var(--text-muted)]">{gt("Prevent user from accessing the platform")}</p>
                                     </div>
                                     <ToggleSwitch
                                       size="sm"
@@ -3431,7 +3468,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Badge assignment grid */}
                               <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Badges ({(selectedUser.badges || []).length})</p>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Badges ({count})", { count: (selectedUser.badges || []).length })}</p>
                                 <div className="grid grid-cols-2 gap-2">
                                   {Object.values(BADGES).map((badge) => {
                                     const isAssigned = (selectedUser.badges || []).includes(badge.id);
@@ -3473,7 +3510,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Quick actions */}
                               <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Actions</p>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Actions")}</p>
                                 <div className="grid grid-cols-2 gap-2">
                                   <button
                                     onClick={() => {
@@ -3483,8 +3520,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     }}
                                     className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                                   >
-                                    <p className="text-white font-medium text-sm">View Reports</p>
-                                    <p className="text-xs text-[var(--text-muted)]">Open filtered admin logs</p>
+                                    <p className="text-white font-medium text-sm">{gt("View Reports")}</p>
+                                    <p className="text-xs text-[var(--text-muted)]">{gt("Open filtered admin logs")}</p>
                                   </button>
                                   <button
                                     onClick={() => {
@@ -3492,8 +3529,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     }}
                                     className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                                   >
-                                    <p className="text-white font-medium text-sm">Open DM</p>
-                                    <p className="text-xs text-[var(--text-muted)]">Jump to direct message</p>
+                                    <p className="text-white font-medium text-sm">{gt("Open DM")}</p>
+                                    <p className="text-xs text-[var(--text-muted)]">{gt("Jump to direct message")}</p>
                                   </button>
                                 </div>
                               </div>
@@ -3503,7 +3540,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <div className="flex items-center justify-center h-full p-8">
                             <div className="text-center">
                               <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                              <p className="text-[var(--text-muted)]">Select a user from the list to view details and manage badges</p>
+                              <p className="text-[var(--text-muted)]">{gt("Select a user from the list to view details and manage badges")}</p>
                             </div>
                           </div>
                         )}
@@ -3514,7 +3551,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   {adminUsers.length === 0 && !isLoadingAdmin && (
                     <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
                       <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                      <p className="text-[var(--text-muted)]">Search for users to view their profile, edit badges, or take moderation actions.</p>
+                      <p className="text-[var(--text-muted)]">{gt("Search for users to view their profile, edit badges, or take moderation actions.")}</p>
                     </div>
                   )}
                 </div>
@@ -3525,7 +3562,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
                     <Database className="w-6 h-6 text-[#8B5CF6]" />
-                    Server Management
+                    {gt("Server Management")}
                   </h2>
 
                   {/* Search bar */}
@@ -3535,7 +3572,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         value={adminServerSearch}
                         onChange={(e) => setAdminServerSearch(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && searchAdminServers()}
-                        placeholder="Search servers by name or ID..."
+                        placeholder={gt("Search servers by name or ID...")}
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
                       />
                       <button
@@ -3544,7 +3581,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
                       >
                         {isLoadingAdmin && <Loader2 className="w-4 h-4 animate-spin" />}
-                        Search
+                        {gt("Search")}
                       </button>
                     </div>
                   </div>
@@ -3555,7 +3592,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {/* Left: Server list */}
                       <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
                         <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
-                          <p className="text-white font-semibold text-sm">Results ({adminServers.length})</p>
+                          <p className="text-white font-semibold text-sm">{gt("Results ({count})", { count: adminServers.length })}</p>
                         </div>
                         <ScrollArea className="flex-1 min-h-0">
                           <div className="p-1.5 space-y-1">
@@ -3578,14 +3615,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-sm text-white font-medium truncate">{s.name}</p>
-                                  <p className="text-xs text-[var(--text-muted)] truncate">{s.memberCount} members</p>
+                                  <p className="text-xs text-[var(--text-muted)] truncate">{gt("{count} members", { count: s.memberCount })}</p>
                                 </div>
                                 <div className="flex flex-col items-end gap-0.5">
                                   {s.isPartnered && (
-                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">Partner</span>
+                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">{gt("Partner")}</span>
                                   )}
                                   {s.isDiscoverable && (
-                                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] rounded">Visible</span>
+                                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] rounded">{gt("Visible")}</span>
                                   )}
                                 </div>
                               </button>
@@ -3610,26 +3647,26 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <div className="flex-1 min-w-0">
                                   <p className="text-white font-semibold text-lg">{selectedServer.name}</p>
                                   <p className="text-sm text-[var(--text-muted)]">
-                                    Owner: {selectedServer.owner?.displayName || selectedServer.owner?.username || "Unknown"}
+                                    {gt("Owner: {name}", { name: selectedServer.owner?.displayName || selectedServer.owner?.username || gt("Unknown") })}
                                   </p>
                                 </div>
                               </div>
 
                               {/* Server info */}
                               <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Info</p>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Info")}</p>
                                 <div className="bg-[var(--bg-card)] rounded-lg p-3 space-y-2">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">Server ID</span>
+                                    <span className="text-sm text-[var(--text-muted)]">{gt("Server ID")}</span>
                                     <span className="text-sm text-white font-mono">{selectedServer.id}</span>
                                   </div>
                                   <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">Created</span>
+                                    <span className="text-sm text-[var(--text-muted)]">{gt("Created")}</span>
                                     <span className="text-sm text-white">{new Date(selectedServer.createdAt).toLocaleDateString()}</span>
                                   </div>
                                   {selectedServer.description && (
                                     <div>
-                                      <span className="text-sm text-[var(--text-muted)]">Description</span>
+                                      <span className="text-sm text-[var(--text-muted)]">{gt("Description")}</span>
                                       <p className="text-sm text-white mt-1">{selectedServer.description}</p>
                                     </div>
                                   )}
@@ -3638,12 +3675,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Server toggles */}
                               <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">Server Status</p>
+                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Server Status")}</p>
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
                                     <div>
-                                      <p className="text-sm text-white font-medium">Partnered</p>
-                                      <p className="text-xs text-[var(--text-muted)]">Grant partner badge and perks</p>
+                                      <p className="text-sm text-white font-medium">{gt("Partnered")}</p>
+                                      <p className="text-xs text-[var(--text-muted)]">{gt("Grant partner badge and perks")}</p>
                                     </div>
                                     <ToggleSwitch
                                       size="sm"
@@ -3653,8 +3690,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </div>
                                   <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
                                     <div>
-                                      <p className="text-sm text-white font-medium">Discoverable</p>
-                                      <p className="text-xs text-[var(--text-muted)]">Show in server discovery page</p>
+                                      <p className="text-sm text-white font-medium">{gt("Discoverable")}</p>
+                                      <p className="text-xs text-[var(--text-muted)]">{gt("Show in server discovery page")}</p>
                                     </div>
                                     <ToggleSwitch
                                       size="sm"
@@ -3667,15 +3704,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                               {/* Danger zone */}
                               <div>
-                                <p className="text-xs text-red-400 uppercase font-semibold mb-2">Danger Zone</p>
+                                <p className="text-xs text-red-400 uppercase font-semibold mb-2">{gt("Danger Zone")}</p>
                                 <div className="space-y-2">
                                   <button
                                     onClick={handleTransferOwnership}
                                     className="w-full flex items-center justify-between p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors text-left"
                                   >
                                     <div>
-                                      <p className="text-sm text-white font-medium">Transfer Ownership</p>
-                                      <p className="text-xs text-[var(--text-muted)]">Change the server owner</p>
+                                      <p className="text-sm text-white font-medium">{gt("Transfer Ownership")}</p>
+                                      <p className="text-xs text-[var(--text-muted)]">{gt("Change the server owner")}</p>
                                     </div>
                                     <ExternalLink className="w-4 h-4 text-[var(--text-muted)]" />
                                   </button>
@@ -3684,8 +3721,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     className="w-full flex items-center justify-between p-3 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors text-left"
                                   >
                                     <div>
-                                      <p className="text-sm text-red-400 font-medium">Delete Server</p>
-                                      <p className="text-xs text-red-400/60">Permanently remove this server</p>
+                                      <p className="text-sm text-red-400 font-medium">{gt("Delete Server")}</p>
+                                      <p className="text-xs text-red-400/60">{gt("Permanently remove this server")}</p>
                                     </div>
                                     <X className="w-4 h-4 text-red-400" />
                                   </button>
@@ -3697,7 +3734,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <div className="flex items-center justify-center h-full p-8">
                             <div className="text-center">
                               <Database className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                              <p className="text-[var(--text-muted)]">Select a server from the list to view details and manage settings</p>
+                              <p className="text-[var(--text-muted)]">{gt("Select a server from the list to view details and manage settings")}</p>
                             </div>
                           </div>
                         )}
@@ -3708,7 +3745,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   {adminServers.length === 0 && !isLoadingAdmin && (
                     <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
                       <Database className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                      <p className="text-[var(--text-muted)]">Search for servers to view details, toggle partner/discovery status, or take moderation actions.</p>
+                      <p className="text-[var(--text-muted)]">{gt("Search for servers to view details, toggle partner/discovery status, or take moderation actions.")}</p>
                     </div>
                   )}
                 </div>
@@ -3719,7 +3756,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
                     <Settings className="w-6 h-6 text-[#8B5CF6]" />
-                    Platform Settings
+                    {gt("Platform Settings")}
                   </h2>
 
                   {/* Stats Overview */}
@@ -3727,57 +3764,57 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-white">{adminStats.users.toLocaleString()}</p>
-                        <p className="text-sm text-[var(--text-muted)]">Total Users</p>
+                        <p className="text-sm text-[var(--text-muted)]">{gt("Total Users")}</p>
                       </div>
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-white">{adminStats.servers.toLocaleString()}</p>
-                        <p className="text-sm text-[var(--text-muted)]">Total Servers</p>
+                        <p className="text-sm text-[var(--text-muted)]">{gt("Total Servers")}</p>
                       </div>
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-white">{adminStats.messages.toLocaleString()}</p>
-                        <p className="text-sm text-[var(--text-muted)]">Total Messages</p>
+                        <p className="text-sm text-[var(--text-muted)]">{gt("Total Messages")}</p>
                       </div>
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
                         <p className="text-2xl font-bold text-green-400">+{adminStats.newUsersToday}</p>
-                        <p className="text-sm text-[var(--text-muted)]">New Today</p>
+                        <p className="text-sm text-[var(--text-muted)]">{gt("New Today")}</p>
                       </div>
                     </div>
                   )}
 
                   <div className="space-y-4">
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">Maintenance Mode</h3>
+                      <h3 className="text-white font-semibold mb-3">{gt("Maintenance Mode")}</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
-                          <p className="text-white">Enable Maintenance Mode</p>
-                          <p className="text-sm text-[var(--text-muted)]">Restrict access to staff only</p>
+                          <p className="text-white">{gt("Enable Maintenance Mode")}</p>
+                          <p className="text-sm text-[var(--text-muted)]">{gt("Restrict access to staff only")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.maintenanceMode || false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ maintenanceMode: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">Registration</h3>
+                      <h3 className="text-white font-semibold mb-3">{gt("Registration")}</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
-                          <p className="text-white">Allow New Registrations</p>
-                          <p className="text-sm text-[var(--text-muted)]">Enable new user sign-ups</p>
+                          <p className="text-white">{gt("Allow New Registrations")}</p>
+                          <p className="text-sm text-[var(--text-muted)]">{gt("Enable new user sign-ups")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.allowRegistration !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ allowRegistration: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">Connections</h3>
+                      <h3 className="text-white font-semibold mb-3">{gt("Connections")}</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
-                          <p className="text-white">Enable Account Connections</p>
-                          <p className="text-sm text-[var(--text-muted)]">Allow users to link external accounts (Last.fm, Spotify, GitHub, etc.)</p>
+                          <p className="text-white">{gt("Enable Account Connections")}</p>
+                          <p className="text-sm text-[var(--text-muted)]">{gt("Allow users to link external accounts (Last.fm, Spotify, GitHub, etc.)")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.connectionsEnabled !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ connectionsEnabled: checked })} />
                       </label>
                       {platformSettings?.connectionsEnabled !== false && (
                         <div className="mt-4 pt-4 border-t border-[var(--border-subtle)] space-y-3">
                           <p className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                            Allowed Providers
+                            {gt("Allowed Providers")}
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {CONNECTION_PROVIDERS.map((prov) => {
@@ -3818,8 +3855,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       )}
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">OEmbed Whitelist</h3>
-                      <p className="text-sm text-[var(--text-muted)] mb-3">Domains allowed for rich link embeds (Spotify, YouTube, etc.)</p>
+                      <h3 className="text-white font-semibold mb-3">{gt("OEmbed Whitelist")}</h3>
+                      <p className="text-sm text-[var(--text-muted)] mb-3">{gt("Domains allowed for rich link embeds (Spotify, YouTube, etc.)")}</p>
                       <div className="flex gap-2 mb-3">
                         <Input
                           value={oembedDomainInput}
@@ -3850,12 +3887,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }}
                           className="px-3 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded text-sm font-medium"
                         >
-                          Add
+                          {gt("Add")}
                         </button>
                       </div>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto">
                         {(platformSettings?.oembedWhitelist || []).length === 0 ? (
-                          <p className="text-sm text-[var(--text-muted)] italic">No custom domains. Using defaults.</p>
+                          <p className="text-sm text-[var(--text-muted)] italic">{gt("No custom domains. Using defaults.")}</p>
                         ) : (
                           (platformSettings?.oembedWhitelist || []).map((domain) => (
                             <div key={domain} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
@@ -3867,7 +3904,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 }}
                                 className="text-red-400 hover:text-red-300 text-xs"
                               >
-                                Remove
+                                {gt("Remove")}
                               </button>
                             </div>
                           ))
@@ -3875,9 +3912,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">File Type Whitelist</h3>
+                      <h3 className="text-white font-semibold mb-3">{gt("File Type Whitelist")}</h3>
                       <p className="text-sm text-[var(--text-muted)] mb-3">
-                        Only whitelisted MIME types can be uploaded. Tag each as safe or bad — bad types are allowed but users get a warning.
+                        {gt("Only whitelisted MIME types can be uploaded. Tag each as safe or bad — bad types are allowed but users get a warning.")}
                       </p>
                       <div className="flex gap-2 mb-3">
                         <Input
@@ -3909,13 +3946,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           }}
                           className="px-3 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded text-sm font-medium"
                         >
-                          Add
+                          {gt("Add")}
                         </button>
                       </div>
                       <div className="space-y-1.5 max-h-48 overflow-y-auto mb-4">
                         {(platformSettings?.allowedFileTypes || []).length === 0 ? (
                           <p className="text-sm text-[var(--text-muted)] italic">
-                            No custom whitelist. Using defaults: image/jpeg, image/png, image/gif, image/webp, audio/mpeg, audio/ogg, audio/wav, video/mp4, video/webm, application/pdf, text/plain
+                            {gt("No custom whitelist. Using defaults: image/jpeg, image/png, image/gif, image/webp, audio/mpeg, audio/ogg, audio/wav, video/mp4, video/webm, application/pdf, text/plain")}
                           </p>
                         ) : (
                           (platformSettings?.allowedFileTypes || []).map((entry) => (
@@ -3931,7 +3968,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   }}
                                   className={entry.safe ? "text-green-400 hover:text-green-300 text-xs font-medium" : "text-yellow-400 hover:text-yellow-300 text-xs font-medium"}
                                 >
-                                  {entry.safe ? "Safe" : "Bad"}
+                                  {entry.safe ? gt("Safe") : gt("Bad")}
                                 </button>
                                 <button
                                   onClick={() => {
@@ -3940,7 +3977,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   }}
                                   className="text-red-400 hover:text-red-300 text-xs"
                                 >
-                                  Remove
+                                  {gt("Remove")}
                                 </button>
                               </div>
                             </div>
@@ -3949,26 +3986,26 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
                       <label className="flex items-center justify-between cursor-pointer pt-3 border-t border-[var(--border-subtle)]">
                         <div>
-                          <p className="text-white">Warn on unknown file types</p>
-                          <p className="text-sm text-[var(--text-muted)]">Show a warning to users when they upload a file type not in the whitelist</p>
+                          <p className="text-white">{gt("Warn on unknown file types")}</p>
+                          <p className="text-sm text-[var(--text-muted)]">{gt("Show a warning to users when they upload a file type not in the whitelist")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.warnOnUnknownFileTypes !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ warnOnUnknownFileTypes: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">Font Testing</h3>
-                      <p className="text-sm text-[var(--text-muted)] mb-3">Preview how different fonts look across the app.</p>
+                      <h3 className="text-white font-semibold mb-3">{gt("Font Testing")}</h3>
+                      <p className="text-sm text-[var(--text-muted)] mb-3">{gt("Preview how different fonts look across the app.")}</p>
                       <Input
                         value={fontTestText}
                         onChange={(e) => setFontTestText(e.target.value)}
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-4"
-                        placeholder="Type text to preview..."
+                        placeholder={gt("Type text to preview...")}
                       />
                       <div className="space-y-3">
                         {[
-                          { name: "Inter (Default)", className: "font-sans" },
-                          { name: "Mono", className: "font-mono" },
-                          { name: "Serif", className: "font-serif" },
+                          { name: gt("Inter (Default)"), className: "font-sans" },
+                          { name: gt("Mono"), className: "font-mono" },
+                          { name: gt("Serif"), className: "font-serif" },
                         ].map((font) => (
                           <div key={font.name} className="p-3 bg-[var(--bg-card)] rounded-lg">
                             <p className="text-xs text-[var(--text-muted)] mb-1">{font.name}</p>
@@ -3984,7 +4021,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
                     <Activity className="w-6 h-6 text-[#8B5CF6]" />
-                    Activity Logs
+                    {gt("Activity Logs")}
                   </h2>
                   <div className="bg-[var(--bg-app)] rounded-lg p-4">
                     <div className="flex gap-2 mb-4">
@@ -3992,25 +4029,25 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         onClick={() => { setAdminLogFilter("all"); fetchAdminLogs("all"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "all" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
-                        All
+                        {gt("All")}
                       </button>
                       <button
                         onClick={() => { setAdminLogFilter("bans"); fetchAdminLogs("bans"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "bans" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
-                        Bans
+                        {gt("Bans")}
                       </button>
                       <button
                         onClick={() => { setAdminLogFilter("reports"); fetchAdminLogs("reports"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "reports" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
-                        Reports
+                        {gt("Reports")}
                       </button>
                       <button
                         onClick={() => { setAdminLogFilter("admin"); fetchAdminLogs("admin"); }}
                         className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "admin" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
                       >
-                        Admin Actions
+                        {gt("Admin Actions")}
                       </button>
                     </div>
                     <div className="space-y-2">
@@ -4020,8 +4057,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         </div>
                       ) : adminLogs.length === 0 ? (
                         <div className="p-3 bg-[var(--bg-card)] rounded-lg">
-                          <p className="text-white text-sm">No activity logs yet</p>
-                          <p className="text-[var(--text-muted)] text-xs mt-1">Admin actions will appear here</p>
+                          <p className="text-white text-sm">{gt("No activity logs yet")}</p>
+                          <p className="text-[var(--text-muted)] text-xs mt-1">{gt("Admin actions will appear here")}</p>
                         </div>
                       ) : (
                         adminLogs.map((log) => (
@@ -4046,7 +4083,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </span>
                             </div>
                             {log.reason && (
-                              <p className="text-[var(--text-secondary)] text-sm mt-1">Reason: {log.reason}</p>
+                              <p className="text-[var(--text-secondary)] text-sm mt-1">{gt("Reason: {reason}", { reason: log.reason })}</p>
                             )}
                           </div>
                         ))
@@ -4059,8 +4096,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Badge Management (create/define badges) */}
               {activeTab === "admin-badges" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-2">Badge Management</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-6">Create, edit, and manage the platform&apos;s badge definitions. To assign badges to a user, use the User Management tab.</p>
+                  <h2 className="text-xl font-bold text-white mb-2">{gt("Badge Management")}</h2>
+                  <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Create, edit, and manage the platform's badge definitions. To assign badges to a user, use the User Management tab.")}</p>
                   <div className="bg-[var(--bg-app)] rounded-xl p-5">
                     <div className="grid grid-cols-2 gap-2">
                       {Object.values(BADGES).map((badge) => {
@@ -4081,7 +4118,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         );
                       })}
                     </div>
-                    <p className="text-xs text-[var(--text-muted)] mt-4">Badge definitions are defined in <code className="text-[#8B5CF6]">src/lib/constants/badges.ts</code>. Assign badges to users via User Management.</p>
+                    <p className="text-xs text-[var(--text-muted)] mt-4">{gt("Badge definitions are defined in")}
+ <code className="text-[#8B5CF6]">src/lib/constants/badges.ts</code>. {gt("Assign badges to users via User Management.")}</p>
                   </div>
                 </div>
               )}
@@ -4089,23 +4127,23 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Announcements */}
               {activeTab === "admin-announcements" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-2">Announcements</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-6">Publish a global banner announcement visible to all users. Blank lines are preserved.</p>
+                  <h2 className="text-xl font-bold text-white mb-2">{gt("Announcements")}</h2>
+                  <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Publish a global banner announcement visible to all users. Blank lines are preserved.")}</p>
                   <div className="bg-[var(--bg-app)] rounded-xl p-5 space-y-4">
                     {platformSettings?.globalAnnouncement && (
                       <div className="p-3 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-sm text-[var(--text-primary)]">
-                        <p className="text-[10px] uppercase font-semibold text-[var(--text-muted)] mb-1.5">Current Live Announcement</p>
+                        <p className="text-[10px] uppercase font-semibold text-[var(--text-muted)] mb-1.5">{gt("Current Live Announcement")}</p>
                         {platformSettings.globalAnnouncement.split("\n").map((line: string, i: number, arr: string[]) => (
                           <span key={i}>{line || "\u00A0"}{i < arr.length - 1 && <br />}</span>
                         ))}
                       </div>
                     )}
                     <div>
-                      <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">New Announcement</p>
+                      <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("New Announcement")}</p>
                       <Textarea
                         value={announcementText}
                         onChange={(e) => setAnnouncementText(e.target.value)}
-                        placeholder="Enter announcement text… Blank lines will be preserved as visual breaks."
+                        placeholder={gt("Enter announcement text… Blank lines will be preserved as visual breaks.")}
                         className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white resize-none overflow-y-auto"
                         rows={8}
                         style={{ maxHeight: "240px" }}
@@ -4117,7 +4155,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded-lg font-medium text-sm flex items-center gap-2"
                       >
                         <Megaphone className="w-4 h-4" />
-                        Publish
+                        {gt("Publish")}
                       </button>
                       {platformSettings?.globalAnnouncement && (
                         <button
@@ -4125,12 +4163,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             setAnnouncementText("");
                             try {
                               const res = await fetch("/api/admin/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ globalAnnouncement: "" }) });
-                              if (res.ok) { const data = await res.json(); setPlatformSettings(data); toast.success("Announcement cleared"); }
-                            } catch { toast.error("Failed to clear announcement"); }
+                              if (res.ok) { const data = await res.json(); setPlatformSettings(data); toast.success(gt("Announcement cleared")); }
+                            } catch { toast.error(gt("Failed to clear announcement")); }
                           }}
                           className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-lg font-medium text-sm"
                         >
-                          Clear Live
+                          {gt("Clear Live")}
                         </button>
                       )}
                     </div>
@@ -4152,6 +4190,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {activeTab === "admin-tts-voices" && isStaff && (
                 <AdminTtsVoicesPanel />
               )}
+
+              {/* Admin Panel - Translations */}
+              {activeTab === "admin-translations" && isStaff && (
+                <AdminTranslationsPanel />
+              )}
             </div>
           </ScrollArea>
 
@@ -4171,7 +4214,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           {/* Save bar */}
           {hasChanges && (
             <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom">
-              <span className="text-white text-sm">Careful — you have unsaved changes!</span>
+              <span className="text-white text-sm">{gt("Careful — you have unsaved changes!")}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -4205,7 +4248,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   }}
                   className="px-4 py-1.5 text-sm text-white hover:underline"
                 >
-                  Reset
+                  {gt("Reset")}
                 </button>
                 <button
                   onClick={handleSave}
@@ -4213,7 +4256,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
                   {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  Save Changes
+                  {gt("Save Changes")}
                 </button>
               </div>
             </div>
@@ -4228,11 +4271,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         imageUrl={cropperImage}
         aspectRatio={cropperType === "avatar" ? 1 : 3}
         onCropComplete={handleCropComplete}
-        title={cropperType === "avatar" ? "Crop Avatar" : "Crop Banner"}
+        title={cropperType === "avatar" ? gt("Crop Avatar") : gt("Crop Banner")}
         description={
           cropperType === "avatar"
-            ? "Adjust the crop area to select the portion of the image for your avatar."
-            : "Adjust the crop area to select the portion of the image for your profile banner."
+            ? gt("Adjust the crop area to select the portion of the image for your avatar.")
+            : gt("Adjust the crop area to select the portion of the image for your profile banner.")
         }
         circular={cropperType === "avatar"}
       />

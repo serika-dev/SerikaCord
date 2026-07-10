@@ -1,0 +1,37 @@
+{
+  "$schema": "https://assets.gtx.dev/config-schema.json",
+  "defaultLocale": "en",
+  "locales": [
+    "af", "am", "ar", "ar-AE", "ar-EG", "ar-LB", "ar-MA", "ar-OM", "ar-SA",
+    "bg", "bn", "bs", "ca", "cs", "cy", "da",
+    "de", "de-AT", "de-CH", "de-DE",
+    "el", "el-CY",
+    "en",
+    "eo",
+    "es", "es-419", "es-AR", "es-CL", "es-CO", "es-ES", "es-MX", "es-PE", "es-US", "es-VE",
+    "et", "fa", "fi", "fil",
+    "fr", "fr-BE", "fr-CA", "fr-CH", "fr-CM", "fr-FR", "fr-SN",
+    "gu", "ha", "he", "hi", "hr", "hu", "hy",
+    "id", "ig", "is",
+    "it", "it-CH", "it-IT",
+    "ja", "ka", "kk", "kn", "ko", "la", "lt", "lv",
+    "mk", "ml", "mn", "mr", "ms", "my",
+    "nb", "nb-NO",
+    "nl", "nl-BE", "nl-NL",
+    "nn", "nn-NO", "no", "no-NO",
+    "pa", "pl",
+    "pt", "pt-BR", "pt-PT",
+    "ro", "ru", "sk", "sl", "so", "sq", "sr", "sv",
+    "sw", "sw-KE", "sw-TZ",
+    "ta", "te", "th", "tl", "tr",
+    "uk", "ur", "uz",
+    "vi", "yo",
+    "zh", "zh-CN", "zh-HK", "zh-Hans", "zh-Hant", "zh-SG", "zh-TW"
+  ],
+  "files": {
+    "gt": {
+      "output": "public/_gt/[locale].json"
+    }
+  },
+  "framework": "next-app"
+}

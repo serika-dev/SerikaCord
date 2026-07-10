@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Users, ArrowRight, Hash, ImagePlus } from "lucide-react";
 import { toast } from "sonner";
+import { T, useGT } from "gt-next";
 
 interface CreateServerDialogProps {
   open: boolean;
@@ -25,6 +26,7 @@ interface CreateServerDialogProps {
 export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogProps) {
   const router = useRouter();
   const { createServer, joinServer } = useServer();
+  const gt = useGT();
   const [mode, setMode] = useState<"select" | "create" | "join">("select");
   const [serverName, setServerName] = useState("My Server");
   const [inviteCode, setInviteCode] = useState("");
@@ -53,11 +55,11 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
       const server = await createServer(serverName, serverIcon || undefined);
       onOpenChange(false);
       resetForm();
-      toast.success("Server created!");
+      toast.success(gt("Server created!"));
       router.push(`/channels/${server.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create server");
-      toast.error(err instanceof Error ? err.message : "Failed to create server");
+      setError(err instanceof Error ? err.message : gt("Failed to create server"));
+      toast.error(err instanceof Error ? err.message : gt("Failed to create server"));
     } finally {
       setIsLoading(false);
     }
@@ -73,10 +75,10 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
       await joinServer(inviteCode);
       onOpenChange(false);
       resetForm();
-      toast.success("Joined server!");
+      toast.success(gt("Joined server!"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to join server");
-      toast.error(err instanceof Error ? err.message : "Failed to join server");
+      setError(err instanceof Error ? err.message : gt("Failed to join server"));
+      toast.error(err instanceof Error ? err.message : gt("Failed to join server"));
     } finally {
       setIsLoading(false);
     }
@@ -97,9 +99,9 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
         {mode === "select" && (
           <>
             <DialogHeader className="p-4 text-center">
-              <DialogTitle className="text-2xl font-bold">Create a server</DialogTitle>
+              <DialogTitle className="text-2xl font-bold"><T>Create a server</T></DialogTitle>
               <DialogDescription className="text-[#888888]">
-                Your server is where you and your friends hang out. Make yours and start talking.
+                <T>Your server is where you and your friends hang out. Make yours and start talking.</T>
               </DialogDescription>
             </DialogHeader>
             <div className="p-4 space-y-2">
@@ -111,14 +113,14 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                   <div className="w-12 h-12 rounded-full bg-[#8B5CF6] flex items-center justify-center">
                     <Hash className="w-6 h-6 text-white" />
                   </div>
-                  <span className="font-medium">Create My Own</span>
+                  <span className="font-medium"><T>Create My Own</T></span>
                 </div>
                 <ArrowRight className="w-5 h-5 text-[#666666] group-hover:text-white transition-colors" />
               </button>
 
               <div className="py-3">
                 <div className="text-center text-xs font-semibold uppercase text-[#666666] mb-3">
-                  Have an invite already?
+                  <T>Have an invite already?</T>
                 </div>
                 <button
                   onClick={() => setMode("join")}
@@ -128,7 +130,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                     <div className="w-12 h-12 rounded-full bg-[#7C3AED] flex items-center justify-center">
                       <Users className="w-6 h-6 text-white" />
                     </div>
-                    <span className="font-medium">Join a Server</span>
+                    <span className="font-medium"><T>Join a Server</T></span>
                   </div>
                   <ArrowRight className="w-5 h-5 text-[#666666] group-hover:text-white transition-colors" />
                 </button>
@@ -140,9 +142,9 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
         {mode === "create" && (
           <>
             <DialogHeader className="p-4 text-center">
-              <DialogTitle className="text-2xl font-bold">Customize your server</DialogTitle>
+              <DialogTitle className="text-2xl font-bold"><T>Customize your server</T></DialogTitle>
               <DialogDescription className="text-[#888888]">
-                Give your new server a personality with a name and an icon. You can always change it later.
+                <T>Give your new server a personality with a name and an icon. You can always change it later.</T>
               </DialogDescription>
             </DialogHeader>
             <div className="p-4 space-y-4">
@@ -168,7 +170,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                   ) : (
                     <div className="w-20 h-20 rounded-full border-2 border-dashed border-[#666666] hover:border-white transition-colors flex flex-col items-center justify-center gap-1">
                       <ImagePlus className="w-6 h-6 text-[#666666]" />
-                      <span className="text-xs text-[#666666] font-semibold">UPLOAD</span>
+                      <span className="text-xs text-[#666666] font-semibold"><T>UPLOAD</T></span>
                     </div>
                   )}
                 </label>
@@ -177,7 +179,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
               {/* Server Name */}
               <div className="space-y-2">
                 <Label htmlFor="serverName" className="text-xs font-bold uppercase text-[#888888]">
-                  Server Name
+                  {gt("Server Name")}
                 </Label>
                 <Input
                   id="serverName"
@@ -188,8 +190,8 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
               </div>
 
               <p className="text-xs text-[#666666]">
-                By creating a server, you agree to SerikaCord&apos;s{" "}
-                <span className="text-[#8B5CF6] hover:underline cursor-pointer">Community Guidelines</span>.
+                <T>By creating a server, you agree to SerikaCord&apos;s</T>{" "}
+                <span className="text-[#8B5CF6] hover:underline cursor-pointer"><T>Community Guidelines</T></span>.
               </p>
             </div>
             <div className="p-4 bg-[#111111] border-t border-[#1a1a1a] flex justify-between">
@@ -198,14 +200,14 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 onClick={() => setMode("select")}
                 className="text-white hover:bg-transparent hover:underline"
               >
-                Back
+                <T>Back</T>
               </Button>
               <Button
                 onClick={handleCreate}
                 disabled={!serverName.trim() || isLoading}
                 className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
               >
-                {isLoading ? "Creating..." : "Create"}
+                {isLoading ? gt("Creating...") : gt("Create")}
               </Button>
             </div>
           </>
@@ -214,9 +216,9 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
         {mode === "join" && (
           <>
             <DialogHeader className="p-4 text-center">
-              <DialogTitle className="text-2xl font-bold">Join a Server</DialogTitle>
+              <DialogTitle className="text-2xl font-bold"><T>Join a Server</T></DialogTitle>
               <DialogDescription className="text-[#888888]">
-                Enter an invite below to join an existing server
+                <T>Enter an invite below to join an existing server</T>
               </DialogDescription>
             </DialogHeader>
             <div className="p-4 space-y-4">
@@ -228,7 +230,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
               <div className="space-y-2">
                 <Label htmlFor="inviteCode" className="text-xs font-bold uppercase text-[#888888]">
-                  Invite Link <span className="text-red-400">*</span>
+                  {gt("Invite Link")} <span className="text-red-400">*</span>
                 </Label>
                 <Input
                   id="inviteCode"
@@ -241,7 +243,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
               <div className="space-y-2">
                 <div className="text-xs font-bold uppercase text-[#888888]">
-                  Invites should look like
+                  <T>Invites should look like</T>
                 </div>
                 <div className="text-sm text-[#666666] space-y-1">
                   <div>hTKzmak</div>
@@ -255,14 +257,14 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 onClick={() => setMode("select")}
                 className="text-white hover:bg-transparent hover:underline"
               >
-                Back
+                <T>Back</T>
               </Button>
               <Button
                 onClick={handleJoin}
                 disabled={!inviteCode.trim() || isLoading}
                 className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
               >
-                {isLoading ? "Joining..." : "Join Server"}
+                {isLoading ? gt("Joining...") : gt("Join Server")}
               </Button>
             </div>
           </>

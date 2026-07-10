@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Monitor, Smartphone, Download, Apple, ExternalLink, Loader2 } from "lucide-react";
 import Link from "next/link";
+import { T, useGT } from "gt-next";
 
 // Platform detection
 type Platform = 'windows' | 'mac' | 'linux' | 'android' | 'ios' | 'unknown';
@@ -30,44 +31,37 @@ interface DownloadInfo {
   comingSoon?: boolean;
 }
 
-const downloads: Record<string, DownloadInfo> = {
-  windows: {
-    name: 'Windows',
-    icon: '🪟',
-    file: 'SerikaCord-Setup-{version}.exe',
-    instructions: 'Download and run the installer',
-  },
-  mac: {
-    name: 'macOS',
-    icon: '🍎',
-    file: 'SerikaCord-{version}.dmg',
-    instructions: 'Download the .dmg file and drag to Applications',
-  },
-  linux: {
-    name: 'Linux',
-    icon: '🐧',
-    files: [
-      { name: 'AppImage', file: 'SerikaCord-{version}.AppImage' },
-      { name: 'Debian/Ubuntu (.deb)', file: 'serikacord-desktop_{version}_amd64.deb' },
-      { name: 'Tarball', file: 'serikacord-desktop-{version}.tar.gz' },
-    ],
-    instructions: 'Download the AppImage or .deb package',
-  },
-  android: {
-    name: 'Android',
-    icon: '🤖',
-    file: 'app-release.apk',
-    instructions: 'Download the APK and install (may need to enable unknown sources)',
-  },
-  ios: {
-    name: 'iOS',
-    icon: '🍎',
-    instructions: 'iOS app coming soon. Use the PWA for now.',
-    comingSoon: true,
-  },
+const platformNames: Record<string, string> = {
+  windows: 'Windows',
+  mac: 'macOS',
+  linux: 'Linux',
+  android: 'Android',
+  ios: 'iOS',
 };
 
+const platformIcons: Record<string, string> = {
+  windows: '🪟',
+  mac: '🍎',
+  linux: '🐧',
+  android: '🤖',
+  ios: '🍎',
+};
+
+const platformFiles: Record<string, string | { name: string; file: string }[]> = {
+  windows: 'SerikaCord-Setup-{version}.exe',
+  mac: 'SerikaCord-{version}.dmg',
+  linux: [
+    { name: 'AppImage', file: 'SerikaCord-{version}.AppImage' },
+    { name: 'Debian/Ubuntu (.deb)', file: 'serikacord-desktop_{version}_amd64.deb' },
+    { name: 'Tarball', file: 'serikacord-desktop-{version}.tar.gz' },
+  ],
+  android: 'app-release.apk',
+};
+
+const comingSoonPlatforms = ['ios'];
+
 export default function DownloadPage() {
+  const gt = useGT();
   const [platform, setPlatform] = useState<Platform>('unknown');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -78,6 +72,17 @@ export default function DownloadPage() {
 
   const isMobile = platform === 'android' || platform === 'ios';
   const isDesktop = platform === 'windows' || platform === 'mac' || platform === 'linux';
+
+  const getInstructions = (p: string): string => {
+    switch (p) {
+      case 'windows': return gt('Download and run the installer');
+      case 'mac': return gt('Download the .dmg file and drag to Applications');
+      case 'linux': return gt('Download the AppImage or .deb package');
+      case 'android': return gt('Download the APK and install (may need to enable unknown sources)');
+      case 'ios': return gt('iOS app coming soon. Use the PWA for now.');
+      default: return '';
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] flex flex-col">
@@ -94,7 +99,7 @@ export default function DownloadPage() {
             href="/channels/me"
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded-lg font-medium transition-colors"
           >
-            Open in Browser
+            {gt("Open in Browser")}
           </Link>
         </div>
       </header>
@@ -108,10 +113,10 @@ export default function DownloadPage() {
               <Download className="w-10 h-10 text-white" />
             </div>
             <h1 className="text-4xl font-bold text-white mb-4">
-              Download SerikaCord
+              {gt("Download SerikaCord")}
             </h1>
             <p className="text-[#b5bac1] text-lg max-w-xl mx-auto">
-              Get the native app for the best experience. Available for Windows, macOS, Linux, and Android.
+              {gt("Get the native app for the best experience. Available for Windows, macOS, Linux, and Android.")}
             </p>
           </div>
 
@@ -125,24 +130,24 @@ export default function DownloadPage() {
               {platform !== 'unknown' && (
                 <div className="mb-12">
                   <h2 className="text-xl font-semibold text-white mb-4 text-center">
-                    Recommended for You
+                    {gt("Recommended for You")}
                   </h2>
                   <div className="bg-gradient-to-r from-[#8B5CF6]/20 to-[#6366F1]/20 border border-[#8B5CF6]/30 rounded-xl p-6">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
                         <span className="text-4xl">
-                          {downloads[platform as keyof typeof downloads]?.icon || '💻'}
+                          {platformIcons[platform] || '💻'}
                         </span>
                         <div>
                           <h3 className="text-xl font-bold text-white">
-                            SerikaCord for {downloads[platform as keyof typeof downloads]?.name || 'Your Platform'}
+                            {gt("SerikaCord for")}{" "}{platform === 'windows' ? gt('Windows') : platform === 'mac' ? gt('macOS') : platform === 'linux' ? gt('Linux') : gt('Your Platform')}
                           </h3>
                           <p className="text-[#b5bac1]">
-                            {downloads[platform as keyof typeof downloads]?.instructions}
+                            {getInstructions(platform)}
                           </p>
                         </div>
                       </div>
-                      {!(downloads[platform as keyof typeof downloads] as { comingSoon?: boolean })?.comingSoon && (
+                      {!comingSoonPlatforms.includes(platform) && (
                         <a
                           href={GITHUB_RELEASE_URL}
                           target="_blank"
@@ -150,7 +155,7 @@ export default function DownloadPage() {
                           className="px-6 py-3 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded-lg font-medium transition-colors flex items-center gap-2"
                         >
                           <Download className="w-5 h-5" />
-                          Download
+                          {gt("Download")}
                         </a>
                       )}
                     </div>
@@ -162,7 +167,7 @@ export default function DownloadPage() {
               <div className="mb-12">
                 <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
                   <Monitor className="w-5 h-5" />
-                  Desktop
+                  {gt("Desktop")}
                 </h2>
                 <div className="grid md:grid-cols-3 gap-4">
                   {/* Windows */}
@@ -173,11 +178,11 @@ export default function DownloadPage() {
                     className="bg-[#111111] border border-[#1a1a1a] rounded-xl p-6 hover:border-[#8B5CF6]/50 transition-colors group"
                   >
                     <span className="text-3xl mb-3 block">🪟</span>
-                    <h3 className="text-lg font-semibold text-white mb-1">Windows</h3>
-                    <p className="text-sm text-[#666666] mb-3">Windows 10+</p>
+                    <h3 className="text-lg font-semibold text-white mb-1">{gt("Windows")}</h3>
+                    <p className="text-sm text-[#666666] mb-3">{gt("Windows 10+")}</p>
                     <div className="flex items-center gap-1 text-[#8B5CF6] text-sm group-hover:underline">
                       <Download className="w-4 h-4" />
-                      Download .exe
+                      {gt("Download .exe")}
                     </div>
                   </a>
 
@@ -189,11 +194,11 @@ export default function DownloadPage() {
                     className="bg-[#111111] border border-[#1a1a1a] rounded-xl p-6 hover:border-[#8B5CF6]/50 transition-colors group"
                   >
                     <span className="text-3xl mb-3 block">🍎</span>
-                    <h3 className="text-lg font-semibold text-white mb-1">macOS</h3>
-                    <p className="text-sm text-[#666666] mb-3">macOS 10.15+</p>
+                    <h3 className="text-lg font-semibold text-white mb-1">{gt("macOS")}</h3>
+                    <p className="text-sm text-[#666666] mb-3">{gt("macOS 10.15+")}</p>
                     <div className="flex items-center gap-1 text-[#8B5CF6] text-sm group-hover:underline">
                       <Download className="w-4 h-4" />
-                      Download .dmg
+                      {gt("Download .dmg")}
                     </div>
                   </a>
 
@@ -205,11 +210,11 @@ export default function DownloadPage() {
                     className="bg-[#111111] border border-[#1a1a1a] rounded-xl p-6 hover:border-[#8B5CF6]/50 transition-colors group"
                   >
                     <span className="text-3xl mb-3 block">🐧</span>
-                    <h3 className="text-lg font-semibold text-white mb-1">Linux</h3>
-                    <p className="text-sm text-[#666666] mb-3">AppImage, .deb</p>
+                    <h3 className="text-lg font-semibold text-white mb-1">{gt("Linux")}</h3>
+                    <p className="text-sm text-[#666666] mb-3">{gt("AppImage, .deb")}</p>
                     <div className="flex items-center gap-1 text-[#8B5CF6] text-sm group-hover:underline">
                       <Download className="w-4 h-4" />
-                      Download
+                      {gt("Download")}
                     </div>
                   </a>
                 </div>
@@ -219,7 +224,7 @@ export default function DownloadPage() {
               <div className="mb-12">
                 <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
                   <Smartphone className="w-5 h-5" />
-                  Mobile
+                  {gt("Mobile")}
                 </h2>
                 <div className="grid md:grid-cols-2 gap-4">
                   {/* Android */}
@@ -230,21 +235,21 @@ export default function DownloadPage() {
                     className="bg-[#111111] border border-[#1a1a1a] rounded-xl p-6 hover:border-[#8B5CF6]/50 transition-colors group"
                   >
                     <span className="text-3xl mb-3 block">🤖</span>
-                    <h3 className="text-lg font-semibold text-white mb-1">Android</h3>
-                    <p className="text-sm text-[#666666] mb-3">Android 8.0+</p>
+                    <h3 className="text-lg font-semibold text-white mb-1">{gt("Android")}</h3>
+                    <p className="text-sm text-[#666666] mb-3">{gt("Android 8.0+")}</p>
                     <div className="flex items-center gap-1 text-[#8B5CF6] text-sm group-hover:underline">
                       <Download className="w-4 h-4" />
-                      Download APK
+                      {gt("Download APK")}
                     </div>
                   </a>
 
                   {/* iOS */}
                   <div className="bg-[#111111] border border-[#1a1a1a] rounded-xl p-6 opacity-60">
                     <span className="text-3xl mb-3 block">🍎</span>
-                    <h3 className="text-lg font-semibold text-white mb-1">iOS</h3>
-                    <p className="text-sm text-[#666666] mb-3">Coming Soon</p>
+    <h3 className="text-lg font-semibold text-white mb-1">{gt("iOS")}</h3>
+                    <p className="text-sm text-[#666666] mb-3">{gt("Coming Soon")}</p>
                     <div className="flex items-center gap-1 text-[#666666] text-sm">
-                      Use PWA for now
+                      {gt("Use PWA for now")}
                     </div>
                   </div>
                 </div>
@@ -259,7 +264,7 @@ export default function DownloadPage() {
                   className="inline-flex items-center gap-2 text-[#b5bac1] hover:text-white transition-colors"
                 >
                   <ExternalLink className="w-4 h-4" />
-                  View all releases on GitHub
+                  {gt("View all releases on GitHub")}
                 </a>
               </div>
             </>
@@ -270,7 +275,7 @@ export default function DownloadPage() {
       {/* Footer */}
       <footer className="border-t border-[#1a1a1a] py-6">
         <div className="max-w-5xl mx-auto px-4 text-center text-[#666666] text-sm">
-          <p>© 2026 SerikaCord. All rights reserved.</p>
+          <p><T>© 2026 SerikaCord. All rights reserved.</T></p>
         </div>
       </footer>
     </div>

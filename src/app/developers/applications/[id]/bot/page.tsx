@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Copy, Check, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 const INTENTS = [
   { name: "Presence Intent", desc: "Receive presence updates for users.", bit: 1 << 8 },
@@ -12,7 +13,19 @@ const INTENTS = [
   { name: "Message Content Intent", desc: "Access the content of messages.", bit: 1 << 15 },
 ];
 
+type GTFunc = ReturnType<typeof useGT>;
+
+function intentLabel(bit: number, gt: GTFunc): { name: string; desc: string } {
+  switch (bit) {
+    case 1 << 8: return { name: gt('Presence Intent'), desc: gt('Receive presence updates for users.') };
+    case 1 << 1: return { name: gt('Server Members Intent'), desc: gt('Receive server member events.') };
+    case 1 << 15: return { name: gt('Message Content Intent'), desc: gt('Access the content of messages.') };
+    default: return { name: '', desc: '' };
+  }
+}
+
 export default function BotPage() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading, saving, saveApp, refetch } = useApplication(appId);
@@ -47,14 +60,14 @@ export default function BotPage() {
         body: JSON.stringify({ url: interactionsUrl.trim() || null }),
       });
       if (res.ok) {
-        toast.success(interactionsUrl.trim() ? "Interactions endpoint verified & saved" : "Interactions endpoint cleared");
+        toast.success(interactionsUrl.trim() ? gt("Interactions endpoint verified & saved") : gt("Interactions endpoint cleared"));
         refetch();
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to verify endpoint");
+        toast.error(err.error || gt("Failed to verify endpoint"));
       }
     } catch {
-      toast.error("Failed to verify endpoint");
+      toast.error(gt("Failed to verify endpoint"));
     } finally {
       setSavingInteractions(false);
     }
@@ -63,20 +76,20 @@ export default function BotPage() {
   const handleTogglePublic = async (value: boolean) => {
     setBotPublic(value);
     const ok = await saveApp({ botPublic: value });
-    if (ok) toast.success(`Public bot ${value ? "enabled" : "disabled"}`);
+    if (ok) toast.success(gt("Public bot {state}", { state: value ? gt("enabled") : gt("disabled") }));
   };
 
   const handleToggleCodeGrant = async (value: boolean) => {
     setBotRequireCodeGrant(value);
     const ok = await saveApp({ botRequireCodeGrant: value });
-    if (ok) toast.success(`OAuth2 code grant ${value ? "enabled" : "disabled"}`);
+    if (ok) toast.success(gt("OAuth2 code grant {state}", { state: value ? gt("enabled") : gt("disabled") }));
   };
 
   const handleToggleIntent = async (bit: number, enabled: boolean) => {
     const newIntents = enabled ? intents & ~bit : intents | bit;
     setIntents(newIntents);
     const ok = await saveApp({ gatewayIntents: newIntents });
-    if (ok) toast.success("Intent setting updated");
+    if (ok) toast.success(gt("Intent setting updated"));
   };
 
   const handleEnableBot = async () => {
@@ -88,21 +101,21 @@ export default function BotPage() {
       if (res.ok) {
         const data = await res.json();
         setToken(data.application?.botToken || "");
-        toast.success("Bot enabled! Copy your token now.");
+        toast.success(gt("Bot enabled! Copy your token now."));
         refetch();
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to enable bot");
+        toast.error(err.error || gt("Failed to enable bot"));
       }
     } catch {
-      toast.error("Failed to enable bot");
+      toast.error(gt("Failed to enable bot"));
     } finally {
       setEnabling(false);
     }
   };
 
   const handleResetToken = async () => {
-    if (!confirm("Are you sure? Resetting the token will invalidate the old one. Any bots using it will stop working.")) return;
+    if (!confirm(gt("Are you sure? Resetting the token will invalidate the old one. Any bots using it will stop working."))) return;
     setResetting(true);
     try {
       const res = await fetch(`/api/developers/applications/${appId}/bot/reset-token`, {
@@ -111,13 +124,13 @@ export default function BotPage() {
       if (res.ok) {
         const data = await res.json();
         setToken(data.token);
-        toast.success("Token reset! Copy the new token now.");
+        toast.success(gt("Token reset! Copy the new token now."));
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to reset token");
+        toast.error(err.error || gt("Failed to reset token"));
       }
     } catch {
-      toast.error("Failed to reset token");
+      toast.error(gt("Failed to reset token"));
     } finally {
       setResetting(false);
     }
@@ -141,7 +154,7 @@ export default function BotPage() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-6">Bot</h1>
+      <h1 className="text-xl font-bold mb-6">{gt("Bot")}</h1>
 
       {/* Enable Bot */}
       {!hasBot && (
@@ -149,9 +162,9 @@ export default function BotPage() {
           <div className="size-14 rounded-2xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 flex items-center justify-center mx-auto mb-3">
             <BotIcon className="size-7 text-[#8B5CF6]" />
           </div>
-          <h3 className="text-sm font-semibold mb-1">No bot user yet</h3>
+          <h3 className="text-sm font-semibold mb-1">{gt("No bot user yet")}</h3>
           <p className="text-sm text-[#777] mb-4 max-w-sm mx-auto">
-            Enable a bot user for this application to get a bot token and connect to the SerikaCord gateway.
+            {gt("Enable a bot user for this application to get a bot token and connect to the SerikaCord gateway.")}
           </p>
           <button
             onClick={handleEnableBot}
@@ -159,7 +172,7 @@ export default function BotPage() {
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
           >
             {enabling ? <Loader2 className="size-4 animate-spin" /> : <BotIcon className="size-4" />}
-            Enable Bot
+            {gt("Enable Bot")}
           </button>
         </div>
       )}
@@ -168,14 +181,14 @@ export default function BotPage() {
       {hasBot && (
         <div className="mb-8">
           <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-            Token
+            {gt("Token")}
           </label>
           <p className="text-xs text-[#666] mb-3">
-            Keep your token secret. Do not commit it to public repositories.
+            {gt("Keep your token secret. Do not commit it to public repositories.")}
           </p>
           <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
             <code className="text-sm text-[#ccc] flex-1 truncate font-mono">
-              {token ? (showToken ? token : "••••••••••••••••••••••••••") : "No token set"}
+              {token ? (showToken ? token : "••••••••••••••••••••••••••") : gt("No token set")}
             </code>
             {token && (
               <>
@@ -200,7 +213,7 @@ export default function BotPage() {
             className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors"
           >
             {resetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-            Reset Token
+            {gt("Reset Token")}
           </button>
         </div>
       )}
@@ -210,9 +223,9 @@ export default function BotPage() {
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold">Public Bot</h3>
+              <h3 className="text-sm font-semibold">{gt("Public Bot")}</h3>
               <p className="text-xs text-[#888] mt-1">
-                Allow others to invite your bot to their servers via OAuth2.
+                {gt("Allow others to invite your bot to their servers via OAuth2.")}
               </p>
             </div>
             <button
@@ -234,9 +247,9 @@ export default function BotPage() {
         <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold">Require OAuth2 Code Grant</h3>
+              <h3 className="text-sm font-semibold">{gt("Require OAuth2 Code Grant")}</h3>
               <p className="text-xs text-[#888] mt-1">
-                Requires users to complete the OAuth2 code grant flow when adding your bot.
+                {gt("Requires users to complete the OAuth2 code grant flow when adding your bot.")}
               </p>
             </div>
             <button
@@ -258,9 +271,9 @@ export default function BotPage() {
 
       {/* Privileged Gateway Intents */}
       <div className="mb-8">
-        <h3 className="text-sm font-semibold mb-3">Privileged Gateway Intents</h3>
+        <h3 className="text-sm font-semibold mb-3">{gt("Privileged Gateway Intents")}</h3>
         <p className="text-xs text-[#666] mb-3">
-          Some intents require verification if your bot is in 100+ servers.
+          {gt("Some intents require verification if your bot is in 100+ servers.")}
         </p>
         <div className="space-y-3">
           {INTENTS.map((intent) => {
@@ -271,11 +284,11 @@ export default function BotPage() {
                 className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4"
               >
                 <div>
-                  <h4 className="text-sm font-semibold">{intent.name}</h4>
-                  <p className="text-xs text-[#888] mt-1">{intent.desc}</p>
+                  <h4 className="text-sm font-semibold">{intentLabel(intent.bit, gt).name}</h4>
+                  <p className="text-xs text-[#888] mt-1">{intentLabel(intent.bit, gt).desc}</p>
                   {app?.verified === false && (app?.serverCount || 0) >= 100 && (
                     <p className="text-xs text-yellow-500 mt-2 flex items-center gap-1">
-                      <AlertTriangle className="size-3" /> Requires verification for bots in 100+ servers.
+                      <AlertTriangle className="size-3" /> {gt("Requires verification for bots in 100+ servers.")}
                     </p>
                   )}
                 </div>
@@ -301,9 +314,9 @@ export default function BotPage() {
       {/* Public Key */}
       {hasBot && app?.publicKey && (
         <div className="mb-8">
-          <h3 className="text-sm font-semibold mb-2">Public Key</h3>
+          <h3 className="text-sm font-semibold mb-2">{gt("Public Key")}</h3>
           <p className="text-xs text-[#666] mb-3">
-            Used to verify the signatures on interaction requests we send to your endpoint.
+            {gt("Used to verify the signatures on interaction requests we send to your endpoint.")}
           </p>
           <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
             <code className="text-sm text-[#ccc] flex-1 truncate font-mono">{app.publicKey}</code>
@@ -324,11 +337,9 @@ export default function BotPage() {
       {/* Interactions Endpoint URL */}
       {hasBot && (
         <div className="mb-8">
-          <h3 className="text-sm font-semibold mb-2">Interactions Endpoint URL</h3>
+          <h3 className="text-sm font-semibold mb-2">{gt("Interactions Endpoint URL")}</h3>
           <p className="text-xs text-[#666] mb-3">
-            Optional. If set, we POST interaction (slash command) events here with an
-            Ed25519 signature instead of only delivering them over the gateway. We verify
-            the URL with a PING before saving.
+            {gt("Optional. If set, we POST interaction (slash command) events here with an Ed25519 signature instead of only delivering them over the gateway. We verify the URL with a PING before saving.")}
           </p>
           <div className="flex items-center gap-2">
             <input
@@ -344,7 +355,7 @@ export default function BotPage() {
               className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
             >
               {savingInteractions ? <Loader2 className="size-4 animate-spin" /> : null}
-              Save
+              {gt("Save")}
             </button>
           </div>
         </div>

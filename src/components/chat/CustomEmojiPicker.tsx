@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { EMOJI_CATEGORIES, EMOJI_TO_NAME, type EmojiCategory } from "@/lib/constants/emojis";
 import { GifPicker } from "@/components/chat/GifPicker";
+import { useGT } from "gt-next";
 
 interface CustomEmoji {
   id: string;
@@ -60,6 +61,25 @@ const CATEGORY_ICONS: { id: string; icon: React.ElementType; label: string }[] =
   { id: "symbols", icon: Heart, label: "Symbols" },
   { id: "flags", icon: Flag, label: "Flags" },
 ];
+
+type GTFunc = ReturnType<typeof useGT>;
+
+function emojiCategoryLabel(id: string, gt: GTFunc): string {
+  switch (id) {
+    case 'recent': return gt('Recently Used');
+    case 'favorites': return gt('Favorites');
+    case 'smileys': return gt('Smileys & Emotion');
+    case 'people': return gt('People & Body');
+    case 'animals': return gt('Animals & Nature');
+    case 'food': return gt('Food & Drink');
+    case 'activities': return gt('Activities');
+    case 'travel': return gt('Travel & Places');
+    case 'objects': return gt('Objects');
+    case 'symbols': return gt('Symbols');
+    case 'flags': return gt('Flags');
+    default: return id;
+  }
+}
 
 type TabType = "gifs" | "stickers" | "emoji";
 
@@ -151,6 +171,7 @@ export function CustomEmojiPicker({
   serverId,
   initialTab = "emoji",
 }: EmojiPickerProps) {
+  const gt = useGT();
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [recentEntries, setRecentEntries] = useState<RecentEmojiEntry[]>([]);
@@ -390,7 +411,7 @@ export function CustomEmojiPicker({
           )}
         >
           <ImageIcon className="w-4 h-4" />
-          GIFs
+          {gt("GIFs")}
         </button>
         <button
           onClick={() => setActiveTab("stickers")}
@@ -402,7 +423,7 @@ export function CustomEmojiPicker({
           )}
         >
           <Sticker className="w-4 h-4" />
-          Stickers
+          {gt("Stickers")}
         </button>
         <button
           onClick={() => setActiveTab("emoji")}
@@ -414,7 +435,7 @@ export function CustomEmojiPicker({
           )}
         >
           <Smile className="w-4 h-4" />
-          Emoji
+          {gt("Emoji")}
         </button>
       </div>
 
@@ -432,7 +453,7 @@ export function CustomEmojiPicker({
         <div className="flex-none h-[440px] max-h-[60dvh] min-h-0 flex flex-col">
           <div className="p-3 border-b border-[#2a2a40]">
             <p className="text-xs uppercase tracking-wider text-[#8888aa]">
-              {serverId || availableServerStickers.length > 0 ? "Server Stickers" : "Stickers"}
+              {serverId || availableServerStickers.length > 0 ? gt("Server Stickers") : gt("Stickers")}
             </p>
           </div>
           <div className="p-3 flex-1 overflow-y-auto">
@@ -480,7 +501,7 @@ export function CustomEmojiPicker({
               <div className="h-full flex flex-col items-center justify-center text-center">
                 <Sticker className="w-8 h-8 text-[#8888aa] mb-3" />
                 <p className="text-[#8888aa] text-sm">
-                  {serverId || availableServerStickers.length > 0 ? "No stickers uploaded yet" : "Open a server channel to use stickers"}
+                  {serverId || availableServerStickers.length > 0 ? gt("No stickers uploaded yet") : gt("Open a server channel to use stickers")}
                 </p>
               </div>
             )}
@@ -495,7 +516,7 @@ export function CustomEmojiPicker({
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search emojis..."
+                placeholder={gt("Search emojis...")}
                 className="pl-10 pr-10 bg-[#0f0f1a] border-[#2a2a40] text-white placeholder:text-[#8888aa] h-10 rounded-lg focus-visible:ring-1 focus-visible:ring-[#8B5CF6]"
               />
               {search && (
@@ -526,7 +547,7 @@ export function CustomEmojiPicker({
                         ? "bg-[#8B5CF6] text-white" 
                         : "text-[#8888aa] hover:bg-[#2a2a40] hover:text-white"
                     )}
-                    title={cat.label}
+                    title={emojiCategoryLabel(cat.id, gt)}
                   >
                     <IconComponent className="w-5 h-5" />
                   </button>
@@ -545,7 +566,7 @@ export function CustomEmojiPicker({
                   <div ref={setSectionRef("recent")}>
                     <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
                       <Clock className="w-3.5 h-3.5" />
-                      Recently Used
+                      {gt("Recently Used")}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
                       {filteredRecent.slice(0, 24).map((entry, idx) =>
@@ -579,7 +600,7 @@ export function CustomEmojiPicker({
                   <div ref={setSectionRef("favorites")}>
                     <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
                       <Star className="w-3.5 h-3.5" />
-                      Favorites
+                      {gt("Favorites")}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
                       {filteredFavorites.map((emoji, idx) => (
@@ -633,7 +654,7 @@ export function CustomEmojiPicker({
                 {search && filteredCategories.length === 0 && filteredCustomEmojis.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <Search className="w-12 h-12 text-[#4a4a6a] mb-4" />
-                    <p className="text-[#8888aa] text-sm">No emojis found for &quot;{search}&quot;</p>
+                    <p className="text-[#8888aa] text-sm">{gt("No emojis found for \"{search}\"", { search })}</p>
                   </div>
                 )}
               </div>
@@ -643,7 +664,7 @@ export function CustomEmojiPicker({
           {/* Footer */}
           <div className="border-t border-[#2a2a40] p-2 flex items-center bg-[#0f0f1a]">
             <div className="flex items-center gap-2 text-xs text-[#8888aa]">
-              <span>Powered by Twemoji</span>
+              <span>{gt("Powered by Twemoji")}</span>
             </div>
           </div>
         </>

@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { MessageSquare } from "lucide-react";
 import Link from "next/link";
+import { T } from "gt-next";
 
 export default function AuthLayoutClient({
   children,
@@ -36,7 +37,7 @@ export default function AuthLayoutClient({
           <div className="w-10 h-10 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
             <MessageSquare className="w-5 h-5 text-white" />
           </div>
-          <span className="text-xl font-semibold text-white">SerikaCord</span>
+          <span className="text-xl font-semibold text-white"><T>SerikaCord</T></span>
         </Link>
       </motion.div>
 
@@ -53,7 +54,7 @@ export default function AuthLayoutClient({
       {/* Footer */}
       <div className="absolute bottom-6 text-center w-full z-20">
         <p className="text-xs text-[#666666]">
-          © 2026 SerikaCord. All rights reserved.
+          <T>© 2026 SerikaCord. All rights reserved.</T>
         </p>
       </div>
     </div>

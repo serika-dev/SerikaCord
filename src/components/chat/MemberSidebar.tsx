@@ -10,6 +10,7 @@ import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
+import { T, useGT } from "gt-next";
 
 interface MemberRole {
   id: string;
@@ -77,6 +78,7 @@ function sortMembersByName(items: Member[]): Member[] {
 }
 
 export function MemberSidebar() {
+  const gt = useGT();
   const { currentServer } = useServer();
   const { members, isMembersLoading: isLoading } = useServerMembers();
 
@@ -91,7 +93,7 @@ export function MemberSidebar() {
       if (!groups.has(key)) {
         groups.set(key, {
           key,
-          label: hoistedRole?.name || "No Role",
+          label: hoistedRole?.name || gt("No Role"),
           color: hoistedRole?.color,
           position: hoistedRole?.position ?? -1,
           members: [],
@@ -139,7 +141,7 @@ export function MemberSidebar() {
               {offlineMembers.length > 0 && (
                 <div className="space-y-1">
                   <p className="px-4 text-[11px] font-semibold uppercase tracking-wide text-[#7d7d7d]">
-                    Offline — {offlineMembers.length}
+                    {gt("Offline")} — {offlineMembers.length}
                   </p>
                   {offlineMembers.map((member) => (
                     <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} />
@@ -149,7 +151,7 @@ export function MemberSidebar() {
 
               {members.length === 0 && (
                 <div className="text-center text-[var(--app-muted-2)] text-sm py-8">
-                  No members found
+                  <T>No members found</T>
                 </div>
               )}
             </>
@@ -166,6 +168,7 @@ interface MemberItemProps {
 }
 
 function MemberItem({ member, serverId }: MemberItemProps) {
+  const gt = useGT();
   const isOffline = member.status === "offline";
   const roleColor = member.highestRole?.color;
   // Only poll live activity for members who are actually around.
@@ -218,13 +221,13 @@ function MemberItem({ member, serverId }: MemberItemProps) {
             const hasCustomStyle = Boolean(member.customization?.displayNameStyle && (member.customization.displayNameStyle.color || member.customization.displayNameStyle.gradient?.length || member.customization.displayNameStyle.effect !== 'solid' || member.customization.displayNameStyle.font !== 'default'));
             return (
               <div className={cn("flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
-                <span className="truncate">{member.displayName || member.username || "Unknown"}</span>
+                <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
                 )}
                 {member.isSystem && (
                   <span className="inline-flex items-center px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">
-                    SYSTEM
+                    {gt("SYSTEM")}
                   </span>
                 )}
                 {member.isBot && !member.isSystem && (
@@ -235,7 +238,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
                       : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
                   )}>
                     {member.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
-                    Bot
+                    {gt("Bot")}
                   </span>
                 )}
               </div>
@@ -248,7 +251,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
               ) : (
                 <Play className="w-2.5 h-2.5 shrink-0 fill-current" />
               )}
-              <span className="truncate min-w-0">Watching {moeActivity.titleName}</span>
+              <span className="truncate min-w-0">{gt("Watching")} {moeActivity.titleName}</span>
             </div>
           ) : musicActivity ? (
             <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)] min-w-0">

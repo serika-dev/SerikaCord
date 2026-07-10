@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, RotateCcw, Undo2, Redo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface UnsavedChangesBarProps {
   visible: boolean;
@@ -36,6 +37,7 @@ export function UnsavedChangesBar({
   changeCount = 0,
   className,
 }: UnsavedChangesBarProps) {
+  const gt = useGT();
   useEffect(() => {
     if (!visible) return;
     const handleKey = (e: KeyboardEvent) => {
@@ -73,7 +75,7 @@ export function UnsavedChangesBar({
           )}
         >
           <p className="text-sm text-[#d5d9e8] min-w-0">
-            Careful — you have unsaved changes{changeCount > 0 ? ` (${changeCount} field${changeCount === 1 ? "" : "s"})` : ""}!
+            {gt("Careful — you have unsaved changes")}{changeCount > 0 ? ` (${changeCount} ${changeCount === 1 ? gt("field") : gt("fields")})` : ""}!
           </p>
           <div className="flex items-center gap-2 shrink-0">
             {onUndo && (
@@ -81,8 +83,8 @@ export function UnsavedChangesBar({
                 type="button"
                 onClick={onUndo}
                 disabled={!canUndo || isSaving}
-                aria-label="Undo change"
-                title="Undo (Ctrl+Z)"
+                aria-label={gt("Undo change")}
+                title={gt("Undo (Ctrl+Z)")}
                 className="p-2 rounded-md text-[#888888] hover:text-white hover:bg-[#1a1a1a] disabled:opacity-40 disabled:pointer-events-none transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
               >
                 <Undo2 className="w-4 h-4" />
@@ -93,8 +95,8 @@ export function UnsavedChangesBar({
                 type="button"
                 onClick={onRedo}
                 disabled={!canRedo || isSaving}
-                aria-label="Redo change"
-                title="Redo (Ctrl+Shift+Z)"
+                aria-label={gt("Redo change")}
+                title={gt("Redo (Ctrl+Shift+Z)")}
                 className="p-2 rounded-md text-[#888888] hover:text-white hover:bg-[#1a1a1a] disabled:opacity-40 disabled:pointer-events-none transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
               >
                 <Redo2 className="w-4 h-4" />
@@ -107,7 +109,7 @@ export function UnsavedChangesBar({
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-[#d5d9e8] hover:bg-[#1a1a1a] disabled:opacity-40 transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              Discard
+              {gt("Discard")}
             </button>
             <button
               type="button"
@@ -116,7 +118,7 @@ export function UnsavedChangesBar({
               className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-[#23A559] hover:bg-[#1f9150] active:scale-[0.97] text-sm font-medium text-white disabled:opacity-60 transition-all focus-visible:outline-2 focus-visible:outline-white"
             >
               {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isSaving ? "Saving..." : "Save Changes"}
+              {isSaving ? gt("Saving...") : gt("Save Changes")}
             </button>
           </div>
         </motion.div>

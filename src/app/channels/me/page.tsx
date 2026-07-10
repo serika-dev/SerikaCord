@@ -29,6 +29,8 @@ import {
 import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { SwipeableRow } from "@/components/ui/swipe-actions";
+import { T, useGT } from "gt-next";
+import { statusLabel } from "@/lib/statusLabels";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
@@ -65,9 +67,10 @@ const statusLabels = {
   idle: "Idle",
   dnd: "Do Not Disturb",
   offline: "Offline",
-};
+} as const;
 
 export default function DirectMessagesPage() {
+  const gt = useGT();
   const { user } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("online");
@@ -174,7 +177,7 @@ export default function DirectMessagesPage() {
         setAddFriendStatus({ type: "error", message: data.error });
       }
     } catch {
-      setAddFriendStatus({ type: "error", message: "Failed to send friend request" });
+      setAddFriendStatus({ type: "error", message: gt("Failed to send friend request") });
     } finally {
       setIsAddingFriend(false);
     }
@@ -292,10 +295,10 @@ export default function DirectMessagesPage() {
   });
 
   const tabs = [
-    { id: "online" as Tab, label: "Online", count: onlineFriends.length },
-    { id: "all" as Tab, label: "All", count: friendsData.friends.length },
-    { id: "pending" as Tab, label: "Pending", count: friendsData.pending.incoming.length + friendsData.pending.outgoing.length },
-    { id: "blocked" as Tab, label: "Blocked", count: friendsData.blocked.length },
+    { id: "online" as Tab, label: gt("Online"), count: onlineFriends.length },
+    { id: "all" as Tab, label: gt("All"), count: friendsData.friends.length },
+    { id: "pending" as Tab, label: gt("Pending"), count: friendsData.pending.incoming.length + friendsData.pending.outgoing.length },
+    { id: "blocked" as Tab, label: gt("Blocked"), count: friendsData.blocked.length },
   ];
 
   // Start DM with friend
@@ -316,9 +319,9 @@ export default function DirectMessagesPage() {
                 <Users className="w-5 h-5 text-[var(--app-accent)]" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-[var(--text-primary)] leading-tight">Friends</h1>
+                <h1 className="text-lg font-bold text-[var(--text-primary)] leading-tight"><T>Friends</T></h1>
                 <p className="text-xs text-[var(--text-muted)] hidden sm:block">
-                  {friendsData.friends.length} friends · {onlineFriends.length} online
+                  {friendsData.friends.length} {gt("friends")} · {onlineFriends.length} {gt("online")}
                 </p>
               </div>
             </div>
@@ -332,8 +335,8 @@ export default function DirectMessagesPage() {
               )}
             >
               <UserPlus className="w-4 h-4" />
-              <span className="hidden sm:inline">Add Friend</span>
-              <span className="sm:hidden">Add</span>
+              <span className="hidden sm:inline"><T>Add Friend</T></span>
+              <span className="sm:hidden"><T>Add</T></span>
             </button>
           </div>
 
@@ -376,10 +379,10 @@ export default function DirectMessagesPage() {
               <div className="p-4 sm:p-6 max-w-2xl">
                 <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-5 sm:p-6">
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">
-                    Add Friend
+                    <T>Add Friend</T>
                   </h2>
                   <p className="text-sm text-[var(--text-muted)] mb-5">
-                    Enter a SerikaCord username to send a friend request.
+                    <T>Enter a SerikaCord username to send a friend request.</T>
                   </p>
 
                   <div className="flex flex-col sm:flex-row gap-2">
@@ -390,7 +393,7 @@ export default function DirectMessagesPage() {
                         setAddFriendStatus({ type: null, message: "" });
                       }}
                       onKeyDown={(e) => e.key === "Enter" && handleAddFriend()}
-                      placeholder="Enter a username"
+                      placeholder={gt("Enter a username")}
                       className={cn(
                         "h-12 bg-[var(--bg-app)] border-2 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-base rounded-lg focus-visible:ring-0 flex-1",
                         addFriendStatus.type === "success" && "border-green-500/50",
@@ -409,7 +412,7 @@ export default function DirectMessagesPage() {
                       )}
                     >
                       {isAddingFriend && <Loader2 className="w-4 h-4 animate-spin" />}
-                      Send Request
+                      <T>Send Request</T>
                     </button>
                   </div>
 
@@ -431,9 +434,9 @@ export default function DirectMessagesPage() {
                 {/* Tips */}
                 <div className="mt-4 flex flex-col sm:flex-row gap-3">
                   {[
-                    { icon: <Search className="w-5 h-5" />, title: "Find username", desc: "Ask your friend for their exact SerikaCord username" },
-                    { icon: <UserPlus className="w-5 h-5" />, title: "Send request", desc: "Type it above and send a friend request" },
-                    { icon: <Check className="w-5 h-5" />, title: "Get connected", desc: "Once they accept, you can start chatting" },
+                    { icon: <Search className="w-5 h-5" />, title: gt("Find username"), desc: gt("Ask your friend for their exact SerikaCord username") },
+                    { icon: <UserPlus className="w-5 h-5" />, title: gt("Send request"), desc: gt("Type it above and send a friend request") },
+                    { icon: <Check className="w-5 h-5" />, title: gt("Get connected"), desc: gt("Once they accept, you can start chatting") },
                   ].map((step, i) => (
                     <div key={i} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
                       <div className="w-9 h-9 rounded-lg bg-[var(--app-accent)]/15 flex items-center justify-center text-[var(--app-accent)] mb-2">
@@ -455,7 +458,7 @@ export default function DirectMessagesPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-2 h-2 rounded-full bg-green-500" />
                       <p className="text-sm font-semibold text-[var(--text-primary)]">
-                        Incoming
+                        <T>Incoming</T>
                       </p>
                       <span className="text-xs text-[var(--text-muted)]">· {friendsData.pending.incoming.length}</span>
                     </div>
@@ -481,7 +484,7 @@ export default function DirectMessagesPage() {
                                   <Crown className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />
                                 )}
                               </div>
-                              <p className="text-xs text-[var(--text-muted)]">Incoming request</p>
+                              <p className="text-xs text-[var(--text-muted)]">{gt("Incoming request")}</p>
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -489,7 +492,7 @@ export default function DirectMessagesPage() {
                               onClick={() => handleAcceptRequest(request.id)}
                               disabled={actionLoading === request.id}
                               className="p-2 rounded-lg bg-green-500/10 hover:bg-green-500/20 text-green-500 transition-colors disabled:opacity-50"
-                              aria-label="Accept"
+                              aria-label={gt("Accept")}
                             >
                               {actionLoading === request.id ? (
                                 <Loader2 className="w-5 h-5 animate-spin" />
@@ -501,7 +504,7 @@ export default function DirectMessagesPage() {
                               onClick={() => handleDeclineRequest(request.id)}
                               disabled={actionLoading === request.id}
                               className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-500 transition-colors disabled:opacity-50"
-                              aria-label="Decline"
+                              aria-label={gt("Decline")}
                             >
                               <X className="w-5 h-5" />
                             </button>
@@ -518,7 +521,7 @@ export default function DirectMessagesPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-2 h-2 rounded-full bg-[var(--text-muted)]" />
                       <p className="text-sm font-semibold text-[var(--text-primary)]">
-                        Outgoing
+                        <T>Outgoing</T>
                       </p>
                       <span className="text-xs text-[var(--text-muted)]">· {friendsData.pending.outgoing.length}</span>
                     </div>
@@ -544,7 +547,7 @@ export default function DirectMessagesPage() {
                                   <Crown className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />
                                 )}
                               </div>
-                              <p className="text-xs text-[var(--text-muted)]">Outgoing request</p>
+                              <p className="text-xs text-[var(--text-muted)]">{gt("Outgoing request")}</p>
                             </div>
                           </div>
                           <button
@@ -555,7 +558,7 @@ export default function DirectMessagesPage() {
                             {actionLoading === request.id ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
-                              "Cancel"
+                              gt("Cancel")
                             )}
                           </button>
                         </div>
@@ -567,8 +570,8 @@ export default function DirectMessagesPage() {
                 {friendsData.pending.incoming.length === 0 && friendsData.pending.outgoing.length === 0 && (
                   <EmptyState
                     icon={<Clock className="w-12 h-12 text-[var(--app-accent)]" />}
-                    title="No pending requests"
-                    description="Friend requests you send or receive will appear here"
+                    title={gt("No pending requests")}
+                    description={gt("Friend requests you send or receive will appear here")}
                   />
                 )}
               </div>
@@ -581,7 +584,7 @@ export default function DirectMessagesPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <div className="w-2 h-2 rounded-full bg-red-500" />
                       <p className="text-sm font-semibold text-[var(--text-primary)]">
-                        Blocked Users
+                        <T>Blocked Users</T>
                       </p>
                       <span className="text-xs text-[var(--text-muted)]">· {friendsData.blocked.length}</span>
                     </div>
@@ -602,7 +605,7 @@ export default function DirectMessagesPage() {
                               <p className="font-medium text-[var(--text-primary)] text-sm truncate">
                                 {blockedUser.displayName || blockedUser.username}
                               </p>
-                              <p className="text-xs text-[var(--text-muted)]">Blocked</p>
+                              <p className="text-xs text-[var(--text-muted)]">{gt("Blocked")}</p>
                             </div>
                           </div>
                           <button
@@ -613,7 +616,7 @@ export default function DirectMessagesPage() {
                             {actionLoading === blockedUser.id ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
-                              "Unblock"
+                              gt("Unblock")
                             )}
                           </button>
                         </div>
@@ -623,8 +626,8 @@ export default function DirectMessagesPage() {
                 ) : (
                   <EmptyState
                     icon={<Shield className="w-12 h-12 text-[var(--app-accent)]" />}
-                    title="No blocked users"
-                    description="Users you block won't be able to message you or send friend requests"
+                    title={gt("No blocked users")}
+                    description={gt("Users you block won't be able to message you or send friend requests")}
                   />
                 )}
               </div>
@@ -637,7 +640,7 @@ export default function DirectMessagesPage() {
                   <Input
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search friends..."
+                    placeholder={gt("Search friends...")}
                     className="h-10 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] pl-10 rounded-lg focus:border-[var(--app-accent)] focus-visible:ring-0"
                   />
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
@@ -654,7 +657,7 @@ export default function DirectMessagesPage() {
                   ) : filteredFriends.length > 0 ? (
                     <>
                       <p className="text-xs font-semibold uppercase text-[var(--text-muted)] mb-3 px-1">
-                        {activeTab === "online" ? "Online" : "All Friends"} — {filteredFriends.length}
+                        {activeTab === "online" ? gt("Online") : gt("All Friends")} — {filteredFriends.length}
                       </p>
                       <div className="flex flex-col">
                         {filteredFriends.map((friend, idx) => (
@@ -664,13 +667,13 @@ export default function DirectMessagesPage() {
                             actions={[
                               {
                                 icon: <MessageCircle className="w-5 h-5" />,
-                                label: "Message",
+                                label: gt("Message"),
                                 className: "bg-[var(--app-accent)]",
                                 onAction: () => startDM(friend.id),
                               },
                               {
                                 icon: <UserX className="w-5 h-5" />,
-                                label: "Remove",
+                                label: gt("Remove"),
                                 className: "bg-red-500",
                                 onAction: () => handleRemoveFriend(friend.id),
                               },
@@ -681,7 +684,7 @@ export default function DirectMessagesPage() {
                               <button
                                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
                                 onClick={() => startDM(friend.id)}
-                                aria-label={`Message ${friend.displayName || friend.username}`}
+                                aria-label={`${gt("Message")} ${friend.displayName || friend.username}`}
                               >
                                 <div className="relative shrink-0">
                                   <Avatar className="w-10 h-10">
@@ -705,7 +708,7 @@ export default function DirectMessagesPage() {
                                     )}
                                   </div>
                                   <p className="text-xs text-[var(--text-muted)] truncate">
-                                    {friend.customStatus || statusLabels[friend.status]}
+                                    {friend.customStatus || statusLabel(friend.status, gt)}
                                   </p>
                                 </div>
                               </button>
@@ -714,8 +717,8 @@ export default function DirectMessagesPage() {
                               <div className="hidden sm:flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity shrink-0">
                                 <button
                                   onClick={() => startDM(friend.id)}
-                                  aria-label="Message"
-                                  title="Message"
+                                  aria-label={gt("Message")}
+                                  title={gt("Message")}
                                   className="p-2.5 rounded-full bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors"
                                 >
                                   <MessageCircle className="w-4 h-4 text-[var(--text-secondary)]" />
@@ -723,8 +726,8 @@ export default function DirectMessagesPage() {
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
-                                      aria-label="More options"
-                                      title="More"
+                                      aria-label={gt("More options")}
+                                      title={gt("More")}
                                       className="p-2.5 rounded-full bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors"
                                     >
                                       <MoreVertical className="w-4 h-4 text-[var(--text-secondary)]" />
@@ -736,7 +739,7 @@ export default function DirectMessagesPage() {
                                       className="text-[var(--text-secondary)] focus:text-[var(--text-on-accent)] focus:bg-[var(--app-accent)]"
                                     >
                                       <MessageCircle className="w-4 h-4 mr-2" />
-                                      Message
+                                      <T>Message</T>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
                                     <DropdownMenuItem
@@ -744,14 +747,14 @@ export default function DirectMessagesPage() {
                                       className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
                                     >
                                       <UserX className="w-4 h-4 mr-2" />
-                                      Remove Friend
+                                      <T>Remove Friend</T>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => handleBlockUser(friend.id)}
                                       className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
                                     >
                                       <Shield className="w-4 h-4 mr-2" />
-                                      Block
+                                      <T>Block</T>
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
@@ -762,7 +765,7 @@ export default function DirectMessagesPage() {
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
-                                      aria-label="More options"
+                                      aria-label={gt("More options")}
                                       className="p-2 rounded-lg text-[var(--text-muted)] active:bg-[var(--bg-hover)] transition-colors"
                                     >
                                       <MoreVertical className="w-5 h-5" />
@@ -774,7 +777,7 @@ export default function DirectMessagesPage() {
                                       className="text-[var(--text-secondary)] focus:text-[var(--text-on-accent)] focus:bg-[var(--app-accent)]"
                                     >
                                       <MessageCircle className="w-4 h-4 mr-2" />
-                                      Message
+                                      <T>Message</T>
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
                                     <DropdownMenuItem
@@ -782,14 +785,14 @@ export default function DirectMessagesPage() {
                                       className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
                                     >
                                       <UserX className="w-4 h-4 mr-2" />
-                                      Remove Friend
+                                      <T>Remove Friend</T>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       onClick={() => handleBlockUser(friend.id)}
                                       className="text-red-400 focus:text-[var(--text-on-accent)] focus:bg-red-500"
                                     >
                                       <Shield className="w-4 h-4 mr-2" />
-                                      Block
+                                      <T>Block</T>
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
@@ -802,10 +805,10 @@ export default function DirectMessagesPage() {
                   ) : (
                     <EmptyState
                       icon={<Users className="w-12 h-12 text-[var(--app-accent)]" />}
-                      title={searchQuery ? "No friends found" : "No friends yet"}
+                      title={searchQuery ? gt("No friends found") : gt("No friends yet")}
                       description={searchQuery
-                        ? "Try a different search term"
-                        : "Add some friends to start chatting!"}
+                        ? gt("Try a different search term")
+                        : gt("Add some friends to start chatting!")}
                     />
                   )}
                 </div>

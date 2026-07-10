@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Table } from "../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Quick Start",
@@ -9,27 +10,27 @@ export const metadata = buildMetadata({
   keywords: ["SerikaCord quick start", "bot tutorial", "discord.js", "discord.py", "API examples"],
 });
 
-export default function QuickStartDoc() {
+export default async function QuickStartDoc() {
+  const gt = await getGT();
   return (
-    <DocPage title="Quick Start" description="Copy-paste examples in every major language. Point any Discord library at SerikaCord with a one-line base-URL change.">
-      <Callout type="info" title="Prerequisites">
-        You need a bot token from the <Link2 href="/developers/applications">Developer Portal</Link2>.
-        See <Link2 href="/developers/docs/getting-started">Getting Started</Link2> if you don&apos;t have one yet.
+    <DocPage title={gt("Quick Start")} description={gt("Copy-paste examples in every major language. Point any Discord library at SerikaCord with a one-line base-URL change.")}>
+      <Callout type="info" title={gt("Prerequisites")}>
+        {gt("You need a bot token from the")}{" "}<Link2 href="/developers/applications">{gt("Developer Portal")}</Link2>.
+        {gt("See")}{" "}<Link2 href="/developers/docs/getting-started">{gt("Getting Started")}</Link2> {gt("if you don't have one yet.")}
       </Callout>
 
-      <H2 id="cheat-sheet">One-line cheat sheet</H2>
-      <Table headers={["Channel", "URL"]} rows={[
+      <H2 id="cheat-sheet">{gt("One-line cheat sheet")}</H2>
+      <Table headers={[gt("Channel"), gt("URL")]} rows={[
         ["REST API", "https://api.serika.chat/api/v10"],
         ["Gateway WebSocket", "wss://api.serika.chat/api/v10/gateway"],
         ["OAuth2 Authorize", "https://api.serika.chat/api/oauth2/authorize"],
         ["OAuth2 Token", "https://api.serika.chat/api/oauth2/token"],
-        ["Auth header", "Authorization: Bot YOUR_TOKEN"],
+        [gt("Auth header"), "Authorization: Bot YOUR_TOKEN"],
       ]} />
 
-      <H2 id="nodejs">Node.js (discord.js)</H2>
+      <H2 id="nodejs">{gt("Node.js (discord.js)")}</H2>
       <P>
-        Since SerikaCord is API-compatible with Discord, you can use <InlineCode>discord.js</InlineCode> with
-        a custom gateway and REST endpoint. Install it first:
+        {gt("Since SerikaCord is API-compatible with Discord, you can use")}{" "}<InlineCode>discord.js</InlineCode> {gt("with a custom gateway and REST endpoint. Install it first:")}
       </P>
       <CodeBlock lang="bash">npm install discord.js</CodeBlock>
       <CodeBlock lang="javascript">{`import { Client, GatewayIntentBits } from "discord.js";
@@ -55,7 +56,7 @@ client.on("messageCreate", (msg) => {
 
 client.login(process.env.BOT_TOKEN);`}</CodeBlock>
 
-      <H2 id="python">Python (discord.py)</H2>
+      <H2 id="python">{gt("Python (discord.py)")}</H2>
       <CodeBlock lang="bash">pip install discord.py</CodeBlock>
       <CodeBlock lang="python">{`import os, discord
 
@@ -79,8 +80,8 @@ async def on_message(message):
 
 client.run(os.environ["BOT_TOKEN"])`}</CodeBlock>
 
-      <H2 id="raw-http">Raw HTTP / cURL</H2>
-      <P>No library needed — the REST API speaks plain JSON:</P>
+      <H2 id="raw-http">{gt("Raw HTTP / cURL")}</H2>
+      <P>{gt("No library needed — the REST API speaks plain JSON:")}</P>
       <CodeBlock lang="bash">{`# Get bot user info
 curl -H "Authorization: Bot YOUR_TOKEN" \\
   https://api.serika.chat/api/v10/users/@me
@@ -103,10 +104,9 @@ curl -X PUT \\
   -d '[{"name":"ping","description":"Pong!","type":1}]' \\
   https://api.serika.chat/api/v10/applications/APP_ID/commands`}</CodeBlock>
 
-      <H2 id="raw-ws">Raw WebSocket (Node.js ws)</H2>
+      <H2 id="raw-ws">{gt("Raw WebSocket (Node.js ws)")}</H2>
       <P>
-        For the Gateway without a library, use any WebSocket client. This minimal example connects,
-        identifies, heartbeats, and logs <InlineCode>MESSAGE_CREATE</InlineCode> events:
+        {gt("For the Gateway without a library, use any WebSocket client. This minimal example connects, identifies, heartbeats, and logs")}{" "}<InlineCode>MESSAGE_CREATE</InlineCode> {gt("events:")}
       </P>
       <CodeBlock lang="javascript">{`import WebSocket from "ws";
 
@@ -151,9 +151,9 @@ ws.on("close", (code, reason) => {
   console.log(\`Disconnected: \${code} \${reason}\`);
 });`}</CodeBlock>
 
-      <H2 id="go">Go (discordgo)</H2>
+      <H2 id="go">{gt("Go (discordgo)")}</H2>
       <P>
-        Using <InlineCode>discordgo</InlineCode> with SerikaCord:
+        {gt("Using")}{" "}<InlineCode>discordgo</InlineCode> {gt("with SerikaCord:")}
       </P>
       <CodeBlock lang="go">{`package main
 
@@ -196,26 +196,26 @@ func main() {
   select {}
 }`}</CodeBlock>
 
-      <Callout type="warning" title="Token Security">
-        Never commit your bot token to version control. Use environment variables and add{" "}
-        <InlineCode>.env</InlineCode> to your <InlineCode>.gitignore</InlineCode>.
+      <Callout type="warning" title={gt("Token Security")}>
+        {gt("Never commit your bot token to version control. Use environment variables and add")}{" "}
+        <InlineCode>.env</InlineCode> {gt("to your")}{" "}<InlineCode>.gitignore</InlineCode>.
       </Callout>
 
-      <H2 id="env-setup">Environment setup tips</H2>
-      <Table headers={["Language", "Env var approach"]} rows={[
-        ["Node.js", "Use dotenv: npm install dotenv, then require('dotenv').config()"],
-        ["Python", "Use python-dotenv or os.environ['BOT_TOKEN']"],
-        ["Go", "Use os.Getenv('BOT_TOKEN') or godotenv package"],
-        ["Shell", "export BOT_TOKEN='your_token' in your shell profile"],
+      <H2 id="env-setup">{gt("Environment setup tips")}</H2>
+      <Table headers={[gt("Language"), gt("Env var approach")]} rows={[
+        ["Node.js", gt("Use dotenv: npm install dotenv, then require('dotenv').config()")],
+        ["Python", gt("Use python-dotenv or os.environ['BOT_TOKEN']")],
+        ["Go", gt("Use os.Getenv('BOT_TOKEN') or godotenv package")],
+        [gt("Shell"), gt("export BOT_TOKEN='your_token' in your shell profile")],
       ]} />
 
-      <H2 id="next-steps">Next Steps</H2>
+      <H2 id="next-steps">{gt("Next Steps")}</H2>
       <UL>
-        <li>Read the <Link2 href="/developers/docs/reference">API Reference</Link2> for all endpoints</li>
-        <li>Learn about <Link2 href="/developers/docs/topics/oauth2">OAuth2</Link2> for user authentication</li>
-        <li>Understand <Link2 href="/developers/docs/topics/permissions">Permissions</Link2></li>
-        <li>Connect to the <Link2 href="/developers/docs/topics/gateway">Gateway</Link2> for real-time events</li>
-        <li>Add <Link2 href="/developers/docs/bots/slash-commands">slash commands</Link2> to your bot</li>
+        <li>{gt("Read the")}{" "}<Link2 href="/developers/docs/reference">{gt("API Reference")}</Link2> {gt("for all endpoints")}</li>
+        <li>{gt("Learn about")}{" "}<Link2 href="/developers/docs/topics/oauth2">{gt("OAuth2")}</Link2> {gt("for user authentication")}</li>
+        <li>{gt("Understand")}{" "}<Link2 href="/developers/docs/topics/permissions">{gt("Permissions")}</Link2></li>
+        <li>{gt("Connect to the")}{" "}<Link2 href="/developers/docs/topics/gateway">{gt("Gateway")}</Link2> {gt("for real-time events")}</li>
+        <li>{gt("Add")}{" "}<Link2 href="/developers/docs/bots/slash-commands">{gt("slash commands")}</Link2> {gt("to your bot")}</li>
       </UL>
     </DocPage>
   );

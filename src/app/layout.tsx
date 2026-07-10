@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Noto_Kufi_Arabic } from "next/font/google";
+import { GTProvider } from "gt-next";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { NetworkStatus } from "@/components/ui/network-status";
@@ -11,6 +12,12 @@ import "./globals.css";
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+});
+
+const notoKufi = Noto_Kufi_Arabic({
+  variable: "--font-arabic",
+  subsets: ["arabic"],
+  display: "swap",
 });
 
 export const metadata: Metadata = buildRootMetadata();
@@ -58,25 +65,47 @@ export default function RootLayout({
     })();
   `;
 
+  const rtlBootstrapScript = `
+    (function () {
+      try {
+        var stored = localStorage.getItem("serika-locale");
+        var locale = stored || "en";
+        var rtlLocales = ["ar", "he", "fa", "ur"];
+        var isRTL = rtlLocales.some(function (l) { return locale.startsWith(l); });
+        var root = document.documentElement;
+        root.setAttribute("lang", locale);
+        root.setAttribute("dir", isRTL ? "rtl" : "ltr");
+        if (isRTL) {
+          root.classList.add("rtl");
+        } else {
+          root.classList.remove("rtl");
+        }
+      } catch {}
+    })();
+  `;
+
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" dir="ltr" suppressHydrationWarning>
       <head suppressHydrationWarning>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
         <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: rtlBootstrapScript }} />
       </head>
       <body
-        className={`${inter.variable} font-sans antialiased`}
+        className={`${inter.variable} ${notoKufi.variable} font-sans antialiased`}
       >
-        <ThemeProvider>
-          <AuthProvider>
-            {children}
-            <NetworkStatus />
-            <ToasterWrapper />
-            <TauriUpdater />
-          </AuthProvider>
-        </ThemeProvider>
+        <GTProvider>
+          <ThemeProvider>
+            <AuthProvider>
+              {children}
+              <NetworkStatus />
+              <ToasterWrapper />
+              <TauriUpdater />
+            </AuthProvider>
+          </ThemeProvider>
+        </GTProvider>
       </body>
     </html>
   );
