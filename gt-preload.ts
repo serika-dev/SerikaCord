@@ -25,8 +25,9 @@ const LOAD_TRANSLATIONS_PATH = resolve(
   "loadTranslations.ts"
 );
 
-const originalResolveFilename = Module._resolveFilename;
-Module._resolveFilename = function (
+const NodeModule = Module as any;
+const originalResolveFilename = NodeModule._resolveFilename;
+NodeModule._resolveFilename = function (
   request: string,
   parent: any,
   isMain?: boolean,
