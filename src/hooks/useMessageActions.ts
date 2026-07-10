@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 
@@ -34,6 +35,7 @@ export function useMessageActions<M extends ChatMessage>({
   emojiLookup,
   onPinsChanged,
 }: UseMessageActionsOptions<M>) {
+  const gt = useGT();
   const [editingMessage, setEditingMessage] = useState<M | null>(null);
   const [editContent, setEditContent] = useState("");
   const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<M | null>(null);
@@ -101,11 +103,11 @@ export function useMessageActions<M extends ChatMessage>({
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         rollback();
-        toast.error(data?.error || "Failed to edit message");
+        toast.error(data?.error || gt("Failed to edit message"));
       }
     } catch {
       rollback();
-      toast.error("Failed to edit message. Check your connection.");
+      toast.error(gt("Failed to edit message. Check your connection."));
     }
   }, [apiBase, editingMessage, editContent, setMessages]);
 
@@ -139,17 +141,17 @@ export function useMessageActions<M extends ChatMessage>({
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         setMessages(previousMessages);
-        toast.error(data?.error || "Failed to delete message");
+        toast.error(data?.error || gt("Failed to delete message"));
       }
     } catch {
       setMessages(previousMessages);
-      toast.error("Failed to delete message. Check your connection.");
+      toast.error(gt("Failed to delete message. Check your connection."));
     }
   }, [apiBase, deleteConfirmMessage, setMessages]);
 
   const copyMessage = useCallback((content: string) => {
     navigator.clipboard.writeText(content);
-    toast.success("Copied to clipboard");
+    toast.success(gt("Copied to clipboard"));
   }, []);
 
   const togglePin = useCallback(
@@ -161,16 +163,16 @@ export function useMessageActions<M extends ChatMessage>({
         });
         if (!response.ok) {
           const data = await response.json().catch(() => null);
-          toast.error(data?.error || "Failed to update pin");
+          toast.error(data?.error || gt("Failed to update pin"));
           return;
         }
         setMessages((prev) =>
           prev.map((m) => (m.id === message.id ? { ...m, pinned: !message.pinned } : m))
         );
         onPinsChanged?.();
-        toast.success(message.pinned ? "Message unpinned" : "Message pinned");
+        toast.success(message.pinned ? gt("Message unpinned") : gt("Message pinned"));
       } catch {
-        toast.error("Failed to update pin");
+        toast.error(gt("Failed to update pin"));
       }
     },
     [apiBase, setMessages, onPinsChanged]
@@ -199,11 +201,11 @@ export function useMessageActions<M extends ChatMessage>({
         if (!response.ok) {
           applyReactionEvent(messageId, emoji, userId, false);
           const data = await response.json().catch(() => null);
-          toast.error(data?.error || "Failed to add reaction");
+          toast.error(data?.error || gt("Failed to add reaction"));
         }
       } catch {
         applyReactionEvent(messageId, emoji, userId, false);
-        toast.error("Failed to add reaction. Check your connection.");
+        toast.error(gt("Failed to add reaction. Check your connection."));
       }
     },
     [apiBase, userId, applyReactionEvent]
@@ -221,11 +223,11 @@ export function useMessageActions<M extends ChatMessage>({
         if (!response.ok) {
           applyReactionEvent(messageId, emoji, userId, true);
           const data = await response.json().catch(() => null);
-          toast.error(data?.error || "Failed to remove reaction");
+          toast.error(data?.error || gt("Failed to remove reaction"));
         }
       } catch {
         applyReactionEvent(messageId, emoji, userId, true);
-        toast.error("Failed to remove reaction. Check your connection.");
+        toast.error(gt("Failed to remove reaction. Check your connection."));
       }
     },
     [apiBase, userId, applyReactionEvent]

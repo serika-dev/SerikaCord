@@ -1,6 +1,7 @@
 "use client";
 
 import { Copy, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -57,6 +58,7 @@ export function MessageHoverActions<M extends ChatMessage>({
   availableServerEmojis,
   serverName,
 }: MessageHoverActionsProps<M>) {
+  const gt = useGT();
   const handlePickerSelect = (
     emoji: string,
     isCustom?: boolean,
@@ -80,7 +82,7 @@ export function MessageHoverActions<M extends ChatMessage>({
       <div className="flex items-center bg-[var(--app-surface-alt)] border border-[var(--app-border)] rounded-md shadow-lg">
         <Popover open={reactionPickerOpen} onOpenChange={onReactionPickerChange}>
           <PopoverTrigger asChild>
-            <button className="p-1.5 hover:bg-black/20 rounded-l-md transition-colors" title="Add Reaction">
+            <button className="p-1.5 hover:bg-black/20 rounded-l-md transition-colors" title={gt("Add Reaction")}>
               <Smile className="w-4 h-4 text-[var(--app-muted)]" />
             </button>
           </PopoverTrigger>
@@ -97,13 +99,13 @@ export function MessageHoverActions<M extends ChatMessage>({
         <button
           onClick={() => onReply(message)}
           className="p-1.5 hover:bg-black/20 transition-colors"
-          title="Reply"
+          title={gt("Reply")}
         >
           <Reply className="w-4 h-4 text-[var(--app-muted)]" />
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title="More">
+            <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title={gt("More")}>
               <MoreHorizontal className="w-4 h-4 text-[var(--app-muted)]" />
             </button>
           </DropdownMenuTrigger>
@@ -113,31 +115,31 @@ export function MessageHoverActions<M extends ChatMessage>({
             className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-w-[160px]"
           >
             <DropdownMenuItem onClick={() => onReply(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
-              <Reply className="w-4 h-4 mr-2" /> Reply
+              <Reply className="w-4 h-4 mr-2" /> {gt("Reply")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onCopy(message.content)}
               className="hover:bg-[var(--bg-hover)] cursor-pointer"
             >
-              <Copy className="w-4 h-4 mr-2" /> Copy Text
+              <Copy className="w-4 h-4 mr-2" /> {gt("Copy Text")}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => onPinToggle(message)}
               className="hover:bg-[var(--bg-hover)] cursor-pointer"
             >
-              <Pin className="w-4 h-4 mr-2" /> {message.pinned ? "Unpin Message" : "Pin Message"}
+              <Pin className="w-4 h-4 mr-2" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
             </DropdownMenuItem>
             {isOwn && (
               <>
                 <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
                 <DropdownMenuItem onClick={() => onEdit(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
-                  <Pencil className="w-4 h-4 mr-2" /> Edit Message
+                  <Pencil className="w-4 h-4 mr-2" /> {gt("Edit Message")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => onDelete(message)}
                   className="hover:bg-red-500/20 text-red-400 cursor-pointer"
                 >
-                  <Trash2 className="w-4 h-4 mr-2" /> Delete Message
+                  <Trash2 className="w-4 h-4 mr-2" /> {gt("Delete Message")}
                 </DropdownMenuItem>
               </>
             )}

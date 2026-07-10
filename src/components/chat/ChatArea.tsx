@@ -63,6 +63,7 @@ import {
 } from "@/lib/chat/slashCommands";
 import type { ChatMessage } from "@/lib/chat/types";
 import { EMOJI_NAMES } from "@/lib/constants/emojis";
+import { T, useGT } from "gt-next";
 
 type Message = ChatMessage;
 
@@ -128,6 +129,7 @@ interface ChatAreaProps {
 export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const { currentChannel, currentServer, channels } = useServer();
   const { user } = useAuth();
+  const gt = useGT();
   const perms = usePermissions(currentServer?.id);
   const canModerateMessages = perms.isOwner || perms.can("MANAGE_MESSAGES");
   const router = useRouter();
@@ -1007,7 +1009,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     if (!currentChannel) return;
     const next = toggleChannelMute(currentChannel.id);
     setChannelMuted(next);
-    toast.success(next ? "Channel notifications muted" : "Channel notifications enabled");
+    toast.success(next ? gt("Channel notifications muted") : gt("Channel notifications enabled"));
   };
 
   // Stay in sync when the channel is muted/unmuted from the sidebar menu
@@ -1095,12 +1097,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <Hash className="w-20 h-20 text-[#8B5CF6]" />
         </div>
         <h2 className="text-xl font-semibold text-[var(--text-primary)] mb-2">
-          {currentServer ? "Select a channel" : "Welcome to SerikaCord"}
+          {currentServer ? gt("Select a channel") : gt("Welcome to SerikaCord")}
         </h2>
         <p className="text-center max-w-md">
           {currentServer
-            ? "Choose a channel from the sidebar to start chatting."
-            : "Select a server or start a direct message to begin."}
+            ? gt("Choose a channel from the sidebar to start chatting.")
+            : gt("Select a server or start a direct message to begin.")}
         </p>
       </div>
     );
@@ -1114,9 +1116,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         <Hash className="w-10 h-10 text-[var(--text-primary)]" />
       </div>
       <h1 className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] mb-2 break-words">
-        Welcome to #{currentChannel.name}!
+        {gt("Welcome to #{channel}!", { channel: currentChannel.name })}
       </h1>
-      <p className="text-[var(--app-muted)]">This is the start of the #{currentChannel.name} channel.</p>
+      <p className="text-[var(--app-muted)]">{gt("This is the start of the #{channel} channel.", { channel: currentChannel.name })}</p>
     </div>
   );
 
@@ -1147,8 +1149,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={toggleChannelNotifications}
-            title={channelMuted ? "Enable notifications" : "Mute notifications"}
-            aria-label={channelMuted ? "Enable notifications" : "Mute notifications"}
+            title={channelMuted ? gt("Enable notifications") : gt("Mute notifications")}
+            aria-label={channelMuted ? gt("Enable notifications") : gt("Mute notifications")}
           >
             <Bell className={cn("w-5 h-5", channelMuted && "text-red-400")} />
           </button>
@@ -1158,13 +1160,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               setShowPins(true);
               void chat.fetchPinnedMessages();
             }}
-            title="View pinned messages"
+            title={gt("View pinned messages")}
           >
             <Pin className="w-5 h-5" />
           </button>
           <button
             onClick={onToggleMembers}
-            aria-label="Toggle member list"
+            aria-label={gt("Toggle member list")}
             className={cn("hover:text-[var(--text-primary)] transition-colors", showMembers && "text-[var(--text-primary)]")}
           >
             <Users className="w-5 h-5" />
@@ -1173,7 +1175,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <div className="relative hidden md:block">
             <input
               type="text"
-              placeholder="Search"
+              placeholder={gt("Search")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-32 h-6 px-2 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--app-muted)] focus:outline-none focus:w-48 transition-all"
@@ -1187,7 +1189,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               totalUnread > 0 && "text-[var(--app-accent)]"
             )}
             onClick={() => setShowInbox(true)}
-            title="Open inbox"
+            title={gt("Open inbox")}
           >
             <Inbox className="w-5 h-5" />
             {totalUnread > 0 && (
@@ -1199,7 +1201,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={() => setShowHelp(true)}
-            title="Open help"
+            title={gt("Open help")}
           >
             <HelpCircle className="w-5 h-5" />
           </button>
@@ -1209,23 +1211,23 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       {showSearchResults && (
         <div className="px-4 py-2 border-b border-[var(--app-border)] bg-[var(--app-surface)]/95">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs uppercase tracking-wider text-[var(--app-muted)]">Search Results</p>
+            <p className="text-xs uppercase tracking-wider text-[var(--app-muted)]">{gt("Search Results")}</p>
             <button
               onClick={() => setShowSearchResults(false)}
               className="text-xs text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
-              Close
+              {gt("Close")}
             </button>
           </div>
           {searchQuery.trim().length < 2 ? (
-            <p className="text-sm text-[var(--app-muted)]">Type at least 2 characters to search this channel.</p>
+            <p className="text-sm text-[var(--app-muted)]">{gt("Type at least 2 characters to search this channel.")}</p>
           ) : isSearching ? (
             <div className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
               <Loader2 className="w-4 h-4 animate-spin" />
-              Searching...
+              {gt("Searching...")}
             </div>
           ) : searchResults.length === 0 ? (
-            <p className="text-sm text-[var(--app-muted)]">No matching messages.</p>
+            <p className="text-sm text-[var(--app-muted)]">{gt("No matching messages.")}</p>
           ) : (
             <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
               {searchResults.map((result) => (
@@ -1238,9 +1240,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                   className="w-full text-left p-2 rounded-md bg-[var(--app-surface-alt)] hover:brightness-110 transition"
                 >
                   <p className="text-xs text-[var(--app-muted)] mb-0.5">
-                    {result.author?.displayName || result.author?.username || "Unknown"} • {formatTimestamp(result.createdAt)}
+                    {result.author?.displayName || result.author?.username || gt("Unknown")} • {formatTimestamp(result.createdAt)}
                   </p>
-                  <p className="text-sm text-[var(--text-primary)] line-clamp-2">{result.content || "(attachment)"}</p>
+                  <p className="text-sm text-[var(--text-primary)] line-clamp-2">{result.content || gt("(attachment)")}</p>
                 </button>
               ))}
             </div>
@@ -1278,14 +1280,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       {currentChannel?.type === "announcement" && (
         <div className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center gap-2.5 text-xs text-blue-400">
           <Megaphone className="w-4 h-4 shrink-0" />
-          <span>This is an <strong>announcement channel</strong>. Only admins can post here.</span>
+          <span><T>This is an</T> <strong><T>announcement channel</T></strong>. <T>Only admins can post here.</T></span>
         </div>
       )}
 
       <MessageBar
         ref={messageBarRef}
-        placeholder={`Message #${currentChannel?.name ?? ""}`}
-        ariaLabel={`Message #${currentChannel?.name ?? ""}`}
+        placeholder={`${gt("Message")} #${currentChannel?.name ?? ""}`}
+        ariaLabel={`${gt("Message")} #${currentChannel?.name ?? ""}`}
         onSend={() => void handleSend()}
         onChange={handleComposerChange}
         onKeyDown={handleKeyDown}
@@ -1334,16 +1336,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       <Dialog open={showInbox} onOpenChange={setShowInbox}>
         <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
           <DialogHeader>
-            <DialogTitle>Inbox — Mentions</DialogTitle>
+            <DialogTitle><T>Inbox — Mentions</T></DialogTitle>
             <DialogDescription className="text-[var(--text-secondary)]">
-              Recent mentions across all your servers (last 7 days).
+              <T>Recent mentions across all your servers (last 7 days).</T>
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[55vh] overflow-y-auto space-y-1.5 pr-1">
             {allMentions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <Inbox className="w-12 h-12 text-[var(--text-muted)] mb-3" />
-                <p className="text-sm text-[var(--text-secondary)]">No unread mentions. You&apos;re all caught up!</p>
+                <p className="text-sm text-[var(--text-secondary)]"><T>No unread mentions. You're all caught up!</T></p>
               </div>
             ) : (
               allMentions.map((item: MentionData) => (
@@ -1370,9 +1372,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                       </Avatar>
                     )}
                     <span className="text-xs font-medium text-[var(--text-primary)]">
-                      {item.author?.displayName || item.author?.username || "Unknown"}
+                      {item.author?.displayName || item.author?.username || gt("Unknown")}
                     </span>
-                    <span className="text-xs text-[var(--text-muted)]">in</span>
+                    <span className="text-xs text-[var(--text-muted)]">{gt("in")}</span>
                     <span className="text-xs text-[var(--app-accent)] font-medium">#{item.channelName}</span>
                     <span className="text-xs text-[var(--text-muted)] ml-auto">{formatTimestamp(item.createdAt)}</span>
                   </div>
@@ -1387,24 +1389,24 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       <Dialog open={showHelp} onOpenChange={setShowHelp}>
         <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
           <DialogHeader>
-            <DialogTitle>Channel Help</DialogTitle>
+            <DialogTitle><T>Channel Help</T></DialogTitle>
             <DialogDescription className="text-[var(--text-secondary)]">
-              Useful shortcuts and docs.
+              <T>Useful shortcuts and docs.</T>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 text-sm text-[var(--text-secondary)]">
             <p>
-              Press <span className="px-1.5 py-0.5 rounded bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">Enter</span> to send and{" "}
-              <span className="px-1.5 py-0.5 rounded bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">Shift + Enter</span> for a new line.
+              <T>Press</T> <span className="px-1.5 py-0.5 rounded bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">Enter</span> <T>to send and</T>{" "}
+              <span className="px-1.5 py-0.5 rounded bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">Shift + Enter</span> <T>for a new line.</T>
             </p>
-            <p>Use the pin icon to keep important messages accessible to everyone in the channel.</p>
+            <p><T>Use the pin icon to keep important messages accessible to everyone in the channel.</T></p>
             <a
               href="https://serika.chat"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-[#8B5CF6] hover:underline"
             >
-              Open SerikaCord docs
+              <T>Open SerikaCord docs</T>
             </a>
           </div>
         </DialogContent>

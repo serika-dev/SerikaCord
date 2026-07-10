@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Hash, Volume2, Folder, MessagesSquare, Ticket } from "lucide-react";
 import { toast } from "sonner";
+import { T, useGT } from "gt-next";
 
 type CreatableChannelType = "text" | "voice" | "category" | "forum";
 
@@ -38,6 +39,7 @@ export function CreateChannelDialog({
   defaultType,
 }: CreateChannelDialogProps) {
   const { currentServer, fetchChannels, channels } = useServer();
+  const gt = useGT();
   const [channelName, setChannelName] = useState("");
   const [channelType, setChannelType] = useState<CreatableChannelType>("text");
   const [parentId, setParentId] = useState<string | undefined>(undefined);
@@ -96,10 +98,10 @@ export function CreateChannelDialog({
       await fetchChannels(currentServer.id);
       onOpenChange(false);
       resetForm();
-      toast.success("Channel created!");
+      toast.success(gt("Channel created!"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create channel");
-      toast.error(err instanceof Error ? err.message : "Failed to create channel");
+      setError(err instanceof Error ? err.message : gt("Failed to create channel"));
+      toast.error(err instanceof Error ? err.message : gt("Failed to create channel"));
     } finally {
       setIsLoading(false);
     }
@@ -117,9 +119,9 @@ export function CreateChannelDialog({
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm(); }}>
       <DialogContent className="bg-[#0a0a0a] border border-[#1a1a1a] text-white max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">Create Channel</DialogTitle>
+          <DialogTitle className="text-xl font-bold"><T>Create Channel</T></DialogTitle>
           <DialogDescription className="text-[#888888]">
-            in {currentServer?.name}
+            {gt("in")} {currentServer?.name}
           </DialogDescription>
         </DialogHeader>
 
@@ -133,7 +135,7 @@ export function CreateChannelDialog({
           {/* Channel Type */}
           <div className="space-y-3">
             <Label className="text-xs font-bold uppercase text-[#888888]">
-              Channel Type
+              {gt("Channel Type")}
             </Label>
             <div className="space-y-2">
               <button
@@ -146,9 +148,9 @@ export function CreateChannelDialog({
               >
                 <Hash className="w-6 h-6 text-[#666666]" />
                 <div className="text-left">
-                  <div className="font-medium">Text</div>
+                  <div className="font-medium"><T>Text</T></div>
                   <div className="text-xs text-[#666666]">
-                    Send messages, images, GIFs, emoji, and more
+                    <T>Send messages, images, GIFs, emoji, and more</T>
                   </div>
                 </div>
                 <div
@@ -174,9 +176,9 @@ export function CreateChannelDialog({
               >
                 <Volume2 className="w-6 h-6 text-[#666666]" />
                 <div className="text-left">
-                  <div className="font-medium">Voice</div>
+                  <div className="font-medium"><T>Voice</T></div>
                   <div className="text-xs text-[#666666]">
-                    Hang out together with voice and video
+                    <T>Hang out together with voice and video</T>
                   </div>
                 </div>
                 <div
@@ -202,9 +204,9 @@ export function CreateChannelDialog({
               >
                 <MessagesSquare className="w-6 h-6 text-[#666666]" />
                 <div className="text-left">
-                  <div className="font-medium">Forum</div>
+                  <div className="font-medium"><T>Forum</T></div>
                   <div className="text-xs text-[#666666]">
-                    Organize discussion into posts, or run a ticket system
+                    <T>Organize discussion into posts, or run a ticket system</T>
                   </div>
                 </div>
                 <div
@@ -230,9 +232,9 @@ export function CreateChannelDialog({
               >
                 <Folder className="w-6 h-6 text-[#666666]" />
                 <div className="text-left">
-                  <div className="font-medium">Category</div>
+                  <div className="font-medium"><T>Category</T></div>
                   <div className="text-xs text-[#666666]">
-                    Group channels together under a category
+                    <T>Group channels together under a category</T>
                   </div>
                 </div>
                 <div
@@ -253,7 +255,7 @@ export function CreateChannelDialog({
           {/* Channel Name */}
           <div className="space-y-2">
             <Label htmlFor="channelName" className="text-xs font-bold uppercase text-[#888888]">
-              Channel Name
+              {gt("Channel Name")}
             </Label>
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666666]">
@@ -282,10 +284,10 @@ export function CreateChannelDialog({
                   channelType === "text"
                     ? "new-channel"
                     : channelType === "voice"
-                    ? "New Voice Channel"
+                    ? gt("New Voice Channel")
                     : channelType === "forum"
                     ? "new-forum"
-                    : "New Category"
+                    : gt("New Category")
                 }
                 className="pl-10 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
               />
@@ -296,17 +298,17 @@ export function CreateChannelDialog({
           {channelType !== "category" && categories.length > 0 && (
             <div className="space-y-2">
               <Label className="text-xs font-bold uppercase text-[#888888]">
-                Category
+                {gt("Category")}
               </Label>
               <Select
                 value={parentId || "none"}
                 onValueChange={(val) => setParentId(val === "none" ? undefined : val)}
               >
                 <SelectTrigger className="w-full bg-[#111111] border-[#222222] text-white">
-                  <SelectValue placeholder="No Category" />
+                  <SelectValue placeholder={gt("No Category")} />
                 </SelectTrigger>
                 <SelectContent className="bg-[#0a0a0a] border border-[#1a1a1a] text-white">
-                  <SelectItem value="none">No Category</SelectItem>
+                  <SelectItem value="none">{gt("No Category")}</SelectItem>
                   {categories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
                       {cat.name}
@@ -322,10 +324,10 @@ export function CreateChannelDialog({
             <div className="flex items-center justify-between p-3 rounded-lg border border-[#222222] bg-[#111111]">
               <div className="space-y-0.5">
                 <Label htmlFor="nsfw-toggle" className="font-medium cursor-pointer text-sm">
-                  Age-Restricted Channel (NSFW)
+                  <T>Age-Restricted Channel (NSFW)</T>
                 </Label>
                 <div className="text-xs text-[#666666] max-w-[280px]">
-                  Users will need to confirm they are of legal age to view this channel.
+                  <T>Users will need to confirm they are of legal age to view this channel.</T>
                 </div>
               </div>
               <input
@@ -343,10 +345,10 @@ export function CreateChannelDialog({
             <div className="flex items-center justify-between p-3 rounded-lg border border-[#222222] bg-[#111111]">
               <div className="space-y-0.5">
                 <Label htmlFor="ticket-toggle" className="font-medium cursor-pointer text-sm flex items-center gap-1.5">
-                  <Ticket className="w-4 h-4 text-[#8B5CF6]" /> Ticket System
+                  <Ticket className="w-4 h-4 text-[#8B5CF6]" /> <T>Ticket System</T>
                 </Label>
                 <div className="text-xs text-[#666666] max-w-[280px]">
-                  Each new post becomes a private ticket, visible only to its creator and your configured support roles.
+                  <T>Each new post becomes a private ticket, visible only to its creator and your configured support roles.</T>
                 </div>
               </div>
               <input
@@ -366,14 +368,14 @@ export function CreateChannelDialog({
             onClick={() => onOpenChange(false)}
             className="text-white hover:bg-transparent hover:underline"
           >
-            Cancel
+            <T>Cancel</T>
           </Button>
           <Button
             onClick={handleCreate}
             disabled={!channelName.trim() || isLoading}
             className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
           >
-            {isLoading ? "Creating..." : "Create Channel"}
+            {isLoading ? gt("Creating...") : gt("Create Channel")}
           </Button>
         </div>
       </DialogContent>

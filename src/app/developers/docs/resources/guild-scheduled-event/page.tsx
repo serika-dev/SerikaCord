@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Guild Scheduled Event",
@@ -8,10 +9,11 @@ export const metadata = buildMetadata({
   keywords: ["SerikaCord scheduled event", "guild event", "event status", "event subscribers"],
 });
 
-export default function GuildScheduledEventDoc() {
+export default async function GuildScheduledEventDoc() {
+  const gt = await getGT();
   return (
-    <DocPage title="Guild Scheduled Event" description="Create and manage scheduled events in guilds.">
-      <H2 id="event-object">Scheduled Event Object</H2>
+    <DocPage title={gt("Guild Scheduled Event")} description={gt("Create and manage scheduled events in guilds.")}>
+      <H2 id="event-object">{gt("Scheduled Event Object")}</H2>
       <CodeBlock lang="json">{`{
   "id": "1234567890",
   "guild_id": "1234567890",
@@ -28,28 +30,28 @@ export default function GuildScheduledEventDoc() {
   "user_count": 42
 }`}</CodeBlock>
 
-      <H2 id="entity-types">Entity Types</H2>
-      <Table headers={["Type", "Value", "Description"]} rows={[
-        ["Stage Instance", "1", "Stage channel event"],
-        ["Voice", "2", "Voice channel event"],
-        ["External", "3", "External event (with location)"],
+      <H2 id="entity-types">{gt("Entity Types")}</H2>
+      <Table headers={[gt("Type"), gt("Value"), gt("Description")]} rows={[
+        [gt("Stage Instance"), "1", gt("Stage channel event")],
+        [gt("Voice"), "2", gt("Voice channel event")],
+        [gt("External"), "3", gt("External event (with location)")],
       ]} />
 
-      <H2 id="status">Event Status</H2>
-      <Table headers={["Status", "Value"]} rows={[
-        ["Scheduled", "1"],
-        ["Active", "2"],
-        ["Completed", "3"],
-        ["Canceled", "4"],
+      <H2 id="status">{gt("Event Status")}</H2>
+      <Table headers={[gt("Status"), gt("Value")]} rows={[
+        [gt("Scheduled"), "1"],
+        [gt("Active"), "2"],
+        [gt("Completed"), "3"],
+        [gt("Canceled"), "4"],
       ]} />
 
-      <H2 id="endpoints">Endpoints</H2>
-      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events">List scheduled events.</Endpoint>
-      <Endpoint method="POST" path="/guilds/{guild.id}/scheduled-events">Create a scheduled event.</Endpoint>
-      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}">Get a scheduled event.</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/scheduled-events/{event.id}">Update a scheduled event.</Endpoint>
-      <Endpoint method="DELETE" path="/guilds/{guild.id}/scheduled-events/{event.id}">Delete a scheduled event.</Endpoint>
-      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}/users">Get event subscribers.</Endpoint>
+      <H2 id="endpoints">{gt("Endpoints")}</H2>
+      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events">{gt("List scheduled events.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/scheduled-events">{gt("Create a scheduled event.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Get a scheduled event.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Update a scheduled event.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Delete a scheduled event.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}/users">{gt("Get event subscribers.")}</Endpoint>
     </DocPage>
   );
 }

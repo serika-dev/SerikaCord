@@ -47,6 +47,7 @@ import {
 import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
 import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { T, useGT } from "gt-next";
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   clear: <Eraser className="w-3.5 h-3.5" />,
@@ -197,6 +198,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     },
     ref
   ) {
+    const gt = useGT();
     const composerRef = useRef<RichComposerHandle>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [attachments, setAttachments] = useState<File[]>([]);
@@ -274,11 +276,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       const validFiles: File[] = [];
       for (const file of files) {
         if (file.size > maxPremium) {
-          toast.error(`${file.name} is too large`, { description: `Maximum is 2GB (Serika+). File is ${(file.size / 1024 / 1024).toFixed(1)}MB.` });
+          toast.error(`${file.name} ${gt("is too large")}`, { description: `${gt("Maximum is 2GB (Serika+). File is")} ${(file.size / 1024 / 1024).toFixed(1)}MB.` });
           continue;
         }
         if (file.size > maxFree) {
-          toast.error(`${file.name} exceeds 500MB`, { description: "Upgrade to Serika+ for up to 2GB uploads." });
+          toast.error(`${file.name} ${gt("exceeds 500MB")}`, { description: gt("Upgrade to Serika+ for up to 2GB uploads.") });
           continue;
         }
         validFiles.push(file);
@@ -289,15 +291,15 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       const currentCount = attachmentsCountRef.current;
       const remainingSlots = 10 - currentCount;
       if (validFiles.length > remainingSlots) {
-        toast.error("Attachment limit reached", { description: "You can attach up to 10 files per message." });
+        toast.error(gt("Attachment limit reached"), { description: gt("You can attach up to 10 files per message.") });
       }
       const newFiles = validFiles.slice(0, Math.max(0, remainingSlots));
       if (newFiles.length === 0) return;
       setAttachments((prev) => [...prev, ...newFiles]);
       if (newFiles.length === 1) {
-        toast.success(`Attached ${newFiles[0].name}`);
+        toast.success(`${gt("Attached")} ${newFiles[0].name}`);
       } else {
-        toast.success(`Attached ${newFiles.length} files`);
+        toast.success(`${gt("Attached")} ${newFiles.length} ${gt("files")}`);
       }
 
       // Previews are index-aligned with attachments, so use object URLs
@@ -374,7 +376,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 // fall through to error toast
               }
             }
-            let errorMsg = `Failed to upload ${file.name}`;
+            let errorMsg = `${gt("Failed to upload")} ${file.name}`;
             try {
               const data = JSON.parse(xhr.responseText);
               if (data?.error) errorMsg = data.error;
@@ -385,7 +387,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
             resolve(null);
           };
           xhr.onerror = () => {
-            toast.error(`Failed to upload ${file.name}`, { description: "Network error — check your connection." });
+            toast.error(`${gt("Failed to upload")} ${file.name}`, { description: gt("Network error — check your connection.") });
             resolve(null);
           };
           xhr.send(formData);
@@ -516,7 +518,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       type="button"
                       onClick={() => removeAttachment(index)}
                       className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                      aria-label={`Remove ${file.name}`}
+                      aria-label={`${gt("Remove")} ${file.name}`}
                     >
                       <X className="w-3 h-3 text-white" />
                     </button>
@@ -550,10 +552,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 <Reply className="w-4 h-4 text-[var(--app-muted)] shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs text-[var(--app-muted)] mb-0.5">
-                    Replying to {replyTo.author?.displayName || replyTo.author?.username || "message"}
+                    {gt("Replying to")} {replyTo.author?.displayName || replyTo.author?.username || gt("message")}
                   </p>
                   <p className="text-sm text-[var(--text-primary)] truncate">
-                    {replyTo.content ? decodeHtmlEntities(replyTo.content) : "(attachment)"}
+                    {replyTo.content ? decodeHtmlEntities(replyTo.content) : gt("(attachment)")}
                   </p>
                 </div>
               </div>
@@ -562,7 +564,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   type="button"
                   onClick={onCancelReply}
                   className="text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors shrink-0"
-                  title="Cancel reply"
+                  title={gt("Cancel reply")}
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -587,7 +589,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   return orderedCats.map(cat => {
                     const items = grouped.get(cat)!;
                     const catIcon = CATEGORY_ICONS[cat];
-                    const catLabel = cat === "moderation" ? "Moderation" : cat === "utility" ? "Utility" : "Fun";
+                    const catLabel = cat === "moderation" ? gt("Moderation") : cat === "utility" ? gt("Utility") : gt("Fun");
                     const catColor = cat === "moderation" ? "text-red-400" : cat === "utility" ? "text-blue-400" : "text-amber-400";
                     return (
                       <div key={`cat-${cat}`}>
@@ -654,7 +656,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                         <span className="text-xs text-[var(--app-muted)]">—</span>
                         <span className="text-xs font-semibold text-[var(--text-secondary)]">{s.paramName}</span>
                         {s.paramRequired && (
-                          <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded">required</span>
+                          <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded">{gt("required")}</span>
                         )}
                       </div>
                       <p className="text-xs text-[var(--app-muted)] leading-relaxed pl-8">{s.description}</p>
@@ -662,39 +664,39 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                         <div className="mt-2.5 pl-8 space-y-1.5">
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[f]</span>
-                            <span className="text-[var(--app-muted)]">Female voice</span>
+                            <span className="text-[var(--app-muted)]">{gt("Female voice")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[m]</span>
-                            <span className="text-[var(--app-muted)]">Male voice</span>
+                            <span className="text-[var(--app-muted)]">{gt("Male voice")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[2x]</span>
-                            <span className="text-[var(--app-muted)]">Speed (also: [1.5x], [slow], [fast], [turbo])</span>
+                            <span className="text-[var(--app-muted)]">{gt("Speed (also: [1.5x], [slow], [fast], [turbo])")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[vol:50]</span>
-                            <span className="text-[var(--app-muted)]">Volume 0–500% (also: [vol:BASS] bass boost, [vol:EAR] max loudness)</span>
+                            <span className="text-[var(--app-muted)]">{gt("Volume 0–500% (also: [vol:BASS] bass boost, [vol:EAR] max loudness)")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[steven]</span>
-                            <span className="text-[var(--app-muted)]">Stephen Hawking robotic voice</span>
+                            <span className="text-[var(--app-muted)]">{gt("Stephen Hawking robotic voice")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[fish:miku]</span>
-                            <span className="text-[var(--app-muted)]">FishAudio AI voice (also: [fish:model-id])</span>
+                            <span className="text-[var(--app-muted)]">{gt("FishAudio AI voice (also: [fish:model-id])")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[f-japanese]</span>
-                            <span className="text-[var(--app-muted)]">Gender + accent (also: [m-dutch], [scottish]…)</span>
+                            <span className="text-[var(--app-muted)]">{gt("Gender + accent (also: [m-dutch], [scottish]…)")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <Volume2 className="w-3 h-3 shrink-0 text-emerald-400/70" />
-                            <span className="text-[var(--app-muted)]">Switch speakers mid-message: [m] hi [f] hello</span>
+                            <span className="text-[var(--app-muted)]">{gt("Switch speakers mid-message: [m] hi [f] hello")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
                             <Music className="w-3 h-3 shrink-0 text-amber-400/70" />
-                            <span className="text-[var(--app-muted)]">Trigger words auto-play sound effects mid-speech</span>
+                            <span className="text-[var(--app-muted)]">{gt("Trigger words auto-play sound effects mid-speech")}</span>
                           </div>
                           <div className="mt-2 pt-2 border-t border-[var(--app-border)]/40">
                             <p className="text-[10px] text-[var(--app-muted)]/70 font-mono">
@@ -703,7 +705,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           </div>
                         </div>
                       ) : (
-                        <p className="text-[10px] text-[var(--app-muted)]/60 mt-1.5 pl-8">Type your value and press space…</p>
+                        <p className="text-[10px] text-[var(--app-muted)]/60 mt-1.5 pl-8">{gt("Type your value and press space…")}</p>
                       )}
                     </div>
                   );
@@ -723,7 +725,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           </span>
                         )}
                         <span className="font-mono text-xs text-[#a78bfa]">/{cmdName}</span>
-                        <span className="text-[10px] text-[var(--app-muted)]">— select a member for</span>
+                        <span className="text-[10px] text-[var(--app-muted)]">— {gt("select a member for")}</span>
                         <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{paramName}</span>
                       </div>
                       {mentionSuggestions.map((suggestion, index) => (
@@ -776,7 +778,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           </span>
                         )}
                         <span className="font-mono text-xs text-[#a78bfa]">/{cmdName}</span>
-                        <span className="text-[10px] text-[var(--app-muted)]">— choose {isDuration ? "a duration" : "an option"} for</span>
+                        <span className="text-[10px] text-[var(--app-muted)]">— {gt("choose")} {isDuration ? gt("a duration") : gt("an option")} {gt("for")}</span>
                         <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{paramName}</span>
                       </div>
                       {mentionSuggestions.map((suggestion, index) => (
@@ -848,7 +850,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                         )}
                       </span>
                       <span className="text-xs text-[var(--app-muted)] truncate shrink-0">
-                        {suggestion.kind === "role" ? "Role" : suggestion.description}
+                        {suggestion.kind === "role" ? gt("Role") : suggestion.description}
                       </span>
                     </button>
                   );
@@ -863,7 +865,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors z-10"
-                title="Upload file"
+                title={gt("Upload file")}
               >
                 <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
               </button>
@@ -892,7 +894,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   setShowEmojiPicker(true);
                 }}
                 className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
-                title="Open GIF picker"
+                title={gt("Open GIF picker")}
               >
                 <ImageIcon className="w-6 h-6" />
               </button>
@@ -905,7 +907,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   setShowEmojiPicker(true);
                 }}
                 className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
-                title="Open sticker picker"
+                title={gt("Open sticker picker")}
               >
                 <Sticker className="w-6 h-6" />
               </button>
@@ -954,7 +956,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   type="button"
                   onClick={onSend}
                   disabled={isUploading}
-                  aria-label={isUploading ? "Uploading attachments" : isSending ? "Sending" : "Send message"}
+                  aria-label={isUploading ? gt("Uploading attachments") : isSending ? gt("Sending") : gt("Send message")}
                   className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-70"
                 >
                   {isSending || isUploading ? (

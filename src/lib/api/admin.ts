@@ -1474,4 +1474,333 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     await TtsVoice.deleteById(params.id);
     await logAdminAction(user.id, 'update_settings', 'platform', params.id, { deleted: true });
     return { success: true };
+  })
+
+  // ==================== TRANSLATION MANAGEMENT ====================
+
+  // Get locale stats from Serika Translate
+  .get('/translate/stats', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = 403;
+      return { error: error || 'Admin access required' };
+    }
+    const apiKey = process.env.SERIKA_TRANSLATE_KEY;
+    if (!apiKey) {
+      set.status = 500;
+      return { error: 'SERIKA_TRANSLATE_KEY not configured' };
+    }
+    const slug = process.env.SERIKA_TRANSLATE_SLUG || 'serikacord';
+    try {
+      const res = await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/locales`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        set.status = res.status;
+        return { error: `Translate API error: ${body}` };
+      }
+      const data = await res.json();
+      return { locales: Array.isArray(data) ? data : data.locales || [] };
+    } catch (err) {
+      set.status = 500;
+      return { error: 'Failed to fetch stats' };
+    }
+  })
+
+  // Get translation keys from Serika Translate
+  .get('/translate/keys', async ({ headers, cookie, query, set }) => {
+    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = 403;
+      return { error: error || 'Admin access required' };
+    }
+    const apiKey = process.env.SERIKA_TRANSLATE_KEY;
+    if (!apiKey) {
+      set.status = 500;
+      return { error: 'SERIKA_TRANSLATE_KEY not configured' };
+    }
+    const slug = process.env.SERIKA_TRANSLATE_SLUG || 'serikacord';
+    const { search, page = '1', limit = '50' } = query as { search?: string; page?: string; limit?: string };
+    const params = new URLSearchParams({ page, limit });
+    if (search) params.set('search', search);
+    try {
+      const res = await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/keys?${params}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!res.ok) {
+        set.status = res.status;
+        return { error: 'Translate API error' };
+      }
+      const data = await res.json();
+      return { keys: data.keys || [], pagination: data.pagination };
+    } catch {
+      set.status = 500;
+      return { error: 'Failed to fetch keys' };
+    }
+  })
+
+  // Get activity log from Serika Translate
+  .get('/translate/activity', async ({ headers, cookie, query, set }) => {
+    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = 403;
+      return { error: error || 'Admin access required' };
+    }
+    const apiKey = process.env.SERIKA_TRANSLATE_KEY;
+    if (!apiKey) {
+      set.status = 500;
+      return { error: 'SERIKA_TRANSLATE_KEY not configured' };
+    }
+    const slug = process.env.SERIKA_TRANSLATE_SLUG || 'serikacord';
+    const { limit = '30', offset = '0' } = query as { limit?: string; offset?: string };
+    try {
+      const res = await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/activity?limit=${limit}&offset=${offset}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!res.ok) {
+        set.status = res.status;
+        return { error: 'Translate API error' };
+      }
+      const data = await res.json();
+      return { activity: Array.isArray(data) ? data : data.activity || [] };
+    } catch {
+      set.status = 500;
+      return { error: 'Failed to fetch activity' };
+    }
+  })
+
+  // Push source strings to Serika Translate
+  .post('/translate/push', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = 403;
+      return { error: error || 'Admin access required' };
+    }
+    const apiKey = process.env.SERIKA_TRANSLATE_KEY;
+    if (!apiKey) {
+      set.status = 500;
+      return { error: 'SERIKA_TRANSLATE_KEY not configured' };
+    }
+    const slug = process.env.SERIKA_TRANSLATE_SLUG || 'serikacord';
+    try {
+      const { readFile } = await import('fs/promises');
+      const { join } = await import('path');
+      const enPath = join(process.cwd(), 'public', '_gt', 'en.json');
+      const enContent = await readFile(enPath, 'utf8');
+      const enData = JSON.parse(enContent);
+      const entries = Object.entries(enData).map(([key, value]) => ({
+        key,
+        value: typeof value === 'string' ? value : JSON.stringify(value),
+      }));
+      const batchSize = 200;
+      let pushed = 0;
+      for (let i = 0; i < entries.length; i += batchSize) {
+        const batch = entries.slice(i, i + batchSize);
+        await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/translations`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ entries: batch }),
+        });
+        pushed += batch.length;
+      }
+      await logAdminAction(user.id, 'update_settings', 'platform', 'translations', { action: 'push', pushed });
+      return { pushed };
+    } catch (err) {
+      set.status = 500;
+      return { error: 'Failed to push source strings' };
+    }
+  })
+
+  // Pull translations from Serika Translate (non-destructive)
+  .post('/translate/pull', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = 403;
+      return { error: error || 'Admin access required' };
+    }
+    const apiKey = process.env.SERIKA_TRANSLATE_KEY;
+    if (!apiKey) {
+      set.status = 500;
+      return { error: 'SERIKA_TRANSLATE_KEY not configured' };
+    }
+    const slug = process.env.SERIKA_TRANSLATE_SLUG || 'serikacord';
+    try {
+      const { readFile, writeFile, readdir } = await import('fs/promises');
+      const { join } = await import('path');
+      const gtDir = join(process.cwd(), 'public', '_gt');
+      const enContent = await readFile(join(gtDir, 'en.json'), 'utf8');
+      const enData = JSON.parse(enContent);
+      const localFiles = await readdir(gtDir);
+      const targetLocales = localFiles
+        .filter((f) => f.endsWith('.json') && f !== 'en.json')
+        .map((f) => f.replace('.json', ''));
+
+      const bundleRes = await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/bundle?status=approved`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!bundleRes.ok) {
+        set.status = bundleRes.status;
+        return { error: 'Failed to fetch bundle from Translate API' };
+      }
+      const bundle = await bundleRes.json();
+      const remoteLocales = bundle.locales || {};
+
+      let updated = 0;
+      let newLocales = 0;
+
+      for (const locale of targetLocales) {
+        const remoteData = remoteLocales[locale];
+        if (!remoteData || Object.keys(remoteData).length === 0) continue;
+
+        const localPath = join(gtDir, `${locale}.json`);
+        let localData: Record<string, unknown> = {};
+        try {
+          localData = JSON.parse(await readFile(localPath, 'utf8'));
+        } catch {}
+
+        let changed = 0;
+        for (const [key, remoteValue] of Object.entries(remoteData)) {
+          if (!remoteValue) continue;
+          const localValue = localData[key];
+          const enValue = enData[key];
+          if (localValue && localValue !== enValue && localValue !== remoteValue) continue;
+          if (localValue !== remoteValue) {
+            localData[key] = remoteValue;
+            changed++;
+          }
+        }
+        if (changed > 0) {
+          await writeFile(localPath, JSON.stringify(localData, null, 2) + '\n');
+          updated++;
+        }
+      }
+
+      for (const [remoteLocale, remoteData] of Object.entries(remoteLocales)) {
+        if (remoteLocale === 'en') continue;
+        const localPath = join(gtDir, `${remoteLocale}.json`);
+        try {
+          await readFile(localPath);
+        } catch {
+          if (remoteData && Object.keys(remoteData).length > 0) {
+            await writeFile(localPath, JSON.stringify(remoteData, null, 2) + '\n');
+            newLocales++;
+          }
+        }
+      }
+
+      await logAdminAction(user.id, 'update_settings', 'platform', 'translations', { action: 'pull', updated, newLocales });
+      return { updated, newLocales };
+    } catch (err) {
+      set.status = 500;
+      return { error: 'Failed to pull translations' };
+    }
+  })
+
+  // Full sync: push then pull
+  .post('/translate/sync', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = 403;
+      return { error: error || 'Admin access required' };
+    }
+    const apiKey = process.env.SERIKA_TRANSLATE_KEY;
+    if (!apiKey) {
+      set.status = 500;
+      return { error: 'SERIKA_TRANSLATE_KEY not configured' };
+    }
+    const slug = process.env.SERIKA_TRANSLATE_SLUG || 'serikacord';
+    try {
+      const { readFile, writeFile, readdir } = await import('fs/promises');
+      const { join } = await import('path');
+      const gtDir = join(process.cwd(), 'public', '_gt');
+
+      // Push
+      const enContent = await readFile(join(gtDir, 'en.json'), 'utf8');
+      const enData = JSON.parse(enContent);
+      const entries = Object.entries(enData).map(([key, value]) => ({
+        key,
+        value: typeof value === 'string' ? value : JSON.stringify(value),
+      }));
+      const batchSize = 200;
+      for (let i = 0; i < entries.length; i += batchSize) {
+        const batch = entries.slice(i, i + batchSize);
+        await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/translations`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ entries: batch }),
+        });
+      }
+
+      // Pull
+      const localFiles = await readdir(gtDir);
+      const targetLocales = localFiles
+        .filter((f) => f.endsWith('.json') && f !== 'en.json')
+        .map((f) => f.replace('.json', ''));
+
+      const bundleRes = await fetch(`https://translate.serika.dev/api/v1/projects/${slug}/bundle?status=approved`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!bundleRes.ok) {
+        set.status = bundleRes.status;
+        return { error: 'Failed to fetch bundle' };
+      }
+      const bundle = await bundleRes.json();
+      const remoteLocales = bundle.locales || {};
+
+      let updated = 0;
+      let newLocales = 0;
+
+      for (const locale of targetLocales) {
+        const remoteData = remoteLocales[locale];
+        if (!remoteData || Object.keys(remoteData).length === 0) continue;
+
+        const localPath = join(gtDir, `${locale}.json`);
+        let localData: Record<string, unknown> = {};
+        try {
+          localData = JSON.parse(await readFile(localPath, 'utf8'));
+        } catch {}
+
+        let changed = 0;
+        for (const [key, remoteValue] of Object.entries(remoteData)) {
+          if (!remoteValue) continue;
+          const localValue = localData[key];
+          const enValue = enData[key];
+          if (localValue && localValue !== enValue && localValue !== remoteValue) continue;
+          if (localValue !== remoteValue) {
+            localData[key] = remoteValue;
+            changed++;
+          }
+        }
+        if (changed > 0) {
+          await writeFile(localPath, JSON.stringify(localData, null, 2) + '\n');
+          updated++;
+        }
+      }
+
+      for (const [remoteLocale, remoteData] of Object.entries(remoteLocales)) {
+        if (remoteLocale === 'en') continue;
+        const localPath = join(gtDir, `${remoteLocale}.json`);
+        try {
+          await readFile(localPath);
+        } catch {
+          if (remoteData && Object.keys(remoteData).length > 0) {
+            await writeFile(localPath, JSON.stringify(remoteData, null, 2) + '\n');
+            newLocales++;
+          }
+        }
+      }
+
+      await logAdminAction(user.id, 'update_settings', 'platform', 'translations', { action: 'sync', updated, newLocales });
+      return { updated, newLocales };
+    } catch (err) {
+      set.status = 500;
+      return { error: 'Failed to sync translations' };
+    }
   });

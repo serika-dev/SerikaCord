@@ -2,6 +2,7 @@
 
 import { Star } from "lucide-react";
 import { useGifFavorites } from "@/hooks/useGifFavorites";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 
 interface GifFavoriteButtonProps {
@@ -12,6 +13,7 @@ interface GifFavoriteButtonProps {
 }
 
 export function GifFavoriteButton({ url, title, source, className }: GifFavoriteButtonProps) {
+  const gt = useGT();
   const { isFavorite, toggleFavorite } = useGifFavorites();
   const favorite = isFavorite(url);
 
@@ -25,7 +27,7 @@ export function GifFavoriteButton({ url, title, source, className }: GifFavorite
         e.stopPropagation();
         toggleFavorite({ url, title, source });
       }}
-      title={favorite ? "Remove from favorites" : "Add to favorites"}
+      title={favorite ? gt("Remove from favorites") : gt("Add to favorites")}
       className={cn(
         "!p-0 w-4 h-4 rounded-full bg-transparent hover:bg-transparent/80 text-inherit backdrop-blur-sm transition-all",
         favorite ? "text-yellow-400" : "text-white/80 hover:text-yellow-300",

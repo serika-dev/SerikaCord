@@ -37,6 +37,7 @@ import {
   List,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
@@ -110,6 +111,7 @@ export function ForumChannelView({
   channelName,
   selectedThreadId,
 }: ForumChannelViewProps) {
+  const gt = useGT();
   const router = useRouter();
   const isMobile = useIsMobile();
   const [threads, setThreads] = useState<ForumThread[]>([]);
@@ -132,7 +134,7 @@ export function ForumChannelView({
   const [creating, setCreating] = useState(false);
 
   const isTickets = forumMode === "tickets";
-  const displayChannelName = channelName || resolvedChannelName || "Forum";
+  const displayChannelName = channelName || resolvedChannelName || gt("Forum");
 
   // Resolve parent forum name when the component is rendered for a thread and
   // the name was not passed by the parent route.
@@ -191,10 +193,10 @@ export function ForumChannelView({
       setPostTitle("");
       setPostBody("");
       setPostTags([]);
-      toast.success(isTickets ? "Ticket opened" : "Post created");
+      toast.success(isTickets ? gt("Ticket opened") : gt("Post created"));
       router.push(`/channels/${serverId}/${data.thread.id}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create post");
+      toast.error(err instanceof Error ? err.message : gt("Failed to create post"));
     } finally {
       setCreating(false);
     }
@@ -264,7 +266,7 @@ export function ForumChannelView({
                     )}
                     {thread.archived && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-active)] text-[var(--text-muted)] shrink-0">
-                        Archived
+                        {gt("Archived")}
                       </span>
                     )}
                   </div>
@@ -276,7 +278,7 @@ export function ForumChannelView({
 
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2 text-xs text-[var(--text-muted)]">
                 <span className="truncate font-medium text-[var(--text-secondary)]">
-                  {thread.owner?.displayName || thread.owner?.username || "Unknown"}
+                  {thread.owner?.displayName || thread.owner?.username || gt("Unknown")}
                 </span>
                 <span>·</span>
                 <span>{formatRelativeTime(thread.createdAt)}</span>
@@ -337,7 +339,7 @@ export function ForumChannelView({
           </span>
           <span className="text-xs text-[var(--text-muted)] ml-auto">
             {filteredAndSortedThreads.length}{" "}
-            {filteredAndSortedThreads.length === 1 ? "post" : "posts"}
+            {filteredAndSortedThreads.length === 1 ? gt("post") : gt("posts")}
           </span>
         </div>
 
@@ -347,7 +349,7 @@ export function ForumChannelView({
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search posts"
+              placeholder={gt("Search posts")}
               className="pl-9 h-9 bg-[var(--bg-card)] border-[var(--border-subtle)] text-sm"
             />
           </div>
@@ -356,8 +358,8 @@ export function ForumChannelView({
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-1.5 px-3 h-9 rounded-md text-xs font-medium text-[var(--text-muted)] bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] transition-colors shrink-0">
                 <ArrowUpDown className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Sort & View</span>
-                <span className="sm:hidden">Sort</span>
+                <span className="hidden sm:inline">{gt("Sort & View")}</span>
+                <span className="sm:hidden">{gt("Sort")}</span>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -365,7 +367,7 @@ export function ForumChannelView({
               className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-w-[180px]"
             >
               <div className="px-2 py-1.5 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-                Sort by
+                {gt("Sort by")}
               </div>
               <DropdownMenuItem
                 onClick={() => setSortBy("latest_activity")}
@@ -374,7 +376,7 @@ export function ForumChannelView({
                 <span className="w-4 h-4 mr-2 flex items-center justify-center">
                   {sortBy === "latest_activity" && <Check className="w-4 h-4" />}
                 </span>
-                Latest Activity
+                {gt("Latest Activity")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setSortBy("creation_date")}
@@ -383,13 +385,13 @@ export function ForumChannelView({
                 <span className="w-4 h-4 mr-2 flex items-center justify-center">
                   {sortBy === "creation_date" && <Check className="w-4 h-4" />}
                 </span>
-                Creation Date
+                {gt("Creation Date")}
               </DropdownMenuItem>
 
               <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
 
               <div className="px-2 py-1.5 text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">
-                View
+                {gt("View")}
               </div>
               <DropdownMenuItem
                 onClick={() => setViewMode("list")}
@@ -399,7 +401,7 @@ export function ForumChannelView({
                   {viewMode === "list" && <Check className="w-4 h-4" />}
                 </span>
                 <List className="w-4 h-4 mr-2" />
-                List
+                {gt("List")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setViewMode("gallery")}
@@ -409,7 +411,7 @@ export function ForumChannelView({
                   {viewMode === "gallery" && <Check className="w-4 h-4" />}
                 </span>
                 <LayoutGrid className="w-4 h-4 mr-2" />
-                Gallery
+                {gt("Gallery")}
               </DropdownMenuItem>
 
               <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
@@ -420,7 +422,7 @@ export function ForumChannelView({
                 className="text-sm"
               >
                 <Archive className="w-4 h-4 mr-2" />
-                Show Archived
+                {gt("Show Archived")}
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -431,7 +433,7 @@ export function ForumChannelView({
           >
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">
-              {isTickets ? "New Ticket" : "New Post"}
+              {isTickets ? gt("New Ticket") : gt("New Post")}
             </span>
           </Button>
         </div>
@@ -440,7 +442,7 @@ export function ForumChannelView({
       {isTickets && (
         <div className="px-4 py-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-card)] border-b border-[var(--border-subtle)] flex items-center gap-2">
           <Lock className="w-3.5 h-3.5 shrink-0" />
-          Tickets are private — each is visible only to its creator and support staff.
+          {gt("Tickets are private — each is visible only to its creator and support staff.")}
         </div>
       )}
 
@@ -459,12 +461,12 @@ export function ForumChannelView({
               )}
               <p className="text-sm">
                 {showArchived
-                  ? "No archived threads."
+                  ? gt("No archived threads.")
                   : isTickets
-                  ? "No tickets yet. Open one to get started."
+                  ? gt("No tickets yet. Open one to get started.")
                   : searchQuery
-                  ? "No posts match your search."
-                  : "No posts yet. Be the first to post!"}
+                  ? gt("No posts match your search.")
+                  : gt("No posts yet. Be the first to post!")}
               </p>
             </div>
           ) : (
@@ -483,12 +485,12 @@ export function ForumChannelView({
           <button
             onClick={() => router.push(`/channels/${serverId}/${channelId}`)}
             className="p-1.5 rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
-            aria-label="Back to forum"
+            aria-label={gt("Back to forum")}
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <span className="text-sm font-medium text-[var(--text-primary)] truncate">
-            Back to {displayChannelName}
+            {gt("Back to {name}", { name: displayChannelName })}
           </span>
         </div>
         <div className="flex-1 min-h-0">
@@ -498,20 +500,20 @@ export function ForumChannelView({
         <Dialog open={createOpen} onOpenChange={setCreateOpen}>
           <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
             <DialogHeader>
-              <DialogTitle>{isTickets ? "Open a Ticket" : "Create Post"}</DialogTitle>
+              <DialogTitle>{isTickets ? gt("Open a Ticket") : gt("Create Post")}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <Input
                 autoFocus
                 value={postTitle}
                 onChange={(e) => setPostTitle(e.target.value.slice(0, 100))}
-                placeholder={isTickets ? "Ticket subject" : "Post title"}
+                placeholder={isTickets ? gt("Ticket subject") : gt("Post title")}
                 className="bg-[var(--bg-app)] border-[var(--border-subtle)]"
               />
               <textarea
                 value={postBody}
                 onChange={(e) => setPostBody(e.target.value.slice(0, 4000))}
-                placeholder={isTickets ? "Describe your issue…" : "What's on your mind?"}
+                placeholder={isTickets ? gt("Describe your issue…") : gt("What's on your mind?")}
                 rows={6}
                 className="w-full rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] p-3 resize-none focus:outline-none focus:border-[var(--app-accent)]"
               />
@@ -540,7 +542,7 @@ export function ForumChannelView({
             </div>
             <div className="flex justify-end gap-2 mt-2">
               <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                Cancel
+                {gt("Cancel")}
               </Button>
               <Button
                 onClick={handleCreate}
@@ -548,7 +550,7 @@ export function ForumChannelView({
                 className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
               >
                 {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-                {isTickets ? "Open Ticket" : "Post"}
+                {isTickets ? gt("Open Ticket") : gt("Post")}
               </Button>
             </div>
           </DialogContent>
@@ -577,20 +579,20 @@ export function ForumChannelView({
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
           <DialogHeader>
-            <DialogTitle>{isTickets ? "Open a Ticket" : "Create Post"}</DialogTitle>
+            <DialogTitle>{isTickets ? gt("Open a Ticket") : gt("Create Post")}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <Input
               autoFocus
               value={postTitle}
               onChange={(e) => setPostTitle(e.target.value.slice(0, 100))}
-              placeholder={isTickets ? "Ticket subject" : "Post title"}
+              placeholder={isTickets ? gt("Ticket subject") : gt("Post title")}
               className="bg-[var(--bg-app)] border-[var(--border-subtle)]"
             />
             <textarea
               value={postBody}
               onChange={(e) => setPostBody(e.target.value.slice(0, 4000))}
-              placeholder={isTickets ? "Describe your issue…" : "What's on your mind?"}
+              placeholder={isTickets ? gt("Describe your issue…") : gt("What's on your mind?")}
               rows={6}
               className="w-full rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] p-3 resize-none focus:outline-none focus:border-[var(--app-accent)]"
             />
@@ -619,7 +621,7 @@ export function ForumChannelView({
           </div>
           <div className="flex justify-end gap-2 mt-2">
             <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              Cancel
+              {gt("Cancel")}
             </Button>
             <Button
               onClick={handleCreate}
@@ -627,7 +629,7 @@ export function ForumChannelView({
               className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
             >
               {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isTickets ? "Open Ticket" : "Post"}
+              {isTickets ? gt("Open Ticket") : gt("Post")}
             </Button>
           </div>
         </DialogContent>

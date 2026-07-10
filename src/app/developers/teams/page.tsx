@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Users, Trash2, Crown, Shield, User, Loader2, Search } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 interface Team {
   id: string;
@@ -22,6 +23,7 @@ interface TeamMember {
 }
 
 export default function TeamsPage() {
+  const gt = useGT();
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -61,27 +63,27 @@ export default function TeamsPage() {
         setTeams([...teams, data.team]);
         setNewTeamName("");
         setShowCreate(false);
-        toast.success("Team created!");
+        toast.success(gt("Team created!"));
       } else {
-        toast.error("Failed to create team");
+        toast.error(gt("Failed to create team"));
       }
     } catch {
-      toast.error("Failed to create team");
+      toast.error(gt("Failed to create team"));
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete team "${name}"? This cannot be undone.`)) return;
+    if (!confirm(gt("Are you sure you want to delete team \"{name}\"? This cannot be undone.", { name }))) return;
     try {
       const res = await fetch(`/api/developers/teams/${id}`, { method: "DELETE" });
       if (res.ok) {
         setTeams(teams.filter((t) => t.id !== id));
-        toast.success("Team deleted");
+        toast.success(gt("Team deleted"));
       }
     } catch {
-      toast.error("Failed to delete team");
+      toast.error(gt("Failed to delete team"));
     }
   };
 
@@ -94,25 +96,25 @@ export default function TeamsPage() {
       <div className="max-w-5xl mx-auto px-6 md:px-10 py-8 md:py-12">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Teams</h1>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{gt("Teams")}</h1>
             <p className="text-sm text-[#949ba4] mt-1">
-              Teams let apps be managed by a group of people working together.
+              {gt("Teams let apps be managed by a group of people working together.")}
             </p>
           </div>
           <button
             onClick={() => setShowCreate(!showCreate)}
             className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-medium rounded-lg transition-colors shrink-0"
           >
-            <Plus className="size-4" /> New Team
+            <Plus className="size-4" /> {gt("New Team")}
           </button>
         </div>
 
         {/* Create Team */}
         {showCreate && (
           <div className="mb-6 rounded-xl border border-white/[0.08] bg-white/[0.02] p-6">
-            <h2 className="text-base font-semibold mb-1">Create a New Team</h2>
+            <h2 className="text-base font-semibold mb-1">{gt("Create a New Team")}</h2>
             <p className="text-sm text-[#949ba4] mb-4">
-              Teams allow multiple developers to share access to applications.
+              {gt("Teams allow multiple developers to share access to applications.")}
             </p>
             <div className="flex gap-3">
               <input
@@ -120,7 +122,7 @@ export default function TeamsPage() {
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                placeholder="Team Name"
+                placeholder={gt("Team Name")}
                 maxLength={100}
                 className="flex-1 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-white placeholder:text-[#555] focus:outline-none focus:border-[#8B5CF6]/50 transition-colors"
                 autoFocus
@@ -131,13 +133,13 @@ export default function TeamsPage() {
                 className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
               >
                 {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                Create
+                {gt("Create")}
               </button>
               <button
                 onClick={() => { setShowCreate(false); setNewTeamName(""); }}
                 className="px-4 py-2.5 bg-white/[0.06] hover:bg-white/[0.1] text-white text-sm font-medium rounded-lg transition-colors"
               >
-                Cancel
+                {gt("Cancel")}
               </button>
             </div>
           </div>
@@ -151,7 +153,7 @@ export default function TeamsPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search teams..."
+              placeholder={gt("Search teams...")}
               className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder:text-[#555] focus:outline-none focus:border-[#8B5CF6]/50 transition-colors"
             />
           </div>
@@ -168,19 +170,19 @@ export default function TeamsPage() {
               <Users className="size-8 text-[#5865F2]" />
             </div>
             <h3 className="text-base font-semibold mb-1">
-              {teams.length === 0 ? "No teams yet" : "No results found"}
+              {teams.length === 0 ? gt("No teams yet") : gt("No results found")}
             </h3>
             <p className="text-sm text-[#777] max-w-sm mx-auto">
               {teams.length === 0
-                ? "Create a team to collaboratively manage applications with other developers."
-                : "Try a different search term."}
+                ? gt("Create a team to collaboratively manage applications with other developers.")
+                : gt("Try a different search term.")}
             </p>
             {teams.length === 0 && (
               <button
                 onClick={() => setShowCreate(true)}
                 className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-medium rounded-lg transition-colors"
               >
-                <Plus className="size-4" /> Create Team
+                <Plus className="size-4" /> {gt("Create Team")}
               </button>
             )}
           </div>
@@ -204,8 +206,8 @@ export default function TeamsPage() {
                     <span className="flex items-center gap-1">
                       <Crown className="size-3" /> {team.ownerUsername}
                     </span>
-                    <span>{team.memberCount} member{team.memberCount !== 1 ? "s" : ""}</span>
-                    <span>{team.appCount} app{team.appCount !== 1 ? "s" : ""}</span>
+                    <span>{gt("{count} members", { count: team.memberCount })}</span>
+                    <span>{gt("{count} apps", { count: team.appCount })}</span>
                   </div>
                 </div>
                 <button
@@ -222,24 +224,24 @@ export default function TeamsPage() {
         {/* Info Box */}
         <div className="mt-8 rounded-xl border border-[#8B5CF6]/15 bg-[#8B5CF6]/[0.04] p-5">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
-            <Users className="size-4 text-[#8B5CF6]" /> About Developer Teams
+            <Users className="size-4 text-[#8B5CF6]" /> {gt("About Developer Teams")}
           </h3>
           <ul className="text-[13px] text-[#949ba4] space-y-2">
             <li className="flex items-start gap-2">
               <span className="text-[#8B5CF6] mt-0.5">•</span>
-              Teams let multiple developers collaboratively manage applications
+              {gt("Teams let multiple developers collaboratively manage applications")}
             </li>
             <li className="flex items-start gap-2">
               <span className="text-[#8B5CF6] mt-0.5">•</span>
-              Team owners can invite members with different roles (Admin, Developer, Viewer)
+              {gt("Team owners can invite members with different roles (Admin, Developer, Viewer)")}
             </li>
             <li className="flex items-start gap-2">
               <span className="text-[#8B5CF6] mt-0.5">•</span>
-              Applications can be transferred between personal accounts and teams
+              {gt("Applications can be transferred between personal accounts and teams")}
             </li>
             <li className="flex items-start gap-2">
               <span className="text-[#8B5CF6] mt-0.5">•</span>
-              Verified bots in 100+ servers must be owned by a verified team or individual
+              {gt("Verified bots in 100+ servers must be owned by a verified team or individual")}
             </li>
           </ul>
         </div>

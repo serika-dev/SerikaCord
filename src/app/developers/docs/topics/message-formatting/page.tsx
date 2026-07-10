@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 import { MarkdownLivePreview, TimestampLivePreview } from "./LivePreview";
 
 export const metadata = buildMetadata({
@@ -10,38 +11,39 @@ export const metadata = buildMetadata({
   keywords: ["SerikaCord message formatting", "markdown", "mentions", "embeds", "components"],
 });
 
-export default function MessageFormattingDoc() {
+export default async function MessageFormattingDoc() {
+  const gt = await getGT();
   return (
-    <DocPage title="Message Formatting" description="Format messages with markdown, mentions, emojis, and rich embeds.">
-      <H2 id="markdown">Markdown Support</H2>
-      <P>SerikaCord supports standard markdown plus some extensions:</P>
+    <DocPage title={gt("Message Formatting")} description={gt("Format messages with markdown, mentions, emojis, and rich embeds.")}>
+      <H2 id="markdown">{gt("Markdown Support")}</H2>
+      <P>{gt("SerikaCord supports standard markdown plus some extensions:")}</P>
       <MarkdownLivePreview />
 
-      <H2 id="mentions">Mentions</H2>
-      <P>Mentions use special syntax in message content:</P>
-      <Table headers={["Type", "Syntax"]} rows={[
-        ["User", "<@user_id>"],
-        ["User (nickname)", "<@!user_id>"],
-        ["Channel", "<#channel_id>"],
-        ["Role", "<@&role_id>"],
-        ["Slash command", "</command_name:command_id>"],
-        ["Emoji", "<:emoji_name:emoji_id>"],
-        ["Animated emoji", "<a:emoji_name:emoji_id>"],
-        ["Timestamp", "<t:timestamp:format>"],
+      <H2 id="mentions">{gt("Mentions")}</H2>
+      <P>{gt("Mentions use special syntax in message content:")}</P>
+      <Table headers={[gt("Type"), gt("Syntax")]} rows={[
+        [gt("User"), "<@user_id>"],
+        [gt("User (nickname)"), "<@!user_id>"],
+        [gt("Channel"), "<#channel_id>"],
+        [gt("Role"), "<@&role_id>"],
+        [gt("Slash command"), "</command_name:command_id>"],
+        [gt("Emoji"), "<:emoji_name:emoji_id>"],
+        [gt("Animated emoji"), "<a:emoji_name:emoji_id>"],
+        [gt("Timestamp"), "<t:timestamp:format>"],
       ]} />
 
-      <H2 id="timestamps">Timestamp Formatting</H2>
-      <P>Use <InlineCode>&lt;t:timestamp:format&gt;</InlineCode> for localized timestamps. The timestamp is a Unix epoch in seconds:</P>
+      <H2 id="timestamps">{gt("Timestamp Formatting")}</H2>
+      <P>{gt("Use")}{" "}<InlineCode>&lt;t:timestamp:format&gt;</InlineCode> {gt("for localized timestamps. The timestamp is a Unix epoch in seconds:")}</P>
       <TimestampLivePreview />
-      <P>The <InlineCode>C</InlineCode> format also supports optional parameters inside square brackets:</P>
-      <Table headers={["Option", "Syntax", "Description"]} rows={[
-        ["end text", "<t:timestamp:C[end:00:00:00 (Passed)]>", "Text to display when the countdown reaches zero"],
-        ["color", "<t:timestamp:C[color:#FF0000]>", "Custom hex color for the countdown text (default: accent color)"],
+      <P>{gt("The")}{" "}<InlineCode>C</InlineCode> {gt("format also supports optional parameters inside square brackets:")}</P>
+      <Table headers={[gt("Option"), gt("Syntax"), gt("Description")]} rows={[
+        [gt("end text"), "<t:timestamp:C[end:00:00:00 (Passed)]>", gt("Text to display when the countdown reaches zero")],
+        [gt("color"), "<t:timestamp:C[color:#FF0000]>", gt("Custom hex color for the countdown text (default: accent color)")],
       ]} />
-      <P>Multiple options can be combined: <InlineCode>&lt;t:timestamp:C[end:Done!][color:#FF0000]&gt;</InlineCode></P>
+      <P>{gt("Multiple options can be combined:")}{" "}<InlineCode>&lt;t:timestamp:C[end:Done!][color:#FF0000]&gt;</InlineCode></P>
 
-      <H2 id="embeds">Embeds</H2>
-      <P>Rich embeds can be attached to messages:</P>
+      <H2 id="embeds">{gt("Embeds")}</H2>
+      <P>{gt("Rich embeds can be attached to messages:")}</P>
       <CodeBlock lang="json">{`{
   "embeds": [{
     "title": "Embed Title",
@@ -60,41 +62,40 @@ export default function MessageFormattingDoc() {
   }]
 }`}</CodeBlock>
 
-      <H2 id="embed-limits">Embed Limits</H2>
-      <Table headers={["Field", "Limit"]} rows={[
-        ["Total embed characters", "6000"],
-        ["Title", "256 characters"],
-        ["Description", "4096 characters"],
-        ["Fields per embed", "25"],
-        ["Field name", "256 characters"],
-        ["Field value", "1024 characters"],
-        ["Footer text", "2048 characters"],
-        ["Author name", "256 characters"],
-        ["Embeds per message", "10"],
+      <H2 id="embed-limits">{gt("Embed Limits")}</H2>
+      <Table headers={[gt("Field"), gt("Limit")]} rows={[
+        [gt("Total embed characters"), "6000"],
+        [gt("Title"), gt("256 characters")],
+        [gt("Description"), gt("4096 characters")],
+        [gt("Fields per embed"), "25"],
+        [gt("Field name"), gt("256 characters")],
+        [gt("Field value"), gt("1024 characters")],
+        [gt("Footer text"), gt("2048 characters")],
+        [gt("Author name"), gt("256 characters")],
+        [gt("Embeds per message"), "10"],
       ]} />
-      <Callout type="warning" title="Total character limit">
-        The 6000-character limit applies to the <Strong>sum of all text fields</Strong> across all
-        embeds in a message, not per embed.
+      <Callout type="warning" title={gt("Total character limit")}>
+        {gt("The 6000-character limit applies to the")}{" "}<Strong>{gt("sum of all text fields")}</Strong> {gt("across all embeds in a message, not per embed.")}
       </Callout>
 
-      <H2 id="components">Message Components</H2>
-      <P>Interactive components like buttons and select menus:</P>
-      <Table headers={["Component Type", "Value", "Description"]} rows={[
-        ["Action Row", "1", "Container for other components (max 5 per row)"],
-        ["Button", "2", "Clickable button (max 25 per message)"],
-        ["String Select", "3", "Dropdown menu for text options"],
-        ["User Select", "5", "Dropdown for selecting users"],
-        ["Role Select", "6", "Dropdown for selecting roles"],
-        ["Mentionable Select", "7", "Dropdown for users or roles"],
-        ["Channel Select", "8", "Dropdown for selecting channels"],
+      <H2 id="components">{gt("Message Components")}</H2>
+      <P>{gt("Interactive components like buttons and select menus:")}</P>
+      <Table headers={[gt("Component Type"), gt("Value"), gt("Description")]} rows={[
+        [gt("Action Row"), "1", gt("Container for other components (max 5 per row)")],
+        [gt("Button"), "2", gt("Clickable button (max 25 per message)")],
+        [gt("String Select"), "3", gt("Dropdown menu for text options")],
+        [gt("User Select"), "5", gt("Dropdown for selecting users")],
+        [gt("Role Select"), "6", gt("Dropdown for selecting roles")],
+        [gt("Mentionable Select"), "7", gt("Dropdown for users or roles")],
+        [gt("Channel Select"), "8", gt("Dropdown for selecting channels")],
       ]} />
-      <P>Button styles:</P>
-      <Table headers={["Style", "Value", "Description"]} rows={[
-        ["Primary", "1", "Blurple button"],
-        ["Secondary", "2", "Grey button"],
-        ["Success", "3", "Green button"],
-        ["Danger", "4", "Red button"],
-        ["Link", "5", "Link button (navigates to URL, no custom_id)"],
+      <P>{gt("Button styles:")}</P>
+      <Table headers={[gt("Style"), gt("Value"), gt("Description")]} rows={[
+        [gt("Primary"), "1", gt("Blurple button")],
+        [gt("Secondary"), "2", gt("Grey button")],
+        [gt("Success"), "3", gt("Green button")],
+        [gt("Danger"), "4", gt("Red button")],
+        [gt("Link"), "5", gt("Link button (navigates to URL, no custom_id)")],
       ]} />
       <CodeBlock lang="json">{`{
   "components": [{
@@ -108,16 +109,15 @@ export default function MessageFormattingDoc() {
   }]
 }`}</CodeBlock>
 
-      <H2 id="attachments">Attachments</H2>
+      <H2 id="attachments">{gt("Attachments")}</H2>
       <P>
-        Files can be attached using <InlineCode>multipart/form-data</InlineCode>. Reference them in
-        the message content using <InlineCode>attachment://filename.ext</InlineCode>.
+        {gt("Files can be attached using")}{" "}<InlineCode>multipart/form-data</InlineCode>. {gt("Reference them in the message content using")}{" "}<InlineCode>attachment://filename.ext</InlineCode>.
       </P>
 
-      <H2 id="allowed-mentions">Allowed Mentions</H2>
+      <H2 id="allowed-mentions">{gt("Allowed Mentions")}</H2>
       <P>
-        Control which mentions are parsed in a message using the{" "}
-        <InlineCode>allowed_mentions</InlineCode> field:
+        {gt("Control which mentions are parsed in a message using the")}{" "}
+        <InlineCode>allowed_mentions</InlineCode> {gt("field:")}
       </P>
       <CodeBlock lang="json">{`{
   "content": "Hello <@123>!",

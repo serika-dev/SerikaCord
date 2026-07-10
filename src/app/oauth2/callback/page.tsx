@@ -2,9 +2,11 @@
 
 import { useEffect, useState, Suspense } from "react";
 import { Loader2, Check } from "lucide-react";
+import { useGT } from "gt-next";
 
 function CallbackHandler() {
-  const [status, setStatus] = useState("Processing authorization...");
+  const gt = useGT();
+  const [status, setStatus] = useState(gt("Processing authorization..."));
   const [complete, setComplete] = useState(false);
 
   useEffect(() => {
@@ -37,7 +39,7 @@ function CallbackHandler() {
         },
         "*"
       );
-      setStatus("Authorization details sent. Closing window...");
+      setStatus(gt("Authorization details sent. Closing window..."));
       setComplete(true);
       // Don't close window for app authorizations (check for no_close param)
       const noClose = data.no_close === "true" || (search && new URLSearchParams(search).get("no_close") === "true");
@@ -46,10 +48,10 @@ function CallbackHandler() {
           window.close();
         }, 1000);
       } else {
-        setStatus("Authorized! You can now return to the app.");
+        setStatus(gt("Authorized! You can now return to the app."));
       }
     } else {
-      setStatus("Authorized successfully! You can close this tab now.");
+      setStatus(gt("Authorized successfully! You can close this tab now."));
       setComplete(true);
     }
   }, []);
@@ -64,7 +66,7 @@ function CallbackHandler() {
         ) : (
           <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6] mx-auto" />
         )}
-        <h2 className="text-xl font-bold">OAuth2 Callback</h2>
+        <h2 className="text-xl font-bold">{gt("OAuth2 Callback")}</h2>
         <p className="text-[#888888] text-sm font-medium">{status}</p>
       </div>
     </div>

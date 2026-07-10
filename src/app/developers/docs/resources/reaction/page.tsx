@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Reaction",
@@ -8,15 +9,16 @@ export const metadata = buildMetadata({
   keywords: ["SerikaCord reaction", "reaction object", "emoji reaction", "message reaction API"],
 });
 
-export default function ReactionDoc() {
+export default async function ReactionDoc() {
+  const gt = await getGT();
   return (
-    <DocPage title="Reaction" description="Manage emoji reactions on messages.">
+    <DocPage title={gt("Reaction")} description={gt("Manage emoji reactions on messages.")}>
       <P>
-        Reactions allow users to respond to messages with emojis. See also the{" "}
-        <Link2 href="/developers/docs/topics/reactions">Reactions topic</Link2> for event details.
+        {gt("Reactions allow users to respond to messages with emojis. See also the")}{" "}
+        <Link2 href="/developers/docs/topics/reactions">{gt("Reactions topic")}</Link2> {gt("for event details.")}
       </P>
 
-      <H2 id="reaction-object">Reaction Object</H2>
+      <H2 id="reaction-object">{gt("Reaction Object")}</H2>
       <CodeBlock lang="json">{`{
   "count": 3,
   "count_details": {
@@ -32,26 +34,26 @@ export default function ReactionDoc() {
   }
 }`}</CodeBlock>
 
-      <H2 id="endpoints">Endpoints</H2>
-      <Endpoint method="PUT" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/@me">Add reaction.</Endpoint>
-      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/@me">Remove own reaction.</Endpoint>
-      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/{user.id}">Remove other's reaction.</Endpoint>
-      <Endpoint method="GET" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}">Get users who reacted.</Endpoint>
-      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}">Remove all reactions for emoji.</Endpoint>
-      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions">Remove all reactions.</Endpoint>
+      <H2 id="endpoints">{gt("Endpoints")}</H2>
+      <Endpoint method="PUT" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/@me">{gt("Add reaction.")}</Endpoint>
+      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/@me">{gt("Remove own reaction.")}</Endpoint>
+      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}/{user.id}">{gt("Remove other's reaction.")}</Endpoint>
+      <Endpoint method="GET" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}">{gt("Get users who reacted.")}</Endpoint>
+      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions/{emoji}">{gt("Remove all reactions for emoji.")}</Endpoint>
+      <Endpoint method="DELETE" path="/channels/{channel.id}/messages/{message.id}/reactions">{gt("Remove all reactions.")}</Endpoint>
 
-      <H2 id="emoji-parameter">Emoji Parameter</H2>
+      <H2 id="emoji-parameter">{gt("Emoji Parameter")}</H2>
       <P>
-        The <InlineCode>emoji</InlineCode> URL parameter can be:
+        {gt("The")}{" "}<InlineCode>emoji</InlineCode> {gt("URL parameter can be:")}
       </P>
       <UL>
-        <li>A unicode emoji (e.g., <InlineCode>👍</InlineCode>) — URL-encoded</li>
-        <li>A custom emoji in <InlineCode>name:id</InlineCode> format (e.g., <InlineCode>my_emoji:123456</InlineCode>)</li>
+        <li>{gt("A unicode emoji (e.g.,")}{" "}<InlineCode>👍</InlineCode>{") — URL-encoded"}</li>
+        <li>{gt("A custom emoji in")}{" "}<InlineCode>name:id</InlineCode> {gt("format (e.g.,")}{" "}<InlineCode>my_emoji:123456</InlineCode>{")"}</li>
       </UL>
 
-      <Callout type="info" title="Pagination">
-        The GET reactions endpoint supports <InlineCode>before</InlineCode>, <InlineCode>after</InlineCode>,
-        and <InlineCode>limit</InlineCode> (max 100) query parameters for pagination.
+      <Callout type="info" title={gt("Pagination")}>
+        {gt("The GET reactions endpoint supports")}{" "}<InlineCode>before</InlineCode>, <InlineCode>after</InlineCode>,
+        {gt(" and")}{" "}<InlineCode>limit</InlineCode> {gt("(max 100) query parameters for pagination.")}
       </Callout>
     </DocPage>
   );

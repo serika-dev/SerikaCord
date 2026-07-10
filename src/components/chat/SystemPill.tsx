@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface SystemPillProps {
   isSystem?: boolean;
@@ -8,6 +9,7 @@ interface SystemPillProps {
 }
 
 export function SystemPill({ isSystem, className }: SystemPillProps) {
+  const gt = useGT();
   if (!isSystem) return null;
 
   return (
@@ -17,7 +19,7 @@ export function SystemPill({ isSystem, className }: SystemPillProps) {
         className
       )}
     >
-      SYSTEM
+      {gt("SYSTEM")}
     </span>
   );
 }

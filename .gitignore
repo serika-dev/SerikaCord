@@ -63,3 +63,6 @@ docker-compose.override.yml
 # Rust / Tauri
 /target/
 /desktop-tauri/src-tauri/target/
+
+# General Translation translated files (manually translated, tracked in git)
+# public/_gt/

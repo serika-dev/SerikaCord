@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -33,11 +34,12 @@ export function MessageReactions({
   onOpenPicker,
   reactionUsers,
 }: MessageReactionsProps) {
+  const gt = useGT();
   if (!reactions?.length) return null;
 
   const getUserName = (userId: string): string => {
     const u = reactionUsers?.[userId];
-    return u?.displayName || u?.username || "Unknown";
+    return u?.displayName || u?.username || gt("Unknown");
   };
 
   const getUserAvatar = (userId: string): string | undefined => {
@@ -52,7 +54,7 @@ export function MessageReactions({
         const names = reaction.userIds.map(getUserName);
         const tooltipText = names.length <= 3
           ? names.join(", ")
-          : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
+          : gt("{names} and {count} more", { names: names.slice(0, 3).join(", "), count: names.length - 3 });
 
         return (
           <Tooltip key={reaction.emoji.id || reaction.emoji.name}>
@@ -93,7 +95,7 @@ export function MessageReactions({
                   );
                 })}
                 {reaction.userIds.length > 8 && (
-                  <span className="text-[10px] text-[var(--text-muted)]">+{reaction.userIds.length - 8} more</span>
+                  <span className="text-[10px] text-[var(--text-muted)]">+{reaction.userIds.length - 8} {gt("more")}</span>
                 )}
               </div>
             </TooltipContent>
@@ -104,7 +106,7 @@ export function MessageReactions({
         <button
           onClick={() => onOpenPicker(messageId)}
           className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110 hover:text-[var(--text-primary)] transition-colors"
-          title="Add Reaction"
+          title={gt("Add Reaction")}
         >
           <Plus className="w-4 h-4" />
         </button>

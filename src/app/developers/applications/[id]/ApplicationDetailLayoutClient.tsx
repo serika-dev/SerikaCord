@@ -18,28 +18,30 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useApplication } from "./useApplication";
-
-const tabs = [
-  { label: "General Information", href: "information", icon: Info },
-  { label: "Bot", href: "bot", icon: Bot },
-  { label: "Installation", href: "installation", icon: Download },
-  { label: "OAuth2", href: "oauth2", icon: KeyRound },
-  { label: "Emoji", href: "emojis", icon: Smile },
-  { label: "Webhooks", href: "webhooks", icon: Webhook },
-  { label: "App Directory Page", href: "directory", icon: Gift },
-  { label: "Analytics", href: "analytics", icon: Activity },
-  { label: "Team", href: "team", icon: Users },
-];
+import { useGT } from "gt-next";
 
 export default function ApplicationDetailLayoutClient({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const gt = useGT();
   const params = useParams();
   const pathname = usePathname();
   const appId = params.id as string;
   const { app, loading, error } = useApplication(appId);
+
+  const tabs = [
+    { label: gt("General Information"), href: "information", icon: Info },
+    { label: gt("Bot"), href: "bot", icon: Bot },
+    { label: gt("Installation"), href: "installation", icon: Download },
+    { label: gt("OAuth2"), href: "oauth2", icon: KeyRound },
+    { label: gt("Emoji"), href: "emojis", icon: Smile },
+    { label: gt("Webhooks"), href: "webhooks", icon: Webhook },
+    { label: gt("App Directory Page"), href: "directory", icon: Gift },
+    { label: gt("Analytics"), href: "analytics", icon: Activity },
+    { label: gt("Team"), href: "team", icon: Users },
+  ];
 
   const activeTab = pathname?.split("/").pop() || "information";
 
@@ -52,12 +54,12 @@ export default function ApplicationDetailLayoutClient({
             href="/developers/applications"
             className="flex items-center gap-2 text-xs text-[#777] hover:text-white transition-colors mb-3"
           >
-            <ArrowLeft className="size-3" /> All Applications
+            <ArrowLeft className="size-3" /> {gt("All Applications")}
           </Link>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="size-4 animate-spin text-[#8B5CF6]" />
-              <span className="text-sm text-[#888]">Loading...</span>
+              <span className="text-sm text-[#888]">{gt("Loading...")}</span>
             </div>
           ) : (
             <div className="flex items-center gap-3">
@@ -73,7 +75,7 @@ export default function ApplicationDetailLayoutClient({
                 )}
               </div>
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold truncate text-white/90">{app?.name || "Unnamed"}</h2>
+                <h2 className="text-sm font-semibold truncate text-white/90">{app?.name || gt("Unnamed")}</h2>
                 <p className="text-[10px] font-mono text-[#555] truncate mt-0.5">{app?.id}</p>
               </div>
             </div>
@@ -105,13 +107,13 @@ export default function ApplicationDetailLayoutClient({
           <div className="p-4 border-t border-white/[0.06]">
             {app.verified ? (
               <div className="flex items-center gap-2 text-xs text-green-400">
-                <span className="size-2 rounded-full bg-green-400" /> Verified Bot
+                <span className="size-2 rounded-full bg-green-400" /> {gt("Verified Bot")}
               </div>
             ) : (
               <div className="text-xs text-[#666]">
-                <p>Not verified</p>
+                <p>{gt("Not verified")}</p>
                 <p className="mt-1 text-[#555]">
-                  Reach 100+ servers to apply for verification.
+                  {gt("Reach 100+ servers to apply for verification.")}
                 </p>
               </div>
             )}
@@ -127,13 +129,13 @@ export default function ApplicationDetailLayoutClient({
               <div className="size-16 rounded-2xl bg-red-500/10 flex items-center justify-center mb-4">
                 <AlertTriangle className="size-8 text-red-400" />
               </div>
-              <h2 className="text-base font-semibold mb-1">Failed to load application</h2>
+              <h2 className="text-base font-semibold mb-1">{gt("Failed to load application")}</h2>
               <p className="text-sm text-[#777] mb-4">{error}</p>
               <Link
                 href="/developers/applications"
                 className="flex items-center gap-2 px-4 py-2 bg-white/[0.06] hover:bg-white/[0.1] text-sm font-medium rounded-lg transition-colors"
               >
-                <ArrowLeft className="size-4" /> Back to Applications
+                <ArrowLeft className="size-4" /> {gt("Back to Applications")}
               </Link>
             </div>
           ) : (

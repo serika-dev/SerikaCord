@@ -22,6 +22,7 @@ import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, P
 import { toast } from "sonner";
 import { CHANNEL_PERMISSIONS } from "@/lib/constants/channels";
 import { parsePermissionBitfield, stringifyPermissionBitfield } from "@/lib/roles/bitfield";
+import { useGT } from "gt-next";
 
 interface ServerRole {
   id: string;
@@ -49,6 +50,7 @@ export function ChannelSettingsDialog({
   channelId,
 }: ChannelSettingsDialogProps) {
   const { channels, updateChannel, deleteChannel, currentServer } = useServer();
+  const gt = useGT();
 
   const channel = useMemo(
     () => channels.find((c) => c.id === channelId),
@@ -165,10 +167,10 @@ export function ChannelSettingsDialog({
         ticketAccessRoleIds: ticketRoleIds,
         availableTags: forumTags.map((t) => ({ id: t.id, name: t.name })),
       } as any);
-      toast.success("Forum settings saved");
+      toast.success(gt("Forum settings saved"));
       setForumChanges(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save forum settings");
+      toast.error(err instanceof Error ? err.message : gt("Failed to save forum settings"));
     } finally {
       setIsSaving(false);
     }
@@ -199,7 +201,7 @@ export function ChannelSettingsDialog({
 
   const getRoleName = useCallback((roleId: string) => {
     const role = roles.find(r => r.id === roleId);
-    return role?.name || "Unknown";
+    return role?.name || gt("Unknown");
   }, [roles]);
 
   const getRoleColor = useCallback((roleId: string) => {
@@ -281,13 +283,13 @@ export function ChannelSettingsDialog({
       });
       const data = await res.json();
       if (data.success) {
-        toast.success("Invite revoked successfully");
+        toast.success(gt("Invite revoked successfully"));
         fetchInvites();
       } else {
-        toast.error(data.error || "Failed to revoke invite");
+        toast.error(data.error || gt("Failed to revoke invite"));
       }
     } catch (err) {
-      toast.error("Failed to revoke invite");
+      toast.error(gt("Failed to revoke invite"));
     }
   };
 
@@ -313,16 +315,16 @@ export function ChannelSettingsDialog({
       const res = await fetch(`/api/v10/channels/${channel.id}/webhooks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Spidey Bot" }),
+        body: JSON.stringify({ name: gt("Spidey Bot") }),
       });
       if (res.ok) {
-        toast.success("Webhook created successfully");
+        toast.success(gt("Webhook created successfully"));
         fetchWebhooks();
       } else {
-        toast.error("Failed to create webhook");
+        toast.error(gt("Failed to create webhook"));
       }
     } catch (err) {
-      toast.error("Failed to create webhook");
+      toast.error(gt("Failed to create webhook"));
     }
   };
 
@@ -332,13 +334,13 @@ export function ChannelSettingsDialog({
         method: "DELETE",
       });
       if (res.ok) {
-        toast.success("Webhook deleted");
+        toast.success(gt("Webhook deleted"));
         fetchWebhooks();
       } else {
-        toast.error("Failed to delete webhook");
+        toast.error(gt("Failed to delete webhook"));
       }
     } catch (err) {
-      toast.error("Failed to delete webhook");
+      toast.error(gt("Failed to delete webhook"));
     }
   };
 
@@ -363,7 +365,7 @@ export function ChannelSettingsDialog({
         allow: o.allow || "0",
         deny: o.deny || "0",
       })));
-      toast.success("Synced permissions with category");
+      toast.success(gt("Synced permissions with category"));
     }
   };
 
@@ -428,10 +430,10 @@ export function ChannelSettingsDialog({
     setIsSaving(true);
     try {
       await updateChannel(channel.id, { permissionOverwrites: overwrites } as any);
-      toast.success("Channel permissions saved");
+      toast.success(gt("Channel permissions saved"));
       setHasPermChanges(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save permissions");
+      toast.error(err instanceof Error ? err.message : gt("Failed to save permissions"));
     } finally {
       setIsSaving(false);
     }
@@ -457,10 +459,10 @@ export function ChannelSettingsDialog({
       if (slowmode !== (channel.rateLimitPerUser || 0)) updates.rateLimitPerUser = slowmode;
 
       await updateChannel(channel.id, updates as any);
-      toast.success("Channel settings saved");
+      toast.success(gt("Channel settings saved"));
       setHasChanges(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save settings");
+      toast.error(err instanceof Error ? err.message : gt("Failed to save settings"));
     } finally {
       setIsSaving(false);
     }
@@ -470,10 +472,10 @@ export function ChannelSettingsDialog({
     if (!channel || deleteConfirmText !== channel.name) return;
     try {
       await deleteChannel(channel.id);
-      toast.success(`Channel #${channel.name} deleted`);
+      toast.success(gt("Channel #{name} deleted", { name: channel.name }));
       onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete channel");
+      toast.error(err instanceof Error ? err.message : gt("Failed to delete channel"));
     }
   };
 
@@ -483,16 +485,16 @@ export function ChannelSettingsDialog({
   const isCategory = channel.type === "category";
 
   const tabs = [
-    { id: "overview" as const, label: "Overview", icon: Settings },
-    { id: "permissions" as const, label: "Permissions", icon: Shield },
+    { id: "overview" as const, label: gt("Overview"), icon: Settings },
+    { id: "permissions" as const, label: gt("Permissions"), icon: Shield },
     ...(isCategory ? [] : [
-      { id: "integrations" as const, label: "Integrations", icon: Radio },
-      { id: "invites" as const, label: "Invites", icon: Link }
+      { id: "integrations" as const, label: gt("Integrations"), icon: Radio },
+      { id: "invites" as const, label: gt("Invites"), icon: Link }
     ]),
   ];
 
   const slowmodeOptions = [
-    { value: 0, label: "Off" },
+    { value: 0, label: gt("Off") },
     { value: 5, label: "5s" },
     { value: 10, label: "10s" },
     { value: 15, label: "15s" },
@@ -531,7 +533,7 @@ export function ChannelSettingsDialog({
           <div className="space-y-4">
             <div className="px-4">
               <h2 className="text-[10px] font-bold uppercase text-[var(--text-muted)] tracking-widest mb-1.5">
-                {isVoice ? "Voice" : isCategory ? "Category" : channel.type === "announcement" ? "Announcement" : "Text"} Channel
+                {isVoice ? gt("Voice") : isCategory ? gt("Category") : channel.type === "announcement" ? gt("Announcement") : gt("Text")} {gt("Channel")}
               </h2>
               <p className="text-sm text-[var(--text-primary)] font-semibold truncate flex items-center gap-1.5">
                 {isVoice ? <Volume2 className="w-4 h-4 text-[var(--text-muted)]" /> : isCategory ? <Folder className="w-4 h-4 text-[var(--text-muted)]" /> : channel.type === "announcement" ? <Megaphone className="w-4 h-4 text-blue-400" /> : <Hash className="w-4 h-4 text-[var(--text-muted)]" />}
@@ -567,7 +569,7 @@ export function ChannelSettingsDialog({
               }`}
             >
               <Trash2 className="w-4 h-4" />
-              Delete Channel
+              {gt("Delete Channel")}
             </button>
           </div>
         </div>
@@ -578,12 +580,12 @@ export function ChannelSettingsDialog({
           <div className="flex items-center gap-4 px-10 py-5 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
             <div className="flex-1 min-w-0">
               <h1 className="text-lg font-bold text-[var(--text-primary)] capitalize">
-                {activeTab === "delete" ? "Delete Channel" : activeTab === "overview" ? "Channel Overview" : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
+                {activeTab === "delete" ? gt("Delete Channel") : activeTab === "overview" ? gt("Channel Overview") : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
               </h1>
               <p className="text-xs text-[var(--text-muted)] mt-0.5 flex items-center gap-1.5">
                 {channel.type === "announcement" ? <Megaphone className="w-3 h-3 text-blue-400" /> : isVoice ? <Volume2 className="w-3 h-3" /> : <Hash className="w-3 h-3" />}
                 {channel.name}
-                {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">ANNOUNCEMENTS</span>}
+                {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">{gt("ANNOUNCEMENTS")}</span>}
               </p>
             </div>
           </div>
@@ -597,7 +599,7 @@ export function ChannelSettingsDialog({
                   {/* Channel Name */}
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                      Channel Name
+                      {gt("Channel Name")}
                     </Label>
                     <div className="relative flex items-center">
                       <span className="absolute left-3 text-[var(--text-muted)]">
@@ -627,8 +629,8 @@ export function ChannelSettingsDialog({
                     <div className="flex gap-3 p-3.5 rounded-xl bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed">
                       <Folder className="w-4 h-4 shrink-0 text-[var(--text-muted)] mt-0.5" />
                       <div>
-                        <span className="font-semibold text-[var(--text-primary)] block mb-0.5">Category</span>
-                        Categories group channels together. Use the <strong>Permissions</strong> tab to set default access rules that all channels in this category inherit.
+                        <span className="font-semibold text-[var(--text-primary)] block mb-0.5">{gt("Category")}</span>
+                        {gt("Categories group channels together. Use the")} <strong>{gt("Permissions")}</strong> {gt("tab to set default access rules that all channels in this category inherit.")}
                       </div>
                     </div>
                   )}
@@ -637,7 +639,7 @@ export function ChannelSettingsDialog({
                   {!isVoice && !isCategory && (
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                        Channel Topic
+                        {gt("Channel Topic")}
                       </Label>
                       <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)]">
                         {/* Formatting Toolbar */}
@@ -647,7 +649,7 @@ export function ChannelSettingsDialog({
                               type="button"
                               onClick={() => insertFormatting("**")}
                               className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title="Bold"
+                              title={gt("Bold")}
                             >
                               <Bold className="w-3.5 h-3.5" />
                             </button>
@@ -655,7 +657,7 @@ export function ChannelSettingsDialog({
                               type="button"
                               onClick={() => insertFormatting("*")}
                               className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title="Italic"
+                              title={gt("Italic")}
                             >
                               <Italic className="w-3.5 h-3.5" />
                             </button>
@@ -663,7 +665,7 @@ export function ChannelSettingsDialog({
                               type="button"
                               onClick={() => insertFormatting("__")}
                               className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title="Underline"
+                              title={gt("Underline")}
                             >
                               <Underline className="w-3.5 h-3.5" />
                             </button>
@@ -671,7 +673,7 @@ export function ChannelSettingsDialog({
                               type="button"
                               onClick={() => insertFormatting("~~")}
                               className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title="Strikethrough"
+                              title={gt("Strikethrough")}
                             >
                               <Strikethrough className="w-3.5 h-3.5" />
                             </button>
@@ -684,7 +686,7 @@ export function ChannelSettingsDialog({
                                   ? "bg-[var(--app-accent)] text-white"
                                   : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)]"
                               }`}
-                              title="Toggle Preview"
+                              title={gt("Toggle Preview")}
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
@@ -701,7 +703,7 @@ export function ChannelSettingsDialog({
                             {topic ? (
                               <p className="whitespace-pre-wrap leading-relaxed">{topic}</p>
                             ) : (
-                              <span className="italic text-[var(--text-muted)]">Nothing to preview. Write some topic description.</span>
+                              <span className="italic text-[var(--text-muted)]">{gt("Nothing to preview. Write some topic description.")}</span>
                             )}
                           </div>
                         ) : (
@@ -710,7 +712,7 @@ export function ChannelSettingsDialog({
                             value={topic}
                             onChange={(e) => setTopic(e.target.value)}
                             maxLength={1024}
-                            placeholder="Set a topic to let everyone know what this channel is about"
+                            placeholder={gt("Set a topic to let everyone know what this channel is about")}
                             className="border-none bg-transparent text-[var(--text-primary)] focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[80px] resize-none rounded-none p-3 h-auto"
                           />
                         )}
@@ -725,7 +727,7 @@ export function ChannelSettingsDialog({
                   {!isCategory && (
                     <div className="space-y-2">
                       <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                        Category
+                        {gt("Category")}
                       </Label>
                       <Select value={parentId || "__none__"} onValueChange={(v) => setParentId(v === "__none__" ? null : v)}>
                         <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10">
@@ -733,7 +735,7 @@ export function ChannelSettingsDialog({
                         </SelectTrigger>
                         <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
                           <SelectItem value="__none__" className="text-[var(--text-secondary)]">
-                            No Category
+                            {gt("No Category")}
                           </SelectItem>
                           {categories.map((cat) => (
                             <SelectItem key={cat.id} value={cat.id} className="text-[var(--text-secondary)]">
@@ -751,7 +753,7 @@ export function ChannelSettingsDialog({
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-6 space-y-4 mt-6">
                     <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                      Slowmode
+                      {gt("Slowmode")}
                     </Label>
                     <div className="flex items-center gap-4">
                       <input
@@ -763,11 +765,11 @@ export function ChannelSettingsDialog({
                         className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--bg-sidebar-elevated)] rounded-lg appearance-none cursor-pointer"
                       />
                       <span className="text-xs text-[var(--text-primary)] font-semibold bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] rounded px-2.5 py-1 min-w-[50px] text-center">
-                        {slowmodeOptions.find((o) => o.value === slowmode)?.label || "Off"}
+                        {slowmodeOptions.find((o) => o.value === slowmode)?.label || gt("Off")}
                       </span>
                     </div>
                     <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      Members will be restricted to sending one message per slowmode interval unless they have Manage Messages or Manage Channel overrides.
+                      {gt("Members will be restricted to sending one message per slowmode interval unless they have Manage Messages or Manage Channel overrides.")}
                     </p>
                   </div>
                 )}
@@ -779,16 +781,16 @@ export function ChannelSettingsDialog({
                     <div className="flex items-center justify-between p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                       <div className="space-y-1">
                         <span className="text-sm font-semibold text-[var(--text-primary)]">
-                          Age-Restricted Channel
+                          {gt("Age-Restricted Channel")}
                         </span>
                         <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                          Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.
+                          {gt("Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.")}
                         </p>
                       </div>
                       <ToggleSwitch
                         checked={nsfw}
                         onCheckedChange={setNsfw}
-                        aria-label="Toggle NSFW"
+                        aria-label={gt("Toggle NSFW")}
                       />
                     </div>
 
@@ -797,24 +799,24 @@ export function ChannelSettingsDialog({
                       <div className="flex items-center justify-between">
                         <div className="space-y-1">
                           <span className="text-sm font-semibold text-[var(--text-primary)]">
-                            Announcement Channel
+                            {gt("Announcement Channel")}
                           </span>
                           <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                            Publish updates from this channel directly to other servers so members can stay up to date.
+                            {gt("Publish updates from this channel directly to other servers so members can stay up to date.")}
                           </p>
                         </div>
                         <ToggleSwitch
                           checked={announcement}
                           onCheckedChange={setAnnouncement}
-                          aria-label="Toggle Announcement"
+                          aria-label={gt("Toggle Announcement")}
                         />
                       </div>
                       {announcement && (
                         <div className="flex gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 leading-relaxed">
                           <Info className="w-4 h-4 shrink-0 text-blue-400" />
                           <div>
-                            <span className="font-semibold text-blue-300 block mb-0.5">Announcement Channel</span>
-                            By creating an announcement channel, your server profile will be visible, and people can follow updates from this channel directly to their own servers.
+                            <span className="font-semibold text-blue-300 block mb-0.5">{gt("Announcement Channel")}</span>
+                            {gt("By creating an announcement channel, your server profile will be visible, and people can follow updates from this channel directly to their own servers.")}
                           </div>
                         </div>
                       )}
@@ -824,9 +826,9 @@ export function ChannelSettingsDialog({
                     {channel.type === "forum" && (
                       <div className="p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-5">
                         <div className="space-y-1">
-                          <span className="text-sm font-semibold text-[var(--text-primary)]">Forum Type</span>
+                          <span className="text-sm font-semibold text-[var(--text-primary)]">{gt("Forum Type")}</span>
                           <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                            Posts are public discussions. Tickets are private — each is only visible to its creator and the support roles you choose.
+                            {gt("Posts are public discussions. Tickets are private — each is only visible to its creator and the support roles you choose.")}
                           </p>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
@@ -840,15 +842,15 @@ export function ChannelSettingsDialog({
                                   : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
                               }`}
                             >
-                              {mode === "tickets" ? "Tickets" : "Posts"}
+                              {mode === "tickets" ? gt("Tickets") : gt("Posts")}
                             </button>
                           ))}
                         </div>
 
                         {forumMode === "tickets" && (
                           <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Support Roles</Label>
-                            <p className="text-xs text-[var(--text-muted)]">Members with these roles can see and respond to every ticket.</p>
+                            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Support Roles")}</Label>
+                            <p className="text-xs text-[var(--text-muted)]">{gt("Members with these roles can see and respond to every ticket.")}</p>
                             <div className="flex flex-wrap gap-2 pt-1">
                               {roles.filter((r) => !r.isDefault).map((r) => {
                                 const on = ticketRoleIds.includes(r.id);
@@ -869,14 +871,14 @@ export function ChannelSettingsDialog({
                                 );
                               })}
                               {roles.filter((r) => !r.isDefault).length === 0 && (
-                                <span className="text-xs text-[var(--text-muted)]">No roles yet — create roles in Server Settings.</span>
+                                <span className="text-xs text-[var(--text-muted)]">{gt("No roles yet — create roles in Server Settings.")}</span>
                               )}
                             </div>
                           </div>
                         )}
 
                         <div className="space-y-2">
-                          <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">Tags</Label>
+                          <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Tags")}</Label>
                           <div className="flex flex-wrap gap-2">
                             {forumTags.map((tag, i) => (
                               <span key={tag.id || i} className="text-xs px-2.5 py-1 rounded-full bg-[var(--app-accent)]/15 text-[var(--app-accent)] flex items-center gap-1.5">
@@ -899,7 +901,7 @@ export function ChannelSettingsDialog({
                                   setForumChanges(true);
                                 }
                               }}
-                              placeholder="Add a tag and press Enter"
+                              placeholder={gt("Add a tag and press Enter")}
                               className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] h-9 text-sm"
                             />
                           </div>
@@ -910,7 +912,7 @@ export function ChannelSettingsDialog({
                           disabled={!forumChanges || isSaving}
                           className="w-full py-2.5 rounded-lg bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
                         >
-                          Save Forum Settings
+                          {gt("Save Forum Settings")}
                         </button>
                       </div>
                     )}
@@ -919,10 +921,10 @@ export function ChannelSettingsDialog({
                     <div className="space-y-3 p-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl">
                       <div className="space-y-1">
                         <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                          Hide After Inactivity
+                          {gt("Hide After Inactivity")}
                         </Label>
                         <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                          New threads in this channel will be hidden from the channel list after this period of inactivity.
+                          {gt("New threads in this channel will be hidden from the channel list after this period of inactivity.")}
                         </p>
                       </div>
                       <Select value={hideAfterInactivity} onValueChange={setHideAfterInactivity}>
@@ -930,10 +932,10 @@ export function ChannelSettingsDialog({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
-                          <SelectItem value="3600" className="text-[var(--text-secondary)]">1 Hour</SelectItem>
-                          <SelectItem value="86400" className="text-[var(--text-secondary)]">24 Hours</SelectItem>
-                          <SelectItem value="259200" className="text-[var(--text-secondary)]">3 Days</SelectItem>
-                          <SelectItem value="604800" className="text-[var(--text-secondary)]">1 Week</SelectItem>
+                          <SelectItem value="3600" className="text-[var(--text-secondary)]">{gt("1 Hour")}</SelectItem>
+                          <SelectItem value="86400" className="text-[var(--text-secondary)]">{gt("24 Hours")}</SelectItem>
+                          <SelectItem value="259200" className="text-[var(--text-secondary)]">{gt("3 Days")}</SelectItem>
+                          <SelectItem value="604800" className="text-[var(--text-secondary)]">{gt("1 Week")}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -950,14 +952,14 @@ export function ChannelSettingsDialog({
                     <div className="flex items-center gap-2.5">
                       <AlertCircle className="w-4.5 h-4.5 text-amber-400 shrink-0" />
                       <span>
-                        Permissions not synced with category: <strong>{categories.find(c => c.id === channel.parentId)?.name || "Category"}</strong>
+                        Permissions not synced with category: <strong>{categories.find(c => c.id === channel.parentId)?.name || gt("Category")}</strong>
                       </span>
                     </div>
                     <button
                       onClick={syncWithCategory}
                       className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-white rounded text-xs font-medium transition-colors"
                     >
-                      Sync Now
+                      {gt("Sync Now")}
                     </button>
                   </div>
                 )}
@@ -970,17 +972,17 @@ export function ChannelSettingsDialog({
                     </div>
                     <div className="space-y-1">
                       <span className="text-sm font-semibold text-[var(--text-primary)]">
-                        Private Channel
+                        {gt("Private Channel")}
                       </span>
                       <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
-                        By making a channel private, only selected members and roles will be able to view this channel.
+                        {gt("By making a channel private, only selected members and roles will be able to view this channel.")}
                       </p>
                     </div>
                   </div>
                   <ToggleSwitch
                     checked={isPrivate}
                     onCheckedChange={handleTogglePrivate}
-                    aria-label="Toggle Private Channel"
+                    aria-label={gt("Toggle Private Channel")}
                   />
                 </div>
 
@@ -990,7 +992,7 @@ export function ChannelSettingsDialog({
                     onClick={() => setShowAdvancedPerms(!showAdvancedPerms)}
                     className="flex items-center justify-between w-full py-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--text-secondary)] transition-colors"
                   >
-                    <span>Advanced Permissions</span>
+                    <span>{gt("Advanced Permissions")}</span>
                     {showAdvancedPerms ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />}
                   </button>
 
@@ -999,7 +1001,7 @@ export function ChannelSettingsDialog({
                       {/* Left list of added Overwrites */}
                       <div className="border-r border-[var(--border-subtle)] pr-4 flex flex-col gap-1.5 justify-start min-h-[250px]">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">Roles/Members</span>
+                          <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">{gt("Roles/Members")}</span>
                           <div className="relative">
                             <button
                               onClick={() => setShowAddRoleMenu(!showAddRoleMenu)}
@@ -1028,7 +1030,7 @@ export function ChannelSettingsDialog({
                                     ))}
                                   {roles.filter(r => !overwrites.some(o => o.id === r.id)).length === 0 && (
                                     <div className="px-3 py-2 text-xs text-[var(--text-muted)] text-center">
-                                      All roles already added
+                                      {gt("All roles already added")}
                                     </div>
                                   )}
                                 </div>
@@ -1109,7 +1111,7 @@ export function ChannelSettingsDialog({
                                             ? "bg-red-500 text-white shadow-sm"
                                             : "text-red-500/70 hover:text-red-500 hover:bg-red-500/10"
                                         }`}
-                                        title="Deny"
+                                        title={gt("Deny")}
                                       >
                                         <X className="w-3.5 h-3.5" />
                                       </button>
@@ -1128,7 +1130,7 @@ export function ChannelSettingsDialog({
                                             ? "bg-[var(--bg-active)] text-[var(--text-primary)] shadow-sm"
                                             : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                                         }`}
-                                        title="Inherit"
+                                        title={gt("Inherit")}
                                       >
                                         /
                                       </button>
@@ -1147,7 +1149,7 @@ export function ChannelSettingsDialog({
                                             ? "bg-green-500 text-white shadow-sm"
                                             : "text-green-500/70 hover:text-green-500 hover:bg-green-500/10"
                                         }`}
-                                        title="Allow"
+                                        title={gt("Allow")}
                                       >
                                         <Check className="w-3.5 h-3.5" />
                                       </button>
@@ -1160,7 +1162,7 @@ export function ChannelSettingsDialog({
                         ) : (
                           <div className="flex flex-col items-center justify-center h-full py-10 text-[var(--text-muted)] text-xs">
                             <Shield className="w-8 h-8 mb-2 opacity-50 text-[var(--text-muted)]" />
-                            <span>Select a role or member on the left</span>
+                            <span>{gt("Select a role or member on the left")}</span>
                           </div>
                         )}
                       </div>
@@ -1175,10 +1177,10 @@ export function ChannelSettingsDialog({
                 <div className="flex items-center justify-between p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <div className="space-y-1">
                     <span className="text-sm font-semibold text-[var(--text-primary)]">
-                      Webhooks Manager
+                      {gt("Webhooks Manager")}
                     </span>
                     <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
-                      Webhooks are an easy way to get data posted into this channel. Send alerts, build bots, or trigger hooks.
+                      {gt("Webhooks are an easy way to get data posted into this channel. Send alerts, build bots, or trigger hooks.")}
                     </p>
                   </div>
                   <Button
@@ -1186,16 +1188,16 @@ export function ChannelSettingsDialog({
                     className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
                   >
                     <Plus className="w-4 h-4 mr-1.5" />
-                    New Webhook
+                    {gt("New Webhook")}
                   </Button>
                 </div>
 
                 {isLoadingWebhooks ? (
-                  <div className="text-center py-10 text-xs text-[var(--text-muted)]">Loading webhooks...</div>
+                  <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading webhooks...")}</div>
                 ) : webhooks.length === 0 ? (
                   <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
                     <Radio className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
-                    <span>No webhooks created for this channel yet</span>
+                    <span>{gt("No webhooks created for this channel yet")}</span>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -1225,7 +1227,7 @@ export function ChannelSettingsDialog({
                         <button
                           onClick={() => handleDeleteWebhook(w.id)}
                           className="p-2 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
-                          title="Delete Webhook"
+                          title={gt("Delete Webhook")}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -1240,29 +1242,29 @@ export function ChannelSettingsDialog({
               <div className="max-w-[720px] space-y-6">
                 <div className="p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <span className="text-sm font-semibold text-[var(--text-primary)] block mb-1">
-                    Channel-Specific Invites
+                    {gt("Channel-Specific Invites")}
                   </span>
                   <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                    A list of active invite links pointing directly to this channel. Revoking invite links deletes them immediately.
+                    {gt("A list of active invite links pointing directly to this channel. Revoking invite links deletes them immediately.")}
                   </p>
                 </div>
 
                 {isLoadingInvites ? (
-                  <div className="text-center py-10 text-xs text-[var(--text-muted)]">Loading invites...</div>
+                  <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading invites...")}</div>
                 ) : invites.length === 0 ? (
                   <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
                     <Link className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
-                    <span>No active invites for this channel</span>
+                    <span>{gt("No active invites for this channel")}</span>
                   </div>
                 ) : (
                   <div className="border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] overflow-hidden">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] text-[var(--text-muted)] uppercase tracking-wider font-bold">
-                          <th className="p-3 pl-4">Code</th>
-                          <th className="p-3">Uses</th>
-                          <th className="p-3">Expires</th>
-                          <th className="p-3 pr-4 text-right">Action</th>
+                          <th className="p-3 pl-4">{gt("Code")}</th>
+                          <th className="p-3">{gt("Uses")}</th>
+                          <th className="p-3">{gt("Expires")}</th>
+                          <th className="p-3 pr-4 text-right">{gt("Action")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1271,14 +1273,14 @@ export function ChannelSettingsDialog({
                             <td className="p-3 pl-4 font-mono text-[var(--text-primary)]">{inv.code}</td>
                             <td className="p-3">{inv.uses} {inv.maxUses > 0 ? `/ ${inv.maxUses}` : ""}</td>
                             <td className="p-3">
-                              {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : "Never"}
+                              {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : gt("Never")}
                             </td>
                             <td className="p-3 pr-4 text-right">
                               <button
                                 onClick={() => handleDeleteInvite(inv.code)}
                                 className="px-2.5 py-1 rounded bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white text-xs font-semibold transition-all"
                               >
-                                Revoke
+                                {gt("Revoke")}
                               </button>
                             </td>
                           </tr>
@@ -1294,17 +1296,18 @@ export function ChannelSettingsDialog({
               <div className="max-w-[520px] space-y-6">
                 <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/20">
                   <h3 className="text-base font-semibold text-red-400 mb-2">
-                    Delete #{channel.name}
+                    {gt("Delete #{name}", { name: channel.name })}
                   </h3>
                   <p className="text-sm text-[var(--text-muted)] leading-relaxed">
-                    Are you sure you want to delete <span className="font-semibold text-[var(--text-primary)]">#{channel.name}</span>?
-                    This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.
+                    {gt("Are you sure you want to delete")}
+                    <span className="font-semibold text-[var(--text-primary)]">#{channel.name}</span>?
+                    {gt("This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.")}
                   </p>
                 </div>
 
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                    Type <span className="text-[var(--text-primary)]">{channel.name}</span> to confirm
+                    {gt("Type {name} to confirm", { name: channel.name })}
                   </Label>
                   <Input
                     value={deleteConfirmText}
@@ -1319,7 +1322,7 @@ export function ChannelSettingsDialog({
                   disabled={deleteConfirmText !== channel.name}
                   className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-medium w-full h-10"
                 >
-                  Delete Channel
+                  {gt("Delete Channel")}
                 </Button>
               </div>
             )}
@@ -1331,7 +1334,7 @@ export function ChannelSettingsDialog({
               <div className="flex items-center gap-2.5 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
                 <span className="text-sm text-[var(--text-secondary)] truncate">
-                  You have unsaved changes
+                  {gt("You have unsaved changes")}
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -1348,14 +1351,14 @@ export function ChannelSettingsDialog({
                   }}
                   className="px-3.5 py-2 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
                 >
-                  Reset
+                  {gt("Reset")}
                 </button>
                 <Button
                   onClick={handleSave}
                   disabled={isSaving || !name.trim()}
                   className="bg-[var(--app-accent)] hover:opacity-90 disabled:opacity-40 text-[var(--text-on-accent)] text-sm px-5 h-9 font-semibold"
                 >
-                  {isSaving ? "Saving…" : "Save Changes"}
+                  {isSaving ? gt("Saving…") : gt("Save Changes")}
                 </Button>
               </div>
             </div>
@@ -1366,7 +1369,7 @@ export function ChannelSettingsDialog({
               <div className="flex items-center gap-2.5 min-w-0">
                 <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
                 <span className="text-sm text-[var(--text-secondary)] truncate">
-                  You have unsaved permission changes
+                  {gt("You have unsaved permission changes")}
                 </span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -1383,14 +1386,14 @@ export function ChannelSettingsDialog({
                   }}
                   className="px-3.5 py-2 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
                 >
-                  Reset
+                  {gt("Reset")}
                 </button>
                 <Button
                   onClick={handleSavePermissions}
                   disabled={isSaving}
                   className="bg-[var(--app-accent)] hover:opacity-90 disabled:opacity-40 text-[var(--text-on-accent)] text-sm px-5 h-9 font-semibold"
                 >
-                  {isSaving ? "Saving…" : "Save Changes"}
+                  {isSaving ? gt("Saving…") : gt("Save Changes")}
                 </Button>
               </div>
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { T, useGT } from "gt-next";
 import {
   User,
   Shield,
@@ -19,49 +20,49 @@ import {
   Link as LinkIcon,
 } from "lucide-react";
 
-const sections = [
-  {
-    title: "Account",
-    items: [
-      { href: "/channels/settings/account", label: "My Account", icon: User },
-      { href: "/channels/settings/profiles", label: "Profiles", icon: UserCheck },
-      { href: "/channels/settings/connections", label: "Connections", icon: LinkIcon },
-      { href: "/channels/settings/status", label: "Status", icon: Circle },
-      { href: "/channels/settings/privacy", label: "Privacy & Safety", icon: Shield },
-    ],
-  },
-  {
-    title: "App Settings",
-    items: [
-      { href: "/channels/settings/notifications", label: "Notifications", icon: Bell },
-      { href: "/channels/settings/appearance", label: "Appearance", icon: Palette },
-      { href: "/channels/settings/accessibility", label: "Accessibility", icon: Accessibility },
-      { href: "/channels/settings/voice", label: "Voice & Video", icon: Mic },
-      { href: "/channels/settings/language", label: "Language", icon: Globe },
-    ],
-  },
-  {
-    title: "Premium",
-    items: [
-      { href: "/channels/settings/premium", label: "SerikaCord Premium", icon: Crown },
-    ],
-  },
-  {
-    title: "Support",
-    items: [
-      { href: "/channels/settings/help", label: "Help & Support", icon: HelpCircle },
-      { href: "/channels/settings/bug-report", label: "Report a Bug", icon: Bug },
-      { href: "/channels/settings/feedback", label: "Give Feedback", icon: MessageSquare },
-    ],
-  },
-];
-
 export default function MobileSettingsIndexPage() {
+  const gt = useGT();
+  const sections = [
+    {
+      title: gt("Account"),
+      items: [
+        { href: "/channels/settings/account", label: gt("My Account"), icon: User },
+        { href: "/channels/settings/profiles", label: gt("Profiles"), icon: UserCheck },
+        { href: "/channels/settings/connections", label: gt("Connections"), icon: LinkIcon },
+        { href: "/channels/settings/status", label: gt("Status"), icon: Circle },
+        { href: "/channels/settings/privacy", label: gt("Privacy & Safety"), icon: Shield },
+      ],
+    },
+    {
+      title: gt("App Settings"),
+      items: [
+        { href: "/channels/settings/notifications", label: gt("Notifications"), icon: Bell },
+        { href: "/channels/settings/appearance", label: gt("Appearance"), icon: Palette },
+        { href: "/channels/settings/accessibility", label: gt("Accessibility"), icon: Accessibility },
+        { href: "/channels/settings/voice", label: gt("Voice & Video"), icon: Mic },
+        { href: "/channels/settings/language", label: gt("Language"), icon: Globe },
+      ],
+    },
+    {
+      title: gt("Premium"),
+      items: [
+        { href: "/channels/settings/premium", label: gt("SerikaCord Premium"), icon: Crown },
+      ],
+    },
+    {
+      title: gt("Support"),
+      items: [
+        { href: "/channels/settings/help", label: gt("Help & Support"), icon: HelpCircle },
+        { href: "/channels/settings/bug-report", label: gt("Report a Bug"), icon: Bug },
+        { href: "/channels/settings/feedback", label: gt("Give Feedback"), icon: MessageSquare },
+      ],
+    },
+  ];
   return (
     <div className="min-h-full bg-[var(--bg-app)] overflow-y-auto pb-20">
       <div className="px-4 pt-6 pb-4">
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">Settings</h1>
-        <p className="text-sm text-[var(--text-muted)] mt-1">Manage your account and preferences</p>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">{gt("Settings")}</h1>
+        <p className="text-sm text-[var(--text-muted)] mt-1">{gt("Manage your account and preferences")}</p>
       </div>
 
       <div className="px-4 space-y-6">

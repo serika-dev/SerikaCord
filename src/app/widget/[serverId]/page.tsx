@@ -9,6 +9,7 @@ import { ServerBadge } from "@/components/ui/badges";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
+import { useGT } from "gt-next";
 
 interface WidgetCategory {
   id: string;
@@ -116,6 +117,7 @@ function WidgetMessageBody({
   emojis?: WidgetEmoji[];
   mentions?: WidgetMentions;
 }) {
+  const gt = useGT();
   const nodes: React.ReactNode[] = [];
   let last = 0;
   let match: RegExpExecArray | null;
@@ -134,7 +136,7 @@ function WidgetMessageBody({
       const u = mentions?.users[userId];
       nodes.push(
         <span key={key} className="rounded px-1 font-medium bg-[var(--app-accent)]/20 text-[var(--app-accent)]">
-          @{u?.displayName || u?.username || "user"}
+          @{u?.displayName || u?.username || gt("user")}
         </span>
       );
     } else if (roleId) {
@@ -149,7 +151,7 @@ function WidgetMessageBody({
             color: color || "var(--app-accent)",
           }}
         >
-          @{r?.name || "role"}
+          @{r?.name || gt("role")}
         </span>
       );
     } else if (special) {
@@ -261,6 +263,7 @@ function WidgetAttachments({ attachments }: { attachments?: WidgetAttachment[] }
 }
 
 export default function WidgetPage() {
+  const gt = useGT();
   const params = useParams();
   const serverId = params.serverId as string;
   const [widget, setWidget] = useState<ServerWidget | null>(null);
@@ -277,14 +280,14 @@ export default function WidgetPage() {
         const data = await response.json();
         setWidget(data);
       } else if (response.status === 403) {
-        setError("Widget is disabled for this server");
+        setError(gt("Widget is disabled for this server"));
       } else if (response.status === 404) {
-        setError("Server not found");
+        setError(gt("Server not found"));
       } else {
-        setError("Failed to load widget");
+        setError(gt("Failed to load widget"));
       }
     } catch {
-      setError("Failed to load widget");
+      setError(gt("Failed to load widget"));
     }
   }, [serverId]);
 
@@ -435,7 +438,7 @@ export default function WidgetPage() {
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-[var(--app-muted)]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#23d160]" />
-              {widget.onlineCount.toLocaleString()} online
+              {widget.onlineCount.toLocaleString()} {gt("online")}
             </div>
           </div>
           <button
@@ -493,7 +496,7 @@ export default function WidgetPage() {
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-color)] hover:brightness-110 text-white text-xs font-semibold transition-all"
           >
-            Join Server
+            {gt("Join Server")}
             <ArrowRight className="w-3.5 h-3.5" />
           </a>
         )}
@@ -539,7 +542,7 @@ export default function WidgetPage() {
             {messageGroups.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-[var(--app-muted)]">
                 <MessageCircle className="w-10 h-10 text-[var(--app-muted-2)]" />
-                <p className="text-sm">No messages yet in this channel</p>
+                <p className="text-sm">{gt("No messages yet in this channel")}</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -559,10 +562,10 @@ export default function WidgetPage() {
                         <div className="flex items-center gap-1.5 ml-12 mb-0.5 text-xs text-[var(--app-muted-2)] min-w-0">
                           <Reply className="w-3.5 h-3.5 shrink-0 -scale-x-100" />
                           <span className="font-medium text-[var(--app-muted)] shrink-0">
-                            {reply.author?.displayName || reply.author?.username || "someone"}
+                            {reply.author?.displayName || reply.author?.username || gt("someone")}
                           </span>
                           <span className="truncate">
-                            {reply.content || "(attachment)"}
+                            {reply.content || gt("(attachment)")}
                           </span>
                         </div>
                       )}
@@ -623,7 +626,7 @@ export default function WidgetPage() {
               rel="noopener noreferrer"
               className="mx-4 mb-4 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[var(--app-surface)] border border-[var(--app-border)] hover:border-[var(--accent-color)]/60 text-sm text-[var(--app-muted)] hover:text-[var(--app-text)] transition-colors shrink-0"
             >
-              Click here to join and participate in chat
+              {gt("Click here to join and participate in chat")}
             </a>
           )}
         </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 import type { MessageBarHandle } from "@/components/chat/MessageBar";
 import { useChatStream, useTypingSignal, type ChatStreamEvent } from "@/hooks/useChatStream";
 import { useMessageActions } from "@/hooks/useMessageActions";
@@ -195,6 +196,7 @@ export function useChatSession<M extends ChatMessage>({
   onOtherEvent,
   onShouldScrollToBottom,
 }: UseChatSessionOptions<M>) {
+  const gt = useGT();
   const [messages, setMessages] = useState<M[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -279,12 +281,12 @@ export function useChatSession<M extends ChatMessage>({
         setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
         latestRef.current.onShouldScrollToBottom?.();
       } else {
-        toast.error("Failed to load messages");
+        toast.error(gt("Failed to load messages"));
       }
     } catch (error) {
       if (activeFetchContextRef.current !== requestedContext) return;
       console.error("Failed to fetch messages:", error);
-      toast.error("Failed to load messages");
+      toast.error(gt("Failed to load messages"));
     } finally {
       if (activeFetchContextRef.current === requestedContext) {
         setIsLoading(false);
@@ -544,7 +546,7 @@ export function useChatSession<M extends ChatMessage>({
           uploadedAttachments = (await messageBarRef.current?.uploadAttachments()) ?? [];
           messageBarRef.current?.clearAttachments();
           if (uploadedAttachments.length === 0 && !messageContent.trim()) {
-            toast.error("Failed to upload file(s). Your message was not sent.");
+            toast.error(gt("Failed to upload file(s). Your message was not sent."));
             return;
           }
         }
@@ -611,7 +613,7 @@ export function useChatSession<M extends ChatMessage>({
           const data = await response.json().catch(() => null);
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           restoreDraft();
-          toast.error(data?.error || "Failed to send message");
+          toast.error(data?.error || gt("Failed to send message"));
         }
       } catch (error) {
         console.error("Failed to send message:", error);
@@ -619,7 +621,7 @@ export function useChatSession<M extends ChatMessage>({
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
         }
         restoreDraft();
-        toast.error("Failed to send message. Check your connection.");
+        toast.error(gt("Failed to send message. Check your connection."));
       } finally {
         setIsSending(false);
         actions.setReplyToMessage(null);

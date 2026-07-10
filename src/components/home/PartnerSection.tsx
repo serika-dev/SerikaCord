@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Users } from "lucide-react";
+import { T, useGT } from "gt-next";
 
 interface PartnerServer {
   id: string;
@@ -36,6 +37,7 @@ function ServerAvatar({ name, icon }: { name: string; icon: string | null }) {
 }
 
 export function PartnerSection() {
+  const gt = useGT();
   const [servers, setServers] = useState<PartnerServer[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -53,8 +55,8 @@ export function PartnerSection() {
     <section id="discover" className="py-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         <div className="mb-10">
-          <h2 className="text-2xl sm:text-3xl font-bold mb-2">Partnered Communities</h2>
-          <p className="text-[#666] text-sm">Official partners verified by Serika Company.</p>
+          <h2 className="text-2xl sm:text-3xl font-bold mb-2"><T>Partnered Communities</T></h2>
+          <p className="text-[#666] text-sm"><T>Official partners verified by Serika Company.</T></p>
         </div>
 
         {loading ? (
@@ -91,7 +93,7 @@ export function PartnerSection() {
                     )}
                     <div className="flex items-center gap-1 text-xs text-[#444]">
                       <Users className="w-3 h-3" />
-                      <span>{server.memberCount.toLocaleString()} members</span>
+                      <span>{server.memberCount.toLocaleString()} {gt("members")}</span>
                     </div>
                   </div>
                 </Link>

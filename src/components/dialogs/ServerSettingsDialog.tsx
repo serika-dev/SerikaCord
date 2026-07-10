@@ -55,6 +55,7 @@ import { hasPermissionBit, setPermissionBit } from "@/lib/roles/bitfield";
 import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
 import { UnsavedChangesBar } from "@/components/ui/unsaved-changes-bar";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
+import { T, useGT } from "gt-next";
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -215,6 +216,7 @@ interface ServerApplication {
 
 export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialogProps) {
   const { currentServer, fetchServers, channels } = useServer();
+  const gt = useGT();
   const { user } = useAuth();
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
@@ -310,14 +312,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
       if (res.ok) {
         const data = await res.json();
-        toast.success(`Synced Discord channels successfully! Mode: ${data.details.mode}. Created: ${data.details.created}, Linked: ${data.details.linked}, Deleted: ${data.details.deleted}.`);
+        toast.success(`Synced Discord channels successfully! ${gt("Mode")}: ${data.details.mode}. ${gt("Created")}: ${data.details.created}, ${gt("Linked")}: ${data.details.linked}, ${gt("Deleted")}: ${data.details.deleted}.`);
         await fetchServers();
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.error || "Failed to sync Discord channels");
+        toast.error(err?.error || gt("Failed to sync Discord channels"));
       }
     } catch {
-      toast.error("Failed to sync Discord channels");
+      toast.error(gt("Failed to sync Discord channels"));
     } finally {
       setIsSyncingDiscord(false);
     }
@@ -338,7 +340,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     }
 
     if (!channelId) {
-      toast.error("Please configure and select a notification channel first");
+      toast.error(gt("Please configure and select a notification channel first"));
       setIsTriggeringTwitch(false);
       setIsTriggeringYoutube(false);
       setIsTriggeringDiscord(false);
@@ -352,13 +354,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         body: JSON.stringify({ channelId }),
       });
       if (res.ok) {
-        toast.success(`Mock ${type} alert triggered successfully!`);
+        toast.success(gt("Mock alert triggered successfully!"));
       } else {
         const err = await res.json().catch(() => null);
-        toast.error(err?.error || `Failed to trigger mock ${type} alert`);
+        toast.error(err?.error || gt("Failed to trigger mock alert"));
       }
     } catch {
-      toast.error(`Failed to trigger mock ${type} alert`);
+      toast.error(gt("Failed to trigger mock alert"));
     } finally {
       setIsTriggeringTwitch(false);
       setIsTriggeringYoutube(false);
@@ -652,13 +654,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
     // Validate file type
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(gt("Please select an image file"));
       return;
     }
 
     // Validate file size (8MB max)
     if (file.size > 8 * 1024 * 1024) {
-      toast.error("Image must be less than 8MB");
+      toast.error(gt("Image must be less than 8MB"));
       return;
     }
 
@@ -682,14 +684,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     if (!file || !currentServer) return;
 
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(gt("Please select an image file"));
       return;
     }
 
     // GIFs bypass the cropper to preserve animation
     if (file.type === "image/gif") {
       if (file.size > 50 * 1024 * 1024) {
-        toast.error("GIF must be less than 50MB");
+        toast.error(gt("GIF must be less than 50MB"));
         return;
       }
       setIsUploadingBanner(true);
@@ -703,14 +705,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         if (response.ok) {
           const data = await response.json();
           setServerBanner(data.url);
-          toast.success("Server banner updated!");
+          toast.success(gt("Server banner updated!"));
           await fetchServers();
         } else {
           const data = await response.json();
-          toast.error(data.error || "Failed to upload banner");
+          toast.error(data.error || gt("Failed to upload banner"));
         }
       } catch {
-        toast.error("Failed to upload banner");
+        toast.error(gt("Failed to upload banner"));
       } finally {
         setIsUploadingBanner(false);
       }
@@ -721,7 +723,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     }
 
     if (file.size > 8 * 1024 * 1024) {
-      toast.error("Image must be less than 8MB");
+      toast.error(gt("Image must be less than 8MB"));
       return;
     }
 
@@ -763,14 +765,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (response.ok) {
         const data = await response.json();
         setImage(data.url);
-        toast.success(`Server ${cropperType} updated!`);
+        toast.success(gt("Server {type} updated!", { type: cropperType }));
         await fetchServers();
       } else {
         const data = await response.json();
-        toast.error(data.error || `Failed to upload ${cropperType}`);
+        toast.error(data.error || gt("Failed to upload {type}", { type: cropperType }));
       }
     } catch {
-      toast.error(`Failed to upload ${cropperType}`);
+      toast.error(gt("Failed to upload {type}", { type: cropperType }));
     } finally {
       setUploading(false);
     }
@@ -778,28 +780,28 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   // Human-readable labels for server-side field errors
   const FIELD_LABELS: Record<string, string> = {
-    name: "Server name",
-    description: "Description",
-    systemChannelId: "System messages channel",
-    rulesChannelId: "Rules channel",
-    afkChannelId: "AFK channel",
-    afkTimeout: "AFK timeout",
-    "widget.enabled": "Widget",
-    "widget.channelId": "Widget invite channel",
-    "moderation.verificationLevel": "Verification level",
-    "moderation.explicitContentFilter": "Content filter",
-    "moderation.require2FA": "2FA requirement",
-    "safety.raidProtection": "Raid protection",
-    "safety.antiSpam": "Anti-spam",
-    "safety.mentionSpamLimit": "Mention spam limit",
-    "integrations.discord": "Discord integration",
-    "integrations.twitch": "Twitch integration",
-    "integrations.youtube": "YouTube integration",
-    "integrations.webhooks": "Webhooks integration",
-    "soundboard.enabled": "Soundboard",
-    "soundboard.volume": "Soundboard volume",
-    "access.joinMode": "Server access",
-    isAgeGated: "Age-restricted server",
+    name: gt("Server name"),
+    description: gt("Description"),
+    systemChannelId: gt("System messages channel"),
+    rulesChannelId: gt("Rules channel"),
+    afkChannelId: gt("AFK channel"),
+    afkTimeout: gt("AFK timeout"),
+    "widget.enabled": gt("Widget"),
+    "widget.channelId": gt("Widget invite channel"),
+    "moderation.verificationLevel": gt("Verification level"),
+    "moderation.explicitContentFilter": gt("Content filter"),
+    "moderation.require2FA": gt("2FA requirement"),
+    "safety.raidProtection": gt("Raid protection"),
+    "safety.antiSpam": gt("Anti-spam"),
+    "safety.mentionSpamLimit": gt("Mention spam limit"),
+    "integrations.discord": gt("Discord integration"),
+    "integrations.twitch": gt("Twitch integration"),
+    "integrations.youtube": gt("YouTube integration"),
+    "integrations.webhooks": gt("Webhooks integration"),
+    "soundboard.enabled": gt("Soundboard"),
+    "soundboard.volume": gt("Soundboard volume"),
+    "access.joinMode": gt("Server access"),
+    isAgeGated: gt("Age-restricted server"),
   };
 
   // One atomic bulk save for every dirty field across all settings tabs.
@@ -817,21 +819,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       if (response.ok) {
         settingsDraft.markSaved();
-        toast.success("Settings saved");
+        toast.success(gt("Settings saved"));
         await fetchServers();
       } else if (response.status === 400 && data?.fieldErrors) {
         setFieldErrors(data.fieldErrors as Record<string, string>);
         const entries = Object.entries(data.fieldErrors as Record<string, string>);
         const [firstField, firstMessage] = entries[0];
         toast.error(`${FIELD_LABELS[firstField] || firstField}: ${firstMessage}`, {
-          description: entries.length > 1 ? `${entries.length - 1} more field${entries.length > 2 ? "s" : ""} need attention` : undefined,
+          description: entries.length > 1 ? gt("{count} more fields need attention", { count: entries.length - 1 }) : undefined,
         });
       } else {
-        toast.error(data?.error || "Failed to save settings");
+        toast.error(data?.error || gt("Failed to save settings"));
       }
     } catch (error) {
       console.error("Failed to save settings:", error);
-      toast.error("Failed to save settings. Check your connection and try again.");
+      toast.error(gt("Failed to save settings. Check your connection and try again."));
     } finally {
       setIsSaving(false);
     }
@@ -845,7 +847,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   // Closing with unsaved changes requires an explicit choice
   const handleRequestClose = useCallback(() => {
     if (settingsDraft.isDirty) {
-      const discard = window.confirm("You have unsaved changes. Discard them and close?");
+      const discard = window.confirm(gt("You have unsaved changes. Discard them and close?"));
       if (!discard) return;
       settingsDraft.reset();
       setFieldErrors({});
@@ -885,13 +887,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           return [...deduped, createdRole].sort((a, b) => b.position - a.position);
         });
         setSelectedRoleId(createdRole.id);
-        toast.success("Role created!");
+        toast.success(gt("Role created!"));
       } else {
-        toast.error("Failed to create role");
+        toast.error(gt("Failed to create role"));
       }
     } catch (error) {
       console.error("Failed to create role:", error);
-      toast.error("Failed to create role");
+      toast.error(gt("Failed to create role"));
     }
   };
 
@@ -909,14 +911,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         } else {
           setRoles(prev => prev.filter(r => r.id !== roleId));
         }
-        toast.success("Role deleted");
+        toast.success(gt("Role deleted"));
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to delete role");
+        toast.error(data.error || gt("Failed to delete role"));
       }
     } catch (error) {
       console.error("Failed to delete role:", error);
-      toast.error("Failed to delete role");
+      toast.error(gt("Failed to delete role"));
     }
   };
 
@@ -965,14 +967,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        throw new Error(data?.error || "Failed to reorder roles");
+        throw new Error(data?.error || gt("Failed to reorder roles"));
       }
 
       const data = await response.json();
       setRoles((data.roles || []) as Role[]);
     } catch (error) {
       setRoles(previous);
-      toast.error(error instanceof Error ? error.message : "Failed to reorder roles");
+      toast.error(error instanceof Error ? error.message : gt("Failed to reorder roles"));
     } finally {
       setIsReorderingRoles(false);
       setDraggingRoleId(null);
@@ -1018,9 +1020,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       );
       // Re-sync draft from saved data by resetting the init ref
       roleDraftInitIdRef.current = null;
-      toast.success("Role updated");
+      toast.success(gt("Role updated"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update role");
+      toast.error(error instanceof Error ? error.message : gt("Failed to update role"));
     } finally {
       setIsSavingRole(false);
     }
@@ -1086,7 +1088,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     } catch (error) {
       setMembers(previousMembers);
       setRoles(previousRoles);
-      toast.error(error instanceof Error ? error.message : "Failed to update member roles");
+      toast.error(error instanceof Error ? error.message : gt("Failed to update member roles"));
     }
   };
 
@@ -1096,13 +1098,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
     // Validate file type
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(gt("Please select an image file"));
       return;
     }
 
     // Validate file size (256KB max for emoji)
     if (file.size > 256 * 1024) {
-      toast.error("Emoji must be less than 256KB");
+      toast.error(gt("Emoji must be less than 256KB"));
       return;
     }
 
@@ -1140,14 +1142,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (response.ok) {
         const data = await response.json();
         setEmojis(prev => [...prev, data.emoji]);
-        toast.success("Emoji uploaded!");
+        toast.success(gt("Emoji uploaded!"));
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to create emoji");
+        toast.error(data.error || gt("Failed to create emoji"));
       }
     } catch (error) {
       console.error("Failed to upload emoji:", error);
-      toast.error("Failed to upload emoji");
+      toast.error(gt("Failed to upload emoji"));
     } finally {
       setIsUploadingEmoji(false);
       if (emojiInputRef.current) {
@@ -1165,13 +1167,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       if (response.ok) {
         setEmojis(prev => prev.filter(e => e._id !== emojiId));
-        toast.success("Emoji deleted");
+        toast.success(gt("Emoji deleted"));
       } else {
-        toast.error("Failed to delete emoji");
+        toast.error(gt("Failed to delete emoji"));
       }
     } catch (error) {
       console.error("Failed to delete emoji:", error);
-      toast.error("Failed to delete emoji");
+      toast.error(gt("Failed to delete emoji"));
     }
   };
 
@@ -1180,12 +1182,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     if (!file || !currentServer) return;
 
     if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+      toast.error(gt("Please select an image file"));
       return;
     }
 
     if (file.size > 512 * 1024) {
-      toast.error("Sticker must be less than 512KB");
+      toast.error(gt("Sticker must be less than 512KB"));
       return;
     }
 
@@ -1219,14 +1221,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (createRes.ok) {
         const data = await createRes.json();
         setStickers((prev) => [data.sticker, ...prev]);
-        toast.success("Sticker uploaded");
+        toast.success(gt("Sticker uploaded"));
       } else {
         const data = await createRes.json();
-        toast.error(data.error || "Failed to save sticker");
+        toast.error(data.error || gt("Failed to save sticker"));
       }
     } catch (error) {
       console.error("Failed to upload sticker:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to upload sticker");
+      toast.error(error instanceof Error ? error.message : gt("Failed to upload sticker"));
     } finally {
       setIsUploadingSticker(false);
       if (stickerInputRef.current) {
@@ -1243,13 +1245,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
       if (response.ok) {
         setStickers((prev) => prev.filter((sticker) => sticker._id !== stickerId));
-        toast.success("Sticker deleted");
+        toast.success(gt("Sticker deleted"));
       } else {
-        toast.error("Failed to delete sticker");
+        toast.error(gt("Failed to delete sticker"));
       }
     } catch (error) {
       console.error("Failed to delete sticker:", error);
-      toast.error("Failed to delete sticker");
+      toast.error(gt("Failed to delete sticker"));
     }
   };
 
@@ -1287,14 +1289,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (response.ok) {
         const data = await response.json();
         setSoundboardSounds((prev) => [...prev, data.sound]);
-        toast.success("Sound added!");
+        toast.success(gt("Sound added!"));
       } else {
         const data = await response.json();
-        toast.error(data.error || "Failed to add sound");
+        toast.error(data.error || gt("Failed to add sound"));
       }
     } catch (error) {
       console.error("Failed to upload sound:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to upload sound");
+      toast.error(error instanceof Error ? error.message : gt("Failed to upload sound"));
     } finally {
       setIsUploadingSound(false);
       if (soundInputRef.current) {
@@ -1308,12 +1310,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     if (!file || !currentServer) return;
 
     if (!file.type.startsWith("audio/")) {
-      toast.error("File must be an audio file");
+      toast.error(gt("File must be an audio file"));
       return;
     }
 
     if (file.size > 20 * 1024 * 1024) {
-      toast.error("Sound must be less than 20MB");
+      toast.error(gt("Sound must be less than 20MB"));
       return;
     }
 
@@ -1339,12 +1341,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
       if (response.ok) {
         setSoundboardSounds((prev) => prev.filter((s) => s._id !== soundId));
-        toast.success("Sound deleted");
+        toast.success(gt("Sound deleted"));
       } else {
-        toast.error("Failed to delete sound");
+        toast.error(gt("Failed to delete sound"));
       }
     } catch {
-      toast.error("Failed to delete sound");
+      toast.error(gt("Failed to delete sound"));
     }
   };
 
@@ -1352,7 +1354,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     const audio = new Audio(sound.url);
     // Audio.volume caps at 1.0; values above 100% previously threw IndexSizeError
     audio.volume = Math.min(Math.max(draftNumber("soundboard.volume", 100), 0) / 100, 1);
-    audio.play().catch(() => toast.error("Failed to play sound"));
+    audio.play().catch(() => toast.error(gt("Failed to play sound")));
     setPlayingSoundId(sound._id);
     audio.onended = () => setPlayingSoundId(null);
   };
@@ -1372,13 +1374,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (response.ok) {
         const data = await response.json();
         setInvites(prev => [data.invite, ...prev]);
-        toast.success("Invite created!");
+        toast.success(gt("Invite created!"));
       } else {
-        toast.error("Failed to create invite");
+        toast.error(gt("Failed to create invite"));
       }
     } catch (error) {
       console.error("Failed to create invite:", error);
-      toast.error("Failed to create invite");
+      toast.error(gt("Failed to create invite"));
     }
   };
 
@@ -1389,10 +1391,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         method: "DELETE",
       });
       setInvites(prev => prev.filter(i => i.code !== code));
-      toast.success("Invite deleted");
+      toast.success(gt("Invite deleted"));
     } catch (error) {
       console.error("Failed to delete invite:", error);
-      toast.error("Failed to delete invite");
+      toast.error(gt("Failed to delete invite"));
     }
   };
 
@@ -1403,17 +1405,17 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         method: "DELETE",
       });
       setBans(prev => prev.filter(b => b.id !== userId));
-      toast.success("User unbanned");
+      toast.success(gt("User unbanned"));
     } catch (error) {
       console.error("Failed to unban user:", error);
-      toast.error("Failed to unban user");
+      toast.error(gt("Failed to unban user"));
     }
   };
 
   const handleDeleteServer = async () => {
     if (!currentServer) return;
     const confirmed = window.confirm(
-      `Are you sure you want to delete "${currentServer.name}"? This action cannot be undone.`
+      gt("Are you sure you want to delete \"{name}\"? This action cannot be undone.", { name: currentServer.name })
     );
     if (!confirmed) return;
 
@@ -1423,7 +1425,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
 
       if (response.ok) {
-        toast.success("Server deleted");
+        toast.success(gt("Server deleted"));
         onOpenChange(false);
         window.location.href = "/channels/me";
       }
@@ -1434,7 +1436,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    toast.success("Copied to clipboard!");
+    toast.success(gt("Copied to clipboard!"));
   };
 
   const handleReviewApplication = async (
@@ -1452,7 +1454,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        toast.error(data?.error || "Failed to update application");
+        toast.error(data?.error || gt("Failed to update application"));
         return;
       }
 
@@ -1465,16 +1467,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       );
       if (status === "approved") {
         setPendingAppCount((prev) => Math.max(0, prev - 1));
-        toast.success("Application approved. User has been added to the server.");
+        toast.success(gt("Application approved. User has been added to the server."));
       } else if (status === "rejected") {
         setPendingAppCount((prev) => Math.max(0, prev - 1));
-        toast.success("Application rejected.");
+        toast.success(gt("Application rejected."));
       } else {
-        toast.success("Application marked for interview.");
+        toast.success(gt("Application marked for interview."));
       }
     } catch (error) {
       console.error("Failed to review application:", error);
-      toast.error("Failed to update application");
+      toast.error(gt("Failed to update application"));
     }
   };
 
@@ -1490,13 +1492,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         className="fixed inset-0 z-50 bg-[#0a0a0a] flex items-center justify-center"
       >
         <div className="text-center p-8">
-          <p className="text-lg font-semibold text-white mb-2">Access Denied</p>
-          <p className="text-sm text-[#888] mb-4">You don&apos;t have permission to view server settings.</p>
+          <p className="text-lg font-semibold text-white mb-2"><T>Access Denied</T></p>
+          <p className="text-sm text-[#888] mb-4"><T>You don&apos;t have permission to view server settings.</T></p>
           <button
             onClick={() => onOpenChange(false)}
             className="px-4 py-2 rounded-lg bg-[var(--app-accent)] text-white text-sm hover:brightness-110 transition"
           >
-            Close
+            <T>Close</T>
           </button>
         </div>
       </div>
@@ -1509,36 +1511,36 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     {
       title: currentServer.name,
       items: [
-        { id: "overview" as SettingsTab, label: "Overview", icon: Settings },
-        { id: "roles" as SettingsTab, label: "Roles", icon: Shield },
-        { id: "emoji" as SettingsTab, label: "Emoji", icon: Smile },
-        { id: "stickers" as SettingsTab, label: "Stickers", icon: Sticker },
-        { id: "soundboard" as SettingsTab, label: "Soundboard", icon: Volume2 },
-        { id: "widget" as SettingsTab, label: "Widget", icon: ExternalLink },
+        { id: "overview" as SettingsTab, label: gt("Overview"), icon: Settings },
+        { id: "roles" as SettingsTab, label: gt("Roles"), icon: Shield },
+        { id: "emoji" as SettingsTab, label: gt("Emoji"), icon: Smile },
+        { id: "stickers" as SettingsTab, label: gt("Stickers"), icon: Sticker },
+        { id: "soundboard" as SettingsTab, label: gt("Soundboard"), icon: Volume2 },
+        { id: "widget" as SettingsTab, label: gt("Widget"), icon: ExternalLink },
       ],
     },
     {
-      title: "Moderation",
+      title: gt("Moderation"),
       items: [
-        { id: "safety" as SettingsTab, label: "Safety Setup", icon: Shield },
-        { id: "moderation" as SettingsTab, label: "Moderation", icon: AlertTriangle },
-        { id: "audit-log" as SettingsTab, label: "Audit Log", icon: FileText },
-        { id: "bans" as SettingsTab, label: "Bans", icon: Ban },
+        { id: "safety" as SettingsTab, label: gt("Safety Setup"), icon: Shield },
+        { id: "moderation" as SettingsTab, label: gt("Moderation"), icon: AlertTriangle },
+        { id: "audit-log" as SettingsTab, label: gt("Audit Log"), icon: FileText },
+        { id: "bans" as SettingsTab, label: gt("Bans"), icon: Ban },
       ],
     },
     {
-      title: "User Management",
+      title: gt("User Management"),
       items: [
-        { id: "members" as SettingsTab, label: "Members", icon: Users },
-        { id: "applications" as SettingsTab, label: "Applications", icon: ClipboardList },
-        { id: "invites" as SettingsTab, label: "Invites", icon: Link2 },
-        { id: "integrations" as SettingsTab, label: "Integrations", icon: Folder },
+        { id: "members" as SettingsTab, label: gt("Members"), icon: Users },
+        { id: "applications" as SettingsTab, label: gt("Applications"), icon: ClipboardList },
+        { id: "invites" as SettingsTab, label: gt("Invites"), icon: Link2 },
+        { id: "integrations" as SettingsTab, label: gt("Integrations"), icon: Folder },
       ],
     },
     {
-      title: "Access",
+      title: gt("Access"),
       items: [
-        { id: "access" as SettingsTab, label: "Access", icon: Lock },
+        { id: "access" as SettingsTab, label: gt("Access"), icon: Lock },
       ],
     },
   ];
@@ -1546,8 +1548,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderOverview = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Server Overview</h2>
-        <p className="text-sm text-[#888888]">Customize your server&apos;s identity</p>
+        <h2 className="text-xl font-bold text-white mb-1"><T>Server Overview</T></h2>
+        <p className="text-sm text-[#888888]"><T>Customize your server&apos;s identity</T></p>
       </div>
 
       {/* Hidden file inputs */}
@@ -1589,7 +1591,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               )}
             </button>
           </div>
-          <span className="text-xs text-[#666666]">Server Icon</span>
+          <span className="text-xs text-[#666666]"><T>Server Icon</T></span>
         </div>
 
         {/* Banner */}
@@ -1610,14 +1612,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               )}
             </button>
           </div>
-          <span className="text-xs text-[#666666] mt-1 block">Server Banner</span>
+          <span className="text-xs text-[#666666] mt-1 block"><T>Server Banner</T></span>
         </div>
       </div>
 
       {/* Server Name */}
       <div>
         <label className="block text-sm font-medium text-[#888888] mb-2">
-          SERVER NAME
+          <T>SERVER NAME</T>
         </label>
         <Input
           value={draftString("name")}
@@ -1627,7 +1629,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             "bg-[#111111] border-[#222222] text-white",
             fieldErrors.name && "border-red-500 focus-visible:ring-red-500"
           )}
-          placeholder="Enter server name"
+          placeholder={gt("Enter server name")}
         />
         {fieldErrors.name && <p className="text-xs text-red-400 mt-1">{fieldErrors.name}</p>}
       </div>
@@ -1635,7 +1637,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       {/* Description */}
       <div>
         <label className="block text-sm font-medium text-[#888888] mb-2">
-          SERVER DESCRIPTION
+          <T>SERVER DESCRIPTION</T>
         </label>
         <Textarea
           value={draftString("description")}
@@ -1645,7 +1647,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             "bg-[#111111] border-[#222222] text-white min-h-[100px]",
             fieldErrors.description && "border-red-500 focus-visible:ring-red-500"
           )}
-          placeholder="Describe what your server is about"
+          placeholder={gt("Describe what your server is about")}
         />
         {fieldErrors.description && <p className="text-xs text-red-400 mt-1">{fieldErrors.description}</p>}
       </div>
@@ -1653,7 +1655,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       {/* System Messages Channel */}
       <div>
         <label className="block text-sm font-medium text-[#888888] mb-2">
-          SYSTEM MESSAGES CHANNEL
+          <T>SYSTEM MESSAGES CHANNEL</T>
         </label>
         <select
           value={draftString("systemChannelId", "") || ""}
@@ -1661,7 +1663,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           aria-label="System messages channel"
           className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
         >
-          <option value="">No system messages</option>
+          <option value="">{gt("No system messages")}</option>
           {textChannels.map((ch) => (
             <option key={ch.id} value={ch.id}>
               #{ch.name}
@@ -1669,14 +1671,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           ))}
         </select>
         <p className="text-xs text-[#666666] mt-1">
-          Where system messages like welcome messages are sent
+          <T>Where system messages like welcome messages are sent</T>
         </p>
       </div>
 
       {/* Rules Channel */}
       <div>
         <label className="block text-sm font-medium text-[#888888] mb-2">
-          RULES CHANNEL
+          <T>RULES CHANNEL</T>
         </label>
         <select
           value={draftString("rulesChannelId", "") || ""}
@@ -1684,7 +1686,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           aria-label="Rules channel"
           className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
         >
-          <option value="">No rules channel</option>
+          <option value="">{gt("No rules channel")}</option>
           {textChannels.map((ch) => (
             <option key={ch.id} value={ch.id}>
               #{ch.name}
@@ -1692,20 +1694,20 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           ))}
         </select>
         <p className="text-xs text-[#666666] mt-1">
-          Display your server rules in Community servers
+          <T>Display your server rules in Community servers</T>
         </p>
       </div>
 
       {/* Danger Zone */}
       {isOwner && (
         <div className="pt-6 border-t border-[#222222]">
-          <h3 className="text-lg font-semibold text-red-500 mb-4">Danger Zone</h3>
+          <h3 className="text-lg font-semibold text-red-500 mb-4"><T>Danger Zone</T></h3>
           <button
             onClick={handleDeleteServer}
             className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 rounded-md flex items-center gap-2"
           >
             <Trash2 className="w-4 h-4" />
-            Delete Server
+            <T>Delete Server</T>
           </button>
         </div>
       )}
@@ -1731,15 +1733,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Roles</h2>
-          <p className="text-sm text-[#888888]">Manage role order, display, and permissions</p>
+          <h2 className="text-xl font-bold text-white mb-1"><T>Roles</T></h2>
+          <p className="text-sm text-[#888888]"><T>Manage role order, display, and permissions</T></p>
         </div>
         <button
           onClick={handleCreateRole}
           className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          Create Role
+          <T>Create Role</T>
         </button>
       </div>
 
@@ -1758,7 +1760,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   type="text"
                   value={roleSearch}
                   onChange={(e) => setRoleSearch(e.target.value)}
-                  placeholder="Search roles..."
+                  placeholder={gt("Search roles...")}
                   className="w-full pl-9 pr-3 py-2 bg-[#111111] border border-[#222222] rounded-md text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
                 />
               </div>
@@ -1818,7 +1820,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             {isReorderingRoles && (
               <p className="text-xs text-[#888888] flex items-center gap-1.5">
                 <Loader2 className="w-3 h-3 animate-spin" />
-                Saving role order...
+                <T>Saving role order...</T>
               </p>
             )}
           </div>
@@ -1827,7 +1829,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <div className="rounded-lg bg-[#111111] border border-[#222222] flex flex-col max-h-[calc(100vh-220px)]">
             {!selectedRole || !roleDraft ? (
               <div className="flex items-center justify-center py-16 text-sm text-[#888888]">
-                Select a role to edit.
+                <T>Select a role to edit.</T>
               </div>
             ) : (
               <>
@@ -1836,10 +1838,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   <div className="w-4 h-4 rounded-full" style={{ backgroundColor: roleDraft.color || "#888888" }} />
                   <h3 className="text-lg text-white font-semibold">{selectedRole.name}</h3>
                   {selectedRole.isDefault && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-[#1f1f1f] text-[#9b9b9b]">Default</span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-[#1f1f1f] text-[#9b9b9b]"><T>Default</T></span>
                   )}
                   {selectedRole.managed && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-[#1f1f1f] text-[#9b9b9b]">Managed</span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-[#1f1f1f] text-[#9b9b9b]"><T>Managed</T></span>
                   )}
                 </div>
 
@@ -1848,7 +1850,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   {/* Name + Colour */}
                   <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
                     <div>
-                      <label className="block text-xs text-[#888888] mb-1.5">Role Name</label>
+                      <label className="block text-xs text-[#888888] mb-1.5"><T>Role Name</T></label>
                       <Input
                         value={roleDraft.name}
                         onChange={(event) => setRoleDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))}
@@ -1857,7 +1859,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-[#888888] mb-1.5">Colour</label>
+                      <label className="block text-xs text-[#888888] mb-1.5"><T>Colour</T></label>
                       <div className="flex items-center gap-2">
                         <input
                           type="color"
@@ -1877,8 +1879,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   <div className="grid sm:grid-cols-2 gap-3">
                     <label className="flex items-center justify-between p-3 rounded-lg bg-[#0a0a0a] border border-[#222222] cursor-pointer hover:border-[#333333] transition-colors">
                       <div>
-                        <span className="text-sm text-white">Display separately</span>
-                        <p className="text-xs text-[#666666] mt-0.5">Show members with this role separately</p>
+                        <span className="text-sm text-white"><T>Display separately</T></span>
+                        <p className="text-xs text-[#666666] mt-0.5"><T>Show members with this role separately</T></p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -1892,8 +1894,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     </label>
                     <label className="flex items-center justify-between p-3 rounded-lg bg-[#0a0a0a] border border-[#222222] cursor-pointer hover:border-[#333333] transition-colors">
                       <div>
-                        <span className="text-sm text-white">Allow mention</span>
-                        <p className="text-xs text-[#666666] mt-0.5">Anyone can mention this role</p>
+                        <span className="text-sm text-white"><T>Allow mention</T></span>
+                        <p className="text-xs text-[#666666] mt-0.5"><T>Anyone can mention this role</T></p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -1910,20 +1912,20 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   {/* Permissions */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-sm font-semibold text-white">Permissions</h4>
+                      <h4 className="text-sm font-semibold text-white"><T>Permissions</T></h4>
                       <div className="relative flex-1 max-w-[240px]">
                         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#666666]" />
                         <input
                           type="text"
                           value={permissionSearch}
                           onChange={(e) => setPermissionSearch(e.target.value)}
-                          placeholder="Filter permissions..."
+                          placeholder={gt("Filter permissions...")}
                           className="w-full pl-8 pr-3 py-1.5 bg-[#0a0a0a] border border-[#222222] rounded-md text-xs text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
                         />
                       </div>
                     </div>
                     {filteredCategories.length === 0 ? (
-                      <p className="text-sm text-[#666666] text-center py-4">No permissions match your search.</p>
+                      <p className="text-sm text-[#666666] text-center py-4"><T>No permissions match your search.</T></p>
                     ) : (
                       filteredCategories.map((category) => (
                         <div key={category.id} className="rounded-lg border border-[#222222] bg-[#0a0a0a] p-3 space-y-2">
@@ -1956,7 +1958,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 {/* Sticky save bar */}
                 <div className="flex items-center justify-between p-3 border-t border-[#222222] flex-shrink-0 bg-[#0d0d0d] rounded-b-lg">
                   <p className="text-xs text-[#666666]">
-                    {hasUnsavedRoleChanges ? "You have unsaved changes" : "All changes saved"}
+                    {hasUnsavedRoleChanges ? gt("You have unsaved changes") : gt("All changes saved")}
                   </p>
                   <button
                     onClick={() => void handleSaveRole()}
@@ -1969,7 +1971,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     )}
                   >
                     {isSavingRole && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {hasUnsavedRoleChanges ? "Save Changes" : "Saved"}
+                    {hasUnsavedRoleChanges ? gt("Save Changes") : gt("Saved")}
                   </button>
                 </div>
               </>
@@ -1994,7 +1996,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
       const data = await res.json();
       if (!res.ok) {
-        setVanityError(data.error || "Failed to update custom invite");
+        setVanityError(data.error || gt("Failed to update custom invite"));
         return;
       }
       setVanityInfo((prev) => ({
@@ -2003,9 +2005,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         isPartnered: prev?.isPartnered ?? true,
       }));
       setVanityDraft(data.code ?? "");
-      toast.success(data.code ? "Custom invite link updated!" : "Custom invite link removed");
+      toast.success(data.code ? gt("Custom invite link updated!") : gt("Custom invite link removed"));
     } catch {
-      setVanityError("Something went wrong. Please try again.");
+      setVanityError(gt("Something went wrong. Please try again."));
     } finally {
       setIsSavingVanity(false);
     }
@@ -2020,14 +2022,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <div>
             <h3 className="text-white font-semibold flex items-center gap-2">
               <Crown className="w-4 h-4 text-[#F0B232]" />
-              Custom Invite Link
+              <T>Custom Invite Link</T>
             </h3>
             <p className="text-xs text-[#888888] mt-0.5">
-              As a partnered server, you can claim a personalized invite link.
+              <T>As a partnered server, you can claim a personalized invite link.</T>
             </p>
           </div>
           {vanityInfo.code && (
-            <span className="text-xs text-[#888888]">{vanityInfo.uses} uses</span>
+            <span className="text-xs text-[#888888]">{vanityInfo.uses} {gt('uses')}</span>
           )}
         </div>
         <div className="flex gap-2">
@@ -2051,7 +2053,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-2 text-sm font-medium transition-colors"
           >
             {isSavingVanity ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            Save
+            <T>Save</T>
           </button>
           {vanityInfo.code && (
             <button
@@ -2067,7 +2069,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <p className="text-xs text-red-400">{vanityError}</p>
         ) : (
           <p className="text-xs text-[#666666]">
-            3-32 characters. Lowercase letters, numbers, and hyphens only. Leave empty and save to remove.
+            <T>3-32 characters. Lowercase letters, numbers, and hyphens only. Leave empty and save to remove.</T>
           </p>
         )}
       </div>
@@ -2078,15 +2080,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Server Invites</h2>
-          <p className="text-sm text-[#888888]">Create and manage invite links</p>
+          <h2 className="text-xl font-bold text-white mb-1"><T>Server Invites</T></h2>
+          <p className="text-sm text-[#888888]"><T>Create and manage invite links</T></p>
         </div>
         <button
           onClick={handleCreateInvite}
           className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          Create Invite
+          <T>Create Invite</T>
         </button>
       </div>
 
@@ -2099,8 +2101,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : invites.length === 0 ? (
         <div className="text-center py-12">
           <Link2 className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">No invites yet</h3>
-          <p className="text-[#888888] text-sm">Create an invite link to share with others</p>
+          <h3 className="text-lg font-semibold text-white mb-2"><T>No invites yet</T></h3>
+          <p className="text-[#888888] text-sm"><T>Create an invite link to share with others</T></p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -2123,10 +2125,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   </button>
                 </div>
                 <div className="flex items-center gap-4 mt-1 text-xs text-[#666666]">
-                  <span>#{invite.channel?.name || 'deleted-channel'}</span>
-                  <span>{invite.uses} uses</span>
+                  <span>#{invite.channel?.name || gt('deleted-channel')}</span>
+                  <span>{invite.uses} {gt('uses')}</span>
                   {invite.expiresAt && (
-                    <span>Expires {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                    <span>{gt('Expires')} {new Date(invite.expiresAt).toLocaleDateString()}</span>
                   )}
                 </div>
               </div>
@@ -2152,8 +2154,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderBans = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Server Bans</h2>
-        <p className="text-sm text-[#888888]">View and manage banned users</p>
+        <h2 className="text-xl font-bold text-white mb-1"><T>Server Bans</T></h2>
+        <p className="text-sm text-[#888888]"><T>View and manage banned users</T></p>
       </div>
 
       {isLoading ? (
@@ -2163,8 +2165,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : bans.length === 0 ? (
         <div className="text-center py-12">
           <Ban className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">No bans</h3>
-          <p className="text-[#888888] text-sm">There are no banned users in this server</p>
+          <h3 className="text-lg font-semibold text-white mb-2"><T>No bans</T></h3>
+          <p className="text-[#888888] text-sm"><T>There are no banned users in this server</T></p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -2189,7 +2191,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 onClick={() => handleUnban(ban.id)}
                 className="px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#222222] text-white text-sm rounded-md transition-colors"
               >
-                Revoke Ban
+                <T>Revoke Ban</T>
               </button>
             </div>
           ))}
@@ -2202,11 +2204,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Server Members</h2>
-          <p className="text-sm text-[#888888]">{members.length} members</p>
+          <h2 className="text-xl font-bold text-white mb-1"><T>Server Members</T></h2>
+          <p className="text-sm text-[#888888]">{members.length} {gt('members')}</p>
         </div>
         <Input
-          placeholder="Search members..."
+          placeholder={gt("Search members...")}
           value={memberSearch}
           onChange={(event) => setMemberSearch(event.target.value)}
           className="w-64 bg-[#111111] border-[#222222] text-white"
@@ -2268,13 +2270,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button className="p-0.5 text-[#888888] hover:text-[#8B5CF6] transition-colors" title="Assign roles">
+                        <button className="p-0.5 text-[#888888] hover:text-[#8B5CF6] transition-colors" title={gt("Assign roles")}>
                           <Plus className="w-3.5 h-3.5" />
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent className="w-56 bg-[#111111] border-[#222222] text-[#888888]">
                         <DropdownMenuLabel className="text-xs font-bold text-[#666666] uppercase">
-                          Manage Roles
+                          <T>Manage Roles</T>
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator className="bg-[#222222]" />
                         <ScrollArea className="h-[200px]">
@@ -2312,7 +2314,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     <MoreHorizontal className="w-4 h-4" />
                   </summary>
                   <div className="absolute right-0 mt-2 z-20 w-64 rounded-lg bg-[#0c0c0c] border border-[#222222] p-3 shadow-xl">
-                    <p className="text-xs uppercase tracking-wide text-[#888888] mb-2">Assign Roles</p>
+                    <p className="text-xs uppercase tracking-wide text-[#888888] mb-2"><T>Assign Roles</T></p>
                     <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
                       {roles
                         .slice()
@@ -2353,8 +2355,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Server Emoji</h2>
-          <p className="text-sm text-[#888888]">Upload custom emoji for your server ({emojis.length}/500)</p>
+          <h2 className="text-xl font-bold text-white mb-1"><T>Server Emoji</T></h2>
+          <p className="text-sm text-[#888888]"><T>Upload custom emoji for your server</T> ({emojis.length}/500)</p>
         </div>
         <button
           onClick={() => emojiInputRef.current?.click()}
@@ -2366,7 +2368,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           ) : (
             <Plus className="w-4 h-4" />
           )}
-          Upload Emoji
+          <T>Upload Emoji</T>
         </button>
       </div>
 
@@ -2387,7 +2389,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             type="text"
             value={emojiSearch}
             onChange={(e) => setEmojiSearch(e.target.value)}
-            placeholder="Search emoji by name..."
+            placeholder={gt("Search emoji by name...")}
             className="w-full pl-9 pr-3 py-2 bg-[#111111] border border-[#222222] rounded-md text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
           />
         </div>
@@ -2400,19 +2402,19 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : emojis.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
           <Smile className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">No custom emoji yet</h3>
-          <p className="text-[#888888] text-sm mb-4">Upload emoji to use in your server</p>
+          <h3 className="text-lg font-semibold text-white mb-2"><T>No custom emoji yet</T></h3>
+          <p className="text-[#888888] text-sm mb-4"><T>Upload emoji to use in your server</T></p>
           <button
             onClick={() => emojiInputRef.current?.click()}
             disabled={isUploadingEmoji}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md disabled:opacity-50"
           >
-            Upload Emoji
+            <T>Upload Emoji</T>
           </button>
         </div>
       ) : filteredEmojis.length === 0 ? (
         <div className="text-center py-8 text-[#888888] text-sm">
-          No emoji matching &quot;{emojiSearch}&quot;
+          {gt("No emoji matching")} "{emojiSearch}"
         </div>
       ) : (
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
@@ -2455,8 +2457,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Server Stickers</h2>
-          <p className="text-sm text-[#888888]">Upload custom stickers for your server ({stickers.length}/500)</p>
+          <h2 className="text-xl font-bold text-white mb-1"><T>Server Stickers</T></h2>
+          <p className="text-sm text-[#888888]"><T>Upload custom stickers for your server</T> ({stickers.length}/500)</p>
         </div>
         <button
           onClick={() => stickerInputRef.current?.click()}
@@ -2464,7 +2466,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
         >
           {isUploadingSticker ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          {isUploadingSticker ? "Uploading..." : "Upload Sticker"}
+          {isUploadingSticker ? gt("Uploading...") : gt("Upload Sticker")}
         </button>
       </div>
 
@@ -2484,7 +2486,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             type="text"
             value={stickerSearch ?? ""}
             onChange={(e) => setStickerSearch(e.target.value)}
-            placeholder="Search stickers by name..."
+            placeholder={gt("Search stickers by name...")}
             className="w-full pl-9 pr-3 py-2 bg-[#111111] border border-[#222222] rounded-md text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
           />
         </div>
@@ -2497,18 +2499,18 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : stickers.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
           <Sticker className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">No stickers yet</h3>
-          <p className="text-[#888888] text-sm mb-4">Upload stickers to use in messages</p>
+          <h3 className="text-lg font-semibold text-white mb-2"><T>No stickers yet</T></h3>
+          <p className="text-[#888888] text-sm mb-4"><T>Upload stickers to use in messages</T></p>
           <button
             onClick={() => stickerInputRef.current?.click()}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md"
           >
-            Upload First Sticker
+            <T>Upload First Sticker</T>
           </button>
         </div>
       ) : filteredStickers.length === 0 ? (
         <div className="text-center py-8 text-[#888888] text-sm">
-          No stickers matching &quot;{stickerSearch}&quot;
+          {gt("No stickers matching")} "{stickerSearch}"
         </div>
       ) : (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
@@ -2544,41 +2546,41 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       {
         key: "invite_only",
         icon: Lock,
-        title: "Invite Only",
-        description: "People can join your server directly with an invite",
+        title: gt("Invite Only"),
+        description: gt("People can join your server directly with an invite"),
       },
       {
         key: "apply_to_join",
         icon: Mail,
-        title: "Apply to Join",
-        description: "People must submit an application and be approved to join",
+        title: gt("Apply to Join"),
+        description: gt("People must submit an application and be approved to join"),
       },
       {
         key: "discoverable",
         icon: Globe,
-        title: "Discoverable",
-        description: "Anyone can join your server directly through Server Discovery",
+        title: gt("Discoverable"),
+        description: gt("Anyone can join your server directly through Server Discovery"),
       },
     ] as const;
 
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Access</h2>
-          <p className="text-sm text-[#888888]">Control how people join your server</p>
+          <h2 className="text-xl font-bold text-white mb-1"><T>Access</T></h2>
+          <p className="text-sm text-[#888888]"><T>Control how people join your server</T></p>
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-white font-medium">How can people join your server?</h3>
+          <h3 className="text-white font-medium"><T>How can people join your server?</T></h3>
           <p className="text-sm text-[#888888]">
-            Keep your server private, or open it up for more people to join.{" "}
+            <T>Keep your server private, or open it up for more people to join.</T>{" "}
             <a
               href="https://support.discord.com/hc/en-us/articles/29729107418519-Server-Member-Applications"
               target="_blank"
               rel="noreferrer"
               className="text-[#8B5CF6] hover:underline"
             >
-              Learn More
+              <T>Learn More</T>
             </a>
           </p>
 
@@ -2613,9 +2615,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         {joinMode === "discoverable" && (
           <div className="space-y-4 p-4 rounded-lg bg-[#111111] border border-[#222222] animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="space-y-2">
-              <label className="text-white font-medium text-sm">Discovery Description</label>
+              <label className="text-white font-medium text-sm"><T>Discovery Description</T></label>
               <Textarea
-                placeholder="A brief description of your server shown in Server Discovery..."
+                placeholder={gt("A brief description of your server shown in Server Discovery...")}
                 value={draftString("discoveryDescription")}
                 onChange={(e) => settingsDraft.update("discoveryDescription", e.target.value)}
                 maxLength={1024}
@@ -2627,16 +2629,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </div>
 
             <div className="space-y-2">
-              <label className="text-white font-medium text-sm">Discovery Categories</label>
-              <p className="text-xs text-[#888888]">Select up to 3 categories that best describe your server</p>
+              <label className="text-white font-medium text-sm"><T>Discovery Categories</T></label>
+              <p className="text-xs text-[#888888]"><T>Select up to 3 categories that best describe your server</T></p>
               <div className="flex flex-wrap gap-2 pt-1">
                 {[
-                  { id: "gaming", name: "Gaming" },
-                  { id: "music", name: "Music" },
-                  { id: "tech", name: "Tech & Programming" },
-                  { id: "art", name: "Art & Design" },
-                  { id: "education", name: "Education" },
-                  { id: "entertainment", name: "Entertainment" },
+                  { id: "gaming", name: gt("Gaming") },
+                  { id: "music", name: gt("Music") },
+                  { id: "tech", name: gt("Tech & Programming") },
+                  { id: "art", name: gt("Art & Design") },
+                  { id: "education", name: gt("Education") },
+                  { id: "entertainment", name: gt("Entertainment") },
                 ].map((cat) => {
                   const selectedCats = (settingsDraft.draft.discoveryCategories as string[]) || [];
                   const isSelected = selectedCats.includes(cat.id);
@@ -2651,7 +2653,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                           nextCats.splice(idx, 1);
                         } else {
                           if (nextCats.length >= 3) {
-                            toast.error("You can select up to 3 categories");
+                            toast.error(gt("You can select up to 3 categories"));
                             return;
                           }
                           nextCats.push(cat.id);
@@ -2677,16 +2679,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-white font-medium">Age-Restricted Server</span>
+              <span className="text-white font-medium"><T>Age-Restricted Server</T></span>
               <p className="text-sm text-[#888888] mt-1">
-                Users will need to confirm they are over the legal age to view the content in this server.{" "}
+                <T>Users will need to confirm they are over the legal age to view the content in this server.</T>{" "}
                 <a
                   href="https://support.discord.com/hc/en-us/articles/115000084051"
                   target="_blank"
                   rel="noreferrer"
                   className="text-[#8B5CF6] hover:underline"
                 >
-                  Learn more
+                  <T>Learn more</T>
                 </a>
               </p>
             </div>
@@ -2729,19 +2731,19 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white mb-1">Member Applications</h2>
-            <p className="text-sm text-[#888888]">Review and manage server member applications</p>
+            <h2 className="text-xl font-bold text-white mb-1"><T>Member Applications</T></h2>
+            <p className="text-sm text-[#888888]"><T>Review and manage server member applications</T></p>
           </div>
           <select
             value={applicationFilter}
             onChange={(e) => setApplicationFilter(e.target.value as typeof applicationFilter)}
             className="h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white text-sm"
           >
-            <option value="all">All Types</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="interviewed">Interviewed</option>
+            <option value="all">{gt("All Types")}</option>
+            <option value="pending">{gt("Pending")}</option>
+            <option value="approved">{gt("Approved")}</option>
+            <option value="rejected">{gt("Rejected")}</option>
+            <option value="interviewed">{gt("Interviewed")}</option>
           </select>
         </div>
 
@@ -2752,11 +2754,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         ) : filtered.length === 0 ? (
           <div className="text-center py-12">
             <ClipboardList className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">No applications</h3>
+            <h3 className="text-lg font-semibold text-white mb-2"><T>No applications</T></h3>
             <p className="text-[#888888] text-sm">
               {applicationFilter === "all"
-                ? "There are no member applications to review"
-                : `No ${applicationFilter} applications`}
+                ? gt("There are no member applications to review")
+                : gt("No {filter} applications", { filter: applicationFilter })}
             </p>
           </div>
         ) : (
@@ -2799,33 +2801,33 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       onClick={() => handleReviewApplication(app.id, "approved")}
                       className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md"
                     >
-                      Approve
+                      <T>Approve</T>
                     </button>
                     <button
                       onClick={() => handleReviewApplication(app.id, "interviewed")}
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md"
                     >
-                      Interview
+                      <T>Interview</T>
                     </button>
                     <button
                       onClick={() => {
-                        const reason = window.prompt("Rejection reason (optional):");
+                        const reason = window.prompt(gt("Rejection reason (optional):"));
                         if (reason === null) return;
                         void handleReviewApplication(app.id, "rejected", reason || undefined);
                       }}
                       className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md"
                     >
-                      Reject
+                      <T>Reject</T>
                     </button>
                   </div>
                 )}
 
                 {app.rejectionReason && (
-                  <p className="text-xs text-red-400">Reason: {app.rejectionReason}</p>
+                  <p className="text-xs text-red-400">{gt("Reason")}: {app.rejectionReason}</p>
                 )}
 
                 <p className="text-xs text-[#666666]">
-                  Submitted {new Date(app.createdAt).toLocaleString()}
+                  {gt("Submitted")} {new Date(app.createdAt).toLocaleString()}
                 </p>
               </div>
             ))}
@@ -2838,13 +2840,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderWidget = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Server Widget</h2>
-        <p className="text-sm text-[#888888]">Embed your server on your website</p>
+        <h2 className="text-xl font-bold text-white mb-1"><T>Server Widget</T></h2>
+        <p className="text-sm text-[#888888]"><T>Embed your server on your website</T></p>
       </div>
 
       <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-white font-medium">Enable Server Widget</span>
+          <span className="text-white font-medium"><T>Enable Server Widget</T></span>
           <button
             onClick={() => settingsDraft.update("widget.enabled", !draftBool("widget.enabled", true))}
             role="switch"
@@ -2859,13 +2861,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </button>
         </div>
         <p className="text-sm text-[#888888]">
-          Allow people to embed your server info on their websites
+          <T>Allow people to embed your server info on their websites</T>
         </p>
       </div>
 
       <div>
         <label className="block text-sm font-medium text-[#888888] mb-2">
-          INVITE CHANNEL
+          <T>INVITE CHANNEL</T>
         </label>
         <select
           value={draftString("widget.channelId", "") || ""}
@@ -2873,7 +2875,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           aria-label="Widget invite channel"
           className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
         >
-          <option value="">Select a channel</option>
+          <option value="">{gt("Select a channel")}</option>
           {textChannels.map((channel) => (
             <option key={channel.id} value={channel.id}>#{channel.name}</option>
           ))}
@@ -2885,7 +2887,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       <div>
         <label className="block text-sm font-medium text-[#888888] mb-2">
-          WIDGET CODE
+          <T>WIDGET CODE</T>
         </label>
         <div className="p-3 rounded-md bg-[#111111] border border-[#222222] font-mono text-sm text-[#888888]">
           {`<iframe src="https://serika.chat/widget/${currentServer.id}" width="350" height="500" />`}
@@ -2895,7 +2897,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           className="mt-2 text-sm text-[#8B5CF6] hover:underline flex items-center gap-1"
         >
           <Copy className="w-4 h-4" />
-          Copy Code
+          <T>Copy Code</T>
         </button>
       </div>
     </div>
@@ -2904,22 +2906,22 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderAuditLog = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Audit Log</h2>
-        <p className="text-sm text-[#888888]">View a record of all changes made to your server</p>
+        <h2 className="text-xl font-bold text-white mb-1"><T>Audit Log</T></h2>
+        <p className="text-sm text-[#888888]"><T>View a record of all changes made to your server</T></p>
       </div>
 
       <div className="flex gap-4 mb-4">
         <select className="h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white">
-          <option value="">All users</option>
+          <option value="">{gt("All users")}</option>
         </select>
         <select className="h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white">
-          <option value="">All actions</option>
-          <option value="channel_create">Channel Created</option>
-          <option value="channel_delete">Channel Deleted</option>
-          <option value="role_create">Role Created</option>
-          <option value="role_delete">Role Deleted</option>
-          <option value="member_ban">Member Banned</option>
-          <option value="member_kick">Member Kicked</option>
+          <option value="">{gt("All actions")}</option>
+          <option value="channel_create">{gt("Channel Created")}</option>
+          <option value="channel_delete">{gt("Channel Deleted")}</option>
+          <option value="role_create">{gt("Role Created")}</option>
+          <option value="role_delete">{gt("Role Deleted")}</option>
+          <option value="member_ban">{gt("Member Banned")}</option>
+          <option value="member_kick">{gt("Member Kicked")}</option>
         </select>
       </div>
 
@@ -2930,8 +2932,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : auditLogs.length === 0 ? (
         <div className="text-center py-12">
           <FileText className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2">No audit log entries</h3>
-          <p className="text-[#888888] text-sm">Actions taken in your server will appear here</p>
+          <h3 className="text-lg font-semibold text-white mb-2"><T>No audit log entries</T></h3>
+          <p className="text-[#888888] text-sm"><T>Actions taken in your server will appear here</T></p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -2945,12 +2947,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       {(log.admin?.username || "?").charAt(0)}
                     </AvatarFallback>
                   </Avatar>
-                  <span className="text-sm text-white font-medium">{log.admin?.username || "System"}</span>
+                  <span className="text-sm text-white font-medium">{log.admin?.username || gt("System")}</span>
                   <span className="text-xs text-[#888888] uppercase">{log.action.replace(/_/g, " ")}</span>
                 </div>
                 <span className="text-xs text-[#666666]">{new Date(log.createdAt).toLocaleString()}</span>
               </div>
-              {log.reason && <p className="text-xs text-[#888888] mt-1">Reason: {log.reason}</p>}
+              {log.reason && <p className="text-xs text-[#888888] mt-1">{gt("Reason")}: {log.reason}</p>}
             </div>
           ))}
         </div>
@@ -2961,14 +2963,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderModeration = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Moderation</h2>
-        <p className="text-sm text-[#888888]">Configure moderation settings for your server</p>
+        <h2 className="text-xl font-bold text-white mb-1"><T>Moderation</T></h2>
+        <p className="text-sm text-[#888888]"><T>Configure moderation settings for your server</T></p>
       </div>
 
       <div className="space-y-4">
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white font-medium">Verification Level</span>
+            <span className="text-white font-medium"><T>Verification Level</T></span>
           </div>
           <select
             value={draftString("moderation.verificationLevel", "none")}
@@ -2976,17 +2978,17 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             aria-label="Verification level"
             className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
           >
-            <option value="none">None - Unrestricted</option>
-            <option value="low">Low - Must have verified email</option>
-            <option value="medium">Medium - Registered for 5+ minutes</option>
-            <option value="high">High - Member for 10+ minutes</option>
-            <option value="very_high">Highest - Must have verified phone</option>
+            <option value="none">{gt("None - Unrestricted")}</option>
+            <option value="low">{gt("Low - Must have verified email")}</option>
+            <option value="medium">{gt("Medium - Registered for 5+ minutes")}</option>
+            <option value="high">{gt("High - Member for 10+ minutes")}</option>
+            <option value="very_high">{gt("Highest - Must have verified phone")}</option>
           </select>
         </div>
 
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white font-medium">Explicit Media Content Filter</span>
+            <span className="text-white font-medium"><T>Explicit Media Content Filter</T></span>
           </div>
           <select
             value={draftString("moderation.explicitContentFilter", "disabled")}
@@ -2994,18 +2996,18 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             aria-label="Explicit media content filter"
             className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
           >
-            <option value="disabled">Don&apos;t scan any media content</option>
-            <option value="members_without_roles">Scan content from members without roles</option>
-            <option value="all_members">Scan content from all members</option>
+            <option value="disabled">{gt("Don&apos;t scan any media content")}</option>
+            <option value="members_without_roles">{gt("Scan content from members without roles")}</option>
+            <option value="all_members">{gt("Scan content from all members")}</option>
           </select>
         </div>
 
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-white font-medium">2FA Requirement</span>
+              <span className="text-white font-medium"><T>2FA Requirement</T></span>
               <p className="text-sm text-[#888888] mt-1">
-                Require moderators to have 2FA enabled
+                <T>Require moderators to have 2FA enabled</T>
               </p>
             </div>
             <button
@@ -3026,8 +3028,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-white font-medium">Raid Protection</span>
-              <p className="text-sm text-[#888888] mt-1">Auto-enable stricter checks during suspicious joins</p>
+              <span className="text-white font-medium"><T>Raid Protection</T></span>
+              <p className="text-sm text-[#888888] mt-1"><T>Auto-enable stricter checks during suspicious joins</T></p>
             </div>
             <button
               onClick={() => settingsDraft.update("safety.raidProtection", !draftBool("safety.raidProtection"))}
@@ -3046,7 +3048,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white font-medium">Mention Spam Limit</span>
+            <span className="text-white font-medium"><T>Mention Spam Limit</T></span>
             <span className="text-sm text-[#888888]">{draftNumber("safety.mentionSpamLimit", 5)}</span>
           </div>
           <input
@@ -3059,7 +3061,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             className="w-full accent-[#8B5CF6]"
           />
           <label className="mt-3 flex items-center justify-between cursor-pointer">
-            <span className="text-sm text-[#888888]">Enable anti-spam checks</span>
+            <span className="text-sm text-[#888888]"><T>Enable anti-spam checks</T></span>
             <ToggleSwitch size="sm" checked={draftBool("safety.antiSpam", true)} onCheckedChange={(checked) => settingsDraft.update("safety.antiSpam", checked)} />
           </label>
         </div>
@@ -3070,13 +3072,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderSoundboard = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1">Soundboard</h2>
-        <p className="text-sm text-[#888888]">Configure soundboard availability and playback volume</p>
+        <h2 className="text-xl font-bold text-white mb-1"><T>Soundboard</T></h2>
+        <p className="text-sm text-[#888888]"><T>Configure soundboard availability and playback volume</T></p>
       </div>
 
       <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-white font-medium">Enable Soundboard</span>
+          <span className="text-white font-medium"><T>Enable Soundboard</T></span>
           <ToggleSwitch
             checked={draftBool("soundboard.enabled", true)}
             onCheckedChange={(checked) => settingsDraft.update("soundboard.enabled", checked)}
@@ -3085,7 +3087,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
         <div>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-[#888888]">Playback Volume</span>
+            <span className="text-sm text-[#888888]"><T>Playback Volume</T></span>
             <span className="text-sm text-white">{draftNumber("soundboard.volume", 100)}%</span>
           </div>
           <input
@@ -3104,8 +3106,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-white">Sounds ({soundboardSounds.length}/500)</h3>
-            <p className="text-xs text-[#888888]">Upload audio files (max 20MB, 30s, mp3/wav/ogg)</p>
+            <h3 className="text-lg font-semibold text-white"><T>Sounds</T> ({soundboardSounds.length}/500)</h3>
+            <p className="text-xs text-[#888888]"><T>Upload audio files (max 20MB, 30s, mp3/wav/ogg)</T></p>
           </div>
           <button
             onClick={() => soundInputRef.current?.click()}
@@ -3113,7 +3115,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
           >
             {isUploadingSound ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-            Upload Sound
+            <T>Upload Sound</T>
           </button>
         </div>
 
@@ -3128,13 +3130,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         {soundboardSounds.length === 0 ? (
           <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
             <Volume2 className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2">No sounds yet</h3>
-            <p className="text-[#888888] text-sm mb-4">Upload audio files to use in voice channels</p>
+            <h3 className="text-lg font-semibold text-white mb-2"><T>No sounds yet</T></h3>
+            <p className="text-[#888888] text-sm mb-4"><T>Upload audio files to use in voice channels</T></p>
             <button
               onClick={() => soundInputRef.current?.click()}
               className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md"
             >
-              Upload First Sound
+              <T>Upload First Sound</T>
             </button>
           </div>
         ) : (
@@ -3198,9 +3200,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
                 <div>
                   <p className="text-white font-semibold flex items-center gap-2">
-                    Discord Bridge
+                    <T>Discord Bridge</T>
                   </p>
-                  <p className="text-sm text-[#888888]">Sync channels, roles, and messages bidirectionally with Discord</p>
+                  <p className="text-sm text-[#888888]"><T>Sync channels, roles, and messages bidirectionally with Discord</T></p>
                 </div>
               </div>
               <ToggleSwitch
@@ -3216,8 +3218,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-[#0d0d0d] border border-[#1e1e1e]">
                   <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-white">SerikaCord Bot</p>
-                    <p className="text-[11px] text-[#888888]">Online and listening for messages via Gateway</p>
+                    <p className="text-xs font-semibold text-white"><T>SerikaCord Bot</T></p>
+                    <p className="text-[11px] text-[#888888]"><T>Online and listening for messages via Gateway</T></p>
                   </div>
                   <a
                     href="https://discord.com/oauth2/authorize?client_id=1524469730256355421&permissions=8&scope=bot"
@@ -3225,39 +3227,39 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 text-xs text-white font-semibold bg-[#5865F2] hover:bg-[#4752c4] rounded-md h-8 px-3 transition-colors shrink-0"
                   >
-                    Invite Bot <ExternalLink className="w-3 h-3" />
+                    <T>Invite Bot</T> <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
 
                 {/* Guild ID Input */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#888888] mb-2">DISCORD SERVER (GUILD) ID</label>
+                  <label className="block text-xs font-semibold text-[#888888] mb-2"><T>DISCORD SERVER (GUILD) ID</T></label>
                   <Input
                     type="text"
-                    placeholder="e.g. 1161608848428236902"
+                    placeholder={gt("e.g. 1161608848428236902")}
                     value={draftString("integrations.discordGuildId", "")}
                     onChange={(e) => settingsDraft.update("integrations.discordGuildId", e.target.value)}
                     className="bg-[#0a0a0a] border-[#222222] text-white font-mono text-sm"
                   />
                   <p className="text-[11px] text-[#666666] mt-1.5">
-                    Right-click your Discord server &gt; Copy Server ID (enable Developer Mode in Discord settings)
+                    <T>Right-click your Discord server &gt; Copy Server ID (enable Developer Mode in Discord settings)</T>
                   </p>
                 </div>
 
                 {/* Advanced Sync Controls */}
                 <div className="bg-[#181818] p-4 rounded-md border border-[#2c2c2c] space-y-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-white">Channel &amp; Role Sync</p>
+                    <p className="text-sm font-semibold text-white"><T>Channel &amp; Role Sync</T></p>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2">SYNC MODE</label>
+                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>SYNC MODE</T></label>
                     <select
                       value={draftString("integrations.discordMode", "add")}
                       onChange={(e) => settingsDraft.update("integrations.discordMode", e.target.value)}
                       className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
                     >
-                      <option value="add">Keep existing channels, add Discord channels alongside</option>
-                      <option value="delete">Replace all channels with Discord channels (destructive)</option>
+                      <option value="add">{gt("Keep existing channels, add Discord channels alongside")}</option>
+                      <option value="delete">{gt("Replace all channels with Discord channels (destructive)")}</option>
                     </select>
                   </div>
 
@@ -3271,10 +3273,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       {isSyncingDiscord ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Syncing...
+                          <T>Syncing...</T>
                         </>
                       ) : (
-                        "Sync Channels & Roles"
+                        gt("Sync Channels & Roles")
                       )}
                     </button>
 
@@ -3287,10 +3289,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       {isTriggeringDiscord ? (
                         <>
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Testing...
+                          <T>Testing...</T>
                         </>
                       ) : (
-                        "Send Test Message"
+                        gt("Send Test Message")
                       )}
                     </button>
                   </div>
@@ -3300,8 +3302,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <div className="flex items-start gap-2 p-3 rounded-md bg-[#5865F2]/8 border border-[#5865F2]/20">
                   <Check className="w-3.5 h-3.5 text-[#5865F2] shrink-0 mt-0.5" />
                   <p className="text-[11px] text-[#a8b1ff] leading-relaxed">
-                    Messages from Discord appear in SerikaCord with the author's Discord username and tag.
-                    Messages sent in SerikaCord are relayed back to Discord via the bot. Webhooks are auto-provisioned during sync.
+                    <T>Messages from Discord appear in SerikaCord with the author&apos;s Discord username and tag. Messages sent in SerikaCord are relayed back to Discord via the bot. Webhooks are auto-provisioned during sync.</T>
                   </p>
                 </div>
               </div>
@@ -3313,9 +3314,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-white font-medium flex items-center gap-2">
-                  <span className="text-[#a970ff] font-semibold">Twitch Integration</span>
+                  <span className="text-[#a970ff] font-semibold"><T>Twitch Integration</T></span>
                 </p>
-                <p className="text-sm text-[#888888]">Post stream notifications automatically</p>
+                <p className="text-sm text-[#888888]"><T>Post stream notifications automatically</T></p>
               </div>
               <ToggleSwitch
                 checked={isTwitchEnabled}
@@ -3328,23 +3329,23 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               <div className="pt-4 border-t border-[#222222] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2">TWITCH CHANNEL NAME</label>
+                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>TWITCH CHANNEL NAME</T></label>
                     <Input
                       type="text"
-                      placeholder="e.g. shroud"
+                      placeholder={gt("e.g. shroud")}
                       value={draftString("integrations.twitchChannel", "")}
                       onChange={(e) => settingsDraft.update("integrations.twitchChannel", e.target.value)}
                       className="bg-[#0a0a0a] border-[#222222] text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2">NOTIFICATION CHANNEL</label>
+                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>NOTIFICATION CHANNEL</T></label>
                     <select
                       value={draftString("integrations.twitchNotificationChannelId", "")}
                       onChange={(e) => settingsDraft.update("integrations.twitchNotificationChannelId", e.target.value)}
                       className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
                     >
-                      <option value="">Select a channel</option>
+                      <option value="">{gt("Select a channel")}</option>
                       {textChannels.map((channel) => (
                         <option key={channel.id} value={channel.id}>#{channel.name}</option>
                       ))}
@@ -3362,10 +3363,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     {isTriggeringTwitch ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Triggering...
+                        <T>Triggering...</T>
                       </>
                     ) : (
-                      "Trigger Mock Stream Live Alert"
+                      gt("Trigger Mock Stream Live Alert")
                     )}
                   </button>
                 </div>
@@ -3378,9 +3379,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <div className="flex items-center justify-between gap-4">
               <div>
                 <p className="text-white font-medium flex items-center gap-2">
-                  <span className="text-[#FF0000] font-semibold">YouTube Integration</span>
+                  <span className="text-[#FF0000] font-semibold"><T>YouTube Integration</T></span>
                 </p>
-                <p className="text-sm text-[#888888]">Post notifications for new uploads and videos</p>
+                <p className="text-sm text-[#888888]"><T>Post notifications for new uploads and videos</T></p>
               </div>
               <ToggleSwitch
                 checked={isYoutubeEnabled}
@@ -3393,23 +3394,23 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               <div className="pt-4 border-t border-[#222222] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2">YOUTUBE CHANNEL ID OR NAME</label>
+                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>YOUTUBE CHANNEL ID OR NAME</T></label>
                     <Input
                       type="text"
-                      placeholder="e.g. MrBeast"
+                      placeholder={gt("e.g. MrBeast")}
                       value={draftString("integrations.youtubeChannel", "")}
                       onChange={(e) => settingsDraft.update("integrations.youtubeChannel", e.target.value)}
                       className="bg-[#0a0a0a] border-[#222222] text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2">NOTIFICATION CHANNEL</label>
+                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>NOTIFICATION CHANNEL</T></label>
                     <select
                       value={draftString("integrations.youtubeNotificationChannelId", "")}
                       onChange={(e) => settingsDraft.update("integrations.youtubeNotificationChannelId", e.target.value)}
                       className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
                     >
-                      <option value="">Select a channel</option>
+                      <option value="">{gt("Select a channel")}</option>
                       {textChannels.map((channel) => (
                         <option key={channel.id} value={channel.id}>#{channel.name}</option>
                       ))}
@@ -3427,10 +3428,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     {isTriggeringYoutube ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        Triggering...
+                        <T>Triggering...</T>
                       </>
                     ) : (
-                      "Trigger Mock Video Upload Alert"
+                      gt("Trigger Mock Video Upload Alert")
                     )}
                   </button>
                 </div>
@@ -3441,8 +3442,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           {/* Webhooks Card */}
           <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] flex items-center justify-between gap-4">
             <div>
-              <p className="text-white font-medium">Custom Webhooks</p>
-              <p className="text-sm text-[#888888]">Allow inbound/outbound webhook automations</p>
+              <p className="text-white font-medium"><T>Custom Webhooks</T></p>
+              <p className="text-sm text-[#888888]"><T>Allow inbound/outbound webhook automations</T></p>
             </div>
             <ToggleSwitch
               checked={isWebhooksEnabled}
@@ -3495,7 +3496,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`Server settings for ${currentServer.name}`}
+      aria-label={gt("Server settings for {name}", { name: currentServer.name })}
       className="fixed inset-0 z-50 bg-[#0a0a0a] flex"
     >
       {/* Sidebar */}
@@ -3544,7 +3545,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="h-14 flex items-center justify-end px-4 border-b border-[#1a1a1a]">
           <button
             onClick={handleRequestClose}
-            aria-label="Close server settings"
+            aria-label={gt("Close server settings")}
             className="p-2 rounded-full hover:bg-[#1a1a1a] text-[#888888] hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
           >
             <X className="w-5 h-5" />
@@ -3588,11 +3589,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         imageUrl={cropperImage}
         aspectRatio={cropperType === "icon" ? 1 : 2}
         onCropComplete={handleCropComplete}
-        title={cropperType === "icon" ? "Crop Server Icon" : "Crop Server Banner"}
+        title={cropperType === "icon" ? gt("Crop Server Icon") : gt("Crop Server Banner")}
         description={
           cropperType === "icon"
-            ? "Adjust the crop area to select the portion of the image for your server icon."
-            : "Adjust the crop area to select the portion of the image for your server banner."
+            ? gt("Adjust the crop area to select the portion of the image for your server icon.")
+            : gt("Adjust the crop area to select the portion of the image for your server banner.")
         }
         circular={cropperType === "icon"}
       />

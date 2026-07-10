@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface Notification {
   id: string;
@@ -31,6 +32,7 @@ interface Notification {
 
 export function MobileNotificationsView() {
   const router = useRouter();
+  const gt = useGT();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "mentions" | "unread">("all");
@@ -63,10 +65,10 @@ export function MobileNotificationsView() {
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    if (days < 7) return `${days}d ago`;
+    if (minutes < 1) return gt("Just now");
+    if (minutes < 60) return gt("{minutes}m ago", { minutes });
+    if (hours < 24) return gt("{hours}h ago", { hours });
+    if (days < 7) return gt("{days}d ago", { days });
     return d.toLocaleDateString();
   };
 
@@ -117,7 +119,7 @@ export function MobileNotificationsView() {
       {/* Header */}
       <header className="flex-shrink-0 px-4 pt-3 pb-2 safe-area-top">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-2xl font-bold text-[var(--text-primary)]">Notifications</h1>
+          <h1 className="text-2xl font-bold text-[var(--text-primary)]">{gt("Notifications")}</h1>
           <button
             onClick={() => router.push("/channels/settings/notifications")}
             className="flex items-center justify-center w-10 h-10 rounded-full bg-[var(--bg-card)] text-[var(--text-primary)] active:scale-95 active:bg-[var(--bg-hover)] transition-all touch-manipulation"
@@ -137,7 +139,7 @@ export function MobileNotificationsView() {
                 : "bg-[var(--bg-card)] text-[var(--text-muted)]"
             )}
           >
-            All
+            {gt("All")}
           </button>
           <button
             onClick={() => setFilter("mentions")}
@@ -148,7 +150,7 @@ export function MobileNotificationsView() {
                 : "bg-[var(--bg-card)] text-[var(--text-muted)]"
             )}
           >
-            Mentions
+            {gt("Mentions")}
           </button>
           <button
             onClick={() => setFilter("unread")}
@@ -159,7 +161,7 @@ export function MobileNotificationsView() {
                 : "bg-[var(--bg-card)] text-[var(--text-muted)]"
             )}
           >
-            Unread
+            {gt("Unread")}
             {unreadCount > 0 && (
               <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-[#ED4245] text-white text-[10px] font-bold rounded-full">
                 {unreadCount}
@@ -177,7 +179,7 @@ export function MobileNotificationsView() {
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[var(--bg-card)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all active:scale-95 border border-[var(--border-subtle)]"
           >
             <Check className="w-4 h-4" />
-            <span className="text-sm font-medium">Mark all as read</span>
+            <span className="text-sm font-medium">{gt("Mark all as read")}</span>
           </button>
         </div>
       )}
@@ -195,12 +197,12 @@ export function MobileNotificationsView() {
                 <Bell className="w-10 h-10 text-[var(--text-muted)]" />
               </div>
               <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">
-                {filter === "all" ? "No notifications" : `No ${filter} notifications`}
+                {filter === "all" ? gt("No notifications") : gt("No {filter} notifications", { filter })}
               </h3>
               <p className="text-[var(--text-muted)] text-base">
                 {filter === "all"
-                  ? "When you receive notifications, they'll appear here"
-                  : `You don't have any ${filter} notifications`}
+                  ? gt("When you receive notifications, they'll appear here")
+                  : gt("You don't have any {filter} notifications", { filter })}
               </p>
             </div>
           ) : (
@@ -255,7 +257,7 @@ export function MobileNotificationsView() {
                             // Add accept logic
                           }}
                         >
-                          <Check className="w-4 h-4 mr-1" /> Accept
+                          <Check className="w-4 h-4 mr-1" /> {gt("Accept")}
                         </button>
                         <button
                           className="flex items-center justify-center px-4 py-2 rounded-lg bg-[#ED4245] hover:bg-[#C03537] text-white transition-all active:scale-95 font-bold text-xs"
@@ -264,7 +266,7 @@ export function MobileNotificationsView() {
                             // Add deny logic
                           }}
                         >
-                          <X className="w-4 h-4 mr-1" /> Decline
+                          <X className="w-4 h-4 mr-1" /> {gt("Decline")}
                         </button>
                       </div>
                     )}

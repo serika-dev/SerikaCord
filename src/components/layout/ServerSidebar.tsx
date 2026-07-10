@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { useMentions } from "@/hooks/useMentions";
 import { useServerMutes } from "@/hooks/useServerMutes";
+import { useGT } from "gt-next";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
@@ -42,6 +43,7 @@ function isNativeApp(): boolean {
 }
 
 export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
+  const gt = useGT();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
   // Must start false to match SSR (window is unavailable on the server);
@@ -80,7 +82,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
   };
 
   const handleLeaveServer = async (server: typeof servers[0]) => {
-    if (!window.confirm(`Leave "${server.name}"? You'll need a new invite to rejoin.`)) return;
+    if (!window.confirm(gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: server.name }))) return;
     try {
       await leaveServer(server.id);
       if (currentServer?.id === server.id) {
@@ -121,7 +123,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-            Direct Messages
+            {gt("Direct Messages")}
           </TooltipContent>
         </Tooltip>
 
@@ -205,15 +207,15 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                     onClick={() => markServerRead(server.id)}
                   >
                     <Check className="w-4 h-4" />
-                    Mark As Read
+                    {gt("Mark As Read")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => toggleMute(server.id)}>
                     {muted ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
-                    {muted ? "Unmute Server" : "Mute Server"}
+                    {muted ? gt("Unmute Server") : gt("Mute Server")}
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleCopyServerId(server.id)}>
                     <Copy className="w-4 h-4" />
-                    Copy Server ID
+                    {gt("Copy Server ID")}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -221,7 +223,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                     onClick={() => void handleLeaveServer(server)}
                   >
                     <LogOut className="w-4 h-4" />
-                    Leave Server
+                    {gt("Leave Server")}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -244,7 +246,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-            Add a Server
+            {gt("Add a Server")}
           </TooltipContent>
         </Tooltip>
 
@@ -259,7 +261,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-            Explore Discoverable Servers
+            {gt("Explore Discoverable Servers")}
           </TooltipContent>
         </Tooltip>
 
@@ -275,7 +277,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-              Download Apps
+              {gt("Download Apps")}
             </TooltipContent>
           </Tooltip>
         )}

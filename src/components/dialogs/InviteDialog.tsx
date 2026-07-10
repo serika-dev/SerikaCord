@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { T, useGT } from "gt-next";
 
 interface InviteDialogProps {
   open: boolean;
@@ -48,6 +49,7 @@ const MAX_USES_OPTIONS = [
 
 export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProps) {
   const { currentServer, channels } = useServer();
+  const gt = useGT();
   const [inviteCode, setInviteCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -93,12 +95,12 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
       } else {
         const data = await response.json().catch(() => null);
         setInviteCode("");
-        toast.error(data?.error || "Failed to create invite link");
+        toast.error(data?.error || gt("Failed to create invite link"));
       }
     } catch (error) {
       console.error("Failed to create invite:", error);
       setInviteCode("");
-      toast.error("Failed to create invite link. Check your connection and try again.");
+      toast.error(gt("Failed to create invite link. Check your connection and try again."));
     } finally {
       setIsLoading(false);
     }
@@ -108,7 +110,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
     const inviteUrl = `https://serika.cc/${inviteCode}`;
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
-    toast.success("Invite link copied!");
+    toast.success(gt("Invite link copied!"));
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -117,11 +119,11 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
     if (navigator.share) {
       try {
         await navigator.share({
-          title: `Join ${currentServer?.name} on SerikaCord`,
-          text: `Come chat with us on SerikaCord!`,
+          title: gt("Join {server} on SerikaCord", { server: currentServer?.name || "" }),
+          text: gt("Come chat with us on SerikaCord!"),
           url: inviteUrl,
         });
-        toast.success("Shared!");
+        toast.success(gt("Shared!"));
       } catch {
         // User cancelled or share failed
       }
@@ -187,8 +189,8 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               </AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="text-white font-semibold">Invite friends to {currentServer.name}</h2>
-              <p className="text-xs text-[#888888]">Share this link to invite others</p>
+              <h2 className="text-white font-semibold">{gt("Invite friends to")} {currentServer.name}</h2>
+              <p className="text-xs text-[#888888]"><T>Share this link to invite others</T></p>
             </div>
           </div>
           <button
@@ -204,7 +206,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
           {/* Channel Selector */}
           <div>
             <label className="block text-xs font-semibold uppercase text-[#888888] mb-2">
-              INVITE TO CHANNEL
+              {gt("INVITE TO CHANNEL")}
             </label>
             <div className="relative">
               <select
@@ -225,12 +227,12 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
           {/* Invite Link */}
           <div>
             <label className="block text-xs font-semibold uppercase text-[#888888] mb-2">
-              INVITE LINK
+              {gt("INVITE LINK")}
             </label>
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Input
-                  value={isLoading ? "Generating..." : inviteCode ? inviteUrl : "Could not create invite"}
+                  value={isLoading ? gt("Generating...") : inviteCode ? inviteUrl : gt("Could not create invite")}
                   readOnly
                   className="bg-[#0a0a0a] border-[#222222] text-white pr-10 font-mono text-sm"
                 />
@@ -251,12 +253,12 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
                 {copied ? (
                   <>
                     <Check className="w-4 h-4" />
-                    Copied
+                    {gt("Copied")}
                   </>
                 ) : (
                   <>
                     <Copy className="w-4 h-4" />
-                    Copy
+                    {gt("Copy")}
                   </>
                 )}
               </button>
@@ -270,7 +272,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               className="w-full py-2.5 rounded-md bg-[#1a1a1a] hover:bg-[#222222] text-white font-medium transition-colors flex items-center justify-center gap-2"
             >
               <Share2 className="w-4 h-4" />
-              Share Invite Link
+              {gt("Share Invite Link")}
             </button>
           )}
 
@@ -280,7 +282,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
             className="flex items-center gap-2 text-sm text-[#888888] hover:text-white transition-colors"
           >
             <Settings className="w-4 h-4" />
-            Edit invite link
+            {gt("Edit invite link")}
             <ChevronDown className={cn(
               "w-4 h-4 transition-transform",
               showSettings && "rotate-180"
@@ -294,7 +296,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               <div>
                 <label className="flex items-center gap-2 text-xs font-semibold uppercase text-[#888888] mb-2">
                   <Clock className="w-3 h-3" />
-                  EXPIRE AFTER
+                  {gt("EXPIRE AFTER")}
                 </label>
                 <select
                   value={maxAge}
@@ -313,7 +315,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               <div>
                 <label className="flex items-center gap-2 text-xs font-semibold uppercase text-[#888888] mb-2">
                   <Users className="w-3 h-3" />
-                  MAX NUMBER OF USES
+                  {gt("MAX NUMBER OF USES")}
                 </label>
                 <select
                   value={maxUses}
@@ -335,7 +337,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
                 className="w-full py-2 rounded-md bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
-                Generate New Link
+                {gt("Generate New Link")}
               </button>
             </div>
           )}
@@ -344,8 +346,8 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         {/* Footer */}
         <div className="p-4 border-t border-[#222222] bg-[#0a0a0a] rounded-b-lg">
           <p className="text-xs text-[#666666] text-center">
-            Your invite link expires in {EXPIRE_OPTIONS.find(o => o.value === maxAge)?.label || "7 days"}.
-            {maxUses > 0 && ` Limited to ${maxUses} uses.`}
+            {gt("Your invite link expires in")} {EXPIRE_OPTIONS.find(o => o.value === maxAge)?.label || gt("7 days")}.
+            {maxUses > 0 && ` ${gt("Limited to")} ${maxUses} ${gt("uses")}.`}
           </p>
         </div>
       </div>

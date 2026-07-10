@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useGT } from "gt-next";
 
 export interface ChatStreamEvent {
   type: string;
@@ -26,6 +27,7 @@ const MAX_BACKOFF_MS = 30000;
  * lifecycle, exponential-backoff reconnection, and the typing indicator list.
  */
 export function useChatStream({ url, onEvent, currentUsername }: UseChatStreamOptions) {
+  const gt = useGT();
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const typingTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
   const onEventRef = useRef(onEvent);
@@ -104,12 +106,12 @@ export function useChatStream({ url, onEvent, currentUsername }: UseChatStreamOp
 
   const typingStatusText = useMemo(() => {
     if (typingUsers.length === 0) return "";
-    if (typingUsers.length === 1) return `${typingUsers[0]} is typing...`;
-    if (typingUsers.length === 2) return `${typingUsers[0]} and ${typingUsers[1]} are typing...`;
+    if (typingUsers.length === 1) return gt("{user} is typing...", { user: typingUsers[0] });
+    if (typingUsers.length === 2) return gt("{user1} and {user2} are typing...", { user1: typingUsers[0], user2: typingUsers[1] });
     if (typingUsers.length === 3)
-      return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers[2]} are typing...`;
-    return `${typingUsers[0]}, ${typingUsers[1]} and ${typingUsers.length - 2} others are typing...`;
-  }, [typingUsers]);
+      return gt("{user1}, {user2} and {user3} are typing...", { user1: typingUsers[0], user2: typingUsers[1], user3: typingUsers[2] });
+    return gt("{user1}, {user2} and {count} others are typing...", { user1: typingUsers[0], user2: typingUsers[1], count: typingUsers.length - 2 });
+  }, [typingUsers, gt]);
 
   return { typingUsers, typingStatusText };
 }

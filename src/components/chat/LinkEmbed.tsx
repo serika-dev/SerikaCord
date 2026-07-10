@@ -5,6 +5,7 @@ import { ExternalLink, Play } from "lucide-react";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
+import { useGT } from "gt-next";
 
 interface LinkEmbedProps {
   content: string;
@@ -972,6 +973,7 @@ function GiphyEmbed({ gifId, url, onMediaClick }: { gifId: string; url: string; 
 }
 
 function TenorEmbed({ gifId, url, preview, onMediaClick }: { gifId: string; url: string; preview?: { title?: string; description?: string; thumbnail?: string; siteName?: string }; onMediaClick?: (src: string, alt?: string) => void }) {
+  const gt = useGT();
   const [gifSrc, setGifSrc] = useState<string | null>(preview?.thumbnail || null);
 
   useEffect(() => {
@@ -1006,7 +1008,7 @@ function TenorEmbed({ gifId, url, preview, onMediaClick }: { gifId: string; url:
           <span>tenor.com</span>
           <ExternalLink className="w-3 h-3 opacity-70" />
         </div>
-        <div className="text-white text-sm">View GIF on Tenor</div>
+        <div className="text-white text-sm">{gt("View GIF on Tenor")}</div>
       </a>
     );
   }
@@ -1017,6 +1019,7 @@ function TenorEmbed({ gifId, url, preview, onMediaClick }: { gifId: string; url:
 }
 
 function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { title?: string; description?: string; thumbnail?: string; siteName?: string }; onMediaClick?: (src: string, alt?: string) => void }) {
+  const gt = useGT();
   const [gifSrc, setGifSrc] = useState<string | null>(preview?.thumbnail || null);
 
   useEffect(() => {
@@ -1050,7 +1053,7 @@ function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { t
           <span>klipy.com</span>
           <ExternalLink className="w-3 h-3 opacity-70" />
         </div>
-        <div className="text-white text-sm">View GIF on Klipy</div>
+        <div className="text-white text-sm">{gt("View GIF on Klipy")}</div>
       </a>
     );
   }

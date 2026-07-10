@@ -1,5 +1,6 @@
 import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
+import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Audit Log",
@@ -8,22 +9,22 @@ export const metadata = buildMetadata({
   keywords: ["SerikaCord audit log", "audit entry", "action types", "guild audit"],
 });
 
-export default function AuditLogDoc() {
+export default async function AuditLogDoc() {
+  const gt = await getGT();
   return (
-    <DocPage title="Audit Log" description="View audit logs to track administrative actions in a guild.">
+    <DocPage title={gt("Audit Log")} description={gt("View audit logs to track administrative actions in a guild.")}>
       <P>
-        Audit logs record administrative actions taken in a guild, such as member kicks, role changes,
-        channel modifications, and more.
+        {gt("Audit logs record administrative actions taken in a guild, such as member kicks, role changes, channel modifications, and more.")}
       </P>
 
-      <H2 id="endpoint">Endpoint</H2>
+      <H2 id="endpoint">{gt("Endpoint")}</H2>
       <Endpoint method="GET" path="/guilds/{guild.id}/audit-logs">
-        Requires <InlineCode>VIEW_AUDIT_LOG</InlineCode> permission. Supports query params:
+        {gt("Requires")}{" "}<InlineCode>VIEW_AUDIT_LOG</InlineCode> {gt("permission. Supports query params:")}
         <InlineCode>user_id</InlineCode>, <InlineCode>action_type</InlineCode>,{" "}
         <InlineCode>before</InlineCode>, <InlineCode>after</InlineCode>, <InlineCode>limit</InlineCode>.
       </Endpoint>
 
-      <H2 id="audit-log-entry">Audit Log Entry Object</H2>
+      <H2 id="audit-log-entry">{gt("Audit Log Entry Object")}</H2>
       <CodeBlock lang="json">{`{
   "id": "1234567890",
   "user_id": "1234567890",
@@ -33,8 +34,8 @@ export default function AuditLogDoc() {
   "reason": "Spam"
 }`}</CodeBlock>
 
-      <H2 id="action-types">Action Types</H2>
-      <Table headers={["Action", "Value"]} rows={[
+      <H2 id="action-types">{gt("Action Types")}</H2>
+      <Table headers={[gt("Action"), gt("Value")]} rows={[
         ["GUILD_UPDATE", "1"],
         ["CHANNEL_CREATE", "10"],
         ["CHANNEL_UPDATE", "11"],
@@ -79,8 +80,8 @@ export default function AuditLogDoc() {
         ["AUTO_MODERATION_BLOCK_MESSAGE", "143"],
       ]} />
 
-      <Callout type="info" title="Retention">
-        Audit logs are retained for 90 days. Entries are returned in reverse chronological order.
+      <Callout type="info" title={gt("Retention")}>
+        {gt("Audit logs are retained for 90 days. Entries are returned in reverse chronological order.")}
       </Callout>
     </DocPage>
   );

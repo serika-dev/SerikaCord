@@ -15,6 +15,7 @@ import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService
 import { cn } from "@/lib/utils";
 import { usePolling } from "@/hooks/usePolling";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useGT } from "gt-next";
 
 interface SoundboardSound {
   id: string;
@@ -26,6 +27,7 @@ interface SoundboardSound {
 function VoiceChannelView({ channelId, channelName, serverId }: { channelId: string; channelName: string; serverId?: string }) {
   const { user } = useAuth();
   const router = useRouter();
+  const gt = useGT();
   const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
   const [isJoining, setIsJoining] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -118,7 +120,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
         setVoiceError(event.message);
         toast.error(event.message);
       } else if (event.type === "soundboard_played") {
-        toast(`${event.username} played ${event.soundName}`, { icon: "🔊" });
+        toast(gt("{username} played {soundName}", { username: event.username, soundName: event.soundName }), { icon: "🔊" });
       }
     });
     return unsub;
@@ -164,10 +166,10 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
     setVoiceError(null);
     try {
       await voiceService.joinChannel(roomId, false);
-      toast.success(`Joined #${channelName}`);
+      toast.success(gt("Joined #{name}", { name: channelName }));
     } catch (err) {
-      setVoiceError("Failed to join voice channel.");
-      toast.error("Failed to join voice channel");
+      setVoiceError(gt("Failed to join voice channel."));
+      toast.error(gt("Failed to join voice channel"));
       console.error("Join error:", err);
     } finally {
       setIsJoining(false);
@@ -176,7 +178,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
   const leaveVoice = async () => {
     await voiceService.leaveChannel();
-    toast.success(`Left #${channelName}`);
+    toast.success(gt("Left #{name}", { name: channelName }));
   };
 
   const handleMute = useCallback(() => {
@@ -215,7 +217,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
     setPlayingSoundId(sound.id);
     const success = await voiceService.playSoundboardSound({ url: sound.url, name: sound.name });
     if (!success) {
-      toast.error("Failed to play sound");
+      toast.error(gt("Failed to play sound"));
     }
     setTimeout(() => setPlayingSoundId(null), 2000);
   }, [isConnected]);
@@ -236,7 +238,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
             <button
               onClick={() => router.push(`/channels/${serverId}`)}
               className="flex items-center justify-center w-8 h-8 -ml-2 rounded-lg text-[#8d97ad] hover:text-white hover:bg-[#1e2637] transition-colors"
-              title="Back"
+              title={gt("Back")}
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -246,7 +248,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
         </div>
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#131a28] text-xs text-[#8d97ad] ring-1 ring-white/5">
           <span className={cn("w-1.5 h-1.5 rounded-full", participants.length > 0 ? "bg-green-500" : "bg-[#3a4459]")} />
-          {participants.length} {participants.length === 1 ? "participant" : "participants"}
+          {participants.length} {participants.length === 1 ? gt("participant") : gt("participants")}
         </div>
       </div>
 
@@ -261,8 +263,8 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
             <h2 className="text-lg font-semibold text-white mb-1">{channelName}</h2>
             <p className="text-sm text-[#6b7387] mb-4">
               {participants.length > 0
-                ? `${participants.length} ${participants.length === 1 ? "person is" : "people are"} in this channel`
-                : "No one is here yet"}
+                ? gt("{count} {people} in this channel", { count: participants.length, people: participants.length === 1 ? gt("person is") : gt("people are") })
+                : gt("No one is here yet")}
             </p>
             {participants.length > 0 && (
               <div className="flex flex-wrap justify-center gap-2 mb-6 max-w-md">
@@ -288,7 +290,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               className="flex items-center gap-2 px-7 py-3 rounded-full bg-gradient-to-b from-[#8B5CF6] to-[#7C3AED] hover:from-[#9d70f8] hover:to-[#8B5CF6] text-white font-semibold shadow-[0_4px_20px_rgba(139,92,246,0.45)] transition-all active:scale-95 hover:scale-[1.03] disabled:opacity-50"
             >
               {isJoining ? <Loader2 className="w-5 h-5 animate-spin" /> : <PhoneOff className="w-5 h-5 rotate-[135deg]" />}
-              {isJoining ? "Joining..." : "Join Voice"}
+              {isJoining ? gt("Joining...") : gt("Join Voice")}
             </button>
             {voiceError && <p className="mt-3 text-sm text-red-400">{voiceError}</p>}
           </div>
@@ -309,7 +311,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                   />
                   <div className="absolute bottom-2 left-2 px-2 py-1 rounded bg-black/60 text-xs text-white flex items-center gap-1.5">
                     <Monitor className="w-3.5 h-3.5" />
-                    Your Screen Share
+                    {gt("Your Screen Share")}
                   </div>
                 </div>
               )}
@@ -347,7 +349,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                       className="w-full h-full object-cover video-mirror"
                     />
                     <div className="absolute bottom-1.5 left-1.5 sm:bottom-2 sm:left-2 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded bg-black/60 text-[10px] sm:text-xs text-white">
-                      You
+                      {gt("You")}
                     </div>
                   </div>
                 )}
@@ -365,7 +367,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                   videoParticipants.length === 0 && !isVideoOn ? "" : ""
                 )}>
                   {videoParticipants.length > 0 || isVideoOn ? (
-                    <h3 className="text-xs font-semibold text-[#6b7387] uppercase tracking-wide mb-2">In Voice</h3>
+                    <h3 className="text-xs font-semibold text-[#6b7387] uppercase tracking-wide mb-2">{gt("In Voice")}</h3>
                   ) : null}
                   <div className={cn(
                     "grid gap-2",
@@ -413,7 +415,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               {videoParticipants.length === 0 && !isVideoOn && audioOnlyParticipants.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-center text-[#6b7387]">
                   <Users className="w-10 h-10 mb-3 text-[#2a3548]" />
-                  <p className="text-sm">You&apos;re the only one here. Invite others to join!</p>
+                  <p className="text-sm">{gt("You're the only one here. Invite others to join!")}</p>
                 </div>
               )}
             </div>
@@ -423,7 +425,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               <div className="mx-auto w-fit flex items-center justify-center gap-1 sm:gap-1.5 rounded-2xl bg-[#131a28]/90 backdrop-blur-md px-2 py-1.5 sm:px-2.5 sm:py-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
                 <button
                   onClick={handleMute}
-                  title={isMuted ? "Unmute" : "Mute"}
+                  title={isMuted ? gt("Unmute") : gt("Mute")}
                   className={cn(
                     "flex items-center justify-center rounded-full transition-all active:scale-95 hover:scale-105",
                     isMobile ? "w-9 h-9" : "w-10 h-10",
@@ -437,7 +439,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
                 <button
                   onClick={handleDeafen}
-                  title={isDeafened ? "Undeafen" : "Deafen"}
+                  title={isDeafened ? gt("Undeafen") : gt("Deafen")}
                   className={cn(
                     "flex items-center justify-center rounded-full transition-all active:scale-95 hover:scale-105",
                     isMobile ? "w-9 h-9" : "w-10 h-10",
@@ -451,7 +453,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
                 <button
                   onClick={handleVideo}
-                  title={isVideoOn ? "Turn Off Camera" : "Turn On Camera"}
+                  title={isVideoOn ? gt("Turn Off Camera") : gt("Turn On Camera")}
                   className={cn(
                     "flex items-center justify-center rounded-full transition-all active:scale-95 hover:scale-105",
                     isMobile ? "w-9 h-9" : "w-10 h-10",
@@ -466,7 +468,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                 {/* Noise suppression toggle */}
                 <button
                   onClick={handleToggleNoiseSuppression}
-                  title={noiseSuppression ? "Disable Noise Suppression" : "Enable Noise Suppression"}
+                  title={noiseSuppression ? gt("Disable Noise Suppression") : gt("Enable Noise Suppression")}
                   className={cn(
                     "flex items-center justify-center rounded-full transition-all active:scale-95 hover:scale-105",
                     isMobile ? "w-9 h-9" : "w-10 h-10",
@@ -482,7 +484,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                 {!isMobile && (
                   <button
                     onClick={handleScreenShare}
-                    title={isScreenSharing ? "Stop Sharing" : "Share Screen"}
+                    title={isScreenSharing ? gt("Stop Sharing") : gt("Share Screen")}
                     className={cn(
                       "flex items-center justify-center w-10 h-10 rounded-full transition-all active:scale-95 hover:scale-105",
                       isScreenSharing
@@ -498,7 +500,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                 {soundboardSounds.length > 0 && (
                   <button
                     onClick={() => setShowSoundboard(!showSoundboard)}
-                    title="Soundboard"
+                    title={gt("Soundboard")}
                     className={cn(
                       "flex items-center justify-center rounded-full transition-all active:scale-95 hover:scale-105",
                       isMobile ? "w-9 h-9" : "w-10 h-10",
@@ -515,7 +517,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
                 <button
                   onClick={leaveVoice}
-                  title="Leave Voice Channel"
+                  title={gt("Leave Voice Channel")}
                   className={cn(
                     "flex items-center justify-center rounded-full bg-[#ef4444] text-white hover:bg-[#dc2626] shadow-[0_2px_10px_rgba(239,68,68,0.4)] transition-all active:scale-95 hover:scale-105",
                     isMobile ? "w-9 h-9" : "w-12 h-10"
@@ -528,7 +530,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               {/* Soundboard Panel */}
               {showSoundboard && soundboardSounds.length > 0 && (
                 <div className="mt-3 p-3 bg-[#131a28] rounded-lg border border-[#1e2637]">
-                  <p className="text-xs text-[#6b7387] mb-2 font-medium uppercase tracking-wide">Soundboard</p>
+                  <p className="text-xs text-[#6b7387] mb-2 font-medium uppercase tracking-wide">{gt("Soundboard")}</p>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                     {soundboardSounds.map((sound) => (
                       <button
@@ -591,6 +593,7 @@ function RemoteVideoTile({ participant, speaking }: { participant: VoiceParticip
 function RemoteScreenShare({ participant }: { participant: VoiceParticipant }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const gt = useGT();
 
   useEffect(() => {
     if (videoRef.current && participant.screenStream) {
@@ -621,11 +624,11 @@ function RemoteScreenShare({ participant }: { participant: VoiceParticipant }) {
       />
       <div className="absolute bottom-2 left-2 px-2 py-1 rounded bg-black/60 text-xs text-white flex items-center gap-1.5">
         <Monitor className="w-3.5 h-3.5" />
-        {participant.displayName || participant.username}&apos;s Screen
+        {participant.displayName || participant.username}&apos;s {gt("Screen")}
       </div>
       <button
         onClick={toggleFullscreen}
-        aria-label="Toggle fullscreen"
+        aria-label={gt("Toggle fullscreen")}
         className="absolute top-2 right-2 p-1.5 rounded bg-black/60 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
       >
         <Maximize2 className="w-4 h-4" />
@@ -637,6 +640,7 @@ function RemoteScreenShare({ participant }: { participant: VoiceParticipant }) {
 export default function ChannelPage() {
   const params = useParams();
   const router = useRouter();
+  const gt = useGT();
   const { servers, setCurrentServer, channels, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
   const [showMembers, setShowMembers] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
@@ -661,11 +665,11 @@ export default function ChannelPage() {
             <div className="flex items-center justify-between h-12 px-4 border-b border-[var(--app-border)] shrink-0">
               <span className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">
                 <Users className="w-5 h-5" />
-                Members
+                {gt("Members")}
               </span>
               <button
                 onClick={() => setShowMembers(false)}
-                aria-label="Close member list"
+                aria-label={gt("Close member list")}
                 className="p-2 -mr-2 rounded-lg text-[var(--app-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--app-surface-alt)] transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -833,7 +837,7 @@ export default function ChannelPage() {
         </div>
 
         <p className="text-base text-[var(--text-muted)] max-w-xs leading-relaxed">
-          This server&apos;s content is unavailable on iOS
+          {gt("This server's content is unavailable on iOS")}
         </p>
       </div>
     );
@@ -879,10 +883,10 @@ export default function ChannelPage() {
 
         {/* Text */}
         <h2 className="text-2xl font-extrabold text-[var(--text-primary)] mb-3">
-          Age-Restricted Channel
+          {gt("Age-Restricted Channel")}
         </h2>
         <p className="text-base text-[var(--text-muted)] max-w-md leading-relaxed mb-8">
-          This channel contains adult content marked as age-restricted. Do you wish to proceed?
+          {gt("This channel contains adult content marked as age-restricted. Do you wish to proceed?")}
         </p>
 
         {/* Buttons */}
@@ -903,13 +907,13 @@ export default function ChannelPage() {
             }}
             className="min-w-[160px] h-11 bg-[var(--bg-sidebar)] hover:bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-medium text-base rounded-md"
           >
-            No, take me back
+            {gt("No, take me back")}
           </Button>
           <Button
             onClick={() => confirmChannel(currentChannel.id)}
             className="min-w-[180px] h-11 bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] font-medium text-base shadow-lg rounded-md"
           >
-            Yes, I am 18 or older
+            {gt("Yes, I am 18 or older")}
           </Button>
         </div>
       </div>

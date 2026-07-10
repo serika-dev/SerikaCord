@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { X, Plus, Check, ChevronLeft, LogOut } from "lucide-react";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import {
   type SavedAccountToken,
@@ -19,6 +20,7 @@ export function SwitchAccountsDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const { user, login, logout } = useAuth();
+  const gt = useGT();
   const [accounts, setAccounts] = useState<SavedAccountToken[]>([]);
   const [mode, setMode] = useState<"list" | "login">("list");
   const [selectedAccount, setSelectedAccount] = useState<SavedAccountToken | null>(null);
@@ -64,7 +66,7 @@ export function SwitchAccountsDialog({
 
         if (!response.ok) {
           const data = await response.json();
-          throw new Error(data.error || "Failed to switch account");
+          throw new Error(data.error || gt("Failed to switch account"));
         }
 
         onOpenChange(false);
@@ -79,7 +81,7 @@ export function SwitchAccountsDialog({
         setMode("login");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to switch account");
+      setError(err.message || gt("Failed to switch account"));
     } finally {
       setIsLoading(false);
     }
@@ -87,7 +89,7 @@ export function SwitchAccountsDialog({
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
-      setError("Please enter your password");
+      setError(gt("Please enter your password"));
       return;
     }
 
@@ -102,7 +104,7 @@ export function SwitchAccountsDialog({
       // Full reload to refresh all context (servers, DMs, etc.)
       window.location.reload();
     } catch (err: any) {
-      setError(err.message || "Failed to login");
+      setError(err.message || gt("Failed to login"));
     } finally {
       setIsLoading(false);
     }
@@ -131,7 +133,7 @@ export function SwitchAccountsDialog({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Switch accounts"
+      aria-label={gt("Switch accounts")}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={() => onOpenChange(false)}
     >
@@ -155,7 +157,7 @@ export function SwitchAccountsDialog({
               </button>
             )}
             <h2 className="text-lg font-bold text-white">
-              {mode === "list" ? "Switch Accounts" : `Login to ${selectedAccount?.displayName || selectedAccount?.username || email}`}
+              {mode === "list" ? gt("Switch Accounts") : gt("Login to {name}", { name: selectedAccount?.displayName || selectedAccount?.username || email })}
             </h2>
           </div>
           <button
@@ -224,7 +226,7 @@ export function SwitchAccountsDialog({
                     <button
                       onClick={(e) => handleRemoveAccount(account.email, e)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[#2a2a2a] transition-all"
-                      title="Remove account"
+                      title={gt("Remove account")}
                     >
                       <X className="w-4 h-4 text-[#888] hover:text-red-400" />
                     </button>
@@ -245,7 +247,7 @@ export function SwitchAccountsDialog({
                 <div className="w-10 h-10 rounded-full bg-[#1e1f22] flex items-center justify-center">
                   <Plus className="w-5 h-5 text-[#b5bac1]" />
                 </div>
-                <span className="text-sm font-medium text-[#b5bac1]">Add an account</span>
+                <span className="text-sm font-medium text-[#b5bac1]">{gt("Add an account")}</span>
               </button>
 
               {/* Divider */}
@@ -260,7 +262,7 @@ export function SwitchAccountsDialog({
                 <div className="w-10 h-10 rounded-full bg-[#1e1f22] flex items-center justify-center">
                   <LogOut className="w-5 h-5 text-red-400" />
                 </div>
-                <span className="text-sm font-medium text-red-400">Log out of {user?.displayName || "current account"}</span>
+                <span className="text-sm font-medium text-red-400">{gt("Log out of {name}", { name: user?.displayName || gt("current account") })}</span>
               </button>
             </div>
           ) : (
@@ -282,20 +284,20 @@ export function SwitchAccountsDialog({
 
               {!selectedAccount && (
                 <div>
-                  <label className="block text-xs font-bold uppercase text-[#b5bac1] mb-1.5">Email</label>
+                  <label className="block text-xs font-bold uppercase text-[#b5bac1] mb-1.5">{gt("Email")}</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-3 py-2 rounded bg-[#1a1a1a] text-sm text-white placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[#5865F2] transition-colors"
-                    placeholder="email@example.com"
+                    placeholder={gt("email@example.com")}
                     autoFocus
                   />
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-bold uppercase text-[#b5bac1] mb-1.5">Password</label>
+                <label className="block text-xs font-bold uppercase text-[#b5bac1] mb-1.5">{gt("Password")}</label>
                 <input
                   type="password"
                   value={password}
@@ -304,7 +306,7 @@ export function SwitchAccountsDialog({
                     if (e.key === "Enter") void handleLogin();
                   }}
                   className="w-full px-3 py-2 rounded bg-[#1a1a1a] text-sm text-white placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[#5865F2] transition-colors"
-                  placeholder="Password"
+                  placeholder={gt("Password")}
                   autoFocus={!!selectedAccount}
                 />
               </div>
@@ -323,7 +325,7 @@ export function SwitchAccountsDialog({
                     : "bg-[#5865F2] hover:bg-[#4752c4] text-white"
                 )}
               >
-                {isLoading ? "Logging in..." : "Login"}
+                {isLoading ? gt("Logging in...") : gt("Login")}
               </button>
             </div>
           )}

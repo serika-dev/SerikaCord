@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import { ArrowRight, Loader2 } from "lucide-react";
+import { T, useGT } from "gt-next";
 
 export function HomeNavActions() {
   const { user, isLoading } = useAuth();
+  const gt = useGT();
 
   if (isLoading) {
     return (
@@ -42,13 +44,13 @@ export function HomeNavActions() {
         href="/login"
         className="px-4 py-2 text-sm font-medium text-[#ccc] hover:text-white transition-colors"
       >
-        Log In
+        {gt("Log In")}
       </Link>
       <Link
         href="/register"
         className="px-4 py-2 text-sm font-semibold bg-white text-black hover:bg-white/90 rounded-full transition-all"
       >
-        Sign Up
+        {gt("Sign Up")}
       </Link>
     </div>
   );
@@ -56,12 +58,13 @@ export function HomeNavActions() {
 
 export function HomeHeroActions() {
   const { user, isLoading } = useAuth();
+  const gt = useGT();
 
   if (isLoading) {
     return (
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
         <div className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white/10 text-[#666] rounded-full">
-          Loading…
+          {gt("Loading…")}
         </div>
       </div>
     );
@@ -74,14 +77,14 @@ export function HomeHeroActions() {
           href="/channels/me"
           className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white text-black hover:bg-white/90 rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_0_0_rgba(255,255,255,0)] hover:shadow-[0_0_40px_rgba(255,255,255,0.12)] flex items-center justify-center gap-2"
         >
-          Welcome back, {user.displayName || user.username}
+          {gt("Welcome back")}, {user.displayName || user.username}
           <ArrowRight className="w-4 h-4" />
         </Link>
         <Link
           href="/channels/me"
           className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_30px_rgba(139,92,246,0.35)] hover:shadow-[0_0_50px_rgba(139,92,246,0.5)] flex items-center justify-center gap-2"
         >
-          Open SerikaCord
+          {gt("Open SerikaCord")}
           <ArrowRight className="w-4 h-4" />
         </Link>
       </div>
@@ -94,13 +97,13 @@ export function HomeHeroActions() {
         href="/register"
         className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white text-black hover:bg-white/90 rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_0_0_rgba(255,255,255,0)] hover:shadow-[0_0_40px_rgba(255,255,255,0.12)]"
       >
-        Get Started — it&apos;s free
+        {gt("Get Started — it's free")}
       </Link>
       <Link
         href="/channels/me"
         className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_30px_rgba(139,92,246,0.35)] hover:shadow-[0_0_50px_rgba(139,92,246,0.5)] flex items-center justify-center gap-2"
       >
-        Open in browser
+        {gt("Open in browser")}
         <ArrowRight className="w-4 h-4" />
       </Link>
     </div>

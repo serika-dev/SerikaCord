@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface Message {
   id: string;
@@ -28,6 +29,7 @@ interface MobileMessagesViewProps {
 
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const router = useRouter();
+  const gt = useGT();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -49,7 +51,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     const hours = Math.floor(minutes / 60);
     const days = Math.floor(hours / 24);
 
-    if (minutes < 1) return "Now";
+    if (minutes < 1) return gt("Now");
     if (minutes < 60) return `${minutes}m`;
     if (hours < 24) return `${hours}h`;
     if (days < 7) return `${days}d`;
@@ -81,10 +83,10 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               id: channel.id,
               recipientId: recipientId,
               type: channel.type === "group" ? "group" : "dm",
-              name: recipient?.displayName || recipient?.username || "Unknown",
+              name: recipient?.displayName || recipient?.username || gt("Unknown"),
               username: recipient?.username || "",
               avatar: recipient?.avatar,
-              lastMessage: channel.lastMessage?.content || "Start a conversation",
+              lastMessage: channel.lastMessage?.content || gt("Start a conversation"),
               timestamp: formatTimestamp(channel.updatedAt),
               status: recipient?.status || "offline",
             });
@@ -238,7 +240,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               </button>
               <input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder={gt("Search conversations...")}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 autoFocus
@@ -255,7 +257,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             </div>
           ) : (
             <>
-              <h1 className="text-3xl font-bold text-[var(--text-primary)] tracking-tight">Messages</h1>
+              <h1 className="text-3xl font-bold text-[var(--text-primary)] tracking-tight">{gt("Messages")}</h1>
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setShowSearch(true)}
@@ -280,7 +282,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         <div className="px-5 py-3 border-b border-[var(--border-subtle)]">
           <h2 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-3 flex items-center gap-2">
             <Star className="w-3.5 h-3.5" />
-            Favorites
+            {gt("Favorites")}
           </h2>
           <div className="flex items-center gap-4 overflow-x-auto pb-2 scrollbar-hide -mx-1 px-1">
             {pinnedMessages.map((message) => (
@@ -358,9 +360,9 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               <div className="w-16 h-16 rounded-2xl bg-[var(--bg-card)] flex items-center justify-center mb-4">
                 <Search className="w-8 h-8 text-[var(--text-muted)]" />
               </div>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">No results</h3>
+              <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{gt("No results")}</h3>
               <p className="text-[var(--text-muted)] text-sm">
-                Try searching for something else
+                {gt("Try searching for something else")}
               </p>
             </div>
           ) : messages.length === 0 ? (
@@ -368,15 +370,15 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               <div className="w-20 h-20 rounded-3xl bg-[var(--bg-card)] flex items-center justify-center mb-6">
                 <UserPlus className="w-10 h-10 text-[var(--text-muted)]" />
               </div>
-              <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">No messages yet</h3>
+              <h3 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("No messages yet")}</h3>
               <p className="text-[var(--text-muted)] text-base mb-6 max-w-[280px]">
-                Start a conversation by adding friends or joining a server
+                {gt("Start a conversation by adding friends or joining a server")}
               </p>
               <button 
                 onClick={onAddFriend}
                 className="px-8 py-3.5 bg-[var(--app-accent)] hover:opacity-90 text-white font-bold rounded-2xl transition-all active:scale-95 shadow-lg"
               >
-                Find Friends
+                {gt("Find Friends")}
               </button>
             </div>
           ) : (

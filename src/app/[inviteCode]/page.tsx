@@ -19,6 +19,7 @@ import {
 
 import { ServerBadge } from "@/components/ui/badges";
 import { ShareInviteButton } from "@/components/invite/ShareInviteButton";
+import { useGT } from "gt-next";
 
 interface InviteInfo {
   code: string;
@@ -36,26 +37,27 @@ interface InviteInfo {
   expiresAt?: string;
 }
 
-function formatExpiry(expiresAt: string | undefined): string | null {
-  if (!expiresAt) return null;
-  const exp = new Date(expiresAt);
-  const now = new Date();
-  const diff = exp.getTime() - now.getTime();
-  if (diff <= 0) return "Expired";
-  const hours = Math.floor(diff / (1000 * 60 * 60));
-  const days = Math.floor(hours / 24);
-  if (days > 0) return `Expires in ${days} day${days > 1 ? "s" : ""}`;
-  if (hours > 0) return `Expires in ${hours} hour${hours > 1 ? "s" : ""}`;
-  const mins = Math.floor(diff / (1000 * 60));
-  return `Expires in ${mins} minute${mins > 1 ? "s" : ""}`;
-}
-
 import { isReservedSlug } from "@/lib/constants/reserved";
 
 export default function InvitePage() {
   const router = useRouter();
   const params = useParams();
   const inviteCode = params.inviteCode as string;
+  const gt = useGT();
+
+  const formatExpiry = useCallback((expiresAt: string | undefined): string | null => {
+    if (!expiresAt) return null;
+    const exp = new Date(expiresAt);
+    const now = new Date();
+    const diff = exp.getTime() - now.getTime();
+    if (diff <= 0) return gt("Expired");
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    if (days > 0) return gt("Expires in {days} days", { days });
+    if (hours > 0) return gt("Expires in {hours} hours", { hours });
+    const mins = Math.floor(diff / (1000 * 60));
+    return gt("Expires in {mins} minutes", { mins });
+  }, [gt]);
 
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -71,17 +73,17 @@ export default function InvitePage() {
       const res = await fetch(`/api/invites/${inviteCode}`);
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || "Invite not found or has expired.");
+        setError(data.error || gt("Invite not found or has expired."));
         return;
       }
       const data = await res.json();
       setInvite(data);
     } catch {
-      setError("Failed to load invite. Please try again.");
+      setError(gt("Failed to load invite. Please try again."));
     } finally {
       setIsLoading(false);
     }
-  }, [inviteCode]);
+  }, [inviteCode, gt]);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -131,7 +133,7 @@ export default function InvitePage() {
           }
           return;
         }
-        setError(data.error || "Failed to join server.");
+        setError(data.error || gt("Failed to join server."));
         return;
       }
 
@@ -142,7 +144,7 @@ export default function InvitePage() {
         router.push(target);
       }
     } catch {
-      setError("Something went wrong. Please try again.");
+      setError(gt("Something went wrong. Please try again."));
     } finally {
       setIsJoining(false);
     }
@@ -164,20 +166,20 @@ export default function InvitePage() {
       if (res.ok) {
         setShowApplyDialog(false);
         setApplyAnswer("");
-        setError("Application submitted! You will be notified when it is reviewed.");
+        setError(gt("Application submitted! You will be notified when it is reviewed."));
       } else {
         const data = await res.json();
-        setError(data.error || "Failed to submit application.");
+        setError(data.error || gt("Failed to submit application."));
       }
     } catch {
-      setError("Failed to submit application.");
+      setError(gt("Failed to submit application."));
     } finally {
       setIsSubmittingApply(false);
     }
   };
 
   const expiry = invite?.expiresAt ? formatExpiry(invite.expiresAt) : null;
-  const isExpired = expiry === "Expired";
+  const isExpired = expiry === gt("Expired");
   const banner = invite?.server.banner;
 
   // Show 404 for reserved slugs (real routes / branding names)
@@ -185,10 +187,10 @@ export default function InvitePage() {
     return (
       <div className="min-h-screen bg-[var(--app-bg)] flex flex-col items-center justify-center px-4 text-center">
         <p className="text-8xl font-extrabold text-white/5 select-none mb-6">404</p>
-        <h1 className="text-2xl font-bold text-white mb-2">Page Not Found</h1>
-        <p className="text-[var(--app-muted)] text-sm mb-8">This page doesn&apos;t exist or you don&apos;t have access to it.</p>
+        <h1 className="text-2xl font-bold text-white mb-2">{gt("Page Not Found")}</h1>
+        <p className="text-[var(--app-muted)] text-sm mb-8">{gt("This page doesn't exist or you don't have access to it.")}</p>
         <Link href="/" className="px-6 py-3 bg-[var(--accent-color)] hover:brightness-110 text-white font-medium rounded-lg transition-all text-sm">
-          Go Home
+          {gt("Go Home")}
         </Link>
       </div>
     );
@@ -242,7 +244,7 @@ export default function InvitePage() {
           className="flex items-center gap-2 text-sm text-[var(--app-muted)] hover:text-[var(--app-text)] transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />
-          Back to SerikaCord
+          {gt("Back to SerikaCord")}
         </Link>
       </div>
 
@@ -258,7 +260,7 @@ export default function InvitePage() {
             <div className="w-16 h-16 rounded-2xl bg-[var(--app-surface)]/80 backdrop-blur-xl border border-[var(--app-border)] flex items-center justify-center">
               <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
             </div>
-            <p className="text-[var(--app-muted)] text-sm">Loading invite...</p>
+            <p className="text-[var(--app-muted)] text-sm">{gt("Loading invite...")}</p>
           </motion.div>
         ) : error && !invite ? (
           <motion.div
@@ -273,7 +275,7 @@ export default function InvitePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-[var(--app-text)] mb-2">
-                Invite Invalid
+                {gt("Invite Invalid")}
               </h1>
               <p className="text-[var(--app-muted)] text-sm leading-relaxed">{error}</p>
             </div>
@@ -281,7 +283,7 @@ export default function InvitePage() {
               href="/channels/me"
               className="px-6 py-3 bg-[var(--accent-color)] hover:brightness-110 text-white font-medium rounded-lg transition-all text-sm"
             >
-              Open SerikaCord
+              {gt("Open SerikaCord")}
             </Link>
           </motion.div>
         ) : invite ? (
@@ -336,7 +338,7 @@ export default function InvitePage() {
                   className="mt-4"
                 >
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent-color)] mb-1">
-                    You&apos;ve been invited to join
+                    {gt("You've been invited to join")}
                   </p>
                   <div className="flex items-center gap-2">
                     {invite.server.isPartnered && <ServerBadge type="partnered" size="md" iconOnly />}
@@ -370,7 +372,7 @@ export default function InvitePage() {
                         <span className="text-[var(--app-text)] font-medium">
                           {invite.server.onlineCount.toLocaleString()}
                         </span>{" "}
-                        Online
+                        {gt("Online")}
                       </span>
                     </div>
                   )}
@@ -381,7 +383,7 @@ export default function InvitePage() {
                         <span className="text-[var(--app-text)] font-medium">
                           {invite.server.memberCount.toLocaleString()}
                         </span>{" "}
-                        Members
+                        {gt("Members")}
                       </span>
                     </div>
                   )}
@@ -423,23 +425,23 @@ export default function InvitePage() {
                     {isJoining ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Joining...
+                        {gt("Joining...")}
                       </>
                     ) : isExpired ? (
-                      "Invite Expired"
+                      gt("Invite Expired")
                     ) : isAuthenticated === false ? (
                       <>
-                        Sign in to Join
+                        {gt("Sign in to Join")}
                         <ArrowRight className="w-4 h-4" />
                       </>
                     ) : invite.server.joinMode === "apply_to_join" ? (
                       <>
-                        Apply to Join
+                        {gt("Apply to Join")}
                         <ArrowRight className="w-4 h-4" />
                       </>
                     ) : (
                       <>
-                        Accept Invite
+                        {gt("Accept Invite")}
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -455,12 +457,12 @@ export default function InvitePage() {
 
                   {!isAuthenticated && !isExpired && (
                     <p className="text-center text-xs text-[var(--app-muted-2)]">
-                      Don&apos;t have an account?{" "}
+                      {gt("Don't have an account?")}{" "}
                       <Link
                         href={`/register?redirect=/${inviteCode}`}
                         className="text-[var(--accent-color)] hover:underline"
                       >
-                        Create one free
+                        {gt("Create one free")}
                       </Link>
                     </p>
                   )}
@@ -478,10 +480,10 @@ export default function InvitePage() {
               <div className="w-5 h-5 rounded-md bg-[var(--app-accent)] flex items-center justify-center">
                 <MessageSquare className="w-3 h-3 text-white" />
               </div>
-              <span>SerikaCord</span>
+              <span>{gt("SerikaCord")}</span>
               <span className="text-[var(--app-border)]">·</span>
               <Shield className="w-3.5 h-3.5" />
-              <span>Safe & Secure</span>
+              <span>{gt("Safe & Secure")}</span>
             </motion.div>
           </motion.div>
         ) : null}
@@ -491,15 +493,15 @@ export default function InvitePage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="w-full max-w-md bg-[#111214] rounded-xl border border-[#1f1f22] p-6 space-y-4">
             <div>
-              <h3 className="text-xl font-bold text-white">Apply to join {invite.server.name}</h3>
+              <h3 className="text-xl font-bold text-white">{gt("Apply to join {name}", { name: invite.server.name })}</h3>
               <p className="text-sm text-[#949ba4] mt-1">
-                This server requires an application. Tell them a bit about yourself.
+                {gt("This server requires an application. Tell them a bit about yourself.")}
               </p>
             </div>
             <textarea
               value={applyAnswer}
               onChange={(e) => setApplyAnswer(e.target.value)}
-              placeholder="Why would you like to join?"
+              placeholder={gt("Why would you like to join?")}
               rows={4}
               className="w-full p-3 rounded-lg bg-[#1f1f22] border border-[#2b2d31] text-white placeholder:text-[#949ba4] focus:outline-none focus:border-[#5865F2] resize-none"
             />
@@ -508,14 +510,14 @@ export default function InvitePage() {
                 onClick={() => setShowApplyDialog(false)}
                 className="px-4 py-2 text-white hover:bg-[#2b2d31] rounded-lg transition-colors"
               >
-                Cancel
+                {gt("Cancel")}
               </button>
               <button
                 onClick={() => void handleSubmitApplication()}
                 disabled={!applyAnswer.trim() || isSubmittingApply}
                 className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] disabled:opacity-60 text-white rounded-lg transition-colors"
               >
-                {isSubmittingApply ? "Submitting..." : "Submit Application"}
+                {isSubmittingApply ? gt("Submitting...") : gt("Submit Application")}
               </button>
             </div>
           </div>

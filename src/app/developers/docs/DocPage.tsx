@@ -5,16 +5,18 @@ import { usePathname } from "next/navigation";
 import { getPrevNext } from "@/lib/constants/docs-nav";
 import { ChevronLeft, ChevronRight, Info, AlertTriangle, AlertCircle, Copy, Check, Hash } from "lucide-react";
 import { useState } from "react";
+import { useGT } from "gt-next";
 
 export function DocPage({
   title,
   description,
   children,
 }: {
-  title: string;
-  description?: string;
+  title: React.ReactNode;
+  description?: React.ReactNode;
   children: React.ReactNode;
 }) {
+  const gt = useGT();
   const pathname = usePathname();
   const slug = pathname?.replace("/developers/docs/", "") || "";
   const { prev, next } = getPrevNext(slug);
@@ -23,7 +25,7 @@ export function DocPage({
     <article>
       <header className="mb-8 pb-6 border-b border-white/[0.06]">
         <div className="flex items-center gap-2 text-xs text-[#555] mb-3">
-          <span>Docs</span>
+          <span>{gt("Docs")}</span>
           <ChevronRight className="size-3" />
           <span className="text-[#8B5CF6]">{title}</span>
         </div>
@@ -43,7 +45,7 @@ export function DocPage({
           >
             <ChevronLeft className="size-5 group-hover:-translate-x-0.5 transition-transform shrink-0" />
             <div>
-              <p className="text-xs text-[#555]">Previous</p>
+              <p className="text-xs text-[#555]">{gt("Previous")}</p>
               <p className="font-medium">{prev.label}</p>
             </div>
           </Link>
@@ -56,7 +58,7 @@ export function DocPage({
             className="flex items-center gap-3 text-sm text-[#949ba4] hover:text-white transition-colors group text-right rounded-lg p-2 -mr-2 hover:bg-white/[0.03]"
           >
             <div>
-              <p className="text-xs text-[#555]">Next</p>
+              <p className="text-xs text-[#555]">{gt("Next")}</p>
               <p className="font-medium">{next.label}</p>
             </div>
             <ChevronRight className="size-5 group-hover:translate-x-0.5 transition-transform shrink-0" />
@@ -70,6 +72,7 @@ export function DocPage({
 }
 
 export function CodeBlock({ children, lang = "bash" }: { children: string; lang?: string }) {
+  const gt = useGT();
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(children);
@@ -102,12 +105,12 @@ export function CodeBlock({ children, lang = "bash" }: { children: string; lang?
           {copied ? (
             <>
               <Check className="size-3 text-green-400" />
-              <span className="text-green-400">Copied!</span>
+              <span className="text-green-400">{gt("Copied!")}</span>
             </>
           ) : (
             <>
               <Copy className="size-3" />
-              <span>Copy</span>
+              <span>{gt("Copy")}</span>
             </>
           )}
         </button>
@@ -162,7 +165,7 @@ export function Callout({
   children,
 }: {
   type?: "info" | "warning" | "danger";
-  title?: string;
+  title?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const styles = {
@@ -288,7 +291,7 @@ export function Card({
   external,
 }: {
   href: string;
-  title: string;
+  title: React.ReactNode;
   children: React.ReactNode;
   icon?: React.ReactNode;
   external?: boolean;
@@ -326,7 +329,7 @@ export function Steps({ children }: { children: React.ReactNode }) {
   return <ol className="my-5 space-y-4 counter-reset-step">{children}</ol>;
 }
 
-export function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
+export function Step({ n, title, children }: { n: number; title: React.ReactNode; children: React.ReactNode }) {
   return (
     <li className="relative pl-12">
       <span className="absolute left-0 top-0 size-9 rounded-xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 border border-[#8B5CF6]/30 text-[#a78bfa] text-sm font-bold flex items-center justify-center shadow-lg shadow-[#8B5CF6]/[0.05]">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +14,7 @@ import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
 import { Loader2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
+import { T, useGT } from "gt-next";
 
 const dialogFallback = () => <div className="hidden" />;
 const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
@@ -61,14 +62,24 @@ const MobileProfileView = dynamic(
 );
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, refresh } = useAuth();
   const router = useRouter();
+  const gt = useGT();
+  const recheckRef = useRef(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
+      // Re-check auth once before redirecting, in case the auth cookie
+      // was set by a login/register on another page but the context
+      // hasn't refreshed yet. This prevents infinite redirect loops.
+      if (!recheckRef.current) {
+        recheckRef.current = true;
+        void refresh();
+        return;
+      }
       router.push("/login");
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, refresh]);
 
   if (isLoading) {
     return (
@@ -81,9 +92,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col items-center gap-2">
             <div className="flex items-center gap-2">
               <Loader2 className="w-5 h-5 text-[#8B5CF6] animate-spin" />
-              <span className="text-lg font-medium text-[var(--text-primary)]">Loading SerikaCord...</span>
+              <span className="text-lg font-medium text-[var(--text-primary)]">{gt("Loading SerikaCord...")}</span>
             </div>
-            <p className="text-sm text-[var(--text-muted)]">Preparing your experience</p>
+            <p className="text-sm text-[var(--text-muted)]">{gt("Preparing your experience")}</p>
           </div>
         </div>
       </div>
@@ -99,9 +110,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
           </div>
           
           <div>
-            <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">Welcome to SerikaCord</h1>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2"><T>Welcome to SerikaCord</T></h1>
             <p className="text-[var(--text-secondary)] max-w-md">
-              Sign in to access your servers, chat with friends, and join communities.
+              <T>Sign in to access your servers, chat with friends, and join communities.</T>
             </p>
           </div>
           
@@ -110,13 +121,13 @@ function AuthGate({ children }: { children: React.ReactNode }) {
               href="/login"
               className="px-6 py-3 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium rounded-md transition-colors"
             >
-              Sign In
+              {gt("Sign In")}
             </Link>
             <Link
               href="/register"
               className="px-6 py-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)] font-medium rounded-md transition-colors"
             >
-              Create Account
+              {gt("Create Account")}
             </Link>
           </div>
         </div>

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Settings, Menu, MoreVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useGT } from "gt-next";
 
 interface MobileHeaderProps {
     title: string;
@@ -32,6 +33,7 @@ export function MobileHeader({
     className,
 }: MobileHeaderProps) {
     const router = useRouter();
+    const gt = useGT();
 
     const handleBack = () => {
         if (onBack) {
@@ -55,7 +57,7 @@ export function MobileHeader({
                     <button
                         onClick={onMenuClick}
                         className="p-2 -ml-2 rounded-xl hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)] transition-colors mobile-touch-target"
-                        aria-label="Open menu"
+                        aria-label={gt("Open menu")}
                     >
                         <Menu className="w-5 h-5 text-[var(--text-primary)]" />
                     </button>
@@ -65,7 +67,7 @@ export function MobileHeader({
                     <button
                         onClick={handleBack}
                         className="p-2 -ml-2 rounded-xl hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)] transition-colors mobile-touch-target"
-                        aria-label="Go back"
+                        aria-label={gt("Go back")}
                     >
                         <ChevronLeft className="w-5 h-5 text-[var(--text-primary)]" />
                     </button>
@@ -88,7 +90,7 @@ export function MobileHeader({
                     <button
                         onClick={onSettingsClick}
                         className="p-2.5 rounded-xl hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)] transition-colors mobile-touch-target"
-                        aria-label="Settings"
+                        aria-label={gt("Settings")}
                     >
                         <Settings className="w-5 h-5 text-[var(--text-muted)]" />
                     </button>

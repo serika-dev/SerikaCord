@@ -5,8 +5,10 @@ import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Loader2, Copy, Check, Plus, Trash2, Save, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
+import { useGT } from "gt-next";
 
 export default function OAuth2Page() {
+  const gt = useGT();
   const params = useParams();
   const appId = params.id as string;
   const { app, loading, saving, saveApp, refetch } = useApplication(appId);
@@ -38,7 +40,7 @@ export default function OAuth2Page() {
 
   const handleSave = async () => {
     const ok = await saveApp({ redirectUris });
-    if (ok) toast.success("OAuth2 settings saved");
+    if (ok) toast.success(gt("OAuth2 settings saved"));
   };
 
   const copySecret = () => {
@@ -50,7 +52,7 @@ export default function OAuth2Page() {
   };
 
   const handleResetSecret = async () => {
-    if (!confirm("Are you sure? Resetting the client secret will invalidate the old one. Any apps using it will stop working.")) return;
+    if (!confirm(gt("Are you sure? Resetting the client secret will invalidate the old one. Any apps using it will stop working."))) return;
     setResetting(true);
     try {
       const res = await fetch(`/api/developers/applications/${appId}/oauth2/reset-secret`, {
@@ -59,14 +61,14 @@ export default function OAuth2Page() {
       if (res.ok) {
         const data = await res.json();
         setSecret(data.secret || "");
-        toast.success("Secret reset! Copy the new secret now.");
+        toast.success(gt("Secret reset! Copy the new secret now."));
         refetch();
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || "Failed to reset secret");
+        toast.error(err.error || gt("Failed to reset secret"));
       }
     } catch {
-      toast.error("Failed to reset secret");
+      toast.error(gt("Failed to reset secret"));
     } finally {
       setResetting(false);
     }
@@ -82,12 +84,12 @@ export default function OAuth2Page() {
 
   return (
     <div>
-      <h1 className="text-xl font-bold mb-6">OAuth2</h1>
+      <h1 className="text-xl font-bold mb-6">{gt("OAuth2")}</h1>
 
       {/* Client ID */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Client ID
+          {gt("Client ID")}
         </label>
         <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
           <code className="text-sm text-[#ccc] flex-1 truncate font-mono">{app?.clientId || appId}</code>
@@ -97,11 +99,11 @@ export default function OAuth2Page() {
       {/* Client Secret */}
       <div className="mb-6">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Client Secret
+          {gt("Client Secret")}
         </label>
         <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
           <code className="text-sm text-[#ccc] flex-1 truncate font-mono">
-            {secret ? (showSecret ? secret : "••••••••••••••••") : "No secret set"}
+            {secret ? (showSecret ? secret : "••••••••••••••••") : gt("No secret set")}
           </code>
           {secret && (
             <>
@@ -120,24 +122,24 @@ export default function OAuth2Page() {
             </>
           )}
         </div>
-        <p className="text-xs text-[#666] mt-1.5">Keep your client secret safe.</p>
+        <p className="text-xs text-[#666] mt-1.5">{gt("Keep your client secret safe.")}</p>
         <button
           onClick={handleResetSecret}
           disabled={resetting}
           className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors"
         >
           {resetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-          Reset Secret
+          {gt("Reset Secret")}
         </button>
       </div>
 
       {/* Redirect URIs */}
       <div className="mb-8">
         <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-          Redirect URIs
+          {gt("Redirect URIs")}
         </label>
         <p className="text-xs text-[#666] mb-3">
-          URIs that SerikaCord will redirect to after authorization.
+          {gt("URIs that SerikaCord will redirect to after authorization.")}
         </p>
         <div className="space-y-2 mb-3">
           {redirectUris.map((uri) => (
@@ -168,7 +170,7 @@ export default function OAuth2Page() {
             onClick={addUri}
             className="flex items-center gap-1 px-3 py-2 bg-white/5 hover:bg-white/10 text-sm rounded-lg transition-colors"
           >
-            <Plus className="size-4" /> Add
+            <Plus className="size-4" /> {gt("Add")}
           </button>
         </div>
       </div>
@@ -181,7 +183,7 @@ export default function OAuth2Page() {
           className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
         >
           {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-          Save Changes
+          {gt("Save Changes")}
         </button>
       </div>
     </div>
