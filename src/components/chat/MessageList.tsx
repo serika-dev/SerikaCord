@@ -14,10 +14,11 @@ import {
   type Ref,
 } from "react";
 import { Loader2, ArrowDown } from "lucide-react";
-import { useGT } from "gt-next";
+import { useGT, useLocale } from "gt-next";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { MessageSkeleton } from "@/components/ui/skeleton";
+import { formatMessageTimestamp } from "@/lib/chat/messages";
 import type { PickerEmoji } from "@/components/chat/MessageHoverActions";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
@@ -102,6 +103,7 @@ function MessageListInner<M extends ChatMessage>(
   ref: Ref<MessageListHandle>
 ) {
   const gt = useGT();
+  const locale = useLocale();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
@@ -117,6 +119,10 @@ function MessageListInner<M extends ChatMessage>(
   const messageCount = useMemo(
     () => groups.reduce((total, group) => total + group.messages.length, 0),
     [groups]
+  );
+  const formattedTimestamps = useMemo(
+    () => groups.map((g) => formatMessageTimestamp(g.timestamp, gt, locale)),
+    [groups, gt, locale],
   );
   const firstMessageId = groups[0]?.messages[0]?.id;
   const prevMessageCountRef = useRef(0);
@@ -368,6 +374,7 @@ function MessageListInner<M extends ChatMessage>(
                   onOpenReactionPicker={stable.onOpenReactionPicker}
                   onMediaClick={onMediaClick}
                   onJumpToMessage={scrollToMessage}
+                  formattedTimestamp={formattedTimestamps[idx]}
                 />
                 </div>
                 );
