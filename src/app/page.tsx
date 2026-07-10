@@ -102,7 +102,6 @@ export default async function HomePage() {
             
             {/* Right actions */}
             <div className="flex items-center gap-3">
-              <LocaleSelector />
               <HomeNavActions />
             </div>
           </div>
@@ -271,13 +270,16 @@ export default async function HomePage() {
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row items-center justify-between pt-8 border-t border-white/[0.06]">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-6 pt-8 border-t border-white/[0.06]">
             <Link href="/" className="mb-4 sm:mb-0">
               <Logo size="sm" />
             </Link>
-            <p className="text-xs text-[#444]">
-              <T>© 2026 Serika Company. All rights reserved.</T>
-            </p>
+            <div className="flex items-center gap-6">
+              <LocaleSelector className="w-[180px] h-9" />
+              <p className="text-xs text-[#444]">
+                <T>© 2026 Serika Company. All rights reserved.</T>
+              </p>
+            </div>
           </div>
         </div>
       </footer>

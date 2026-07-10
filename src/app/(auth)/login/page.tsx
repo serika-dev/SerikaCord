@@ -8,11 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { T, useGT } from "gt-next";
+import { useAuth } from "@/contexts/AuthContext";
 
 function LoginForm() {
   const gt = useGT();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, isLoading: authLoading, login } = useAuth();
   const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -22,22 +24,12 @@ function LoginForm() {
     password: "",
   });
 
-  // Auto-login on mount for development
+  // Redirect if already authenticated (via AuthContext)
   useEffect(() => {
-    const autoLogin = async () => {
-      // Check if already logged in
-      const checkResponse = await fetch("/api/users/@me");
-      if (checkResponse.ok) {
-        router.push(redirectTo);
-        return;
-      }
-
-      // Auto login disabled for production
-      setIsLoading(false);
-    };
-
-    autoLogin();
-  }, [router]);
+    if (!authLoading && user) {
+      router.replace(redirectTo);
+    }
+  }, [user, authLoading, router, redirectTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,22 +37,12 @@ function LoginForm() {
     setError("");
 
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to login");
-      }
-
-      router.push(redirectTo);
+      // Use AuthContext.login() which calls refresh() internally,
+      // ensuring the user state is updated before we navigate.
+      await login(formData.email, formData.password);
+      router.replace(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
       setIsLoading(false);
     }
   };

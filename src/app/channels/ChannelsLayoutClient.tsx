@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
@@ -62,15 +62,24 @@ const MobileProfileView = dynamic(
 );
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, refresh } = useAuth();
   const router = useRouter();
   const gt = useGT();
+  const recheckRef = useRef(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
+      // Re-check auth once before redirecting, in case the auth cookie
+      // was set by a login/register on another page but the context
+      // hasn't refreshed yet. This prevents infinite redirect loops.
+      if (!recheckRef.current) {
+        recheckRef.current = true;
+        void refresh();
+        return;
+      }
       router.push("/login");
     }
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, refresh]);
 
   if (isLoading) {
     return (

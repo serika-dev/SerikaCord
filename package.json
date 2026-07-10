@@ -18,7 +18,12 @@
     "mobile:android": "cd mobile && bun run android",
     "mobile:sync": "cd mobile && bun run cap:sync",
     "check:theme": "bash scripts/check-theme-hardcoded.sh",
-    "check:chat-media": "bash scripts/check-chat-media-hardcoded.sh"
+    "check:chat-media": "bash scripts/check-chat-media-hardcoded.sh",
+    "translate:push": "node scripts/sync-translations.js push",
+    "translate:pull": "node scripts/sync-translations.js pull",
+    "translate:sync": "node scripts/sync-translations.js sync",
+    "translate:status": "node scripts/sync-translations.js status",
+    "translate:keys": "node scripts/sync-translations.js keys"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.986.0",

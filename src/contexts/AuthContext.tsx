@@ -54,6 +54,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (data: { email: string; username: string; password: string; displayName?: string }) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
   updateUser: (updates: Partial<User>) => void;
@@ -66,6 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const statusUpdatePending = useRef(false);
+  const refreshInFlight = useRef(false);
 
   const sendPresenceHeartbeat = useCallback(async () => {
     if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
@@ -106,8 +108,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
+    // Prevent concurrent refresh calls — if a refresh is already in flight,
+    // wait for it instead of firing a duplicate request.
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    setIsLoading(true);
     try {
-      const response = await fetch("/api/users/@me");
+      let response = await fetch("/api/users/@me");
+
+      // If the access token expired, try refreshing it once before giving up.
+      if (response.status === 401) {
+        const refreshRes = await fetch("/api/auth/refresh", { method: "POST" });
+        if (refreshRes.ok) {
+          response = await fetch("/api/users/@me");
+        }
+      }
+
       if (response.ok) {
         const data = await response.json();
         setUser(data);
@@ -133,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
     } finally {
       setIsLoading(false);
+      refreshInFlight.current = false;
     }
   }, []);
 
@@ -217,17 +234,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) {
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       throw new Error(data.error || "Failed to login");
     }
 
+    // Wait for the context to pick up the new auth cookie before returning.
     await refresh();
   }, [refresh]);
 
+  const register = useCallback(async (data: { email: string; username: string; password: string; displayName?: string }) => {
+    const response = await fetch("/api/auth/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const resData = await response.json().catch(() => ({}));
+      throw new Error(resData.error || "Failed to register");
+    }
+
+    // Registration requires email verification — no auth cookie is set,
+    // so we don't call refresh() here. The caller should show a success
+    // message and redirect to login.
+  }, []);
+
   const logout = useCallback(async () => {
     // Set offline before logging out
-    await setOnlineStatus("offline");
-    await fetch("/api/auth/logout", { method: "POST" });
+    try { await setOnlineStatus("offline"); } catch {}
+    try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
     setUser(null);
   }, [setOnlineStatus]);
 
@@ -236,8 +271,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, isLoading, login, logout, refresh, updateUser, setOnlineStatus }),
-    [user, isLoading, login, logout, refresh, updateUser, setOnlineStatus]
+    () => ({ user, isLoading, login, register, logout, refresh, updateUser, setOnlineStatus }),
+    [user, isLoading, login, register, logout, refresh, updateUser, setOnlineStatus]
   );
 
   return (

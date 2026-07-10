@@ -61,6 +61,7 @@ import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badge
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
+import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
@@ -95,7 +96,8 @@ type SettingsTab =
   | "admin-logs"
   | "admin-experiments"
   | "admin-tts-sounds"
-  | "admin-tts-voices";
+  | "admin-tts-voices"
+  | "admin-translations";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -1554,6 +1556,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         { id: "admin-experiments" as SettingsTab, label: gt("Experiments"), icon: FlaskConical },
         { id: "admin-tts-sounds" as SettingsTab, label: gt("TTS Sounds"), icon: Volume2 },
         { id: "admin-tts-voices" as SettingsTab, label: gt("TTS Voices"), icon: Mic2 },
+        { id: "admin-translations" as SettingsTab, label: gt("Translations"), icon: Languages },
       ],
     });
   }
@@ -3053,7 +3056,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               )}
 
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-badges", "admin-announcements", "connections"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-white mb-5 capitalize">
                     {activeTab.replace(/-/g, " ")}
@@ -4186,6 +4189,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - TTS Voices */}
               {activeTab === "admin-tts-voices" && isStaff && (
                 <AdminTtsVoicesPanel />
+              )}
+
+              {/* Admin Panel - Translations */}
+              {activeTab === "admin-translations" && isStaff && (
+                <AdminTranslationsPanel />
               )}
             </div>
           </ScrollArea>

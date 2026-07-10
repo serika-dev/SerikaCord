@@ -56,7 +56,7 @@ export default function DMConversationPage() {
   const params = useParams();
   const router = useRouter();
   const recipientId = params.recipientId as string;
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
   const isMobile = useIsMobile();
 
@@ -185,12 +185,18 @@ export default function DMConversationPage() {
       .catch(() => {});
   }, []);
 
-  // Redirect if not authenticated
+  // Redirect if not authenticated (with recheck to prevent loops)
+  const dmRecheckRef = useRef(false);
   useEffect(() => {
     if (!authLoading && !user) {
+      if (!dmRecheckRef.current) {
+        dmRecheckRef.current = true;
+        void refresh();
+        return;
+      }
       router.push("/login");
     }
-  }, [user, authLoading, router]);
+  }, [user, authLoading, router, refresh]);
 
   // Fetch recipient info
   useEffect(() => {

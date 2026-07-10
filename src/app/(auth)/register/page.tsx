@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Loader2, Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { T, useGT } from "gt-next";
+import { useAuth } from "@/contexts/AuthContext";
 
 const passwordRequirements = [
   { id: 'length', labelKey: 'At least 8 characters', test: (p: string) => p.length >= 8 },
@@ -20,10 +21,12 @@ function RegisterForm() {
   const gt = useGT();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user, isLoading: authLoading, register } = useAuth();
   const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     displayName: "",
@@ -31,25 +34,21 @@ function RegisterForm() {
     password: "",
   });
 
+  // Redirect if already authenticated (via AuthContext)
+  useEffect(() => {
+    if (!authLoading && user) {
+      router.replace(redirectTo);
+    }
+  }, [user, authLoading, router, redirectTo]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
 
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to register");
-      }
-
-      router.push(redirectTo);
+      await register(formData);
+      setSuccess(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -70,6 +69,19 @@ function RegisterForm() {
       </div>
 
       {/* Form */}
+      {success ? (
+        <div className="space-y-5">
+          <div className="p-4 rounded-md bg-green-500/10 border border-green-500/20 text-green-400 text-sm text-center">
+            <T>Account created! Please check your email to verify your account before signing in.</T>
+          </div>
+          <Button
+            onClick={() => router.push("/login")}
+            className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] shadow-[0_0_20px_rgba(139,92,246,0.25)]"
+          >
+            {gt("Go to Login")}
+          </Button>
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -206,6 +218,7 @@ function RegisterForm() {
           </Link>
         </p>
       </form>
+      )}
     </div>
   );
 }
