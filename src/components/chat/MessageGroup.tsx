@@ -5,7 +5,7 @@ import { Pencil, Pin, Reply, Smile, Trash2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";
@@ -13,7 +13,7 @@ import { MessageHoverActions, type PickerEmoji } from "@/components/chat/Message
 import { MessageEditForm } from "@/components/chat/MessageEditForm";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
-import { useGT } from "gt-next";
+import { useGT, useLocale } from "gt-next";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 
 interface MentionUser {
@@ -107,6 +107,11 @@ function MessageGroupInner<M extends ChatMessage>({
   onJumpToMessage,
 }: MessageGroupProps<M>) {
   const gt = useGT();
+  const locale = useLocale();
+  const formattedTimestamp = useMemo(
+    () => formatMessageTimestamp(group.timestamp, gt, locale),
+    [group.timestamp, gt, locale],
+  );
   // Merge mention users with message authors and referenced message authors
   // so that mentions resolve even for users who left the server or aren't in
   // the member list fetched for autocomplete.
@@ -209,7 +214,7 @@ function MessageGroupInner<M extends ChatMessage>({
 
               <div className="flex-1 min-w-0">
                 {isFirst && (
-                  <GroupHeader author={group.author} timestamp={group.timestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} />
+                  <GroupHeader author={group.author} formattedTimestamp={formattedTimestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} />
                 )}
 
                 {isEditing ? (
