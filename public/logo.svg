@@ -1,8 +1,18 @@
-<!-- This Source Code Form is subject to the terms of the Mozilla Public
-   - License, v. 2.0. If a copy of the MPL was not distributed with this
-   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="400" height="60" viewBox="0 0 400 60">
-  <text x="0" y="45" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" letter-spacing="-0.5">
-    <tspan fill="#ffffff">Serika</tspan><tspan fill="#8b5cf6">Cord</tspan>
+  <defs>
+    <linearGradient id="cordGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <filter id="textGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="0.8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <text x="0" y="45" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" letter-spacing="-1" filter="url(#textGlow)">
+    <tspan fill="#ffffff">Serika</tspan><tspan fill="url(#cordGradient)">Cord</tspan>
   </text>
 </svg>

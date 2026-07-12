@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Loader2, Plus, Trash2, Webhook, Copy, Check } from "lucide-react";
+import { Plus, Trash2, Webhook, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface Webhook {
   id: string;
@@ -140,7 +141,7 @@ export default function WebhooksPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+        <Loader size={24} className="size-6" />
       </div>
     );
   }
@@ -213,7 +214,7 @@ export default function WebhooksPage() {
             disabled={creating || !newName.trim() || !newUrl.trim()}
             className="flex items-center gap-2 px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            {creating ? <Loader2 className="size-4 animate-spin" /> : null}
+            {creating ? <Loader size={24} className="size-4" /> : null}
             {gt("Create Webhook")}
           </button>
         </div>
@@ -261,7 +262,7 @@ export default function WebhooksPage() {
                     webhook.active ? "bg-[#8B5CF6]" : "bg-[#333]"
                   }`}
                 >
-                  {togglingId === webhook.id && <Loader2 className="size-3 animate-spin absolute inset-0 m-auto text-white" />}
+                  {togglingId === webhook.id && <Loader size={24} className="size-3 absolute inset-0 m-auto" />}
                   <span
                     className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
                       webhook.active ? "translate-x-5" : ""

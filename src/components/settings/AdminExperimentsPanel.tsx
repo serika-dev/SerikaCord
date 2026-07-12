@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FlaskConical, Plus, Trash2, Loader2, Play, Pause } from "lucide-react";
+import { FlaskConical, Plus, Trash2,  Play, Pause } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface Experiment {
   _id: string;
@@ -184,7 +185,7 @@ export function AdminExperimentsPanel() {
               disabled={isCreating || !newName.trim() || !newKey.trim()}
               className="px-3 py-1.5 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all"
             >
-              {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : gt("Create")}
+              {isCreating ? <Loader size={16} /> : gt("Create")}
             </button>
           </div>
         </div>
@@ -207,7 +208,7 @@ export function AdminExperimentsPanel() {
 
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-6 h-6 text-[var(--accent-color)] animate-spin" />
+            <Loader size={24} />
           </div>
         ) : activeExperiments.length === 0 && inactiveExperiments.length === 0 ? (
           <p className="text-sm text-[var(--text-muted)]">{gt("No database experiments yet.")}</p>

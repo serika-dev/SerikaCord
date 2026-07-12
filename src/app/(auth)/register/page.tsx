@@ -6,10 +6,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Loader2, Check, X } from "lucide-react";
+import { Eye, EyeOff,  Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
+import { Loader } from "@/components/ui/Loader";
 
 const passwordRequirements = [
   { id: 'length', labelKey: 'At least 8 characters', test: (p: string) => p.length >= 8 },
@@ -189,7 +190,7 @@ function RegisterForm() {
           className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 mt-2 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
         >
           {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader size={16} />
           ) : (
             gt("Create account")
           )}

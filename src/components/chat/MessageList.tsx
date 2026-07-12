@@ -13,14 +13,16 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { Loader2, ArrowDown } from "lucide-react";
-import { useGT } from "gt-next";
+import { ArrowDown } from "lucide-react";
+import { useGT, useLocale } from "gt-next";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { MessageSkeleton } from "@/components/ui/skeleton";
+import { formatMessageTimestamp } from "@/lib/chat/messages";
 import type { PickerEmoji } from "@/components/chat/MessageHoverActions";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
+import { Loader } from "@/components/ui/Loader";
 
 export interface MessageListHandle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
@@ -102,6 +104,7 @@ function MessageListInner<M extends ChatMessage>(
   ref: Ref<MessageListHandle>
 ) {
   const gt = useGT();
+  const locale = useLocale();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
@@ -117,6 +120,10 @@ function MessageListInner<M extends ChatMessage>(
   const messageCount = useMemo(
     () => groups.reduce((total, group) => total + group.messages.length, 0),
     [groups]
+  );
+  const formattedTimestamps = useMemo(
+    () => groups.map((g) => formatMessageTimestamp(g.timestamp, gt, locale)),
+    [groups, gt, locale],
   );
   const firstMessageId = groups[0]?.messages[0]?.id;
   const prevMessageCountRef = useRef(0);
@@ -301,7 +308,7 @@ function MessageListInner<M extends ChatMessage>(
       {hasMoreOlder && !isLoading && isLoadingMore && (
         <div className="absolute top-0 left-0 right-0 z-10 flex justify-center py-2 pointer-events-none">
           <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] bg-[var(--bg-app)]/80 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Loader size={undefined} />
             {gt("Loading older messages")}
           </div>
         </div>
@@ -368,6 +375,7 @@ function MessageListInner<M extends ChatMessage>(
                   onOpenReactionPicker={stable.onOpenReactionPicker}
                   onMediaClick={onMediaClick}
                   onJumpToMessage={scrollToMessage}
+                  formattedTimestamp={formattedTimestamps[idx]}
                 />
                 </div>
                 );

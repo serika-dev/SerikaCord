@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Plus, Search, Settings, Trash2, Bot, Loader2, Code, Sparkles } from "lucide-react";
+import { Plus, Search, Settings, Trash2, Bot,  Code, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface App {
   id: string;
@@ -143,7 +144,7 @@ export default function ApplicationsPage() {
         {/* Applications List */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 gap-3">
-            <Loader2 className="size-8 animate-spin text-[#8B5CF6]" />
+            <Loader size={24} className="size-8" />
             <p className="text-xs text-[#888] font-medium animate-pulse">{gt("Loading developer applications...")}</p>
           </div>
         ) : filtered.length === 0 ? (
@@ -286,7 +287,7 @@ export default function ApplicationsPage() {
                   className="flex-1 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-xs font-semibold rounded-xl shadow-lg shadow-[#8B5CF6]/20 transition-all flex items-center justify-center gap-2"
                 >
                   {creating ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Loader size={24} className="size-3.5" />
                   ) : (
                     <Sparkles className="size-3.5" />
                   )}

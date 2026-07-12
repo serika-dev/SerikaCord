@@ -12,14 +12,14 @@ import {
   Clock,
   Users,
   ChevronDown,
-  Settings,
-  Loader2,
+  Settings, 
   Share2,
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface InviteDialogProps {
   open: boolean;
@@ -237,7 +237,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
                   className="bg-[#0a0a0a] border-[#222222] text-white pr-10 font-mono text-sm"
                 />
                 {isLoading && (
-                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#888888] animate-spin" />
+                  <Loader size={16} className="absolute right-3 top-1/2 -translate-y-1/2" />
                 )}
               </div>
               <button

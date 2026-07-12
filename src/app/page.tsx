@@ -121,9 +121,8 @@ export default async function HomePage() {
         </div>
 
         <div className="relative max-w-4xl mx-auto">
-          <T>
           <h1 className="text-5xl sm:text-6xl md:text-[82px] font-extrabold tracking-tight leading-[1.04] mb-7">
-            <span className="text-white">Your place to </span>
+            <span className="text-white">{gt("Your place to")} </span>
             <br className="hidden sm:block" />
             <span style={{
               background: 'linear-gradient(135deg, #a78bfa 0%, #8B5CF6 50%, #6d28d9 100%)',
@@ -131,14 +130,13 @@ export default async function HomePage() {
               WebkitTextFillColor: 'transparent',
               backgroundClip: 'text'
             }}>
-              talk &amp; hang out
+              {gt("talk & hang out")}
             </span>
           </h1>
 
           <p className="text-lg sm:text-xl text-[#888] max-w-xl mx-auto mb-12 leading-relaxed font-medium">
-            SerikaCord is where communities come together. Talk, build, and belong — all in one place.
+            {gt("SerikaCord is where communities come together. Talk, build, and belong — all in one place.")}
           </p>
-          </T>
 
           <HomeHeroActions />
         </div>

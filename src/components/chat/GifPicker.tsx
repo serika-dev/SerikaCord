@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Loader2, ChevronLeft, Grid3X3, Tag as TagIcon, X, Flame, Star, Trash2 } from "lucide-react";
+import { Search,  ChevronLeft, Grid3X3, Tag as TagIcon, X, Flame, Star, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useGifFavorites } from "@/hooks/useGifFavorites";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface Gif {
   id: string;
@@ -804,7 +805,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                 ))}
                 {canLoadMore && (
                   <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
-                    {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                    {isLoadingMore && <Loader size={16} />}
                   </div>
                 )}
               </div>
@@ -836,7 +837,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                 ))}
                 {canLoadMore && (
                   <div ref={loadMoreRef} className="col-span-2 flex justify-center py-3">
-                    {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                    {isLoadingMore && <Loader size={16} />}
                   </div>
                 )}
               </div>
@@ -875,7 +876,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             </div>
             {canLoadMore && (
               <div ref={loadMoreRef} className="flex justify-center py-3">
-                {isLoadingMore && <Loader2 className="w-4 h-4 text-[#5865f2] animate-spin" />}
+                {isLoadingMore && <Loader size={16} />}
               </div>
             )}
           </div>

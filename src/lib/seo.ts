@@ -31,7 +31,8 @@ export function buildMetadata(options: SEOPageOptions): Metadata {
     applicationName: SITE_NAME,
     manifest: "/manifest.json",
     icons: {
-      icon: "/favicon.ico",
+      icon: "/logo-icon.svg",
+      shortcut: "/logo-icon.svg",
       apple: "/icons/icon-192x192.png",
     },
     appleWebApp: {

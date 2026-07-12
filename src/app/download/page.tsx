@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Monitor, Smartphone, Download, Apple, ExternalLink, Loader2 } from "lucide-react";
+import { Monitor, Smartphone, Download, Apple, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 // Platform detection
 type Platform = 'windows' | 'mac' | 'linux' | 'android' | 'ios' | 'unknown';
@@ -122,7 +123,7 @@ export default function DownloadPage() {
 
           {isLoading ? (
             <div className="flex justify-center py-12">
-              <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+              <Loader size={32} />
             </div>
           ) : (
             <>

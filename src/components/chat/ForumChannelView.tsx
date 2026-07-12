@@ -25,8 +25,7 @@ import {
   Ticket,
   Plus,
   Lock,
-  Archive,
-  Loader2,
+  Archive, 
   Search,
   ArrowUpDown,
   Heart,
@@ -41,6 +40,7 @@ import { useGT } from "gt-next";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn } from "@/lib/utils";
+import { Loader } from "@/components/ui/Loader";
 
 interface ForumTag {
   id: string;
@@ -450,7 +450,7 @@ export function ForumChannelView({
         <div className="p-3 space-y-2">
           {loading ? (
             <div className="flex items-center justify-center py-16 text-[var(--text-muted)]">
-              <Loader2 className="w-6 h-6 animate-spin" />
+              <Loader size={24} />
             </div>
           ) : filteredAndSortedThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center text-[var(--text-muted)]">
@@ -549,7 +549,7 @@ export function ForumChannelView({
                 disabled={!postTitle.trim() || !postBody.trim() || creating}
                 className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
               >
-                {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+                {creating && <Loader size={16} />}
                 {isTickets ? gt("Open Ticket") : gt("Post")}
               </Button>
             </div>
@@ -628,7 +628,7 @@ export function ForumChannelView({
               disabled={!postTitle.trim() || !postBody.trim() || creating}
               className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
             >
-              {creating && <Loader2 className="w-4 h-4 animate-spin" />}
+              {creating && <Loader size={16} />}
               {isTickets ? gt("Open Ticket") : gt("Post")}
             </Button>
           </div>

@@ -1,16 +1,16 @@
 {
-  "a2acf8270d351160": "Something went wrong",
+  "a2acf8270d351160": "යම්කිසි දෝෂයක් සිදුවිය",
   "259925be33a19684": "An unexpected error occurred. Your messages are safe — try reloading this view.",
-  "d5cfefaf7011c288": "Try Again",
+  "d5cfefaf7011c288": "නැවත උත්සාහ කරන්න.",
   "b06dd426429c7bc7": "Go Home",
   "a380d1dccfc9f3b1": "Something went wrong",
   "f29aabbad0a34139": "SerikaCord hit an unexpected error. Reloading usually fixes it.",
   "573a9e6b17f4e9e3": "Reload",
-  "3860ac0ef9e31a89": "Page Not Found",
+  "3860ac0ef9e31a89": "පිටුව හමු නොවුනි",
   "5d1302ac2c37a3d9": "This page doesn't exist or you don't have access to it.",
   "fa02a22577dbe632": "Features",
   "bd866366c907874a": "Discover",
-  "5c6aa4f2a08f5808": "Safety",
+  "5c6aa4f2a08f5808": "ආරක්ෂාව",
   "1be6342f8dde1561": "Text Channels",
   "747fab328ca3122d": "Organize conversations into dedicated channels for different topics, teams, or interests.",
   "44809daf84df3dac": "Voice Channels",
@@ -19,43 +19,19 @@
   "94d75a2057036b62": "Share important updates with your community. Members can follow to get updates in their own servers.",
   "7a73940fd89049ca": "Community Features",
   "b7f10a6ad34ceec6": "Welcome screens, rules, server discovery, and more tools for growing communities.",
-  "9471371aeabcec0d": "Moderation",
+  "9471371aeabcec0d": "නියාමනය",
   "18b930d032f21cb5": "Powerful moderation tools and permission systems to keep your community safe.",
-  "80cfa256413d4b31": "Fast & Reliable",
+  "80cfa256413d4b31": "වේගවත් සහ විශ්වාසනීය",
   "790f4c079f91a81d": "Built for speed with real-time message delivery and reliable connections.",
   "dd6758225f3a79a8": "End-to-End Privacy",
   "01e61b3820853cac": "Your data stays yours. We don't sell your information.",
-  "c6c5fb7ba4395f37": "Powerful Moderation",
+  "c6c5fb7ba4395f37": "බලවත් නියාමනය",
   "39909c949b4aac64": "Tools to keep your community safe and welcoming.",
   "566a2b9b23440077": "You're in Control",
   "c8106a75a8e3f3e1": "Manage who can contact you and how.",
-  "f492c3b45867d8fa": [
-    {
-      "t": "h1",
-      "i": 1,
-      "c": [
-        {
-          "t": "span",
-          "i": 2,
-          "c": "Your place to "
-        },
-        {
-          "t": "br",
-          "i": 3
-        },
-        {
-          "t": "span",
-          "i": 4,
-          "c": "talk & hang out"
-        }
-      ]
-    },
-    {
-      "t": "p",
-      "i": 5,
-      "c": "SerikaCord is where communities come together. Talk, build, and belong — all in one place."
-    }
-  ],
+  "6b039faf63ed0bb8": "Your place to",
+  "781cc8fdfc5c3f84": "talk & hang out",
+  "a6a2c6ed2e57b5dc": "SerikaCord is where communities come together. Talk, build, and belong — all in one place.",
   "43c2b64cb0941dc0": [
     {
       "t": "h2",
@@ -96,14 +72,14 @@
   "a7c149e4d17a224b": "Create Account",
   "6835018ab76fbf5e": "Free and open source · Forever",
   "2eb39a53ad7f7c34": "Product",
-  "bff944189ba9c100": "Download",
+  "bff944189ba9c100": "බාගතකරන්න.",
   "204167c06dc9fb6e": "Status",
   "55c593c7bd477c1d": "Open App",
   "8686297d8ead4c4a": "Company",
   "668f796ad95b5598": "About Serika",
   "ae2f5aed8d7dea3a": "Serika Accounts",
   "841cad15ee2276fc": "Resources",
-  "446fc0e1621b7ae8": "Support",
+  "446fc0e1621b7ae8": "සහාය",
   "77efa570625a938e": "Safety",
   "77e61a87c4774c35": "Service Status",
   "bc4b74fef3a4c713": "Legal",
@@ -266,6 +242,9 @@
   "d16becc919e4b4c4": "View all releases on GitHub",
   "08b46216c05eff92": "Channel notifications muted",
   "4cdeeee9e42607cc": "Channel notifications enabled",
+  "927318561b54f149": "Today at {time}",
+  "fa1dfae305b98be1": "Yesterday at {time}",
+  "fd01731e7f921d1e": "{date} at {time}",
   "c031b365de63f800": "Select a channel",
   "147d740499600972": "Welcome to SerikaCord",
   "1aed1f10f5f85cfd": "Choose a channel from the sidebar to start chatting.",
@@ -1655,6 +1634,7 @@
   "a5f8b0972e2c403e": "Forgot password?",
   "5dd37b05ca178e3d": "Don't have an account?",
   "a17781a2162b36f7": "Sign up",
+  "6e6f8d6c0ebef1d0": "Go to Login",
   "e28e5eb8f878f074": "you@example.com",
   "aec43f66dfe6d84e": "John Doe",
   "cb5c27218e96e407": "Username",
@@ -1666,6 +1646,7 @@
   "b6514f52ebb54e8e": "Create account",
   "d67740332ce46e97": "Create an account",
   "c59b6116b206a11f": "Join SerikaCord and start chatting",
+  "b8a957cc12e7504c": "Account created! Please check your email to verify your account before signing in.",
   "e2b43970e9b88899": "Only letters, numbers, and underscores",
   "8eb13943fffbdc02": "By registering, you agree to our",
   "90c92bcbe891ea5a": "and",

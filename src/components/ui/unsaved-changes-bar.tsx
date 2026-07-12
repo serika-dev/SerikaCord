@@ -2,9 +2,10 @@
 
 import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, RotateCcw, Undo2, Redo2 } from "lucide-react";
+import { RotateCcw, Undo2, Redo2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface UnsavedChangesBarProps {
   visible: boolean;
@@ -117,7 +118,7 @@ export function UnsavedChangesBar({
               disabled={isSaving}
               className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-[#23A559] hover:bg-[#1f9150] active:scale-[0.97] text-sm font-medium text-white disabled:opacity-60 transition-all focus-visible:outline-2 focus-visible:outline-white"
             >
-              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isSaving && <Loader size={16} />}
               {isSaving ? gt("Saving...") : gt("Save Changes")}
             </button>
           </div>

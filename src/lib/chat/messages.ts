@@ -76,22 +76,28 @@ export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGrou
 }
 
 /** "Today at 3:41 PM" / "Yesterday at ..." / "Mar 4, 2026 at ..." */
-export function formatMessageTimestamp(timestamp: string): string {
+export function formatMessageTimestamp(
+  timestamp: string,
+  gt?: (msg: string, opts?: Record<string, unknown>) => string,
+  locale?: string,
+): string {
   const date = new Date(timestamp);
   const now = new Date();
-  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const loc = locale || undefined;
+  const time = date.toLocaleTimeString(loc, { hour: "numeric", minute: "2-digit" });
 
   if (date.toDateString() === now.toDateString()) {
-    return `Today at ${time}`;
+    return gt ? gt("Today at {time}", { time }) : `Today at ${time}`;
   }
 
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
   if (date.toDateString() === yesterday.toDateString()) {
-    return `Yesterday at ${time}`;
+    return gt ? gt("Yesterday at {time}", { time }) : `Yesterday at ${time}`;
   }
 
-  return `${date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })} at ${time}`;
+  const dateStr = date.toLocaleDateString(loc, { month: "short", day: "numeric", year: "numeric" });
+  return gt ? gt("{date} at {time}", { date: dateStr, time }) : `${dateStr} at ${time}`;
 }
 
 export function formatFileSize(bytes?: number): string {

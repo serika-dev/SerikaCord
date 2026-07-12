@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Users, Trash2, Crown, Shield, User, Loader2, Search } from "lucide-react";
+import { Plus, Users, Trash2, Crown, Shield, User,  Search } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface Team {
   id: string;
@@ -132,7 +133,7 @@ export default function TeamsPage() {
                 disabled={creating || !newTeamName.trim()}
                 className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                {creating ? <Loader size={24} className="size-4" /> : <Plus className="size-4" />}
                 {gt("Create")}
               </button>
               <button
@@ -162,7 +163,7 @@ export default function TeamsPage() {
         {/* Teams List */}
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+            <Loader size={24} className="size-6" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-20">

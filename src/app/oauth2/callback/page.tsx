@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { Loader2, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 function CallbackHandler() {
   const gt = useGT();
@@ -64,7 +65,7 @@ function CallbackHandler() {
             <Check className="w-6 h-6 text-green-400" />
           </div>
         ) : (
-          <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6] mx-auto" />
+          <Loader size={40} className="mx-auto" />
         )}
         <h2 className="text-xl font-bold">{gt("OAuth2 Callback")}</h2>
         <p className="text-[#888888] text-sm font-medium">{status}</p>
@@ -77,7 +78,7 @@ export default function CallbackPage() {
   return (
     <Suspense fallback={
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#070708] text-white">
-        <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6]" />
+        <Loader size={40} />
       </div>
     }>
       <CallbackHandler />

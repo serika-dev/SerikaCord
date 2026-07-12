@@ -10,9 +10,10 @@ import {
 } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { Share2, Copy, Check, Loader2, User, Hash, ChevronLeft } from "lucide-react";
+import { Share2, Copy, Check,  User, Hash, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface ShareInviteButtonProps {
   inviteCode: string;
@@ -279,7 +280,7 @@ export function ShareInviteButton({
                   </button>
                   {loadingChannels ? (
                     <div className="flex justify-center py-4">
-                      <Loader2 className="w-5 h-5 text-[var(--accent-color)] animate-spin" />
+                      <Loader size={20} />
                     </div>
                   ) : channels.length === 0 ? (
                     <p className="text-sm text-[#6b7387]">{gt("No text channels available.")}</p>
@@ -293,7 +294,7 @@ export function ShareInviteButton({
                       >
                         <Hash className="w-4 h-4 text-[#6b7387]" />
                         <span className="text-sm text-[#dcddde] truncate">{channel.name}</span>
-                        {sending && <Loader2 className="w-3 h-3 ml-auto text-[var(--accent-color)] animate-spin" />}
+                        {sending && <Loader size={undefined} className="ml-auto" />}
                       </button>
                     ))
                   )}
@@ -302,7 +303,7 @@ export function ShareInviteButton({
                 <>
                   {loadingServers ? (
                     <div className="flex justify-center py-4">
-                      <Loader2 className="w-5 h-5 text-[var(--accent-color)] animate-spin" />
+                      <Loader size={20} />
                     </div>
                   ) : servers.length === 0 ? (
                     <p className="text-sm text-[#6b7387]">{gt("You need to be in a server to share to a channel.")}</p>
@@ -332,7 +333,7 @@ export function ShareInviteButton({
             <div className="space-y-2">
               {loadingFriends ? (
                 <div className="flex justify-center py-4">
-                  <Loader2 className="w-5 h-5 text-[var(--accent-color)] animate-spin" />
+                  <Loader size={20} />
                 </div>
               ) : friends.length === 0 ? (
                 <p className="text-sm text-[#6b7387]">{gt("No friends available to share with.")}</p>
@@ -353,7 +354,7 @@ export function ShareInviteButton({
                     <span className="text-sm text-[#dcddde] truncate">
                       {friend.displayName || friend.username}
                     </span>
-                    {sending && <Loader2 className="w-3 h-3 ml-auto text-[var(--accent-color)] animate-spin" />}
+                    {sending && <Loader size={undefined} className="ml-auto" />}
                   </button>
                 ))
               )}

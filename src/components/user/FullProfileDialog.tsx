@@ -72,8 +72,11 @@ export function FullProfileDialog({
 
   const status = fullUser.status ?? "offline";
   const displayName = fullUser.displayName || fullUser.username;
-  const userActivity = useUserActivity(fullUser.id);
-  const localTime = useCurrentTime(fullUser.timezone);
+  // Only poll live activity / tick the clock while the dialog is open — many of
+  // these dialogs are mounted at once (one per avatar/username/mention), so
+  // ungated polling saturates the network and main thread. See useUserActivity.
+  const userActivity = useUserActivity(fullUser.id, { enabled: open });
+  const localTime = useCurrentTime(open ? fullUser.timezone : null);
   const moeActivity = userActivity?.activity ?? null;
   const badges = fullUser.badges?.length ? getBadgesByPriority(fullUser.badges as string[]) : [];
 

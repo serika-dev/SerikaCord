@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Loader2, Plus, Trash2, Upload, Smile } from "lucide-react";
+import { Plus, Trash2, Upload, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface Emoji {
   id: string;
@@ -100,7 +101,7 @@ export default function EmojisPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+        <Loader size={24} className="size-6" />
       </div>
     );
   }
@@ -129,7 +130,7 @@ export default function EmojisPage() {
               className="flex-1 bg-[#1a1a1a] border border-white/[0.08] rounded-md px-4 py-2.5 text-sm text-white placeholder:text-[#555] focus:outline-none focus:border-[#8B5CF6]/50"
             />
             <label className="flex items-center gap-2 px-4 py-2.5 bg-white/5 hover:bg-white/10 text-sm rounded-md cursor-pointer transition-colors">
-              {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              {uploading ? <Loader size={24} className="size-4" /> : <Upload className="size-4" />}
               {gt("Upload")}
               <input
                 type="file"

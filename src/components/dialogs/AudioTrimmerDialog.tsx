@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Play, Pause, Scissors, Check, X } from "lucide-react";
+import { Play, Pause, Scissors, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
+import { Loader } from "@/components/ui/Loader";
 
 interface AudioTrimmerDialogProps {
   open: boolean;
@@ -391,7 +392,7 @@ export function AudioTrimmerDialog({
 
         {isDecoding ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
-            <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+            <Loader size={32} />
             <p className="text-xs text-[#666]">{gt("Decoding audio...")}</p>
           </div>
         ) : audioBuffer ? (
@@ -521,7 +522,7 @@ export function AudioTrimmerDialog({
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#8B5CF6] hover:bg-[#7C3AED] active:scale-95 text-white text-sm font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {isExporting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader size={16} />
                   ) : (
                     <Check className="w-4 h-4" />
                   )}

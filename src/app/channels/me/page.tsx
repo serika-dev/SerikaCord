@@ -12,8 +12,7 @@ import {
   UserPlus,
   Clock,
   Crown,
-  Shield,
-  Loader2,
+  Shield, 
 } from "lucide-react";
 import { useAuth, type BadgeId } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -31,6 +30,7 @@ import { useRouter } from "next/navigation";
 import { SwipeableRow } from "@/components/ui/swipe-actions";
 import { T, useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
+import { Loader } from "@/components/ui/Loader";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
@@ -411,7 +411,7 @@ export default function DirectMessagesPage() {
                           : "bg-[var(--app-accent)]/40 text-white/50 cursor-not-allowed"
                       )}
                     >
-                      {isAddingFriend && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {isAddingFriend && <Loader size={16} />}
                       <T>Send Request</T>
                     </button>
                   </div>
@@ -495,7 +495,7 @@ export default function DirectMessagesPage() {
                               aria-label={gt("Accept")}
                             >
                               {actionLoading === request.id ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
+                                <Loader size={20} />
                               ) : (
                                 <Check className="w-5 h-5" />
                               )}
@@ -556,7 +556,7 @@ export default function DirectMessagesPage() {
                             className="px-3 py-1.5 text-sm rounded-lg bg-[var(--bg-hover)] hover:bg-red-500/15 text-[var(--text-secondary)] hover:text-red-500 transition-colors disabled:opacity-50 shrink-0"
                           >
                             {actionLoading === request.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <Loader size={16} />
                             ) : (
                               gt("Cancel")
                             )}
@@ -614,7 +614,7 @@ export default function DirectMessagesPage() {
                             className="px-3 py-1.5 text-sm rounded-lg bg-[var(--bg-hover)] hover:bg-[var(--app-accent)]/15 text-[var(--text-secondary)] hover:text-[var(--app-accent)] transition-colors disabled:opacity-50 shrink-0"
                           >
                             {actionLoading === blockedUser.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <Loader size={16} />
                             ) : (
                               gt("Unblock")
                             )}
@@ -652,7 +652,7 @@ export default function DirectMessagesPage() {
                 <div className="p-4 pt-2">
                   {isLoading ? (
                     <div className="flex items-center justify-center py-20">
-                      <Loader2 className="w-8 h-8 text-[var(--app-accent)] animate-spin" />
+                      <Loader size={32} />
                     </div>
                   ) : filteredFriends.length > 0 ? (
                     <>

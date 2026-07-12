@@ -646,6 +646,86 @@ html.theme-midnight body {
 }
 
 /* ─── RTL Support ─── */
+
+/* ─── SerikaCord Loader ─── */
+@keyframes serika-loader-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.3px); }
+}
+
+@keyframes serika-loader-ear-left {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-7deg); }
+}
+
+@keyframes serika-loader-ear-right {
+  0%, 50%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(6deg); }
+}
+
+@keyframes serika-loader-blink {
+  0%, 88%, 100% { transform: scaleY(1); }
+  93%, 96% { transform: scaleY(0.1); }
+}
+
+@keyframes serika-loader-ring {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 0.4; }
+}
+
+.serika-loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.serika-loader svg {
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.2));
+}
+
+.serika-loader-cat {
+  transform-box: view-box;
+  transform-origin: 24px 27px;
+  animation: serika-loader-bob 2s ease-in-out infinite;
+}
+
+.serika-loader-ring {
+  animation: serika-loader-ring 2s ease-in-out infinite;
+}
+
+.serika-loader-ear-left {
+  transform-box: view-box;
+  transform-origin: 16.5px 16px;
+  animation: serika-loader-ear-left 2s ease-in-out infinite;
+}
+
+.serika-loader-ear-right {
+  transform-box: view-box;
+  transform-origin: 31px 16px;
+  animation: serika-loader-ear-right 2s ease-in-out infinite 0.25s;
+}
+
+.serika-loader-eyes {
+  transform-box: view-box;
+  transform-origin: 24px 31px;
+  animation: serika-loader-blink 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .serika-loader-cat,
+  .serika-loader-ring,
+  .serika-loader-ear-left,
+  .serika-loader-ear-right,
+  .serika-loader-eyes {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ─── RTL Support ─── */
 html.rtl {
   --font-sans: var(--font-arabic), var(--font-inter), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }

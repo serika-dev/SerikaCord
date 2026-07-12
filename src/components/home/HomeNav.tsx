@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 export function HomeNavActions() {
   const { user, isLoading } = useAuth();
@@ -12,7 +13,7 @@ export function HomeNavActions() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin text-[#666]" />
+        <Loader size={16} />
       </div>
     );
   }

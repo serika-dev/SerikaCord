@@ -8,6 +8,10 @@
  *
  * Start:  bun server.ts   (package.json "start")
  */
+// MUST be first: registers a Bun module shim so gt-next's runtime
+// require("gt-next/internal/_load-translations") resolves to our disk-backed
+// loader instead of the throwing placeholder stub. See gt-preload.ts.
+import './gt-preload';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import next from 'next';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -25,7 +29,20 @@ import {
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
 
-const app = next({ dev });
+// Force webpack (NOT Turbopack) for this custom server.
+//
+// Next 16 defaults programmatic dev to Turbopack, which sets process.env.TURBOPACK
+// ('auto') — and gt-next disables its compile-time babel compiler whenever that env
+// is truthy. Without the compiler, every <T>/gt() falls back to sha256-hashing its
+// source string on EVERY render for non-default locales, saturating the main thread
+// and making the app laggy + unusable on any non-English language (and translations
+// still won't apply cleanly). @generaltranslation/compiler only has a webpack
+// transform (no Turbopack one), so we must run on webpack.
+//
+// Passing `webpack: true` makes Next skip setting process.env.TURBOPACK, so gt-next
+// keeps the babel compiler enabled and hashes are injected at build time (runtime is
+// then just a cheap dictionary lookup). See next.config.ts and package.json (--webpack).
+const app = next({ dev, webpack: true } as Parameters<typeof next>[0]);
 const handle = app.getRequestHandler();
 
 // ─── SSE lazy imports (set after initializeAPI) ──────────
@@ -48,7 +65,19 @@ async function main() {
     await connectDB().catch(() => {});
   }
 
+  const frontendUrl = process.env.FRONTEND_URL;
+  const redirectHosts = new Set(['serika.cc', 'www.serika.cc']);
+
   const server = createServer((req, res) => {
+    // ─── Domain redirect ────────────────────────────────────
+    // Redirect serika.cc → FRONTEND_URL (preserves path + query).
+    if (frontendUrl && redirectHosts.has(req.headers.host?.split(':')[0] || '')) {
+      const target = new URL(req.url || '/', frontendUrl);
+      res.writeHead(301, { Location: target.href });
+      res.end();
+      return;
+    }
+
     // ─── SSE fast-path ───────────────────────────────────────
     // Intercept SSE stream endpoints BEFORE Next.js so events are written
     // directly to the raw socket. Next.js route handlers buffer ReadableStream

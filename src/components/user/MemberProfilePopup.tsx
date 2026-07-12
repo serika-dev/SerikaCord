@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Popover,
@@ -10,7 +10,6 @@ import {
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { cn } from "@/lib/utils";
 
 interface MemberProfilePopupProps {
   children: React.ReactNode;
@@ -23,6 +22,15 @@ interface MemberProfilePopupProps {
 /**
  * Popover wrapper around ProfileCard. Fetches the member's full profile
  * (banner, bio, badges) lazily when opened.
+ *
+ * PERF: The chat renders one of these per avatar, per username, and per
+ * @mention — easily dozens on screen at once. The heavy body below mounts a
+ * Radix Popover *and* a FullProfileDialog (which polls live activity, ticks a
+ * clock, subscribes to auth/mobile state). Mounting all of that eagerly for
+ * every message saturated the main thread and network. So we defer the entire
+ * body until the user actually interacts with the trigger: until then we render
+ * only `children` inside a `display:contents` wrapper (no box, no layout shift)
+ * that "arms" the popup on first hover/focus/press.
  */
 export function MemberProfilePopup({
   children,
@@ -31,10 +39,54 @@ export function MemberProfilePopup({
   side = "left",
   align = "start",
 }: MemberProfilePopupProps) {
+  const [armed, setArmed] = useState(false);
+  // Touch users have no hover to pre-arm on, so a tap must open immediately.
+  const autoOpenRef = useRef(false);
+
+  if (!armed) {
+    const arm = (autoOpen: boolean) => {
+      if (autoOpen) autoOpenRef.current = true;
+      setArmed(true);
+    };
+    // `display:contents` keeps the wrapper from generating a box, so the trigger
+    // renders exactly as before; pointer/focus events still bubble to it.
+    return (
+      <span
+        style={{ display: "contents" }}
+        onPointerEnter={(e) => arm(e.pointerType === "touch")}
+        onPointerDown={(e) => arm(e.pointerType === "touch")}
+        onFocus={() => arm(false)}
+      >
+        {children}
+      </span>
+    );
+  }
+
+  return (
+    <MemberProfilePopupBody
+      member={member}
+      serverId={serverId}
+      side={side}
+      align={align}
+      initialOpen={autoOpenRef.current}
+    >
+      {children}
+    </MemberProfilePopupBody>
+  );
+}
+
+function MemberProfilePopupBody({
+  children,
+  member,
+  serverId,
+  side = "left",
+  align = "start",
+  initialOpen,
+}: MemberProfilePopupProps & { initialOpen: boolean }) {
   const { user: currentUser } = useAuth();
   const isMobile = useIsMobile();
-  const [open, setOpen] = useState(false);
-  const [fullProfileOpen, setFullProfileOpen] = useState(false);
+  const [open, setOpen] = useState(!initialOpen ? false : !isMobile);
+  const [fullProfileOpen, setFullProfileOpen] = useState(initialOpen && isMobile);
   const [fullProfile, setFullProfile] = useState<ProfileCardUser>(member);
 
   // Seed from the `member` prop, but do NOT throw away the fuller profile we

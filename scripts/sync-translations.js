@@ -156,6 +156,59 @@ async function pushSource() {
   logGreen(` \u2705 Pushed ${pushed} source strings to "${PROJECT_SLUG}" on Serika Translate`);
 }
 
+// ─── Push-translations: upload manual translations for a locale ──────────────
+
+async function pushTranslations(locale, includeIdentical = false) {
+  if (!locale) {
+    logRed(" \u274c Usage: node scripts/sync-translations.js push-translations <locale> [--include-identical]");
+    process.exit(1);
+  }
+
+  const localePath = path.join(GT_DIR, `${locale}.json`);
+  if (!fs.existsSync(localePath)) {
+    logRed(` \u274c ${locale}.json not found.`);
+    process.exit(1);
+  }
+
+  const localeData = readJson(localePath);
+  const enPath = path.join(GT_DIR, "en.json");
+  const enData = fs.existsSync(enPath) ? readJson(enPath) : {};
+
+  // Push keys that differ from English, or all keys if --include-identical
+  const entries = [];
+  for (const [key, value] of Object.entries(localeData)) {
+    if (value && (value !== enData[key] || includeIdentical)) {
+      entries.push({
+        key,
+        value: typeof value === "string" ? value : JSON.stringify(value),
+        locale,
+        status: "approved",
+      });
+    }
+  }
+
+  if (entries.length === 0) {
+    logYellow(` \u26a0\ufe0f No translated strings found for "${locale}" (all match English source).`);
+    return;
+  }
+
+  log(`\u23eb`, `Pushing ${entries.length} translations for "${locale}" to Serika Translate...`);
+
+  const batchSize = 200;
+  let pushed = 0;
+  for (let i = 0; i < entries.length; i += batchSize) {
+    const batch = entries.slice(i, i + batchSize);
+    await apiFetch(`/projects/${PROJECT_SLUG}/translations`, {
+      method: "POST",
+      body: JSON.stringify({ entries: batch, locale }),
+    });
+    pushed += batch.length;
+    process.stdout.write(`\r   Pushed ${pushed}/${entries.length} translations...`);
+  }
+  console.log();
+  logGreen(` \u2705 Pushed ${pushed} translations for "${locale}" to "${PROJECT_SLUG}"`);
+}
+
 // ─── Pull: download translations (non-destructive) ───────────────────────────
 
 async function pullTranslations() {
@@ -373,17 +426,21 @@ async function main() {
     case "status":
       await showStatus();
       break;
+    case "push-translations":
+      await pushTranslations(process.argv[3], process.argv.includes("--include-identical"));
+      break;
     case "keys":
       await listKeys(process.argv[3]);
       break;
     default:
-      console.log(`Usage: node scripts/sync-translations.js [push|pull|sync|status|keys] [search]`);
+      console.log(`Usage: node scripts/sync-translations.js [push|push-translations|pull|sync|status|keys] [search|locale]`);
       console.log();
-      console.log("  push    Upload source strings (en.json) to Serika Translate");
-      console.log("  pull    Download approved translations (non-destructive merge)");
-      console.log("  sync    Push then pull (full round-trip)");
-      console.log("  status  Show locale completion percentages");
-      console.log("  keys    List/search translation keys [optional search term]");
+      console.log("  push                Upload source strings (en.json) to Serika Translate");
+      console.log("  push-translations   Upload manual translations for a locale <locale>");
+      console.log("  pull                Download approved translations (non-destructive merge)");
+      console.log("  sync                Push then pull (full round-trip)");
+      console.log("  status              Show locale completion percentages");
+      console.log("  keys                List/search translation keys [optional search term]");
       process.exit(0);
   }
 }

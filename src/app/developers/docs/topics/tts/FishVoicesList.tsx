@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Volume2 } from "lucide-react";
+import { Volume2 } from "lucide-react";
+import { Loader } from "@/components/ui/Loader";
 
 interface TtsVoice {
   name: string;
@@ -36,7 +37,7 @@ export function FishVoicesList() {
   if (loading) {
     return (
       <div className="flex items-center gap-2 text-[#949ba4] text-sm my-4">
-        <Loader2 className="size-4 animate-spin" /> Loading FishAudio voices...
+        <Loader size={24} className="size-4" /> Loading FishAudio voices...
       </div>
     );
   }

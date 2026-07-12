@@ -8,8 +8,7 @@ import {
   Book,
   Users,
   ArrowRight,
-  Bot,
-  Loader2,
+  Bot, 
   Rocket,
   Code2,
   Webhook,
@@ -20,6 +19,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface App {
   id: string;
@@ -75,7 +75,7 @@ export default function DeveloperHomePage() {
         {/* Jump Back In */}
         {loading ? (
           <div className="flex items-center gap-2 text-[#949ba4] text-sm mb-10">
-            <Loader2 className="size-4 animate-spin" /> {gt("Loading your apps...")}
+            <Loader size={24} className="size-4" /> {gt("Loading your apps...")}
           </div>
         ) : recentApps.length > 0 ? (
           <div className="mb-10">

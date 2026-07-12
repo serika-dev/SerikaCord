@@ -2,11 +2,12 @@
 
 import { memo, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { ServerBadge } from "@/components/ui/badges";
+import { Loader } from "@/components/ui/Loader";
 
 /** Serika domains whose root/`/invite` paths carry server invite codes. */
 const INVITE_HOSTS = ["serika.cc", "serika.chat", "serika.dev"];
@@ -211,7 +212,7 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
             )}
           >
             {isJoining ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader size={16} />
             ) : joined ? (
               <>
                 <Check className="w-4 h-4" />

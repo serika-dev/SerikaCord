@@ -11,10 +11,10 @@ interface LogoProps {
 }
 
 const sizes = {
-  sm: { icon: 24, full: { width: 100, height: 15 } },
-  md: { icon: 32, full: { width: 150, height: 22 } },
-  lg: { icon: 48, full: { width: 200, height: 30 } },
-  xl: { icon: 64, full: { width: 300, height: 45 } },
+  sm: { icon: 24, full: { width: 100, height: 22 } },
+  md: { icon: 32, full: { width: 150, height: 32 } },
+  lg: { icon: 48, full: { width: 200, height: 44 } },
+  xl: { icon: 64, full: { width: 300, height: 66 } },
 };
 
 export function Logo({ 
@@ -42,33 +42,46 @@ export function Logo({
 
   if (variant === "text") {
     return (
-      <span className={cn(
-        "font-extrabold tracking-tight",
-        size === "sm" && "text-lg",
-        size === "md" && "text-xl",
-        size === "lg" && "text-2xl",
-        size === "xl" && "text-4xl",
-        className
-      )}>
-        <span className="text-white">Serika</span>
-        <span className="text-[#8b5cf6]">Cord</span>
-      </span>
+      <div className={cn("relative", className)}>
+        <Image
+          src="/logo.svg"
+          alt="SerikaCord"
+          width={sizeConfig.full.width}
+          height={sizeConfig.full.height}
+          priority
+          className="object-contain"
+        />
+      </div>
     );
   }
 
-  // Full logo — wordmark only
+  // Full logo — wordmark SVG
+  if (!showText) {
+    return (
+      <div className={cn("relative", className)}>
+        <Image
+          src="/logo-icon.svg"
+          alt="SerikaCord"
+          width={sizeConfig.icon}
+          height={sizeConfig.icon}
+          priority
+          className="object-contain"
+        />
+      </div>
+    );
+  }
+
   return (
-    <span className={cn(
-      "font-extrabold tracking-tight",
-      size === "sm" && "text-lg",
-      size === "md" && "text-xl",
-      size === "lg" && "text-2xl",
-      size === "xl" && "text-4xl",
-      className
-    )}>
-      <span className="text-white">Serika</span>
-      <span className="text-[#8b5cf6]">Cord</span>
-    </span>
+    <div className={cn("relative", className)}>
+      <Image
+        src="/logo.svg"
+        alt="SerikaCord"
+        width={sizeConfig.full.width}
+        height={sizeConfig.full.height}
+        priority
+        className="object-contain"
+      />
+    </div>
   );
 }
 
@@ -89,13 +102,37 @@ export function LogoInline({
       className={className}
     >
       <defs>
-        <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#8b5cf6" />
-          <stop offset="100%" stopColor="#6366f1" />
+        <linearGradient id="logoInlineGrad" x1="6" y1="4" x2="42" y2="44" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#a78bfa" />
+          <stop offset="100%" stopColor="#8b5cf6" />
         </linearGradient>
       </defs>
-      <rect width="48" height="48" rx="12" fill="url(#logoGrad)"/>
-      <text x="24" y="34" fontFamily="system-ui, -apple-system, sans-serif" fontSize="24" fontWeight="800" fill="#ffffff" textAnchor="middle">S</text>
+      <rect width="48" height="48" rx="12" fill="#0a0a0a"/>
+      <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11.25" fill="none" stroke="#8b5cf6" strokeWidth="0.75" opacity="0.25"/>
+      <path d="M11.5 30 C7 32 6.5 38 8.2 41.5 C9 43 11.3 42.8 11.7 41 C11 37 11.5 33 13.2 31 Z" fill="#2a2a44" />
+      <path d="M36.5 30 C41 32 41.5 38 39.8 41.5 C39 43 36.7 42.8 36.3 41 C37 37 36.5 33 34.8 31 Z" fill="#2a2a44" />
+      <path d="M8.6 31 L10 32 L8.6 33 Z" fill="#38bdf8" />
+      <path d="M11.4 31 L10 32 L11.4 33 Z" fill="#38bdf8" />
+      <path d="M39.4 31 L38 32 L39.4 33 Z" fill="#38bdf8" />
+      <path d="M36.6 31 L38 32 L36.6 33 Z" fill="#38bdf8" />
+      <path d="M12.5 18 Q10.5 8 12.5 4 Q19 8 23 15.5 Z" fill="url(#logoInlineGrad)" />
+      <path d="M25 15.5 Q29 8 35.5 4 Q37.5 8 35.5 18 Z" fill="url(#logoInlineGrad)" />
+      <path d="M14.5 15.5 Q13.2 8.5 14.5 5.5 L20.8 14.5 Z" fill="#f9a8d4" opacity="0.9" />
+      <path d="M27 14.5 L33.5 5.5 Q34.8 8.5 33.5 15.5 Z" fill="#f9a8d4" opacity="0.9" />
+      <path d="M24 13 C32.8 13 38.5 18.8 38.5 27 C38.5 35 32.8 40.5 24 40.5 C15.2 40.5 9.5 35 9.5 27 C9.5 18.8 15.2 13 24 13 Z" fill="url(#logoInlineGrad)" />
+      <path d="M15 39 L9.5 44 L20 40 Z" fill="url(#logoInlineGrad)" />
+      <path d="M11 33 C9.5 25 9.3 17 14 14 C17.5 12.3 30.5 12.3 34 14 C38.7 17 38.5 25 37 33 L35.5 26 L34 22 L30.5 26.5 L27 21.5 L24 26.5 L21 21.5 L17.5 26.5 L14 22 L12.5 26 Z" fill="#2a2a44" />
+      <ellipse cx="17.8" cy="31" rx="3.1" ry="3.5" fill="#ffffff" />
+      <ellipse cx="30.2" cy="31" rx="3.1" ry="3.5" fill="#ffffff" />
+      <ellipse cx="17.9" cy="31.4" rx="1.6" ry="2.3" fill="#e11d48" />
+      <ellipse cx="30.1" cy="31.4" rx="1.6" ry="2.3" fill="#e11d48" />
+      <circle cx="17.9" cy="31.6" r="0.8" fill="#7f1d1d" />
+      <circle cx="30.1" cy="31.6" r="0.8" fill="#7f1d1d" />
+      <circle cx="17.2" cy="30.1" r="0.9" fill="#ffffff" />
+      <circle cx="29.4" cy="30.1" r="0.9" fill="#ffffff" />
+      <ellipse cx="12.8" cy="34.4" rx="2.3" ry="1.4" fill="#f9a8d4" opacity="0.7" />
+      <ellipse cx="35.2" cy="34.4" rx="2.3" ry="1.4" fill="#f9a8d4" opacity="0.7" />
+      <path d="M21.8 36 Q23.2 37.4 24 36.2 Q24.8 37.4 26.2 36" stroke="#4c1d95" strokeWidth="1" fill="none" strokeLinecap="round" />
     </svg>
   );
 }

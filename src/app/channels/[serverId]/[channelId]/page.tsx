@@ -9,13 +9,14 @@ import { ForumChannelView } from "@/components/chat/ForumChannelView";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Loader2, Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, Monitor, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Maximize2, Music, X, Sparkles, ArrowLeft } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, Monitor, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Maximize2, Music, X, Sparkles, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { cn } from "@/lib/utils";
 import { usePolling } from "@/hooks/usePolling";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface SoundboardSound {
   id: string;
@@ -289,7 +290,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               disabled={isJoining}
               className="flex items-center gap-2 px-7 py-3 rounded-full bg-gradient-to-b from-[#8B5CF6] to-[#7C3AED] hover:from-[#9d70f8] hover:to-[#8B5CF6] text-white font-semibold shadow-[0_4px_20px_rgba(139,92,246,0.45)] transition-all active:scale-95 hover:scale-[1.03] disabled:opacity-50"
             >
-              {isJoining ? <Loader2 className="w-5 h-5 animate-spin" /> : <PhoneOff className="w-5 h-5 rotate-[135deg]" />}
+              {isJoining ? <Loader size={20} /> : <PhoneOff className="w-5 h-5 rotate-[135deg]" />}
               {isJoining ? gt("Joining...") : gt("Join Voice")}
             </button>
             {voiceError && <p className="mt-3 text-sm text-red-400">{voiceError}</p>}

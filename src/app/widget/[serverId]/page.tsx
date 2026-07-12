@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Users, MessageCircle, Loader2, ArrowRight, Hash, Volume2, Menu, X, ChevronDown, Reply } from "lucide-react";
+import { Users, MessageCircle,  ArrowRight, Hash, Volume2, Menu, X, ChevronDown, Reply } from "lucide-react";
 import { ServerBadge } from "@/components/ui/badges";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface WidgetCategory {
   id: string;
@@ -341,7 +342,7 @@ export default function WidgetPage() {
   if (isLoading) {
     return (
       <div className="h-screen w-screen bg-[var(--app-bg)] flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
+        <Loader size={32} />
       </div>
     );
   }
@@ -535,7 +536,7 @@ export default function WidgetPage() {
         <div className="flex-1 flex flex-col min-w-0 relative">
           {isSwitching && (
             <div className="absolute inset-0 bg-[var(--app-bg)]/40 backdrop-blur-[1px] z-10 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 text-[var(--accent-color)] animate-spin" />
+              <Loader size={24} />
             </div>
           )}
           <div className="flex-1 overflow-y-auto px-4 py-3">

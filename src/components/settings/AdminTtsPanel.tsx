@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Volume2, Plus, Trash2, Loader2, Play, Power, Star, Mic2 } from "lucide-react";
+import { Volume2, Plus, Trash2,  Play, Power, Star, Mic2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface TtsSound {
   id: string;
@@ -179,7 +180,7 @@ export function AdminTtsSoundsPanel() {
             disabled={isCreating}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
           >
-            {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {isCreating ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
             {gt("Add")}
           </button>
         </div>
@@ -187,7 +188,7 @@ export function AdminTtsSoundsPanel() {
 
       {loading ? (
         <div className="flex items-center justify-center py-8 text-[var(--text-secondary)]">
-          <Loader2 className="w-5 h-5 animate-spin" />
+          <Loader size={20} />
         </div>
       ) : grouped.length === 0 ? (
         <div className="text-center text-[var(--text-secondary)] py-8 text-sm">
@@ -422,7 +423,7 @@ export function AdminTtsVoicesPanel() {
             disabled={isCreating}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
           >
-            {isCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {isCreating ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
             {gt("Add")}
           </button>
         </div>
@@ -431,7 +432,7 @@ export function AdminTtsVoicesPanel() {
       {/* List */}
       {loading ? (
         <div className="flex items-center justify-center py-8 text-[var(--text-secondary)]">
-          <Loader2 className="w-5 h-5 animate-spin" />
+          <Loader size={20} />
         </div>
       ) : voices.length === 0 ? (
         <div className="text-center text-[var(--text-secondary)] py-8 text-sm">

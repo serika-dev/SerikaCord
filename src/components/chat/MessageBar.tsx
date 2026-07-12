@@ -13,8 +13,7 @@ import {
   ImageIcon,
   Sticker,
   Smile,
-  SendHorizontal,
-  Loader2,
+  SendHorizontal, 
   X,
   FileText,
   Reply,
@@ -48,6 +47,7 @@ import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
 import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   clear: <Eraser className="w-3.5 h-3.5" />,
@@ -960,7 +960,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-70"
                 >
                   {isSending || isUploading ? (
-                    <Loader2 className="w-5 sm:w-6 h-5 sm:h-6 animate-spin" />
+                    <Loader size={20} className="sm:w-6 sm:h-6" />
                   ) : (
                     <SendHorizontal className="w-5 sm:w-6 h-5 sm:h-6" />
                   )}

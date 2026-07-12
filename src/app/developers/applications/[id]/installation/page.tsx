@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Loader2, Copy, Check, Save, Plus, Trash2 } from "lucide-react";
+import { Copy, Check, Save, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 const allScopes = [
   "bot", "applications.commands", "applications.commands.permissions.update",
@@ -204,7 +205,7 @@ export default function InstallationPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+        <Loader size={24} className="size-6" />
       </div>
     );
   }
@@ -303,7 +304,7 @@ export default function InstallationPage() {
           disabled={saving}
           className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-md transition-colors"
         >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {saving ? <Loader size={24} className="size-4" /> : <Save className="size-4" />}
           {gt("Save Changes")}
         </button>
       </div>

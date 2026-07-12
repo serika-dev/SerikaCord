@@ -21,8 +21,7 @@ import {
   Search,
   Inbox,
   HelpCircle,
-  ChevronLeft,
-  Loader2,
+  ChevronLeft, 
   Megaphone,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,7 +62,8 @@ import {
 } from "@/lib/chat/slashCommands";
 import type { ChatMessage } from "@/lib/chat/types";
 import { EMOJI_NAMES } from "@/lib/constants/emojis";
-import { T, useGT } from "gt-next";
+import { T, useGT, useLocale } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 type Message = ChatMessage;
 
@@ -130,6 +130,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const { currentChannel, currentServer, channels } = useServer();
   const { user } = useAuth();
   const gt = useGT();
+  const locale = useLocale();
   const perms = usePermissions(currentServer?.id);
   const canModerateMessages = perms.isOwner || perms.can("MANAGE_MESSAGES");
   const router = useRouter();
@@ -1081,7 +1082,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     messageBarRef.current?.getComposer()?.focus();
   }, []);
 
-  const formatTimestamp = formatMessageTimestamp;
+  const formatTimestamp = (ts: string) => formatMessageTimestamp(ts, gt, locale);
 
   // Mark current channel as read when it changes
   useEffect(() => {
@@ -1223,7 +1224,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             <p className="text-sm text-[var(--app-muted)]">{gt("Type at least 2 characters to search this channel.")}</p>
           ) : isSearching ? (
             <div className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader size={16} />
               {gt("Searching...")}
             </div>
           ) : searchResults.length === 0 ? (

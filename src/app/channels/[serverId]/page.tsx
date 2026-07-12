@@ -6,8 +6,8 @@ import { useServer } from "@/contexts/ServerContext";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Loader2 } from "lucide-react";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 export default function ServerPage() {
   const params = useParams();
@@ -60,7 +60,7 @@ export default function ServerPage() {
   if (currentServer && channels.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-[var(--bg-app)] text-[var(--text-secondary)]">
-        <Loader2 className="w-8 h-8 animate-spin text-[#8B5CF6] mb-4" />
+        <Loader size={32} className="mb-4" />
         <p>{gt("Loading channels...")}</p>
       </div>
     );

@@ -5,8 +5,8 @@
   "packageManager": "bun@1.3.2",
   "scripts": {
     "dev": "NODE_ENV=development UV_THREADPOOL_SIZE=16 bun server.ts",
-    "dev:next": "next dev",
-    "build": "next build",
+    "dev:next": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "NODE_ENV=production UV_THREADPOOL_SIZE=16 bun server.ts",
     "start:next": "next start",
     "gateway": "bun scripts/gateway.ts",

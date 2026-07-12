@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Loader2, Activity, TrendingUp, Server, Users } from "lucide-react";
+import { Activity, TrendingUp, Server, Users } from "lucide-react";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface AnalyticsData {
   server_count: number;
@@ -40,7 +41,7 @@ export default function AnalyticsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+        <Loader size={24} className="size-6" />
       </div>
     );
   }
@@ -86,7 +87,7 @@ export default function AnalyticsPage() {
 
       {analyticsLoading ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+          <Loader size={24} className="size-6" />
         </div>
       ) : (
         <>

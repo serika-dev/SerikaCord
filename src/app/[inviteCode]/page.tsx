@@ -7,8 +7,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
-  Circle,
-  Loader2,
+  Circle, 
   AlertCircle,
   MessageSquare,
   ArrowRight,
@@ -38,6 +37,7 @@ interface InviteInfo {
 }
 
 import { isReservedSlug } from "@/lib/constants/reserved";
+import { Loader } from "@/components/ui/Loader";
 
 export default function InvitePage() {
   const router = useRouter();
@@ -258,7 +258,7 @@ export default function InvitePage() {
             className="relative z-10 flex flex-col items-center gap-4"
           >
             <div className="w-16 h-16 rounded-2xl bg-[var(--app-surface)]/80 backdrop-blur-xl border border-[var(--app-border)] flex items-center justify-center">
-              <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
+              <Loader size={32} />
             </div>
             <p className="text-[var(--app-muted)] text-sm">{gt("Loading invite...")}</p>
           </motion.div>
@@ -424,7 +424,7 @@ export default function InvitePage() {
                   >
                     {isJoining ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <Loader size={16} />
                         {gt("Joining...")}
                       </>
                     ) : isExpired ? (

@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Copy, Check, Loader2, RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon } from "lucide-react";
+import { Copy, Check,  RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 const INTENTS = [
   { name: "Presence Intent", desc: "Receive presence updates for users.", bit: 1 << 8 },
@@ -145,7 +146,7 @@ export default function BotPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+        <Loader size={24} className="size-6" />
       </div>
     );
   }
@@ -171,7 +172,7 @@ export default function BotPage() {
             disabled={enabling}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            {enabling ? <Loader2 className="size-4 animate-spin" /> : <BotIcon className="size-4" />}
+            {enabling ? <Loader size={24} className="size-4" /> : <BotIcon className="size-4" />}
             {gt("Enable Bot")}
           </button>
         </div>
@@ -212,7 +213,7 @@ export default function BotPage() {
             disabled={resetting}
             className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors"
           >
-            {resetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            {resetting ? <Loader size={24} className="size-4" /> : <RefreshCw className="size-4" />}
             {gt("Reset Token")}
           </button>
         </div>
@@ -354,7 +355,7 @@ export default function BotPage() {
               disabled={savingInteractions}
               className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
             >
-              {savingInteractions ? <Loader2 className="size-4 animate-spin" /> : null}
+              {savingInteractions ? <Loader size={24} className="size-4" /> : null}
               {gt("Save")}
             </button>
           </div>

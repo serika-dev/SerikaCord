@@ -12,13 +12,13 @@ import {
   KeyRound,
   Users,
   Gift,
-  Activity,
-  Loader2,
+  Activity, 
   ArrowLeft,
   AlertTriangle,
 } from "lucide-react";
 import { useApplication } from "./useApplication";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 export default function ApplicationDetailLayoutClient({
   children,
@@ -58,7 +58,7 @@ export default function ApplicationDetailLayoutClient({
           </Link>
           {loading ? (
             <div className="flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin text-[#8B5CF6]" />
+              <Loader size={24} className="size-4" />
               <span className="text-sm text-[#888]">{gt("Loading...")}</span>
             </div>
           ) : (

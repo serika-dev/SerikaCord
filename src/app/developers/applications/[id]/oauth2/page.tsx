@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Loader2, Copy, Check, Plus, Trash2, Save, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { Copy, Check, Plus, Trash2, Save, RefreshCw, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 export default function OAuth2Page() {
   const gt = useGT();
@@ -77,7 +78,7 @@ export default function OAuth2Page() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="size-6 animate-spin text-[#8B5CF6]" />
+        <Loader size={24} className="size-6" />
       </div>
     );
   }
@@ -128,7 +129,7 @@ export default function OAuth2Page() {
           disabled={resetting}
           className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors"
         >
-          {resetting ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+          {resetting ? <Loader size={24} className="size-4" /> : <RefreshCw className="size-4" />}
           {gt("Reset Secret")}
         </button>
       </div>
@@ -182,7 +183,7 @@ export default function OAuth2Page() {
           disabled={saving}
           className="flex items-center gap-2 px-5 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
         >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+          {saving ? <Loader size={24} className="size-4" /> : <Save className="size-4" />}
           {gt("Save Changes")}
         </button>
       </div>

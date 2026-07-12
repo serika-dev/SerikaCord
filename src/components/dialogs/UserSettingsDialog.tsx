@@ -26,8 +26,7 @@ import {
   Crown,
   LogOut,
   Camera,
-  Check,
-  Loader2,
+  Check, 
   ExternalLink,
   Pencil,
   Search,
@@ -66,6 +65,7 @@ import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgr
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
+import { Loader } from "@/components/ui/Loader";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -1734,7 +1734,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         )}
                       </div>
                     ))}
-                    {isLoadingAdmin && <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#8B5CF6]" />}
+                    {isLoadingAdmin && <Loader size={24} className="mx-auto" />}
                   </div>
                 </div>
               )}
@@ -1830,7 +1830,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   )}
                                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     {isUploadingAvatar ? (
-                                      <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                      <Loader size={20} />
                                     ) : (
                                       <Camera className="w-5 h-5 text-white" />
                                     )}
@@ -1858,7 +1858,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   )}
                                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     {isUploadingBanner ? (
-                                      <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                      <Loader size={20} />
                                     ) : (
                                       <Camera className="w-5 h-5 text-white" />
                                     )}
@@ -2379,7 +2379,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                           {serverMemberLoading ? (
                             <div className="py-8 flex flex-col items-center justify-center text-[var(--text-secondary)]">
-                              <Loader2 className="w-8 h-8 animate-spin text-[var(--app-accent)] mb-2" />
+                              <Loader size={32} className="mb-2" />
                               <span className="text-sm font-medium">{gt("Loading server profile...")}</span>
                             </div>
                           ) : (
@@ -2418,7 +2418,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       )}
                                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                         {isUploadingAvatar ? (
-                                          <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                          <Loader size={20} />
                                         ) : (
                                           <Camera className="w-5 h-5 text-white" />
                                         )}
@@ -2463,7 +2463,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     )}
                                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                       {isUploadingBanner ? (
-                                        <Loader2 className="w-5 h-5 animate-spin text-white" />
+                                        <Loader size={20} />
                                       ) : (
                                         <Camera className="w-5 h-5 text-white" />
                                       )}
@@ -3063,7 +3063,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   </h2>
                   {isLoadingSettings || !userSettings ? (
                     <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
-                      <Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6] mx-auto" />
+                      <Loader size={24} className="mx-auto" />
                     </div>
                   ) : activeTab === "authorized-apps" ? (
                     <div className="space-y-2">
@@ -3324,7 +3324,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         disabled={isLoadingAdmin}
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
                       >
-                        {isLoadingAdmin && <Loader2 className="w-4 h-4 animate-spin" />}
+                        {isLoadingAdmin && <Loader size={16} />}
                         {gt("Search")}
                       </button>
                     </div>
@@ -3580,7 +3580,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         disabled={isLoadingAdmin}
                         className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
                       >
-                        {isLoadingAdmin && <Loader2 className="w-4 h-4 animate-spin" />}
+                        {isLoadingAdmin && <Loader size={16} />}
                         {gt("Search")}
                       </button>
                     </div>
@@ -4053,7 +4053,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <div className="space-y-2">
                       {isLoadingAdmin ? (
                         <div className="flex items-center justify-center py-8">
-                          <Loader2 className="w-6 h-6 animate-spin text-[#8B5CF6]" />
+                          <Loader size={24} />
                         </div>
                       ) : adminLogs.length === 0 ? (
                         <div className="p-3 bg-[var(--bg-card)] rounded-lg">
@@ -4255,7 +4255,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   disabled={isSaving}
                   className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSaving && <Loader size={16} />}
                   {gt("Save Changes")}
                 </button>
               </div>

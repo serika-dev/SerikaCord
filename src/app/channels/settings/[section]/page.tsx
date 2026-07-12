@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Trash2, Camera, Image, Lock, RotateCcw, Check, Pencil } from "lucide-react";
+import { ArrowLeft,  Trash2, Camera, Image, Lock, RotateCcw, Check, Pencil } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
@@ -16,6 +16,7 @@ import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgr
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
+import { Loader } from "@/components/ui/Loader";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -366,7 +367,7 @@ export default function MobileSettingsSectionPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full bg-[var(--bg-app)]">
-        <Loader2 className="w-8 h-8 text-[var(--app-accent)] animate-spin" />
+        <Loader size={32} />
       </div>
     );
   }
@@ -656,7 +657,7 @@ export default function MobileSettingsSectionPage() {
                       className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
                     >
                       {isUploadingAvatar ? (
-                        <Loader2 className="w-5 h-5 animate-spin text-white" />
+                        <Loader size={20} />
                       ) : (
                         <Camera className="w-5 h-5 text-white" />
                       )}
@@ -719,7 +720,7 @@ export default function MobileSettingsSectionPage() {
                     )}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       {isUploadingBanner ? (
-                        <Loader2 className="w-5 h-5 animate-spin text-white" />
+                        <Loader size={20} />
                       ) : (
                         <Camera className="w-5 h-5 text-white" />
                       )}
@@ -1441,7 +1442,7 @@ export default function MobileSettingsSectionPage() {
               disabled={isSaving}
               className="w-full py-3 rounded-lg bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 transition-opacity active:scale-[0.99] flex items-center justify-center gap-2"
             >
-              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isSaving && <Loader size={16} />}
               {gt("Save Changes")}
             </button>
           </div>
@@ -1641,7 +1642,7 @@ export default function MobileSettingsSectionPage() {
 
       {isSaving && (
         <div className="absolute bottom-6 right-6 px-3 py-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" />
+          <Loader size={16} />
           {gt("Saving...")}
         </div>
       )}

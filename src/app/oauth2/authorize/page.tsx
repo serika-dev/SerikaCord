@@ -2,9 +2,10 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, Shield, Check, Server, Info, AlertTriangle } from "lucide-react";
+import { Shield, Check, Server, Info, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface Guild {
   id: string;
@@ -223,7 +224,7 @@ function AuthorizeForm() {
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#070708] text-white">
-        <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6] mb-4" />
+        <Loader size={40} className="mb-4" />
         <p className="text-[#888888] text-sm font-medium animate-pulse">{gt("Loading authorization details...")}</p>
       </div>
     );
@@ -410,7 +411,7 @@ function AuthorizeForm() {
               onClick={handleAuthorize}
               className="flex-1 h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl shadow-[0_0_20px_rgba(139,92,246,0.25)] transition-all hover:scale-[1.01] active:scale-[0.99]"
             >
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : gt("Authorize")}
+              {isSubmitting ? <Loader size={16} /> : gt("Authorize")}
             </Button>
           </div>
         </div>
@@ -424,7 +425,7 @@ export default function AuthorizePage() {
   return (
     <Suspense fallback={
       <div className="flex flex-col items-center justify-center min-h-screen bg-[#070708] text-white">
-        <Loader2 className="w-10 h-10 animate-spin text-[#8B5CF6] mb-4" />
+        <Loader size={40} className="mb-4" />
         <p className="text-[#888888] text-sm font-medium animate-pulse">{gt("Loading authorization details...")}</p>
       </div>
     }>

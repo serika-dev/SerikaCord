@@ -6,8 +6,7 @@ import {
   RefreshCw,
   Upload,
   Download,
-  Search,
-  Loader2,
+  Search, 
   CheckCircle2,
   AlertCircle,
   ExternalLink,
@@ -15,6 +14,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 interface LocaleStat {
   locale: string;
@@ -246,7 +246,7 @@ export function AdminTranslationsPanel() {
               disabled={actionLoading}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
-              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {actionLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
               {gt("Full Sync")}
             </button>
             <button
@@ -254,7 +254,7 @@ export function AdminTranslationsPanel() {
               disabled={actionLoading}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all border border-[var(--border-color)]"
             >
-              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {actionLoading ? <Loader size={16} /> : <Upload className="w-4 h-4" />}
               {gt("Push Source")}
             </button>
             <button
@@ -262,7 +262,7 @@ export function AdminTranslationsPanel() {
               disabled={actionLoading}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all border border-[var(--border-color)]"
             >
-              {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+              {actionLoading ? <Loader size={16} /> : <Download className="w-4 h-4" />}
               {gt("Pull Translations")}
             </button>
           </div>
@@ -270,7 +270,7 @@ export function AdminTranslationsPanel() {
           {/* Summary cards */}
           {loading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 text-[#8B5CF6] animate-spin" />
+              <Loader size={24} />
             </div>
           ) : stats.length === 0 ? (
             <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
@@ -383,7 +383,7 @@ export function AdminTranslationsPanel() {
               disabled={keysLoading}
               className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2"
             >
-              {keysLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              {keysLoading ? <Loader size={16} /> : <Search className="w-4 h-4" />}
               {gt("Search")}
             </button>
           </div>
@@ -391,7 +391,7 @@ export function AdminTranslationsPanel() {
           {/* Keys list */}
           {keysLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 text-[#8B5CF6] animate-spin" />
+              <Loader size={24} />
             </div>
           ) : keys.length === 0 ? (
             <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">

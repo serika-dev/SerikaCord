@@ -67,6 +67,7 @@ export interface MessageGroupProps<M extends ChatMessage> {
   onOpenReactionPicker: (messageId: string) => void;
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
   onJumpToMessage?: (messageId: string) => void;
+  formattedTimestamp: string;
 }
 
 /**
@@ -105,6 +106,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onOpenReactionPicker,
   onMediaClick,
   onJumpToMessage,
+  formattedTimestamp,
 }: MessageGroupProps<M>) {
   const gt = useGT();
   // Merge mention users with message authors and referenced message authors
@@ -209,7 +211,7 @@ function MessageGroupInner<M extends ChatMessage>({
 
               <div className="flex-1 min-w-0">
                 {isFirst && (
-                  <GroupHeader author={group.author} timestamp={group.timestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} />
+                  <GroupHeader author={group.author} formattedTimestamp={formattedTimestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} />
                 )}
 
                 {isEditing ? (
@@ -336,8 +338,96 @@ function MessageGroupInner<M extends ChatMessage>({
 }
 
 /**
+ * True when the given messageId belongs to one of the group's messages.
+ * Used so that edit/reaction-picker state only busts the memo for the one
+ * group that actually contains the targeted message.
+ */
+function groupHasMessage(messages: ChatMessage[], id: string | null | undefined): boolean {
+  if (!id) return false;
+  for (const m of messages) {
+    if (m.id === id) return true;
+  }
+  return false;
+}
+
+/**
+ * Custom equality for the memo below.
+ *
+ * The problem this solves: `groupMessages()` allocates fresh group wrapper
+ * objects (and fresh `messages` arrays) on every render — including on every
+ * incoming SSE message and every keystroke in the composer/edit box. The
+ * default shallow compare sees a new `group` reference and re-renders EVERY
+ * group in the channel, re-parsing markdown/emoji for every message. On a busy
+ * channel (or any non-English locale, which adds per-render `gt` lookups) this
+ * saturates the main thread and produces the "scrollbar moves but the messages
+ * freeze" jank.
+ *
+ * Key insight: the message *objects* inside a group are referentially stable —
+ * `setMessages` only allocates a new object for the message that actually
+ * changed (new/edited/reacted). So we compare the group by its message
+ * references, and only consider edit/reaction-picker props when the targeted
+ * message lives in THIS group. All handler props are stabilized by the parent.
+ */
+function arePropsEqual<M extends ChatMessage>(
+  prev: MessageGroupProps<M>,
+  next: MessageGroupProps<M>,
+): boolean {
+  const pm = prev.group.messages;
+  const nm = next.group.messages;
+  if (pm.length !== nm.length) return false;
+  for (let i = 0; i < pm.length; i++) {
+    if (pm[i] !== nm[i]) return false;
+  }
+
+  if (
+    prev.group.author !== next.group.author ||
+    prev.formattedTimestamp !== next.formattedTimestamp
+  ) {
+    return false;
+  }
+
+  // Edit state only matters when the editing target is (or was) in this group.
+  const editRelevant =
+    groupHasMessage(pm, prev.editingMessageId) || groupHasMessage(nm, next.editingMessageId);
+  if (editRelevant) {
+    if (
+      prev.editingMessageId !== next.editingMessageId ||
+      prev.editContent !== next.editContent
+    ) {
+      return false;
+    }
+  }
+
+  // Reaction-picker state only matters when its target is in this group.
+  const pickerRelevant =
+    groupHasMessage(pm, prev.reactionPickerMessageId) ||
+    groupHasMessage(nm, next.reactionPickerMessageId);
+  if (pickerRelevant && prev.reactionPickerMessageId !== next.reactionPickerMessageId) {
+    return false;
+  }
+
+  // Remaining data props (handlers are stabilized by the parent). Compare by
+  // reference — these are React state / memoized in the chat session.
+  return (
+    prev.currentUserId === next.currentUserId &&
+    prev.canModerate === next.canModerate &&
+    prev.serverId === next.serverId &&
+    prev.serverName === next.serverName &&
+    prev.swipeEnabled === next.swipeEnabled &&
+    prev.mentionUsers === next.mentionUsers &&
+    prev.mentionRoles === next.mentionRoles &&
+    prev.userRoleColorMap === next.userRoleColorMap &&
+    prev.serverEmojis === next.serverEmojis &&
+    prev.availableServerEmojis === next.availableServerEmojis &&
+    prev.onMediaClick === next.onMediaClick &&
+    prev.onJumpToMessage === next.onJumpToMessage
+  );
+}
+
+/**
  * Memoized: with stable handler props from the chat session, a group only
  * re-renders when its own messages (or edit/reaction-picker targeting it)
- * change — instead of the whole list re-rendering on every keystroke.
+ * change — instead of the whole list re-rendering on every keystroke or every
+ * incoming message. See {@link arePropsEqual}.
  */
-export const MessageGroup = memo(MessageGroupInner) as typeof MessageGroupInner;
+export const MessageGroup = memo(MessageGroupInner, arePropsEqual) as typeof MessageGroupInner;

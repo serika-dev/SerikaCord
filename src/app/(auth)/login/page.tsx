@@ -6,9 +6,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
+import { Loader } from "@/components/ui/Loader";
 
 function LoginForm() {
   const gt = useGT();
@@ -121,7 +122,7 @@ function LoginForm() {
           className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
         >
           {isLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader size={16} />
           ) : (
             gt("Sign in")
           )}

@@ -30,8 +30,7 @@ import {
   Ban,
   FileText,
   Folder,
-  Camera,
-  Loader2,
+  Camera, 
   Check,
   Trash2,
   Plus,
@@ -56,6 +55,7 @@ import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
 import { UnsavedChangesBar } from "@/components/ui/unsaved-changes-bar";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -1585,7 +1585,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl disabled:cursor-not-allowed"
             >
               {isUploadingIcon ? (
-                <Loader2 className="w-8 h-8 text-white animate-spin" />
+                <Loader size={32} />
               ) : (
                 <Camera className="w-8 h-8 text-white" />
               )}
@@ -1606,7 +1606,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
             >
               {isUploadingBanner ? (
-                <Loader2 className="w-8 h-8 text-white animate-spin" />
+                <Loader size={32} />
               ) : (
                 <Camera className="w-8 h-8 text-white" />
               )}
@@ -1747,7 +1747,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
@@ -1819,7 +1819,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               })}
             {isReorderingRoles && (
               <p className="text-xs text-[#888888] flex items-center gap-1.5">
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader size={undefined} />
                 <T>Saving role order...</T>
               </p>
             )}
@@ -1970,7 +1970,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                         : "bg-[#222222] text-[#666666]"
                     )}
                   >
-                    {isSavingRole && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isSavingRole && <Loader size={16} />}
                     {hasUnsavedRoleChanges ? gt("Save Changes") : gt("Saved")}
                   </button>
                 </div>
@@ -2052,7 +2052,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             disabled={isSavingVanity || !vanityDirty}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-2 text-sm font-medium transition-colors"
           >
-            {isSavingVanity ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {isSavingVanity ? <Loader size={16} /> : <Check className="w-4 h-4" />}
             <T>Save</T>
           </button>
           {vanityInfo.code && (
@@ -2096,7 +2096,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : invites.length === 0 ? (
         <div className="text-center py-12">
@@ -2160,7 +2160,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : bans.length === 0 ? (
         <div className="text-center py-12">
@@ -2217,7 +2217,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : (
         <div className="space-y-1">
@@ -2364,7 +2364,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
         >
           {isUploadingEmoji ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader size={16} />
           ) : (
             <Plus className="w-4 h-4" />
           )}
@@ -2397,7 +2397,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : emojis.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
@@ -2465,7 +2465,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           disabled={isUploadingSticker}
           className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
         >
-          {isUploadingSticker ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+          {isUploadingSticker ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
           {isUploadingSticker ? gt("Uploading...") : gt("Upload Sticker")}
         </button>
       </div>
@@ -2494,7 +2494,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : stickers.length === 0 ? (
         <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
@@ -2749,7 +2749,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+            <Loader size={32} />
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-12">
@@ -2927,7 +2927,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-8 h-8 text-[#8B5CF6] animate-spin" />
+          <Loader size={32} />
         </div>
       ) : auditLogs.length === 0 ? (
         <div className="text-center py-12">
@@ -3114,7 +3114,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             disabled={isUploadingSound}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
           >
-            {isUploadingSound ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            {isUploadingSound ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
             <T>Upload Sound</T>
           </button>
         </div>
@@ -3151,7 +3151,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   className="flex-shrink-0 w-10 h-10 rounded-full bg-[#8B5CF6] hover:bg-[#7C3AED] flex items-center justify-center transition-colors"
                 >
                   {playingSoundId === sound._id ? (
-                    <Loader2 className="w-5 h-5 text-white animate-spin" />
+                    <Loader size={20} />
                   ) : (
                     <Play className="w-5 h-5 text-white ml-0.5" fill="white" />
                   )}
@@ -3272,7 +3272,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     >
                       {isSyncingDiscord ? (
                         <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <Loader size={undefined} />
                           <T>Syncing...</T>
                         </>
                       ) : (
@@ -3288,7 +3288,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     >
                       {isTriggeringDiscord ? (
                         <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <Loader size={undefined} />
                           <T>Testing...</T>
                         </>
                       ) : (
@@ -3362,7 +3362,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   >
                     {isTriggeringTwitch ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader size={undefined} />
                         <T>Triggering...</T>
                       </>
                     ) : (
@@ -3427,7 +3427,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   >
                     {isTriggeringYoutube ? (
                       <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader size={undefined} />
                         <T>Triggering...</T>
                       </>
                     ) : (

@@ -1,11 +1,11 @@
 "use client";
 
+import { memo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown, Check } from "lucide-react";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { StaffPill } from "@/components/chat/StaffPill";
 import { SystemPill } from "@/components/chat/SystemPill";
-import { formatMessageTimestamp } from "@/lib/chat/messages";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { cn } from "@/lib/utils";
@@ -19,7 +19,7 @@ interface GroupAvatarProps {
 }
 
 /** The 40px avatar in the message gutter, wrapped in a profile popup when possible. */
-export function GroupAvatar({ author, serverId }: GroupAvatarProps) {
+export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: GroupAvatarProps) {
   const initial = (author.displayName || author.username || "?").charAt(0).toUpperCase();
   const avatar = (
     <Avatar className="w-10 h-10 mt-0.5">
@@ -51,17 +51,17 @@ export function GroupAvatar({ author, serverId }: GroupAvatarProps) {
       </button>
     </MemberProfilePopup>
   );
-}
+});
 
 interface GroupHeaderProps {
   author: MessageAuthor;
-  timestamp: string;
+  formattedTimestamp: string;
   serverId?: string;
   roleColor?: string;
 }
 
 /** Author name + staff pill + timestamp row above the first message of a group. */
-export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHeaderProps) {
+export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor }: GroupHeaderProps) {
   const gt = useGT();
   const { settings } = useTheme();
   const name = author.displayName || author.username || gt("Unknown");
@@ -143,7 +143,7 @@ export function GroupHeader({ author, timestamp, serverId, roleColor }: GroupHea
         </span>
       )}
       <StaffPill badges={author.badges} />
-      <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formatMessageTimestamp(timestamp)}</span>
+      <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formattedTimestamp}</span>
     </div>
   );
-}
+});

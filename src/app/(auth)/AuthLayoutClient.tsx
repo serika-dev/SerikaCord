@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { T } from "gt-next";
+import { Logo } from "@/components/ui/Logo";
 
 export default function AuthLayoutClient({
   children,
@@ -34,10 +34,7 @@ export default function AuthLayoutClient({
         transition={{ duration: 0.3 }}
       >
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
-            <MessageSquare className="w-5 h-5 text-white" />
-          </div>
-          <span className="text-xl font-semibold text-white"><T>SerikaCord</T></span>
+          <Logo variant="text" size="md" />
         </Link>
       </motion.div>
 

@@ -11,10 +11,11 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
-import { Loader2, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
+import { Logo } from "@/components/ui/Logo";
 
 const dialogFallback = () => <div className="hidden" />;
 const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
@@ -85,15 +86,9 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="h-dvh bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6">
-          <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
-            <MessageSquare className="w-8 h-8 text-white" />
-          </div>
-          
+          <Loader size={80} />
           <div className="flex flex-col items-center gap-2">
-            <div className="flex items-center gap-2">
-              <Loader2 className="w-5 h-5 text-[#8B5CF6] animate-spin" />
-              <span className="text-lg font-medium text-[var(--text-primary)]">{gt("Loading SerikaCord...")}</span>
-            </div>
+            <span className="text-lg font-medium text-[var(--text-primary)]">{gt("Loading SerikaCord...")}</span>
             <p className="text-sm text-[var(--text-muted)]">{gt("Preparing your experience")}</p>
           </div>
         </div>
@@ -105,9 +100,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <div className="h-dvh bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6 text-center px-4">
-          <div className="w-16 h-16 rounded-xl bg-[#8B5CF6] flex items-center justify-center">
-            <MessageSquare className="w-8 h-8 text-white" />
-          </div>
+          <Logo variant="icon" size="xl" />
           
           <div>
             <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2"><T>Welcome to SerikaCord</T></h1>

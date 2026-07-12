@@ -115,6 +115,46 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  // webpack customizations for gt-next
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      // gt-next's .mjs build files use CommonJS require() for their internal
+      // loader specifiers (e.g. gt-next/internal/_load-translations). Webpack
+      // treats .mjs as ESM by default and ignores those require() calls, so the
+      // resolve.alias set by withGTConfig is never applied and the placeholder
+      // stub is reached at runtime. Forcing gt-next .mjs to javascript/auto makes
+      // webpack parse require() and resolve the alias to src/loadTranslations.ts.
+      config.module.rules.push({
+        test: /node_modules[\\/]gt-next[\\/].*\.mjs$/,
+        type: 'javascript/auto',
+      });
+    }
+    return config;
+  },
 };
 
-export default withGTConfig(nextConfig);
+// IMPORTANT: enable gt-next's compile-time transform (type: 'babel').
+//
+// Without this, gt-next runs in runtime-hash mode: every <T> and every gt("...")
+// call computes a sha256 of its source string ON EACH RENDER to look up the
+// translation. For the defaultLocale ('en') gt-next short-circuits and does no
+// work, but for ANY other locale this hashing runs across the ~100 components
+// that use useGT/<T> — including per-message hot paths (MarkdownRenderer,
+// MessageGroup, StaffPill, message hover actions) and live countdown timers.
+// The result was a saturated main thread and an unusable, laggy UI on every
+// non-English language.
+//
+// The compiler plugin injects the precomputed hash IDs at build time, so at
+// runtime gt-next only does a cheap dictionary lookup — no per-render hashing.
+//
+// NOTE: @generaltranslation/compiler only ships webpack/esbuild/rollup/vite
+// transforms — there is NO Turbopack transform, and gt-next disables the
+// compiler entirely when process.env.TURBOPACK is set. So this MUST be built
+// and run with webpack:
+//   - dev  : the custom server (server.ts → next({ dev })) uses webpack already
+//   - build: `next build --webpack` (see package.json) — Next 16 would otherwise
+//            default to Turbopack and silently drop the transform.
+export default withGTConfig(nextConfig, {
+  experimentalCompilerOptions: { type: "babel" },
+});

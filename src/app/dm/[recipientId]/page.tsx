@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, Video, Pin, Users, Loader2, ArrowLeft, Shield, UserPlus, Clock } from "lucide-react";
+import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
@@ -31,6 +31,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 const statusColors = {
   online: "#23A559",
@@ -244,7 +245,7 @@ export default function DMConversationPage() {
   if (authLoading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[var(--bg-app)]">
-        <Loader2 className="w-8 h-8 text-[var(--accent-color)] animate-spin" />
+        <Loader size={32} />
       </div>
     );
   }

@@ -17,8 +17,7 @@ import {
   BookOpen,
   Film,
   Sparkles,
-  Globe,
-  Loader2,
+  Globe, 
   Flame,
   Clock,
   CheckCircle2,
@@ -35,6 +34,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { T, useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
 
 type GTFunc = ReturnType<typeof useGT>;
 
@@ -300,7 +300,7 @@ function ServerCard({
           disabled={joining}
           className="mt-4 w-full px-4 py-2 rounded-full bg-[#5865F2] hover:bg-[#4752c4] text-white text-sm font-medium transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-60 disabled:hover:scale-100"
         >
-          {joining ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : server.joinMode === "apply_to_join" ? gt("Apply to Join") : gt("Join Server")}
+          {joining ? <Loader size={16} className="mx-auto" /> : server.joinMode === "apply_to_join" ? gt("Apply to Join") : gt("Join Server")}
         </button>
       </div>
     </div>
