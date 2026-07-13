@@ -257,10 +257,43 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
     const oldBadges = [...(targetUser.badges || [])];
 
+    // Sync the isStaff flag and staffRole based on whether the admin
+    // included staff-related badges in the request.  These badges are
+    // auto-assigned by recalculateUserBadges based on the isStaff flag,
+    // so we need to update the flag *before* recalculating.
+    const STAFF_BADGE_IDS = ['staff', 'admin', 'moderator'];
+    const requestedStaffBadges = badges.filter((b) => STAFF_BADGE_IDS.includes(b));
+    const wantsStaff = requestedStaffBadges.length > 0;
+
+    const staffUpdate: Record<string, any> = {};
+    if (wantsStaff && !targetUser.isStaff) {
+      staffUpdate.isStaff = true;
+      // Pick the highest-privilege role requested
+      if (requestedStaffBadges.includes('admin')) {
+        staffUpdate.staffRole = 'admin';
+      } else if (requestedStaffBadges.includes('moderator')) {
+        staffUpdate.staffRole = 'moderator';
+      } else {
+        staffUpdate.staffRole = 'staff';
+      }
+    } else if (wantsStaff && targetUser.isStaff) {
+      // Update staffRole if the requested set changed
+      if (requestedStaffBadges.includes('admin')) {
+        staffUpdate.staffRole = 'admin';
+      } else if (requestedStaffBadges.includes('moderator')) {
+        staffUpdate.staffRole = 'moderator';
+      } else {
+        staffUpdate.staffRole = 'staff';
+      }
+    } else if (!wantsStaff && targetUser.isStaff) {
+      staffUpdate.isStaff = false;
+      staffUpdate.staffRole = null;
+    }
+
     // Only manual badges can be set by admin; auto badges are recalculated
     const { recalculateUserBadges, MANUAL_BADGES } = await import('@/lib/services/badges');
     const manualBadges = badges.filter((b) => (MANUAL_BADGES as readonly string[]).includes(b));
-    await User.updateById(targetUser.id, { badges: manualBadges });
+    await User.updateById(targetUser.id, { badges: manualBadges, ...staffUpdate });
     const finalBadges = await recalculateUserBadges(targetUser.id);
 
     await logAdminAction(

@@ -4,7 +4,7 @@ import { memo, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import { ServerBadge } from "@/components/ui/badges";
 import { Loader } from "@/components/ui/Loader";
@@ -93,7 +93,7 @@ function formatCount(n?: number): string {
  * online/member counts, and a context-aware Join / Joined button.
  */
 export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps) {
-  const gt = useGT();
+  const gt = useChatGt();
   const router = useRouter();
   const [data, setData] = useState<InviteData | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");

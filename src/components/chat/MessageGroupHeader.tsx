@@ -9,7 +9,7 @@ import { SystemPill } from "@/components/chat/SystemPill";
 import { useTheme } from "@/contexts/ThemeContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { cn } from "@/lib/utils";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
 
@@ -62,7 +62,7 @@ interface GroupHeaderProps {
 
 /** Author name + staff pill + timestamp row above the first message of a group. */
 export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor }: GroupHeaderProps) {
-  const gt = useGT();
+  const gt = useChatGt();
   const { settings } = useTheme();
   const name = author.displayName || author.username || gt("Unknown");
   const styleClasses = getDisplayNameStyleClasses(author.customization?.displayNameStyle);

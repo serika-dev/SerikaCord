@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useMemo, memo } from "react";
 import twemoji from "twemoji";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -93,7 +93,7 @@ export const MessageContent = memo(function MessageContent({
   onImageClick,
   messageId,
 }: MessageContentProps) {
-  const gt = useGT();
+  const gt = useChatGt();
   const textRef = useRef<HTMLSpanElement>(null);
   const mentionUserMap = useMemo(() => {
     const map = new Map<string, MentionUser>();

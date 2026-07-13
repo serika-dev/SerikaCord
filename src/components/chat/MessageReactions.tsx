@@ -1,7 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -34,7 +34,7 @@ export function MessageReactions({
   onOpenPicker,
   reactionUsers,
 }: MessageReactionsProps) {
-  const gt = useGT();
+  const gt = useChatGt();
   if (!reactions?.length) return null;
 
   const getUserName = (userId: string): string => {

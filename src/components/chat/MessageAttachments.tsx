@@ -3,7 +3,7 @@
 import { FileText } from "lucide-react";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { formatFileSize } from "@/lib/chat/messages";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import type { MessageAttachment } from "@/lib/chat/types";
 
 interface MessageAttachmentsProps {
@@ -14,7 +14,7 @@ interface MessageAttachmentsProps {
 
 /** Renders a message's attachments: images, video/audio players, and file cards. */
 export function MessageAttachments({ attachments, messageId, onMediaClick }: MessageAttachmentsProps) {
-  const gt = useGT();
+  const gt = useChatGt();
   if (!attachments?.length) return null;
 
   const imageAttachments = attachments.filter((a) => a.contentType.startsWith("image/"));

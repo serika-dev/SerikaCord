@@ -15,6 +15,7 @@ import {
 } from "react";
 import { ArrowDown } from "lucide-react";
 import { useGT, useLocale } from "gt-next";
+import { ChatGtProvider } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { MessageSkeleton } from "@/components/ui/skeleton";
@@ -303,6 +304,7 @@ function MessageListInner<M extends ChatMessage>(
   }, []);
 
   return (
+    <ChatGtProvider>
     <div className={cn("relative flex-1 min-h-0", className)}>
       {/* Non-intrusive top loading indicator — absolute positioned, no layout shift */}
       {hasMoreOlder && !isLoading && isLoadingMore && (
@@ -401,6 +403,7 @@ function MessageListInner<M extends ChatMessage>(
         </button>
       )}
     </div>
+    </ChatGtProvider>
   );
 }
 

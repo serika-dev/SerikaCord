@@ -5,7 +5,7 @@ import { ExternalLink, Play } from "lucide-react";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 
 interface LinkEmbedProps {
   content: string;
@@ -973,7 +973,7 @@ function GiphyEmbed({ gifId, url, onMediaClick }: { gifId: string; url: string; 
 }
 
 function TenorEmbed({ gifId, url, preview, onMediaClick }: { gifId: string; url: string; preview?: { title?: string; description?: string; thumbnail?: string; siteName?: string }; onMediaClick?: (src: string, alt?: string) => void }) {
-  const gt = useGT();
+  const gt = useChatGt();
   const [gifSrc, setGifSrc] = useState<string | null>(preview?.thumbnail || null);
 
   useEffect(() => {
@@ -1019,7 +1019,7 @@ function TenorEmbed({ gifId, url, preview, onMediaClick }: { gifId: string; url:
 }
 
 function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { title?: string; description?: string; thumbnail?: string; siteName?: string }; onMediaClick?: (src: string, alt?: string) => void }) {
-  const gt = useGT();
+  const gt = useChatGt();
   const [gifSrc, setGifSrc] = useState<string | null>(preview?.thumbnail || null);
 
   useEffect(() => {

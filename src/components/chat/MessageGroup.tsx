@@ -13,7 +13,7 @@ import { MessageHoverActions, type PickerEmoji } from "@/components/chat/Message
 import { MessageEditForm } from "@/components/chat/MessageEditForm";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 
 interface MentionUser {
@@ -108,7 +108,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onJumpToMessage,
   formattedTimestamp,
 }: MessageGroupProps<M>) {
-  const gt = useGT();
+  const gt = useChatGt();
   // Merge mention users with message authors and referenced message authors
   // so that mentions resolve even for users who left the server or aren't in
   // the member list fetched for autocomplete.

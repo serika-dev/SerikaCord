@@ -1,7 +1,7 @@
 "use client";
 
 import { Copy, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
-import { useGT } from "gt-next";
+import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -58,7 +58,7 @@ export function MessageHoverActions<M extends ChatMessage>({
   availableServerEmojis,
   serverName,
 }: MessageHoverActionsProps<M>) {
-  const gt = useGT();
+  const gt = useChatGt();
   const handlePickerSelect = (
     emoji: string,
     isCustom?: boolean,
