@@ -181,6 +181,15 @@ export function accountsInternalGetUser(identifier: string) {
   });
 }
 
+export function accountsInternalGetUserByOriginalId(originalUserId: string) {
+  return accountsFetch<{ user?: AccountsUser }>('/internal/get-user', {
+    method: 'POST',
+    internal: true,
+    body: JSON.stringify({ originalUserId }),
+  });
+}
+
+
 /**
  * Push profile changes made in SerikaCord back to the accounts service so
  * the profile stays consistent across Serika products. Only fields the

@@ -226,6 +226,225 @@ const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
     }
   });
 
+// Internal service routes (communication from accounts.serika.dev)
+const internalRoutes = new Elysia({ prefix: '/internal' })
+  .post('/sync-user', async ({ headers, body, set }) => {
+    const serviceKey = headers['x-service-key'];
+    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+      set.status = 401;
+      return { error: 'Invalid service key', success: false };
+    }
+
+    const payload = body as Record<string, any>;
+    const userId = payload.accountsUserId;
+    if (!userId) {
+      set.status = 400;
+      return { error: 'accountsUserId is required', success: false };
+    }
+
+    try {
+      let user = await User.findById(userId);
+      const userData = {
+        username: payload.username,
+        email: payload.email?.toLowerCase(),
+        passwordHash: payload.password || null,
+        avatar: payload.avatar || null,
+        banner: payload.banner || null,
+        isVerified: payload.isVerified ?? false,
+        isPremium: payload.isPremium ?? false,
+        discordId: payload.discordId || null,
+        discordUsername: payload.discordUsername || null,
+        isBanned: payload.isBanned ?? false,
+        banReason: payload.banInfo?.reason || null,
+        createdAt: payload.joinDate ? new Date(payload.joinDate) : new Date(),
+      };
+
+      let action = 'updated';
+      if (user) {
+        await User.updateById(userId, userData);
+        const { invalidateUserCache } = await import('@/lib/services/auth');
+        await invalidateUserCache(userId);
+      } else {
+        // Double check username uniqueness
+        const existing = await User.findOne({ username: payload.username });
+        if (existing) {
+          user = await User.updateById(existing.id, { id: userId, ...userData }) || existing;
+        } else {
+          user = await User.create({
+            id: userId,
+            ...userData,
+            status: 'offline',
+          });
+          action = 'created';
+        }
+      }
+
+      // Sync serika.moe connection if present in sync payload
+      if (payload.serikaMoeUsername) {
+        const connData = {
+          userId,
+          provider: 'serika' as any,
+          accountId: payload.serikaMoeUsername,
+          displayName: payload.serikaMoeUsername,
+          visible: true,
+          metadata: { serikaMoeId: payload.serikaMoeId || null },
+        };
+        const existingConn = await UserConnection.findOne({ userId, provider: 'serika' as any });
+        if (existingConn) {
+          await UserConnection.updateById(existingConn.id, connData);
+        } else {
+          const crypto = await import('crypto');
+          await UserConnection.create({
+            ...connData,
+            id: crypto.randomUUID(),
+          });
+        }
+      }
+
+      return { success: true, action };
+    } catch (err: any) {
+      console.error('Failed to handle /internal/sync-user:', err);
+      set.status = 500;
+      return { error: err.message, success: false };
+    }
+  })
+  .post('/update-profile', async ({ headers, body, set }) => {
+    const serviceKey = headers['x-service-key'];
+    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+      set.status = 401;
+      return { error: 'Invalid service key', success: false };
+    }
+
+    const { email, updates } = body as { email: string; updates: Record<string, any> };
+    if (!email || !updates) {
+      set.status = 400;
+      return { error: 'Email and updates are required', success: false };
+    }
+
+    try {
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        set.status = 404;
+        return { error: 'User not found', success: false };
+      }
+
+      // If serikaMoeUsername or serikaMoeId is updated, sync local UserConnection
+      if ('serikaMoeUsername' in updates || 'serikaMoeId' in updates) {
+        const username = updates.serikaMoeUsername;
+        const moeId = updates.serikaMoeId;
+
+        if (username) {
+          const connData = {
+            userId: user.id,
+            provider: 'serika' as any,
+            accountId: username,
+            displayName: username,
+            visible: true,
+            metadata: { serikaMoeId: moeId },
+          };
+          const existing = await UserConnection.findOne({ userId: user.id, provider: 'serika' as any });
+          if (existing) {
+            await UserConnection.updateById(existing.id, connData);
+          } else {
+            const crypto = await import('crypto');
+            await UserConnection.create({
+              ...connData,
+              id: crypto.randomUUID(),
+            });
+          }
+        } else {
+          // Unlink: delete local connection if it exists
+          const existing = await UserConnection.findOne({ userId: user.id, provider: 'serika' as any });
+          if (existing) {
+            await UserConnection.deleteById(existing.id);
+          }
+        }
+      }
+
+      // Sync other whitelisted fields to the local User model if needed
+      const userUpdates: Record<string, any> = {};
+      if ('isPremium' in updates) userUpdates.isPremium = updates.isPremium;
+      if ('isVerified' in updates) userUpdates.isVerified = updates.isVerified;
+      if ('isBanned' in updates) userUpdates.isBanned = updates.isBanned;
+      if ('avatar' in updates) userUpdates.avatar = updates.avatar;
+      if ('banner' in updates) userUpdates.banner = updates.banner;
+      
+      if (Object.keys(userUpdates).length > 0) {
+        await User.updateById(user.id, userUpdates);
+        const { invalidateUserCache } = await import('@/lib/services/auth');
+        await invalidateUserCache(user.id);
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Failed to handle /internal/update-profile:', err);
+      set.status = 500;
+      return { error: err.message, success: false };
+    }
+  })
+  .post('/update-password', async ({ headers, body, set }) => {
+    const serviceKey = headers['x-service-key'];
+    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+      set.status = 401;
+      return { error: 'Invalid service key', success: false };
+    }
+
+    const { email, password } = body as { email: string; password?: string };
+    if (!email) {
+      set.status = 400;
+      return { error: 'Email is required', success: false };
+    }
+
+    try {
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        set.status = 404;
+        return { error: 'User not found', success: false };
+      }
+
+      await User.updateById(user.id, { passwordHash: password || null });
+      const { invalidateUserCache } = await import('@/lib/services/auth');
+      await invalidateUserCache(user.id);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Failed to handle /internal/update-password:', err);
+      set.status = 500;
+      return { error: err.message, success: false };
+    }
+  })
+  .post('/delete-user', async ({ headers, body, set }) => {
+    const serviceKey = headers['x-service-key'];
+    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+      set.status = 401;
+      return { error: 'Invalid service key', success: false };
+    }
+
+    const { email } = body as { email: string };
+    if (!email) {
+      set.status = 400;
+      return { error: 'Email is required', success: false };
+    }
+
+    try {
+      const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        set.status = 404;
+        return { error: 'User not found', success: false };
+      }
+
+      await User.deleteById(user.id);
+      const { invalidateUserCache } = await import('@/lib/services/auth');
+      await invalidateUserCache(user.id);
+
+      return { success: true };
+    } catch (err: any) {
+      console.error('Failed to handle /internal/delete-user:', err);
+      set.status = 500;
+      return { error: err.message, success: false };
+    }
+  });
+
 // User routes
 const userRoutes = new Elysia({ prefix: '/users' })
   .onBeforeHandle(rejectInvalidObjectIdParams)
@@ -1068,7 +1287,43 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const connections = await UserConnection.find({ userId: (authUser as any).id || (authUser as any)._id });
+    const userId = (authUser as any).id || (authUser as any)._id;
+    const connections = await UserConnection.find({ userId });
+
+    // Fallback sync: if the user does not have a local 'serika' connection,
+    // query the accounts service to see if they have a linked serika.moe account.
+    const hasSerika = connections.some(c => c.provider === 'serika');
+    if (!hasSerika) {
+      try {
+        const { accountsInternalGetUserByOriginalId } = await import('@/lib/services/accountsClient');
+        const { ok, data } = await accountsInternalGetUserByOriginalId(userId);
+        if (ok && data?.user?.serikaMoeUsername) {
+          const accountId = data.user.serikaMoeUsername;
+          const moeId = data.user.serikaMoeId || null;
+          
+          const connData = {
+            userId,
+            provider: 'serika' as any,
+            accountId,
+            displayName: accountId,
+            visible: true,
+            metadata: { serikaMoeId: moeId },
+          };
+
+          const crypto = await import('crypto');
+          const newConn = await UserConnection.create({
+            ...connData,
+            id: crypto.randomUUID(),
+          });
+          if (newConn) {
+            connections.push(newConn);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to sync serika connection in GET /connections:', err);
+      }
+    }
+
     connections.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
     return { connections };
   })
@@ -2505,6 +2760,7 @@ export const api = new Elysia({ prefix: '/api' })
     }),
   })
   .use(authRoutes)
+  .use(internalRoutes)
   .use(userRoutes)
   .use(notificationsRoutes)
   .use(friendsRoutes)
