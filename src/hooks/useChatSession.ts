@@ -314,7 +314,10 @@ export function useChatSession<M extends ChatMessage>({
               writeCache(requestedContext, deduped, true);
               setMessages(deduped);
               setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
-              latestRef.current.onShouldScrollToBottom?.();
+              // No explicit scroll here: we already scrolled on the cache paint,
+              // and MessageList auto-scrolls when the message count grows while
+              // pinned to the bottom. A second scroll here caused the visible
+              // "jump" on channel open.
             }
           } else if (raw.length > 0) {
             // Merge the few new messages into whatever is on screen now (which
@@ -332,7 +335,8 @@ export function useChatSession<M extends ChatMessage>({
               writeCache(requestedContext, trimmed, true);
               return trimmed;
             });
-            latestRef.current.onShouldScrollToBottom?.();
+            // MessageList auto-scrolls on the resulting message-count increase
+            // when pinned to bottom; no explicit scroll needed here.
           }
           // raw.length === 0 → cache was already current; nothing to do.
         } else {

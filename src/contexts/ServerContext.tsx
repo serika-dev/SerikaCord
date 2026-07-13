@@ -59,6 +59,10 @@ interface ServerContextType {
   servers: Server[];
   currentServer: Server | null;
   channels: Channel[];
+  /** The server id that the current `channels` array belongs to, or null while
+   * they are being (re)loaded for a newly selected server. Consumers use this to
+   * avoid deriving state from a stale channel list mid server-switch. */
+  channelsServerId: string | null;
   currentChannel: Channel | null;
   isLoading: boolean;
   isTransitioning: boolean;
@@ -120,6 +124,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const [servers, setServers] = useState<Server[]>([]);
   const [currentServer, setCurrentServerState] = useState<Server | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [channelsServerId, setChannelsServerId] = useState<string | null>(null);
   const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [members, setMembers] = useState<any[]>([]);
@@ -133,6 +138,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     startTransition(() => {
       setCurrentServerState(null);
       setChannels([]);
+      setChannelsServerId(null);
       setCurrentChannel(null);
     });
   }, []);
@@ -148,6 +154,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         activeServerIdRef.current = null;
         setCurrentServerState(null);
         setChannels([]);
+        setChannelsServerId(null);
         setCurrentChannel(null);
         return;
       }
@@ -164,11 +171,13 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         // Warm the in-memory cache from localStorage on first access.
         channelCacheRef.current.set(server.id, cached);
         setChannels(cached);
+        setChannelsServerId(server.id);
       } else if (isSwitch) {
         // Switching to a server whose channels aren't cached yet: clear the
         // old server's channels/selection so its chat doesn't linger. The
         // context effect below refetches channels for the new server.
         setChannels([]);
+        setChannelsServerId(null);
         setCurrentChannel(null);
       }
     });
@@ -228,6 +237,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         channelCacheRef.current.set(serverId, transformedChannels);
         lsSet(LS_CHANNELS_PREFIX + serverId, transformedChannels);
         setChannels(transformedChannels);
+        setChannelsServerId(serverId);
       }
     } catch (error) {
       console.error("Failed to fetch channels:", error);
@@ -509,6 +519,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       servers,
       currentServer,
       channels,
+      channelsServerId,
       currentChannel,
       isLoading,
       isTransitioning,
@@ -527,7 +538,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       fetchMembers,
     }),
     [
-      servers, currentServer, channels, currentChannel, isLoading, isTransitioning,
+      servers, currentServer, channels, channelsServerId, currentChannel, isLoading, isTransitioning,
       setCurrentServer, setCurrentChannel, clearContext, fetchServers, fetchChannels,
       prefetchServer, createServer, joinServer, leaveServer, deleteChannel,
       updateChannel, reorderChannels, fetchMembers,

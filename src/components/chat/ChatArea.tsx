@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useServer } from "@/contexts/ServerContext";
+import { useServer, useServerMembers } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -126,8 +126,17 @@ interface ChatAreaProps {
   showMembers?: boolean;
 }
 
+// Per-server SWR caches so bouncing between servers paints emojis/roles instantly
+// and skips the refetch, while a background revalidation keeps them fresh.
+type ServerEmoji = { id: string; name: string; url: string; serverId: string; animated?: boolean };
+const serverEmojiCache = new Map<string, ServerEmoji[]>();
+const serverRoleCache = new Map<string, MentionRole[]>();
+
 export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const { currentChannel, currentServer, channels } = useServer();
+  // Reuse the members already fetched by ServerContext instead of fetching the
+  // full member list a second time on every server open.
+  const { members } = useServerMembers();
   const { user } = useAuth();
   const gt = useGT();
   const locale = useLocale();
@@ -161,10 +170,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     serverId: string;
     serverName: string;
   }>>([]);
-  const [mentionUsers, setMentionUsers] = useState<MentionUser[]>([]);
   const [mentionRoles, setMentionRoles] = useState<MentionRole[]>([]);
-  const [currentUserRoleIds, setCurrentUserRoleIds] = useState<string[]>([]);
-  const [userRoleColorMap, setUserRoleColorMap] = useState<Record<string, string>>({});
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const mentionRangeRef = useRef<{ start: number; end: number } | null>(null);
@@ -180,31 +186,35 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Message[]>([]);
 
-  // Fetch server emojis
+  // Fetch server emojis (per-server SWR: paint cache instantly, revalidate).
   useEffect(() => {
-    const fetchServerEmojis = async () => {
-      if (!currentServer) {
-        setServerEmojis([]);
-        return;
-      }
+    if (!currentServer) {
+      setServerEmojis([]);
+      return;
+    }
+    const serverId = currentServer.id;
+    const cached = serverEmojiCache.get(serverId);
+    if (cached) setServerEmojis(cached);
+    let cancelled = false;
+    (async () => {
       try {
-        const response = await fetch(`/api/servers/${currentServer.id}/emojis`);
-        if (response.ok) {
-          const data = await response.json();
-          const mapped = (data.emojis || []).map((emoji: { id?: string; _id?: string; name?: string; url?: string; imageUrl?: string; serverId?: string; animated?: boolean }) => ({
-            id: emoji.id || emoji._id,
-            name: emoji.name,
-            url: emoji.url || emoji.imageUrl,
-            serverId: emoji.serverId,
-            animated: emoji.animated,
-          }));
-          setServerEmojis(mapped);
-        }
+        const response = await fetch(`/api/servers/${serverId}/emojis`);
+        if (!response.ok || cancelled) return;
+        const data = await response.json();
+        const mapped: ServerEmoji[] = (data.emojis || []).map((emoji: { id?: string; _id?: string; name?: string; url?: string; imageUrl?: string; serverId?: string; animated?: boolean }) => ({
+          id: emoji.id || emoji._id,
+          name: emoji.name,
+          url: emoji.url || emoji.imageUrl,
+          serverId: emoji.serverId,
+          animated: emoji.animated,
+        }));
+        serverEmojiCache.set(serverId, mapped);
+        if (!cancelled) setServerEmojis(mapped);
       } catch (error) {
         console.error("Failed to fetch server emojis:", error);
       }
-    };
-    fetchServerEmojis();
+    })();
+    return () => { cancelled = true; };
   }, [currentServer]);
 
   // Fetch all server emojis (cross-server)
@@ -256,83 +266,58 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     fetchAllStickers();
   }, []);
 
+  // Roles only — members come from the shared members context (below), avoiding a
+  // duplicate `?limit=1000` member fetch. Per-server SWR cache for instant paint.
   useEffect(() => {
-    const fetchMentionSources = async () => {
-      if (!currentServer) {
-        setMentionUsers([]);
-        setMentionRoles([]);
-        setCurrentUserRoleIds([]);
-        setUserRoleColorMap({});
-        return;
-      }
-
+    if (!currentServer) {
+      setMentionRoles([]);
+      return;
+    }
+    const serverId = currentServer.id;
+    const cached = serverRoleCache.get(serverId);
+    if (cached) setMentionRoles(cached);
+    let cancelled = false;
+    (async () => {
       try {
-        const [membersResponse, rolesResponse] = await Promise.all([
-          fetch(`/api/servers/${currentServer.id}/members?limit=1000`),
-          fetch(`/api/servers/${currentServer.id}/roles`),
-        ]);
-
-        if (membersResponse.ok) {
-          const membersData = await membersResponse.json();
-          const members = (membersData.members || []) as Array<{
-            id: string;
-            username: string;
-            displayName: string;
-            avatar?: string;
-            roles?: Array<{ id: string }>;
-            highestRole?: { color?: string } | null;
-          }>;
-
-          setMentionUsers(
-            members.map((member) => ({
-              id: member.id,
-              username: member.username,
-              displayName: member.displayName || member.username,
-              avatar: member.avatar,
-            }))
-          );
-
-          const colorMap: Record<string, string> = {};
-          for (const member of members) {
-            const highestRole = member.highestRole;
-            if (highestRole?.color && highestRole.color !== '#000000') {
-              colorMap[member.id] = highestRole.color;
-            }
-          }
-          setUserRoleColorMap(colorMap);
-
-          const self = members.find((member) => member.id === user?.id);
-          setCurrentUserRoleIds((self?.roles || []).map((role) => role.id));
-        } else {
-          setMentionUsers([]);
-          setCurrentUserRoleIds([]);
-          setUserRoleColorMap({});
-        }
-
-        if (rolesResponse.ok) {
-          const rolesData = await rolesResponse.json();
-          const roles = (rolesData.roles || []) as Array<{
-            id: string;
-            name: string;
-            color?: string;
-            mentionable?: boolean;
-            isDefault?: boolean;
-          }>;
-          setMentionRoles(roles);
-        } else {
-          setMentionRoles([]);
-        }
+        const rolesResponse = await fetch(`/api/servers/${serverId}/roles`);
+        if (!rolesResponse.ok || cancelled) return;
+        const rolesData = await rolesResponse.json();
+        const roles = (rolesData.roles || []) as MentionRole[];
+        serverRoleCache.set(serverId, roles);
+        if (!cancelled) setMentionRoles(roles);
       } catch (error) {
-        console.error("Failed to fetch mention sources:", error);
-        setMentionUsers([]);
-        setMentionRoles([]);
-        setCurrentUserRoleIds([]);
-        setUserRoleColorMap({});
+        console.error("Failed to fetch roles:", error);
       }
-    };
+    })();
+    return () => { cancelled = true; };
+  }, [currentServer]);
 
-    void fetchMentionSources();
-  }, [currentServer, user?.id]);
+  // Mention users / role colors / self role ids are derived from the shared
+  // members list (fetched once by ServerContext) — no extra network request.
+  const mentionUsers = useMemo<MentionUser[]>(
+    () =>
+      (members as Array<{ id: string; username: string; displayName?: string; avatar?: string }>).map((m) => ({
+        id: m.id,
+        username: m.username,
+        displayName: m.displayName || m.username,
+        avatar: m.avatar,
+      })),
+    [members]
+  );
+
+  const userRoleColorMap = useMemo<Record<string, string>>(() => {
+    const colorMap: Record<string, string> = {};
+    for (const m of members as Array<{ id: string; highestRole?: { color?: string } | null }>) {
+      const color = m.highestRole?.color;
+      if (color && color !== "#000000") colorMap[m.id] = color;
+    }
+    return colorMap;
+  }, [members]);
+
+  const currentUserRoleIds = useMemo<string[]>(() => {
+    const self = (members as Array<{ id: string; roles?: Array<{ id: string }> }>).find((m) => m.id === user?.id);
+    return (self?.roles || []).map((r) => r.id);
+  }, [members, user?.id]);
 
   const emojiLookup = useMemo(
     () => [...serverEmojis, ...allServerEmojis],

@@ -642,7 +642,7 @@ export default function ChannelPage() {
   const params = useParams();
   const router = useRouter();
   const gt = useGT();
-  const { servers, setCurrentServer, channels, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
+  const { servers, setCurrentServer, channels, channelsServerId, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
   const [showMembers, setShowMembers] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -745,6 +745,21 @@ export default function ChannelPage() {
   // selection so the previous server's chat doesn't stick.
   useEffect(() => {
     if (!channelId) return;
+
+    // The channel list must belong to THIS server before we can trust it. During
+    // a server switch `channels` still holds the previous server's list, so
+    // deriving the active channel from it would show the wrong channel/name.
+    const listMatchesServer = channelsServerId === serverId;
+
+    if (!listMatchesServer) {
+      // Drop any lingering selection that doesn't match the URL so the old
+      // server's chat doesn't stick while the new channel list loads.
+      if (currentChannel && currentChannel.id !== channelId) {
+        setCurrentChannel(null);
+      }
+      return;
+    }
+
     const channel = channels.find((c) => c.id === channelId);
     if (channel) {
       if (currentChannel?.id !== channel.id) {
@@ -784,7 +799,7 @@ export default function ChannelPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [channelId, channels, currentChannel, setCurrentChannel, serverId]);
+  }, [channelId, channels, channelsServerId, currentChannel, setCurrentChannel, serverId]);
 
   // Persist the last-visited channel per server so reloads and server switches
   // return here instead of falling back to the first channel in the list.
