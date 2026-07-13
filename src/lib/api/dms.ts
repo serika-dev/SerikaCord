@@ -378,6 +378,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     const limit = Math.min(parseInt(query.limit as string) || 50, 100);
     const before = query.before as string | undefined;
+    const after = query.after as string | undefined;
 
     // Build cursor-based DB query
     const msgFilter: Record<string, unknown> = {
@@ -390,6 +391,13 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       const beforeMsg = await Message.findById(before);
       if (beforeMsg) {
         msgFilter.createdAtBefore = beforeMsg.createdAt;
+      }
+    } else if (after) {
+      // Delta fetch: only messages newer than the client's newest cached one,
+      // so re-opening a DM ships a tiny payload instead of the full last page.
+      const afterMsg = await Message.findById(after);
+      if (afterMsg) {
+        msgFilter.createdAtAfter = afterMsg.createdAt;
       }
     }
 

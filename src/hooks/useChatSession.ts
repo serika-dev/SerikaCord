@@ -10,6 +10,7 @@ import {
   groupMessages,
   normalizeIncomingMessage,
   type EmojiLookupEntry,
+  type RawMessagePayload,
 } from "@/lib/chat/messages";
 import { buildGalleryFromMessages } from "@/lib/chat/media";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
@@ -91,6 +92,19 @@ function writeCache<M extends ChatMessage>(key: string, messages: M[], persist =
   // Only persist authoritative fetches (initial load / prefetch), not every
   // live SSE/optimistic mutation — those would thrash localStorage.
   if (persist) lsPersist(key, messages);
+}
+
+/** Normalize a raw message list and drop duplicate ids, preserving order. */
+function dedupeMessages<M extends ChatMessage>(raw: RawMessagePayload[]): M[] {
+  const seen = new Set<string>();
+  const out: M[] = [];
+  for (const item of raw) {
+    const normalized = normalizeIncomingMessage<M>(item);
+    if (seen.has(normalized.id)) continue;
+    seen.add(normalized.id);
+    out.push(normalized);
+  }
+  return out;
 }
 
 /** True if this REST base already has messages warmed in the SWR cache. */
@@ -251,42 +265,101 @@ export function useChatSession<M extends ChatMessage>({
     // Stale-while-revalidate: paint cached messages immediately (no spinner)
     // and revalidate below. Only fall back to the loading state on a cold open.
     const cached = readCache<M>(requestedContext);
+    let deltaCursor: string | null = null;
     if (cached && cached.length > 0) {
       setMessages(cached);
-      setHasMoreOlder(paginated && cached.length >= PAGE_SIZE);
+      // Be optimistic about older history when painting from cache: the cache may
+      // be a short persisted tail (localStorage only keeps ~30 messages), so a
+      // strict `>= PAGE_SIZE` check would wrongly disable scroll-up pagination
+      // after a reload. loadOlderMessages self-corrects to `false` the first time
+      // the server returns a short page.
+      setHasMoreOlder(paginated);
       setIsLoading(false);
       latestRef.current.onShouldScrollToBottom?.();
+      // Newest non-optimistic message becomes the delta cursor: we revalidate
+      // by fetching only messages *after* it rather than re-downloading the whole
+      // last page. For far-away users this turns a full round-trip + ~50-message
+      // payload into a usually-empty response — the biggest win we can get
+      // without moving the server closer.
+      for (let i = cached.length - 1; i >= 0; i--) {
+        const id = cached[i]?.id;
+        if (id && !id.startsWith("temp-")) {
+          deltaCursor = id;
+          break;
+        }
+      }
     } else {
       setIsLoading(true);
       setHasMoreOlder(false);
       setMessages([]);
     }
     try {
-      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      const url = deltaCursor
+        ? `${apiBase}/messages?after=${deltaCursor}&limit=${PAGE_SIZE}`
+        : `${apiBase}/messages?limit=${PAGE_SIZE}`;
+      const response = await fetch(url);
       if (activeFetchContextRef.current !== requestedContext) return;
       if (response.ok) {
         const data = await response.json();
         if (activeFetchContextRef.current !== requestedContext) return;
         const raw = Array.isArray(data) ? data : data.messages || [];
-        const seen = new Set<string>();
-        const deduped: M[] = [];
-        for (const item of raw) {
-          const normalized = normalizeIncomingMessage<M>(item);
-          if (seen.has(normalized.id)) continue;
-          seen.add(normalized.id);
-          deduped.push(normalized);
+
+        if (deltaCursor) {
+          // Delta revalidation. A full page of results means there may be a gap
+          // between our cache and now (rare: away a long time / very busy
+          // channel), so fall back to a full refetch to stay correct.
+          if (raw.length >= PAGE_SIZE) {
+            const full = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+            if (activeFetchContextRef.current !== requestedContext) return;
+            if (full.ok) {
+              const fullData = await full.json();
+              if (activeFetchContextRef.current !== requestedContext) return;
+              const fullRaw = Array.isArray(fullData) ? fullData : fullData.messages || [];
+              const deduped = dedupeMessages<M>(fullRaw);
+              writeCache(requestedContext, deduped, true);
+              setMessages(deduped);
+              setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
+              // No explicit scroll here: we already scrolled on the cache paint,
+              // and MessageList auto-scrolls when the message count grows while
+              // pinned to the bottom. A second scroll here caused the visible
+              // "jump" on channel open.
+            }
+          } else if (raw.length > 0) {
+            // Merge the few new messages into whatever is on screen now (which
+            // may include live SSE / optimistic updates), deduping by id.
+            const incoming = raw.map((item: RawMessagePayload) => normalizeIncomingMessage<M>(item));
+            setMessages((prev) => {
+              const existing = new Set(prev.map((m) => m.id));
+              const appended = [...prev];
+              for (const msg of incoming) {
+                if (!existing.has(msg.id)) appended.push(msg);
+              }
+              const trimmed = appended.length > MAX_LOADED_MESSAGES
+                ? appended.slice(appended.length - MAX_LOADED_MESSAGES)
+                : appended;
+              writeCache(requestedContext, trimmed, true);
+              return trimmed;
+            });
+            // MessageList auto-scrolls on the resulting message-count increase
+            // when pinned to bottom; no explicit scroll needed here.
+          }
+          // raw.length === 0 → cache was already current; nothing to do.
+        } else {
+          const deduped = dedupeMessages<M>(raw);
+          writeCache(requestedContext, deduped, true);
+          setMessages(deduped);
+          setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
+          latestRef.current.onShouldScrollToBottom?.();
         }
-        writeCache(requestedContext, deduped, true);
-        setMessages(deduped);
-        setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
-        latestRef.current.onShouldScrollToBottom?.();
-      } else {
+      } else if (!deltaCursor) {
         toast.error(gt("Failed to load messages"));
       }
     } catch (error) {
       if (activeFetchContextRef.current !== requestedContext) return;
       console.error("Failed to fetch messages:", error);
-      toast.error(gt("Failed to load messages"));
+      // On a warm open we already painted cache, so a failed revalidation is
+      // silent — only surface an error when we had nothing to show.
+      if (!deltaCursor) toast.error(gt("Failed to load messages"));
     } finally {
       if (activeFetchContextRef.current === requestedContext) {
         setIsLoading(false);

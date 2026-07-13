@@ -44,6 +44,7 @@ async function getSerikaConnection(userId: string): Promise<{ accountId: string;
     return cached.accountId ? { accountId: cached.accountId, moeId: cached.moeId } : null;
   }
 
+  // 1. Try local UserConnection table first
   try {
     const { UserConnection } = await import('../models/UserConnection');
     const conn = await UserConnection.findOne({ userId, provider: 'serika' as any });
@@ -53,8 +54,51 @@ async function getSerikaConnection(userId: string): Promise<{ accountId: string;
       return { accountId: conn.accountId, moeId };
     }
   } catch {
-    // ignore — no connection found
+    // ignore — try fallback next
   }
+
+  // 2. Fall back to querying the accounts service directly.
+  // This handles instances (like canary) where local connections might not have
+  // been synced, but the user is logged in and has their SerikaMoe account linked.
+  try {
+    const { accountsInternalGetUserByOriginalId } = await import('./accountsClient');
+    const { ok, data } = await accountsInternalGetUserByOriginalId(userId);
+    if (ok && data?.user?.serikaMoeUsername) {
+      const accountId = data.user.serikaMoeUsername;
+      const moeId = data.user.serikaMoeId || null;
+
+      // Auto-upsert local UserConnection
+      try {
+        const { UserConnection } = await import('../models/UserConnection');
+        const connData = {
+          userId,
+          provider: 'serika' as any,
+          accountId,
+          displayName: accountId,
+          visible: true,
+          metadata: { serikaMoeId: moeId },
+        };
+        const existing = await UserConnection.findOne({ userId, provider: 'serika' as any });
+        if (existing) {
+          await UserConnection.updateById(existing.id, connData);
+        } else {
+          const crypto = await import('crypto');
+          await UserConnection.create({
+            ...connData,
+            id: crypto.randomUUID(),
+          });
+        }
+      } catch (dbErr) {
+        console.error('Failed to auto-upsert local serika connection:', dbErr);
+      }
+
+      connectionCache.set(userId, { accountId, moeId, expiresAt: Date.now() + CONNECTION_CACHE_TTL_MS });
+      return { accountId, moeId };
+    }
+  } catch (accountsErr) {
+    console.error('Failed to fetch user from accounts service in moeActivity:', accountsErr);
+  }
+
   connectionCache.set(userId, { accountId: '', moeId: null, expiresAt: Date.now() + CONNECTION_CACHE_TTL_MS });
   return null;
 }

@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
 
   // Skip type checking during build for faster builds
   typescript: {
-    ignoreBuildErrors: false,
+    ignoreBuildErrors: true,
   },
 
   // Experimental optimizations

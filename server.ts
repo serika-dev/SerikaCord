@@ -270,7 +270,10 @@ main().catch((err: unknown) => {
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
-  'Cache-Control': 'no-cache, no-store, must-revalidate',
+  // `no-transform` tells Cloudflare (and any intermediary proxy) not to buffer,
+  // compress, or otherwise mutate the stream — without it CF may hold SSE bytes
+  // and turn the ~220ms speed-of-light delay for far users into multi-second lag.
+  'Cache-Control': 'no-cache, no-store, must-revalidate, no-transform',
   'Connection': 'keep-alive',
   'X-Accel-Buffering': 'no',
 };

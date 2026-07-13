@@ -101,7 +101,7 @@ export function ChannelSidebar({
   onServerSettings,
   onCreateChannel,
 }: ChannelSidebarProps) {
-  const { currentServer, channels, currentChannel, setCurrentChannel, leaveServer, deleteChannel, updateChannel, reorderChannels } = useServer();
+  const { currentServer, channels, currentChannel, leaveServer, deleteChannel, updateChannel, reorderChannels } = useServer();
   const { user } = useAuth();
   const router = useRouter();
   const { can, isAdmin } = usePermissions(currentServer?.id);
@@ -831,17 +831,9 @@ export function ChannelSidebar({
     );
   };
 
-  useEffect(() => {
-    if (!currentServer || !channels.length || !pathname) return;
-    const match = pathname.match(/^\/channels\/[^/]+\/([^/]+)$/);
-    if (match) {
-      const channelId = match[1];
-      const channel = channels.find((c) => c.id === channelId);
-      if (channel && currentChannel?.id !== channel.id) {
-        setCurrentChannel(channel);
-      }
-    }
-  }, [pathname, channels, currentServer, setCurrentChannel, currentChannel?.id]);
+  // NOTE: The active channel is derived solely in the channel page
+  // (`[serverId]/[channelId]/page.tsx`), which is serverId-aware and avoids the
+  // stale-channel race. The sidebar no longer sets `currentChannel` itself.
 
   const toggleCategory = (categoryId: string) => {
     setCollapsedCategories(prev => {
