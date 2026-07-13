@@ -367,7 +367,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           // The accounts /internal/get-user endpoint already returns serikaMoeUsername/serikaMoeId
           // and (after redeployment) discordId/discordUsername.
           let accountsUser = data.user as any;
-          if (!accountsUser?.serikaMoeUsername && !accountsUser?.discordId) {
+          if (!accountsUser?.serikaMoeUsername || !accountsUser?.discordId) {
             try {
               const lookupKey = accountsUser?.id || email || '';
               if (lookupKey) {

@@ -254,7 +254,7 @@ function ConnectionsTabContent({
   const handleDisconnect = async (connectionId: string, provider: string) => {
     const res = await fetch(`/api/users/me/connections/${connectionId}`, { method: "DELETE" });
     if (res.ok) {
-      setUserConnections((prev) => prev.filter((c) => c._id !== connectionId));
+      setUserConnections((prev) => prev.filter((c) => c.id !== connectionId));
       toast.success(gt("{label} disconnected", { label: CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label || provider }));
     } else {
       toast.error(gt("Failed to disconnect"));
@@ -364,7 +364,7 @@ function ConnectionsTabContent({
                               checked={conn.visible !== false}
                               onCheckedChange={async (checked) => {
                                 try {
-                                  const res = await fetch(`/api/users/me/connections/${conn._id}`, {
+                                  const res = await fetch(`/api/users/me/connections/${conn.id}`, {
                                     method: "PATCH",
                                     headers: { "Content-Type": "application/json" },
                                     body: JSON.stringify({ visible: checked }),
@@ -372,7 +372,7 @@ function ConnectionsTabContent({
                                   if (res.ok) {
                                     const data = await res.json();
                                     setUserConnections((prev) =>
-                                      prev.map((c) => (c._id === conn._id ? data.connection : c))
+                                      prev.map((c) => (c.id === conn.id ? data.connection : c))
                                     );
                                     toast.success(gt("Visibility updated"));
                                   } else {
@@ -390,7 +390,7 @@ function ConnectionsTabContent({
                             </span>
                           ) : (
                             <button
-                              onClick={() => void handleDisconnect(conn._id, p.id)}
+                              onClick={() => void handleDisconnect(conn.id, p.id)}
                               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
                             >
                               {gt("Disconnect")}
@@ -3072,16 +3072,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           {gt("No authorized apps connected.")}
                         </div>
                       ) : authorizedApps.map((app) => (
-                        <div key={app._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
+                        <div key={app.id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
                             <p className="text-white font-medium">{app.name}</p>
                             <p className="text-xs text-[var(--text-secondary)]">{app.description || gt("No description")}</p>
                           </div>
                           <button
                             onClick={async () => {
-                              const response = await fetch(`/api/users/me/authorized-apps/${app._id}`, { method: "DELETE" });
+                              const response = await fetch(`/api/users/me/authorized-apps/${app.id}`, { method: "DELETE" });
                               if (response.ok) {
-                                setAuthorizedApps((prev) => prev.filter((item) => item._id !== app._id));
+                                setAuthorizedApps((prev) => prev.filter((item) => item.id !== app.id));
                                 toast.success(gt("App access revoked"));
                               } else {
                                 toast.error(gt("Failed to revoke app"));
@@ -3097,7 +3097,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   ) : activeTab === "devices" ? (
                     <div className="space-y-2">
                       {deviceSessions.map((device) => (
-                        <div key={device._id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
+                        <div key={device.id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
                             <p className="text-white text-sm">{device.deviceName}</p>
                             <p className="text-xs text-[var(--text-secondary)]">{device.platform} • {new Date(device.lastActiveAt).toLocaleString()}</p>
@@ -3105,9 +3105,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           {!device.current && (
                             <button
                               onClick={async () => {
-                                const response = await fetch(`/api/users/me/devices/${device._id}`, { method: "DELETE" });
+                                const response = await fetch(`/api/users/me/devices/${device.id}`, { method: "DELETE" });
                                 if (response.ok) {
-                                  setDeviceSessions((prev) => prev.filter((item) => item._id !== device._id));
+                                  setDeviceSessions((prev) => prev.filter((item) => item.id !== device.id));
                                   toast.success(gt("Device revoked"));
                                 } else {
                                   toast.error(gt("Failed to revoke device"));
