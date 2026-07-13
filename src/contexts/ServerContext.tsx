@@ -236,6 +236,10 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         // instant paint on reload).
         channelCacheRef.current.set(serverId, transformedChannels);
         lsSet(LS_CHANNELS_PREFIX + serverId, transformedChannels);
+        // Guard against a slow response for a previously-selected server
+        // overwriting the active server's channels after a fast switch. We still
+        // cache above so the data is warm if the user returns.
+        if (activeServerIdRef.current !== serverId) return;
         setChannels(transformedChannels);
         setChannelsServerId(serverId);
       }

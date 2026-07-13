@@ -230,7 +230,7 @@ const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
 const internalRoutes = new Elysia({ prefix: '/internal' })
   .post('/sync-user', async ({ headers, body, set }) => {
     const serviceKey = headers['x-service-key'];
-    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -331,7 +331,7 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
   })
   .post('/update-profile', async ({ headers, body, set }) => {
     const serviceKey = headers['x-service-key'];
-    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -418,7 +418,7 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
   })
   .post('/update-password', async ({ headers, body, set }) => {
     const serviceKey = headers['x-service-key'];
-    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -454,7 +454,7 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
   })
   .post('/delete-user', async ({ headers, body, set }) => {
     const serviceKey = headers['x-service-key'];
-    if (serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
