@@ -611,7 +611,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               commandHint: cmd.hint,
             })),
           );
-          setActiveMentionIndex(0);
+          setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
           return;
         }
       }
@@ -659,7 +659,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 paramRequired: param.required,
                 commandName: ctx.command.name,
               }]);
-              setActiveMentionIndex(0);
+              setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
               return;
             }
           }
@@ -684,7 +684,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 commandName: ctx.command.name,
               })),
             );
-            setActiveMentionIndex(0);
+            setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
             return;
           }
 
@@ -708,7 +708,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 commandName: ctx.command.name,
               })),
             );
-            setActiveMentionIndex(0);
+            setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
             return;
           }
 
@@ -729,7 +729,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 commandName: ctx.command.name,
               },
             ]);
-            setActiveMentionIndex(0);
+            setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
             return;
           }
         }
@@ -751,8 +751,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             if (unicodeChar) {
               composer.replaceRange(tokenStart, caretPosition, unicodeChar);
               mentionRangeRef.current = null;
-              setMentionSuggestions([]);
-              setActiveMentionIndex(0);
+              setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+              setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
               return;
             } else if (customEmoji) {
               composer.replaceRangeWithEmoji(tokenStart, caretPosition, {
@@ -762,8 +762,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                 animated: customEmoji.animated,
               });
               mentionRangeRef.current = null;
-              setMentionSuggestions([]);
-              setActiveMentionIndex(0);
+              setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+              setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
               return;
             }
           }
@@ -807,13 +807,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           if (emojiSuggestions.length > 0) {
             mentionRangeRef.current = { start: emojiStart, end: caretPosition };
             setMentionSuggestions(emojiSuggestions);
-            setActiveMentionIndex(0);
+            setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
             return;
           }
         }
         mentionRangeRef.current = null;
-        setMentionSuggestions([]);
-        setActiveMentionIndex(0);
+        setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+        setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
         return;
       }
 
@@ -824,7 +824,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const mentionStart = caretPosition - queryRaw.length - 1;
         if (mentionStart - tokenPrefix.length < 0) {
           mentionRangeRef.current = null;
-          setMentionSuggestions([]);
+          setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+          setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
           return;
         }
 
@@ -845,8 +846,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
         if (!channelSuggestions.length) {
           mentionRangeRef.current = null;
-          setMentionSuggestions([]);
-          setActiveMentionIndex(0);
+          setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+          setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
           return;
         }
 
@@ -855,12 +856,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           end: caretPosition,
         };
         setMentionSuggestions(channelSuggestions);
-        setActiveMentionIndex(0);
+        setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
         return;
       }
 
       if (!mentionMatch) {
-        setMentionSuggestions([]);
+        setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+        setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
         return;
       }
 
@@ -870,7 +872,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       const mentionStart = caretPosition - queryRaw.length - 1;
       if (mentionStart - tokenPrefix.length < 0) {
         mentionRangeRef.current = null;
-        setMentionSuggestions([]);
+        setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+        setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
         return;
       }
 
@@ -915,8 +918,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
       if (!nextSuggestions.length) {
         mentionRangeRef.current = null;
-        setMentionSuggestions([]);
-        setActiveMentionIndex(0);
+        setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
+        setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
         return;
       }
 
@@ -925,7 +928,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         end: caretPosition,
       };
       setMentionSuggestions(nextSuggestions);
-      setActiveMentionIndex(0);
+      setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
     },
     [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, channels]
   );

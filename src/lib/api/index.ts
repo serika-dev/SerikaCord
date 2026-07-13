@@ -762,6 +762,118 @@ const userRoutes = new Elysia({ prefix: '/users' })
       }))),
     }),
   })
+  .post('/me', async ({ headers, cookie, body, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    try {
+      const userId = (authUser as any).id || (authUser as any)._id;
+      const user = await User.findById(userId);
+      
+      if (!user) {
+        set.status = 404;
+        return { error: 'User not found in local database' };
+      }
+
+      // Parse body if it is sent as string (e.g. from text/plain beacon)
+      let data = body as any;
+      if (typeof body === 'string') {
+        try {
+          data = JSON.parse(body);
+        } catch {
+          // ignore
+        }
+      }
+
+      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone } = data || {};
+      const prevStatus = user.status;
+
+      const updateFields: Record<string, any> = {};
+      if (displayName !== undefined) updateFields.displayName = displayName;
+      if (bio !== undefined) updateFields.bio = bio;
+      if (pronouns !== undefined) updateFields.pronouns = pronouns;
+      if (timezone !== undefined) updateFields.timezone = timezone || null;
+      if (showTimezone !== undefined) updateFields.showTimezone = Boolean(showTimezone);
+      if (customStatus !== undefined) updateFields.customStatus = customStatus;
+      if (status !== undefined) {
+        updateFields.status = status;
+        if (status === 'offline' || status === 'invisible') {
+          updateFields.presenceLastDisconnectAt = new Date();
+        } else {
+          updateFields.presenceLastDisconnectAt = null;
+          updateFields.presenceLastHeartbeatAt = new Date();
+        }
+      }
+      if (settings !== undefined) {
+        const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
+        const normalizedPatch = normalizeSettingsPatch(settings);
+        if (!normalizedPatch.error) {
+          updateFields.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {})) as any;
+        }
+      }
+      if (customization !== undefined && typeof customization === 'object') {
+        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, any>, customization) as any;
+      }
+      if (gifFavorites !== undefined && Array.isArray(gifFavorites)) {
+        updateFields.gifFavorites = gifFavorites.slice(0, 200).map((f: any) => ({
+          url: String(f?.url || ''),
+          title: String(f?.title || ''),
+          source: String(f?.source || ''),
+          addedAt: Number(f?.addedAt) || Date.now(),
+        })).filter((f: any) => f.url);
+      }
+
+      const updatedUser = await User.updateById(userId, updateFields);
+      await invalidateUserCache(userId);
+
+      const finalUser = updatedUser || user;
+      const changedProfile = customStatus !== undefined || displayName !== undefined || customization !== undefined || (status !== undefined && status !== prevStatus);
+      if (changedProfile) {
+        const friendIds = (finalUser.friends || []).map((f: string) => f);
+        emitFriendEvent(friendIds, {
+          type: 'presence:update',
+          userId: finalUser.id,
+          status: getPublicPresenceStatus(finalUser),
+          customStatus: finalUser.customStatus || null,
+          displayName: finalUser.displayName || finalUser.username,
+          customization: finalUser.customization || null,
+          timestamp: Date.now(),
+        });
+      }
+
+      const freshUser = {
+        id: finalUser.id,
+        username: finalUser.username,
+        displayName: finalUser.displayName,
+        email: finalUser.email,
+        avatar: finalUser.avatar,
+        banner: finalUser.banner,
+        bio: finalUser.bio,
+        pronouns: finalUser.pronouns,
+        timezone: finalUser.timezone,
+        showTimezone: finalUser.showTimezone,
+        status: finalUser.status,
+        customStatus: finalUser.customStatus,
+        isPremium: finalUser.isPremium,
+        premiumSince: finalUser.premiumSince,
+        premiumTier: finalUser.premiumTier,
+        badges: finalUser.badges || [],
+        isVerified: finalUser.isVerified,
+        settings: finalUser.settings,
+        customization: finalUser.customization || {},
+        gifFavorites: finalUser.gifFavorites || [],
+        createdAt: finalUser.createdAt,
+      };
+      return { success: true, user: freshUser };
+    } catch (error) {
+      console.error('Error updating user via POST:', error);
+      set.status = 500;
+      return { error: 'Failed to update user profile' };
+    }
+  })
   .post('/me/presence/heartbeat', async ({ headers, cookie, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
@@ -200,7 +200,23 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Check if we're in a specific channel
   const isInChannel = pathname?.match(/\/channels\/[^/]+\/[^/]+$/);
   const isSettingsRoute = pathname?.startsWith("/channels/settings");
-  const contentKey = pathname || "channels";
+
+  // Transition key: only animate server switches/explore/settings, bypass channel switching within the same server to prevent snapping.
+  const contentKey = useMemo(() => {
+    if (!pathname) return "channels";
+    if (pathname.startsWith("/channels/settings")) return "/channels/settings";
+    if (pathname.startsWith("/channels/explore")) return "/channels/explore";
+
+    const serverMatch = pathname.match(/^\/channels\/([^/]+)/);
+    if (serverMatch) {
+      const serverId = serverMatch[1];
+      const specialRoutes = ["explore", "settings", "me", "notifications", "profile", "messages"];
+      if (!specialRoutes.includes(serverId)) {
+        return `/channels/server/${serverId}`;
+      }
+    }
+    return pathname;
+  }, [pathname]);
 
   // Mobile Layout
   if (isMobile) {
