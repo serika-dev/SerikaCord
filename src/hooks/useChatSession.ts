@@ -268,7 +268,12 @@ export function useChatSession<M extends ChatMessage>({
     let deltaCursor: string | null = null;
     if (cached && cached.length > 0) {
       setMessages(cached);
-      setHasMoreOlder(paginated && cached.length >= PAGE_SIZE);
+      // Be optimistic about older history when painting from cache: the cache may
+      // be a short persisted tail (localStorage only keeps ~30 messages), so a
+      // strict `>= PAGE_SIZE` check would wrongly disable scroll-up pagination
+      // after a reload. loadOlderMessages self-corrects to `false` the first time
+      // the server returns a short page.
+      setHasMoreOlder(paginated);
       setIsLoading(false);
       latestRef.current.onShouldScrollToBottom?.();
       // Newest non-optimistic message becomes the delta cursor: we revalidate
