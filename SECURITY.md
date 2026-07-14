@@ -17,7 +17,7 @@ If you are running an older version, upgrade to the latest release before report
 
 Please report vulnerabilities privately:
 
-1. Email **security@serika.chat** with a detailed description and reproduction steps.
+1. Email **security@serika.dev** with a detailed description and reproduction steps.
 2. Alternatively, use [GitHub Private Security Advisories](https://github.com/serika-dev/SerikaCord/security/advisories/new).
 
 Include the following in your report:
