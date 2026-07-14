@@ -1,4 +1,4 @@
-import { Application, Message, User } from '@/lib/models';
+import { Application, Message, User, ServerMember } from '@/lib/models';
 import { AppCommand } from '@/lib/models/AppCommand';
 import { signInteraction } from '@/lib/services/appIdentity';
 import { OPTION_TYPES, type AppCommandOption } from '@/lib/services/appCommands';
@@ -244,72 +244,93 @@ export async function maybeDispatchSlashInteraction(message: InternalMessageLike
   const name = rawName?.toLowerCase();
   if (!name) return false;
 
-  // Prefer a guild-scoped command, then a global one.
-  const query: Record<string, unknown> = { name };
-  const cmds = await AppCommand.find(query);
-  if (!cmds.length) return false;
-
   const guildId = message.serverId ?? null;
-  const cmd =
-    cmds.find((c: any) => c.guildId && guildId && c.guildId === guildId) ??
-    cmds.find((c: any) => !c.guildId);
-  if (!cmd) return false;
 
-  const app = await Application.findById(cmd.applicationId);
-  // No HTTP interactions endpoint → we can't do a clean interaction round-trip.
-  // Return false so the caller still persists the message: that fires a
-  // MESSAGE_CREATE gateway event, letting bots that handle commands over the
-  // gateway see and respond to it. (Better a visible "/command" than silence.)
-  if (!app || !app.interactionsEndpointUrl || !app.botId) return false;
+  // Find every command registered under this name. Filter by name in-process too,
+  // in case the model's find doesn't apply the name filter.
+  const allCmds = (await AppCommand.find({ name })) as any[];
+  const matching = allCmds.filter((c) => (c.name ?? '').toLowerCase() === name);
+  if (matching.length === 0) return false;
 
-  // Resolve trailing tokens against the declared option tree: subcommands,
-  // subcommand groups, and named/positional typed leaf options.
-  const declared = (cmd.options as AppCommandOption[]) ?? [];
-  const optionValues = buildInteractionOptions(declared, tokens);
+  // Collapse to ONE command per application: prefer a guild-scoped command for
+  // this guild, otherwise the app's global command. This is what lets two
+  // different bots expose the same command name — each is dispatched its own
+  // interaction independently.
+  const perApp = new Map<string, any>();
+  for (const c of matching) {
+    const appId = String(c.applicationId);
+    const isGuildMatch = !!(c.guildId && guildId && c.guildId === guildId);
+    const isGlobal = !c.guildId;
+    if (!isGuildMatch && !isGlobal) continue; // guild command for a different guild
+    const existing = perApp.get(appId);
+    const existingIsGuild = !!(existing && existing.guildId && guildId && existing.guildId === guildId);
+    if (!existing || (isGuildMatch && !existingIsGuild)) perApp.set(appId, c);
+  }
+  if (perApp.size === 0) return false;
 
+  const invokerId = message.author?.id ?? '';
   const member = message.author
     ? { user: { id: message.author.id, username: message.author.username ?? '' }, roles: [] }
     : undefined;
 
-  const interactionToken = `${message.id}.${Math.random().toString(36).slice(2)}`;
-  const invokerId = message.author?.id ?? '';
+  let dispatchedAny = false;
 
-  const interaction = {
-    id: crypto.randomUUID(),
-    application_id: app.clientId,
-    type: INTERACTION_APPLICATION_COMMAND,
-    token: interactionToken,
-    version: 1,
-    channel_id: message.channelId,
-    guild_id: guildId ?? undefined,
-    member,
-    user: message.author ? { id: message.author.id, username: message.author.username ?? '' } : undefined,
-    data: {
-      id: cmd.id,
-      name: cmd.name,
-      type: cmd.type ?? 1,
-      options: optionValues,
-    },
-  };
+  await Promise.all(
+    [...perApp.values()].map(async (cmd) => {
+      const app = await Application.findById(cmd.applicationId);
+      if (!app || !app.botId) return;
 
-  // Store metadata so the bot can send followup messages via the callback endpoint.
-  storeInteraction(interactionToken, {
-    botId: app.botId,
-    channelId: message.channelId,
-    serverId: message.serverId ?? null,
-    invokerId,
-  });
+      // Only dispatch to bots actually present where the command was invoked, so
+      // a global command from an unrelated server's bot doesn't fire here.
+      if (guildId) {
+        const isMember = await ServerMember.findOne({ serverId: guildId, userId: app.botId });
+        if (!isMember) return;
+      }
 
-  const result = await postSignedInteraction(app, interaction);
-  if (!result || !result.ok || !result.body) return true;
+      const declared = (cmd.options as AppCommandOption[]) ?? [];
+      const optionValues = buildInteractionOptions(declared, tokens);
+      // Token is unique per (message, app) so two bots' responses don't collide.
+      const interactionToken = `${message.id}.${app.botId}.${Math.random().toString(36).slice(2)}`;
 
-  const cb = result.body;
-  if (cb.type === CB_CHANNEL_MESSAGE && cb.data) {
-    await sendBotResponse(app.botId, message.channelId, message.serverId ?? null, cb.data, invokerId);
-  }
-  // CB_DEFERRED_CHANNEL_MESSAGE: bot will follow up via REST; nothing to do here.
-  void CB_DEFERRED_CHANNEL_MESSAGE;
-  return true;
+      const interaction = {
+        id: crypto.randomUUID(),
+        application_id: app.clientId,
+        type: INTERACTION_APPLICATION_COMMAND,
+        token: interactionToken,
+        version: 1,
+        channel_id: message.channelId,
+        guild_id: guildId ?? undefined,
+        member,
+        user: message.author ? { id: message.author.id, username: message.author.username ?? '' } : undefined,
+        data: { id: cmd.id, name: cmd.name, type: cmd.type ?? 1, options: optionValues },
+      };
+
+      storeInteraction(interactionToken, {
+        botId: app.botId,
+        channelId: message.channelId,
+        serverId: message.serverId ?? null,
+        invokerId,
+      });
+
+      dispatchedAny = true;
+
+      if (app.interactionsEndpointUrl) {
+        // HTTP interactions endpoint (Discord-style signed webhook).
+        const result = await postSignedInteraction(app, interaction);
+        if (result && result.ok && result.body?.type === CB_CHANNEL_MESSAGE && result.body.data) {
+          await sendBotResponse(app.botId, message.channelId, message.serverId ?? null, result.body.data, invokerId);
+        }
+        void CB_DEFERRED_CHANNEL_MESSAGE; // deferred: bot follows up via the callback endpoint
+      } else {
+        // Gateway-connected bot with no HTTP endpoint: deliver the interaction
+        // over the gateway. The bot replies via POST /interactions/:id/:token/callback.
+        const { emitInteractionCreate } = await import('@/lib/services/gatewayEvents');
+        await emitInteractionCreate({ botId: app.botId, guildId, interaction });
+      }
+    }),
+  );
+
+  return dispatchedAny;
 }
 
 /**
