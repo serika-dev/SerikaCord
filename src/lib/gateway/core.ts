@@ -27,6 +27,26 @@ export const OP = {
 
 export const HEARTBEAT_INTERVAL = 41250;
 
+/**
+ * How long we wait for a client heartbeat (OP 1) before treating the connection
+ * as a zombie and closing it. Discord uses ~1.5x the interval; we allow a little
+ * extra slack for slow networks. A client that misses this window gets a clean
+ * 4009 close so it can RESUME/reconnect instead of hanging until TCP times out.
+ */
+export const HEARTBEAT_TIMEOUT = Math.ceil(HEARTBEAT_INTERVAL * 1.5);
+
+/**
+ * Cadence for the transport-level keepalive sweep. Each tick sends a WebSocket
+ * PING (so proxies like Cloudflare/Traefik keep the connection open) and closes
+ * any connection that hasn't heartbeated within HEARTBEAT_TIMEOUT.
+ */
+export const KEEPALIVE_SWEEP_INTERVAL = 15_000;
+
+/** True if the connection has gone silent past the heartbeat timeout. */
+export function isHeartbeatExpired(conn: Conn, now = Date.now()): boolean {
+  return now - conn.data.lastHeartbeat > HEARTBEAT_TIMEOUT;
+}
+
 export interface Session {
   authenticated: boolean;
   sessionId: string;
@@ -62,6 +82,15 @@ export function newSession(): Session {
   };
 }
 
+/** Verbose per-connection gateway logging (set GATEWAY_DEBUG=1). */
+const GATEWAY_DEBUG =
+  typeof process !== 'undefined' &&
+  (process.env?.GATEWAY_DEBUG === '1' || process.env?.GATEWAY_DEBUG === 'true');
+
+function gwlog(...args: unknown[]) {
+  if (GATEWAY_DEBUG) console.log('[gateway]', ...args);
+}
+
 /** Registry of authenticated connections + Redis fan-out. */
 export class GatewayHub {
   readonly connections = new Set<Conn>();
@@ -91,6 +120,7 @@ export class GatewayHub {
       case OP.HEARTBEAT:
         conn.data.lastHeartbeat = Date.now();
         this.send(conn, OP.HEARTBEAT_ACK, null);
+        gwlog(conn.data.sessionId.slice(0, 8), 'heartbeat', conn.data.botId ?? '(unauth)');
         break;
       case OP.IDENTIFY:
         if (conn.data.authenticated) return;
@@ -102,8 +132,21 @@ export class GatewayHub {
         }
         break;
       case OP.RESUME:
-        // Minimal resume: acknowledge and continue (no event replay).
-        this.send(conn, OP.DISPATCH, {}, { t: 'RESUMED', s: ++conn.data.seq });
+        // Minimal resume: re-authenticate from the token so the connection is
+        // actually registered for dispatch (there is no event replay). Without
+        // re-auth a resumed socket would silently receive nothing.
+        if (!conn.data.authenticated) {
+          try {
+            await this.identify(conn, frame.d as Record<string, unknown>, { resumed: true });
+          } catch (err) {
+            console.error('Gateway: resume failed', err);
+            conn.close(4000, 'Unknown error');
+            break;
+          }
+        }
+        if (conn.data.authenticated) {
+          this.send(conn, OP.DISPATCH, {}, { t: 'RESUMED', s: ++conn.data.seq });
+        }
         break;
       default:
         break;
@@ -114,13 +157,21 @@ export class GatewayHub {
     this.connections.delete(conn);
   }
 
-  private async identify(conn: Conn, d: Record<string, unknown>) {
+  private async identify(conn: Conn, d: Record<string, unknown>, opts?: { resumed?: boolean }) {
     const rawToken = String(d?.token ?? '');
     const token = rawToken.startsWith('Bot ') ? rawToken.slice(4) : rawToken;
     const intents = Number(d?.intents) || 0;
 
+    if (!token) {
+      gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: missing token');
+      this.send(conn, OP.INVALID_SESSION, false);
+      conn.close(4004, 'Authentication failed');
+      return;
+    }
+
     const app = await Application.findOne({ botToken: token });
     if (!app || !app.botId) {
+      gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: unknown token');
       this.send(conn, OP.INVALID_SESSION, false);
       conn.close(4004, 'Authentication failed');
       return;
@@ -146,7 +197,15 @@ export class GatewayHub {
     conn.data.intents = intents;
     conn.data.guildIds = new Set(guildIds);
     conn.data.dmChannelIds = new Set(dmChannels.map((c: { id: string }) => c.id));
+    conn.data.lastHeartbeat = Date.now();
     this.connections.add(conn);
+    gwlog(
+      conn.data.sessionId.slice(0, 8),
+      `${opts?.resumed ? 'RESUMED' : 'READY'} bot=${app.botId} guilds=${guildIds.length} dms=${conn.data.dmChannelIds.size}`,
+    );
+
+    // On resume the caller emits RESUMED; skip the READY payload.
+    if (opts?.resumed) return;
 
     const user = {
       id: botUser.id,

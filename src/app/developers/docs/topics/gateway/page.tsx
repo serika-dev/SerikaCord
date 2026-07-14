@@ -41,17 +41,15 @@ export default async function GatewayDoc() {
       <H2 id="opcodes">{gt("Opcodes")}</H2>
       <Table headers={[gt("Opcode"), gt("Name"), gt("Direction"), gt("Description")]} rows={[
         ["0", "Dispatch", "Server→Client", gt("Dispatches an event (MESSAGE_CREATE, READY, etc.)")],
-        ["1", "Heartbeat", "Client→Server", gt("Maintains connection — send every heartbeat_interval ms")],
+        ["1", "Heartbeat", "Both", gt("Maintains connection — send every heartbeat_interval ms; the server may also send it to request an immediate beat")],
         ["2", "Identify", "Client→Server", gt("Initial authentication with token and intents")],
         ["3", "Presence Update", "Client→Server", gt("Update the bot's presence (not fully implemented)")],
         ["4", "Voice State Update", "Client→Server", gt("Join/leave a voice channel")],
-        ["5", "Resume", "Client→Server", gt("Resume a disconnected session to receive missed events")],
-        ["6", "Reconnect", "Server→Client", gt("Server requests you to reconnect (not currently sent)")],
-        ["7", "Request Guild Members", "Client→Server", gt("Request guild member info (not currently implemented)")],
-        ["8", "Invalid Session", "Server→Client", gt("Session invalidated — must re-identify, not resume")],
-        ["9", "Hello", "Server→Client", gt("Sent on connect — contains heartbeat_interval")],
-        ["10", "Heartbeat ACK", "Server→Client", gt("Acknowledges a heartbeat — connection is healthy")],
-        ["11", "Request Soundboard Sounds", "Client→Server", gt("Request soundboard sounds (not implemented)")],
+        ["6", "Resume", "Client→Server", gt("Resume a disconnected session")],
+        ["7", "Reconnect", "Server→Client", gt("Server requests you to reconnect")],
+        ["9", "Invalid Session", "Server→Client", gt("Session invalidated — must re-identify, not resume")],
+        ["10", "Hello", "Server→Client", gt("Sent on connect — contains heartbeat_interval")],
+        ["11", "Heartbeat ACK", "Server→Client", gt("Acknowledges a heartbeat — connection is healthy")],
       ]} />
       <Callout type="info" title={gt("Opcode numbering")}>
         {gt("SerikaCord uses the same opcode numbers as Discord v10. The")} <InlineCode>Hello</InlineCode> {gt("opcode is")} <InlineCode>10</InlineCode> {gt("and")} <InlineCode>Heartbeat ACK</InlineCode> {gt("is")}{" "}
@@ -171,11 +169,11 @@ export default async function GatewayDoc() {
       <P>{gt("The server responds with")} <InlineCode>Heartbeat ACK</InlineCode> {gt("(op 11):")}</P>
       <CodeBlock lang="json">{`{ "op": 11, "d": null }`}</CodeBlock>
       <Callout type="danger" title={gt("Heartbeat timeout")}>
-        {gt("If you don't send heartbeats, the server will eventually close your connection. Always start the heartbeat timer immediately after receiving")} <InlineCode>Hello</InlineCode>, {gt("and reset it each time you send a heartbeat.")}
+        {gt("If the server doesn't receive a heartbeat within roughly 1.5× the interval, it closes the connection with code")} <InlineCode>4009</InlineCode> {gt("(Session timed out), which you can resume. Start the heartbeat timer immediately after receiving")} <InlineCode>Hello</InlineCode>. {gt("The server also sends WebSocket-level pings to keep proxies from dropping the connection — the")} <InlineCode>ws</InlineCode> {gt("library answers these automatically.")}
       </Callout>
 
-      <H2 id="resuming">{gt("Resuming Sessions (op 5)")}</H2>
-      <P>{gt("If your connection drops, you can resume to receive missed events:")}</P>
+      <H2 id="resuming">{gt("Resuming Sessions (op 6)")}</H2>
+      <P>{gt("If your connection drops, reconnect and send a Resume to re-establish the session:")}</P>
       <CodeBlock lang="json">{`{
   "op": 6,
   "d": {
@@ -185,7 +183,7 @@ export default async function GatewayDoc() {
   }
 }`}</CodeBlock>
       <P>
-        {gt("On success, the server sends a")} <InlineCode>RESUMED</InlineCode> {gt("dispatch event. The current implementation sends an empty payload with the")} <InlineCode>RESUMED</InlineCode> {gt("type and increments the sequence number.")}
+        {gt("The Resume payload is authenticated by its")} <InlineCode>token</InlineCode>, {gt("so the connection is re-registered for dispatch and immediately resumes receiving events. On success the server sends a")} <InlineCode>RESUMED</InlineCode> {gt("dispatch. Note there is no event replay — events missed while disconnected are not redelivered, so treat Resume as a fast reconnect rather than a gap-filling recovery.")}
       </P>
 
       <H2 id="dispatch-routing">{gt("Dispatch Routing")}</H2>

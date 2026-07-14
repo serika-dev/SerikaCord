@@ -22,6 +22,8 @@ import {
   GatewayHub,
   subscribeHubToRedis,
   newSession,
+  isHeartbeatExpired,
+  KEEPALIVE_SWEEP_INTERVAL,
   GATEWAY_PATH,
   type Conn,
 } from '@/lib/gateway/core';
@@ -145,7 +147,27 @@ async function main() {
     console.error('SSE bridge init failed (realtime cross-instance disabled):', err);
   }
 
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+
+  // Track liveness per socket so a single sweep can send WS-level pings (keeping
+  // proxies like Cloudflare/Traefik from closing "idle" connections) and reap
+  // zombies that stopped heartbeating. This is what stops the mysterious 1006
+  // drops: without an app-level ping, an intermediary can silently kill the TCP
+  // stream and neither side sends a close frame.
+  const liveSockets = new Set<{ ws: WebSocket; conn: Conn }>();
+
+  const keepaliveSweep = setInterval(() => {
+    for (const entry of liveSockets) {
+      const { ws, conn } = entry;
+      if (ws.readyState !== ws.OPEN) continue;
+      if (conn.data.authenticated && isHeartbeatExpired(conn)) {
+        try { ws.close(4009, 'Session timed out'); } catch { ws.terminate(); }
+        continue;
+      }
+      try { ws.ping(); } catch { /* socket closing */ }
+    }
+  }, KEEPALIVE_SWEEP_INTERVAL);
+  keepaliveSweep.unref?.();
 
   wss.on('connection', (ws: WebSocket) => {
     const conn: Conn = {
@@ -153,10 +175,21 @@ async function main() {
       sendText: (text) => ws.send(text),
       close: (code, reason) => ws.close(code, reason),
     };
+    const entry = { ws, conn };
+    liveSockets.add(entry);
     hub.hello(conn);
+    // A pong (reply to our ping) proves the socket is alive even if the bot's
+    // app-level heartbeat is momentarily late — refresh the liveness clock.
+    ws.on('pong', () => { conn.data.lastHeartbeat = Date.now(); });
     ws.on('message', (raw) => { void hub.onFrame(conn, raw.toString()); });
-    ws.on('close', () => hub.onClose(conn));
-    ws.on('error', () => hub.onClose(conn));
+    ws.on('close', (code, reason) => {
+      liveSockets.delete(entry);
+      hub.onClose(conn);
+      if (process.env.GATEWAY_DEBUG === '1' || process.env.GATEWAY_DEBUG === 'true') {
+        console.log(`[gateway] closed session=${conn.data.sessionId.slice(0, 8)} bot=${conn.data.botId ?? '(unauth)'} code=${code} reason=${reason?.toString() || ''}`);
+      }
+    });
+    ws.on('error', () => { liveSockets.delete(entry); hub.onClose(conn); });
   });
 
   server.on('upgrade', (req, socket, head) => {

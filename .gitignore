@@ -66,3 +66,6 @@ docker-compose.override.yml
 
 # General Translation translated files (manually translated, tracked in git)
 # public/_gt/
+
+# Example bot (local testing only)
+/example-bot/

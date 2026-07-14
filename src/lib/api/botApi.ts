@@ -238,6 +238,29 @@ function formatInvite(invite: any) {
 
 export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
+// ─── Uniform Discord-shaped errors ─────────────────────────
+// Any thrown error, failed validation, or unmatched route returns a
+// `{ code, message }` body with the right HTTP status — the same shape bots
+// already expect from the explicit error returns below — instead of Elysia's
+// default HTML/plain responses.
+.onError(({ code, error, set }) => {
+  switch (code) {
+    case 'NOT_FOUND':
+      set.status = 404;
+      return { code: 0, message: '404: Not Found' };
+    case 'VALIDATION':
+      set.status = 400;
+      return { code: 50035, message: 'Invalid Form Body' };
+    case 'PARSE':
+      set.status = 400;
+      return { code: 50109, message: 'The request body contains invalid JSON.' };
+    default:
+      set.status = 500;
+      console.error('Bot API error:', (error as Error)?.message ?? error);
+      return { code: 0, message: '500: Internal Server Error' };
+  }
+})
+
 // ─── API root (friendly index so /api/v10 isn't a bare 404) ─
 .get('/', () => ({
   message: 'SerikaCord API v10 — a Discord-compatible bot API.',
