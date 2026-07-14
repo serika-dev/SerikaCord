@@ -12,9 +12,9 @@
 // require("gt-next/internal/_load-translations") resolves to our disk-backed
 // loader instead of the throwing placeholder stub. See gt-preload.ts.
 import './gt-preload';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 import next from 'next';
-import { WebSocketServer, type WebSocket } from 'ws';
+import type { ServerWebSocket } from 'bun';
 import { connectDB } from '@/lib/db';
 import { initializeAPI } from '@/lib/api';
 import { authenticateRequest } from '@/lib/services/auth';
@@ -26,6 +26,7 @@ import {
   KEEPALIVE_SWEEP_INTERVAL,
   GATEWAY_PATH,
   type Conn,
+  type Session,
 } from '@/lib/gateway/core';
 
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -70,51 +71,15 @@ async function main() {
   const frontendUrl = process.env.FRONTEND_URL;
   const redirectHosts = new Set(['serika.cc', 'www.serika.cc']);
 
-  const server = createServer((req, res) => {
-    // ─── Domain redirect ────────────────────────────────────
-    // Redirect serika.cc → FRONTEND_URL (preserves path + query).
-    if (frontendUrl && redirectHosts.has(req.headers.host?.split(':')[0] || '')) {
-      const target = new URL(req.url || '/', frontendUrl);
-      res.writeHead(301, { Location: target.href });
-      res.end();
-      return;
-    }
-
-    // ─── SSE fast-path ───────────────────────────────────────
-    // Intercept SSE stream endpoints BEFORE Next.js so events are written
-    // directly to the raw socket. Next.js route handlers buffer ReadableStream
-    // bodies, which delays/batches SSE events — making chat feel laggy or
-    // breaking delivery entirely for background tabs.
-    let pathname = '/';
-    try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch {}
-
-    const channelMatch = pathname.match(/^\/api\/channels\/([^/]+)\/stream$/);
-    const dmMatch = pathname.match(/^\/api\/dms\/([^/]+)\/stream$/);
-
-    if (channelMatch || dmMatch) {
-      handleSSE(req, res, channelMatch?.[1], dmMatch?.[1]).catch((err) => {
-        console.error('SSE handler error:', err);
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'SSE handler error' }));
-        }
-      });
-      return;
-    }
-
-    if (pathname === '/api/users/@me/activity') {
-      handleActivitySSE(req, res).catch((err) => {
-        console.error('Activity SSE handler error:', err);
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'SSE handler error' }));
-        }
-      });
-      return;
-    }
-
+  // ─── Internal Next.js server (node:http) ────────────────
+  // Next.js needs node:http req/res. We run it on an internal port and proxy
+  // from Bun.serve (which handles WebSocket natively). This is what fixes the
+  // 1006 drops: ws.handleUpgrade doesn't work under Bun's node:http polyfill,
+  // but Bun.serve's native WebSocket is rock-solid.
+  const internalPort = port + 1;
+  createServer((req, res) => {
     handle(req, res);
-  });
+  }).listen(internalPort, '127.0.0.1');
 
   // ─── Bot Gateway (WebSocket) ─────────────────────────────
   const hub = new GatewayHub();
@@ -147,147 +112,176 @@ async function main() {
     console.error('SSE bridge init failed (realtime cross-instance disabled):', err);
   }
 
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+  // ─── Bun.serve: native WebSocket + SSE + proxy to Next.js ──
+  // Bun.serve handles WebSocket upgrades natively — no ws package, no
+  // node:http upgrade event. This is what fixes the 1006 drops.
+  interface SocketData { conn: Conn }
+  type WS = ServerWebSocket<SocketData>;
 
-  // Track liveness per socket so a single sweep can send WS-level pings (keeping
-  // proxies like Cloudflare/Traefik from closing "idle" connections) and reap
-  // zombies that stopped heartbeating. This is what stops the mysterious 1006
-  // drops: without an app-level ping, an intermediary can silently kill the TCP
-  // stream and neither side sends a close frame.
-  const liveSockets = new Set<{ ws: WebSocket; conn: Conn }>();
-
+  const liveSockets = new Set<WS>();
   const keepaliveSweep = setInterval(() => {
-    for (const entry of liveSockets) {
-      const { ws, conn } = entry;
+    for (const ws of liveSockets) {
+      const conn = ws.data.conn;
+      if (!conn) continue;
       if (ws.readyState !== ws.OPEN) continue;
       if (conn.data.authenticated && isHeartbeatExpired(conn)) {
         try { ws.close(4009, 'Session timed out'); } catch { ws.terminate(); }
         continue;
       }
-      try { ws.ping(); } catch { /* socket closing */ }
+      // Bun sends protocol-level pings automatically (sendPings: true).
     }
   }, KEEPALIVE_SWEEP_INTERVAL);
   keepaliveSweep.unref?.();
 
-  wss.on('connection', (ws: WebSocket) => {
-    const conn: Conn = {
-      data: newSession(),
-      sendText: (text) => ws.send(text),
-      close: (code, reason) => ws.close(code, reason),
-    };
-    const entry = { ws, conn };
-    liveSockets.add(entry);
-    hub.hello(conn);
-    // A pong (reply to our ping) proves the socket is alive even if the bot's
-    // app-level heartbeat is momentarily late — refresh the liveness clock.
-    ws.on('pong', () => { conn.data.lastHeartbeat = Date.now(); });
-    ws.on('message', (raw) => { void hub.onFrame(conn, raw.toString()); });
-    ws.on('close', (code, reason) => {
-      liveSockets.delete(entry);
-      hub.onClose(conn);
-      if (process.env.GATEWAY_DEBUG === '1' || process.env.GATEWAY_DEBUG === 'true') {
-        console.log(`[gateway] closed session=${conn.data.sessionId.slice(0, 8)} bot=${conn.data.botId ?? '(unauth)'} code=${code} reason=${reason?.toString() || ''}`);
+  Bun.serve<SocketData>({
+    port,
+    idleTimeout: 120,
+    fetch(req, server) {
+      const url = new URL(req.url);
+      const pathname = url.pathname;
+
+      // ─── Domain redirect ────────────────────────────────────
+      if (frontendUrl && redirectHosts.has(req.headers.get('host')?.split(':')[0] || '')) {
+        const target = new URL(req.url, frontendUrl);
+        return Response.redirect(target.href, 301);
       }
-    });
-    ws.on('error', () => { liveSockets.delete(entry); hub.onClose(conn); });
-  });
 
-  server.on('upgrade', (req, socket, head) => {
-    let pathname = '/';
-    try { pathname = new URL(req.url || '/', 'http://localhost').pathname; } catch {}
-    if (pathname === GATEWAY_PATH) {
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-    } else if (!pathname.startsWith('/_next/')) {
-      // Not a gateway upgrade — let it drop (Next has no other WS routes).
-      socket.destroy();
-    }
-  });
-
-  server.listen(port, () => {
-    console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);
-    console.log(`🔌 Gateway on ws://0.0.0.0:${port}${GATEWAY_PATH}`);
-    console.log(`📡 SSE fast-path active for /api/channels/*/stream and /api/dms/*/stream`);
-
-    // Start Discord Bot real-time listener — only one instance should run
-    // the bot to avoid duplicate gateway connections. Use a Redis lock with
-    // a TTL so if the active instance crashes, another picks it up.
-    // Set DISABLE_DISCORD_BOT=1 on canary/dev to skip entirely.
-    if (process.env.DISABLE_DISCORD_BOT === '1' || process.env.DISABLE_DISCORD_BOT === 'true') {
-      console.log('[Discord Bot] DISABLE_DISCORD_BOT is set — skipping bot startup.');
-    } else {
-    (async () => {
-    const redis = (await import('@/lib/db/redis')).getRedis();
-    const instanceId = `${process.pid}-${Date.now()}`;
-    const LOCK_KEY = 'serikacord:discord-bot-lock';
-    const LOCK_TTL = 60; // seconds
-
-    async function tryAcquireBotLock(): Promise<boolean> {
-      if (!redis) return true; // No Redis — assume single instance
-      try {
-        const result = await redis.set(LOCK_KEY, instanceId, 'EX', LOCK_TTL, 'NX');
-        return result === 'OK';
-      } catch {
-        return true; // Redis error — assume single instance
+      // ─── WebSocket upgrade for gateway ──────────────────────
+      if (pathname === GATEWAY_PATH) {
+        const ok = server.upgrade(req, { data: { conn: null as unknown as Conn } });
+        return ok ? undefined : new Response('Upgrade failed', { status: 426 });
       }
-    }
 
-    async function renewBotLock(): Promise<boolean> {
-      if (!redis) return true;
-      try {
-        const current = await redis.get(LOCK_KEY);
-        if (current !== instanceId) return false;
-        await redis.expire(LOCK_KEY, LOCK_TTL);
-        return true;
-      } catch {
-        return true;
+      // ─── SSE fast-path ───────────────────────────────────────
+      const channelMatch = pathname.match(/^\/api\/channels\/([^/]+)\/stream$/);
+      const dmMatch = pathname.match(/^\/api\/dms\/([^/]+)\/stream$/);
+      if (channelMatch || dmMatch) {
+        return handleSSE(req, channelMatch?.[1], dmMatch?.[1]);
       }
-    }
+      if (pathname === '/api/users/@me/activity') {
+        return handleActivitySSE(req);
+      }
 
-    let botLockHeld = false;
-    let botLockTimer: ReturnType<typeof setInterval> | null = null;
-
-    async function startBotIfLeader() {
-      botLockHeld = await tryAcquireBotLock();
-      if (!botLockHeld) {
-        console.log('[Discord Bot] Another instance is running the bot — skipping startup.');
-        // Retry every 15s in case the leader crashes
-        botLockTimer = setInterval(async () => {
-          if (await tryAcquireBotLock()) {
-            if (botLockTimer) clearInterval(botLockTimer);
-            botLockTimer = null;
-            botLockHeld = true;
-            console.log('[Discord Bot] Acquired leadership — starting bot now.');
-            import('@/lib/discord/bot').then(({ startDiscordBot }) => {
-              startDiscordBot().catch((err) => console.error('[Discord Bot] Startup failed:', err));
-            }).catch((err) => console.error('[Discord Bot] Import failed:', err));
-            // Start renewal timer
-            setInterval(async () => {
-              if (!(await renewBotLock())) {
-                console.warn('[Discord Bot] Lost leadership — bot may duplicate. Stopping renewal.');
-              }
-            }, LOCK_TTL * 500); // Renew at half TTL
+      // ─── Proxy everything else to internal Next.js server ───
+      const target = new URL(req.url, `http://127.0.0.1:${internalPort}`);
+      const proxyReq = new Request(target, req);
+      return fetch(proxyReq);
+    },
+    websocket: {
+      sendPings: true,
+      maxPayloadLength: 1 << 20,
+      open(ws: WS) {
+        const session: Session = newSession();
+        const conn: Conn = {
+          data: session,
+          sendText: (text) => { ws.send(text); },
+          close: (code, reason) => ws.close(code, reason),
+        };
+        ws.data.conn = conn;
+        liveSockets.add(ws);
+        hub.hello(conn);
+      },
+      async message(ws: WS, raw: string | Buffer) {
+        if (ws.data.conn) await hub.onFrame(ws.data.conn, raw.toString());
+      },
+      pong(ws: WS) {
+        if (ws.data.conn) ws.data.conn.data.lastHeartbeat = Date.now();
+      },
+      close(ws: WS) {
+        liveSockets.delete(ws);
+        if (ws.data.conn) {
+          if (process.env.GATEWAY_DEBUG === '1' || process.env.GATEWAY_DEBUG === 'true') {
+            console.log(`[gateway] closed session=${ws.data.conn.data.sessionId.slice(0, 8)} bot=${ws.data.conn.data.botId ?? '(unauth)'} code=unknown`);
           }
-        }, 15000);
-        return;
-      }
-
-      console.log('[Discord Bot] Acquired leadership — starting bot.');
-      import('@/lib/discord/bot').then(({ startDiscordBot }) => {
-        startDiscordBot().catch((err) => console.error('[Discord Bot] Startup failed:', err));
-      }).catch((err) => console.error('[Discord Bot] Import failed:', err));
-
-      // Renew lock periodically
-      setInterval(async () => {
-        if (!(await renewBotLock())) {
-          console.warn('[Discord Bot] Lost leadership — bot may duplicate. Stopping renewal.');
+          hub.onClose(ws.data.conn);
         }
-      }, LOCK_TTL * 500); // Renew at half TTL
+      },
+    },
+  });
+
+  console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);
+  console.log(`🔌 Gateway on ws://0.0.0.0:${port}${GATEWAY_PATH}`);
+  console.log(`📡 SSE fast-path active for /api/channels/*/stream and /api/dms/*/stream`);
+
+  // Start Discord Bot real-time listener — only one instance should run
+  // the bot to avoid duplicate gateway connections. Use a Redis lock with
+  // a TTL so if the active instance crashes, another picks it up.
+  // Set DISABLE_DISCORD_BOT=1 on canary/dev to skip entirely.
+  if (process.env.DISABLE_DISCORD_BOT === '1' || process.env.DISABLE_DISCORD_BOT === 'true') {
+    console.log('[Discord Bot] DISABLE_DISCORD_BOT is set — skipping bot startup.');
+  } else {
+  (async () => {
+  const redis = (await import('@/lib/db/redis')).getRedis();
+  const instanceId = `${process.pid}-${Date.now()}`;
+  const LOCK_KEY = 'serikacord:discord-bot-lock';
+  const LOCK_TTL = 60; // seconds
+
+  async function tryAcquireBotLock(): Promise<boolean> {
+    if (!redis) return true; // No Redis — assume single instance
+    try {
+      const result = await redis.set(LOCK_KEY, instanceId, 'EX', LOCK_TTL, 'NX');
+      return result === 'OK';
+    } catch {
+      return true; // Redis error — assume single instance
+    }
+  }
+
+  async function renewBotLock(): Promise<boolean> {
+    if (!redis) return true;
+    try {
+      const current = await redis.get(LOCK_KEY);
+      if (current !== instanceId) return false;
+      await redis.expire(LOCK_KEY, LOCK_TTL);
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  let botLockHeld = false;
+  let botLockTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function startBotIfLeader() {
+    botLockHeld = await tryAcquireBotLock();
+    if (!botLockHeld) {
+      console.log('[Discord Bot] Another instance is running the bot — skipping startup.');
+      // Retry every 15s in case the leader crashes
+      botLockTimer = setInterval(async () => {
+        if (await tryAcquireBotLock()) {
+          if (botLockTimer) clearInterval(botLockTimer);
+          botLockTimer = null;
+          botLockHeld = true;
+          console.log('[Discord Bot] Acquired leadership — starting bot now.');
+          import('@/lib/discord/bot').then(({ startDiscordBot }) => {
+            startDiscordBot().catch((err) => console.error('[Discord Bot] Startup failed:', err));
+          }).catch((err) => console.error('[Discord Bot] Import failed:', err));
+          // Start renewal timer
+          setInterval(async () => {
+            if (!(await renewBotLock())) {
+              console.warn('[Discord Bot] Lost leadership — bot may duplicate. Stopping renewal.');
+            }
+          }, LOCK_TTL * 500); // Renew at half TTL
+        }
+      }, 15000);
+      return;
     }
 
-    void startBotIfLeader();
-    })(); // end async IIFE
-    } // end else (DISABLE_DISCORD_BOT check)
-  });
+    console.log('[Discord Bot] Acquired leadership — starting bot.');
+    import('@/lib/discord/bot').then(({ startDiscordBot }) => {
+      startDiscordBot().catch((err) => console.error('[Discord Bot] Startup failed:', err));
+    }).catch((err) => console.error('[Discord Bot] Import failed:', err));
+
+    // Renew lock periodically
+    setInterval(async () => {
+      if (!(await renewBotLock())) {
+        console.warn('[Discord Bot] Lost leadership — bot may duplicate. Stopping renewal.');
+      }
+    }, LOCK_TTL * 500); // Renew at half TTL
+  }
+
+  void startBotIfLeader();
+  })(); // end async IIFE
+  } // end else (DISABLE_DISCORD_BOT check)
 }
 
 main().catch((err: unknown) => {
@@ -301,11 +295,8 @@ main().catch((err: unknown) => {
 // SSE events). This is what makes chat messages arrive instantly on every
 // client — including background tabs and the sender's own other devices.
 
-const SSE_HEADERS = {
+const SSE_HEADERS: Record<string, string> = {
   'Content-Type': 'text/event-stream',
-  // `no-transform` tells Cloudflare (and any intermediary proxy) not to buffer,
-  // compress, or otherwise mutate the stream — without it CF may hold SSE bytes
-  // and turn the ~220ms speed-of-light delay for far users into multi-second lag.
   'Cache-Control': 'no-cache, no-store, must-revalidate, no-transform',
   'Connection': 'keep-alive',
   'X-Accel-Buffering': 'no',
@@ -313,7 +304,7 @@ const SSE_HEADERS = {
 
 const SSE_PING_MS = 15_000;
 
-function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+function parseCookies(cookieHeader: string | null | undefined): Record<string, string> {
   const cookies: Record<string, string> = {};
   if (!cookieHeader) return cookies;
   for (const part of cookieHeader.split(';')) {
@@ -323,109 +314,100 @@ function parseCookies(cookieHeader: string | undefined): Record<string, string> 
   return cookies;
 }
 
+function sseResponse(
+  setup: (write: (data: string) => void) => () => void,
+): Response {
+  const encoder = new TextEncoder();
+  let pingInterval: ReturnType<typeof setInterval> | null = null;
+  let cleanup: (() => void) | null = null;
+  const stream = new ReadableStream({
+    start(controller) {
+      const write = (data: string) => {
+        try { controller.enqueue(encoder.encode(data)); } catch { /* closed */ }
+      };
+      cleanup = setup(write);
+      pingInterval = setInterval(() => {
+        write('data: {"type":"ping"}\n\n');
+      }, SSE_PING_MS);
+    },
+    cancel() {
+      if (pingInterval) clearInterval(pingInterval);
+      if (cleanup) cleanup();
+    },
+  });
+  return new Response(stream, { headers: SSE_HEADERS });
+}
+
 async function handleSSE(
-  req: IncomingMessage,
-  res: ServerResponse,
+  req: Request,
   channelId: string | undefined,
   recipientId: string | undefined,
-) {
-  // Auth
-  const cookies = parseCookies(req.headers.cookie);
-  const authHeader = req.headers.authorization ?? null;
+): Promise<Response> {
+  const cookies = parseCookies(req.headers.get('cookie'));
+  const authHeader = req.headers.get('authorization');
   const { user, error: authError } = await authenticateRequest(
-    typeof authHeader === 'string' ? authHeader : null,
+    authHeader,
     cookies,
   );
   if (!user) {
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: authError || 'Unauthorized' }));
-    return;
+    return new Response(JSON.stringify({ error: authError || 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
-  // Determine the channel key for SSE registration
   let channelKey: string;
   if (channelId) {
     const { hasAccess, error } = await checkChannelAccess!(user.id, channelId);
     if (!hasAccess) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: error || 'Access denied' }));
-      return;
+      return new Response(JSON.stringify({ error: error || 'Access denied' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
     channelKey = channelId;
   } else if (recipientId) {
     const dmChannel = await getOrCreateDMChannel!(user.id, recipientId);
     channelKey = dmChannel.id;
   } else {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Missing channel or recipient ID' }));
-    return;
+    return new Response(JSON.stringify({ error: 'Missing channel or recipient ID' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
-  // Write SSE headers — flush immediately so the client's EventSource fires onopen
-  res.writeHead(200, SSE_HEADERS);
-  res.write('data: {"type":"connected"}\n\n');
-
-  // Register a raw write callback into the shared activeConnections set.
-  // publishToChannel / publishToDm will call this whenever a new event arrives.
-  const register = channelId ? registerChannelSSE! : registerDmSSE!;
-  const unregister = register(channelKey, (data: string) => {
-    try { res.write(data); } catch { /* socket closed */ }
+  return sseResponse((write) => {
+    write('data: {"type":"connected"}\n\n');
+    const register = channelId ? registerChannelSSE! : registerDmSSE!;
+    const unregister = register(channelKey, (data: string) => write(data));
+    return () => { unregister(); };
   });
-
-  // Keep-alive ping — prevents proxies/load balancers from closing idle connections
-  const pingInterval = setInterval(() => {
-    try { res.write('data: {"type":"ping"}\n\n'); } catch { /* closed */ }
-  }, SSE_PING_MS);
-
-  // Cleanup on client disconnect
-  const cleanup = () => {
-    clearInterval(pingInterval);
-    unregister();
-  };
-  req.on('close', cleanup);
-  req.on('error', cleanup);
-  res.on('close', cleanup);
-  res.on('error', cleanup);
 }
 
-// Raw SSE handler for the app-wide unread/activity stream. Writes directly to
-// the socket (same rationale as handleSSE) so unread glow updates arrive
-// instantly instead of being batched by Next.js response buffering.
-async function handleActivitySSE(req: IncomingMessage, res: ServerResponse) {
-  const cookies = parseCookies(req.headers.cookie);
-  const authHeader = req.headers.authorization ?? null;
+async function handleActivitySSE(req: Request): Promise<Response> {
+  const cookies = parseCookies(req.headers.get('cookie'));
+  const authHeader = req.headers.get('authorization');
   const { user, error: authError } = await authenticateRequest(
-    typeof authHeader === 'string' ? authHeader : null,
+    authHeader,
     cookies,
   );
   if (!user) {
-    res.writeHead(401, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: authError || 'Unauthorized' }));
-    return;
+    return new Response(JSON.stringify({ error: authError || 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
   if (!registerActivitySSE) {
-    res.writeHead(503, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Activity stream not ready' }));
-    return;
+    return new Response(JSON.stringify({ error: 'Activity stream not ready' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
-  res.writeHead(200, SSE_HEADERS);
-  res.write('data: {"type":"connected"}\n\n');
-
-  const unregister = registerActivitySSE(user.id, (data: string) => {
-    try { res.write(data); } catch { /* socket closed */ }
+  const register = registerActivitySSE;
+  return sseResponse((write) => {
+    write('data: {"type":"connected"}\n\n');
+    const unregister = register(user.id, (data: string) => write(data));
+    return () => { unregister(); };
   });
-
-  const pingInterval = setInterval(() => {
-    try { res.write('data: {"type":"ping"}\n\n'); } catch { /* closed */ }
-  }, SSE_PING_MS);
-
-  const cleanup = () => {
-    clearInterval(pingInterval);
-    unregister();
-  };
-  req.on('close', cleanup);
-  req.on('error', cleanup);
-  res.on('close', cleanup);
-  res.on('error', cleanup);
 }
