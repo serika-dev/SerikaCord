@@ -47,6 +47,7 @@ import {
   Mail,
   Globe,
   ClipboardList,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
@@ -166,7 +167,7 @@ interface ServerMember {
 }
 
 interface ServerEmoji {
-  _id: string;
+  id: string;
   name: string;
   imageUrl: string;
   animated: boolean;
@@ -179,7 +180,7 @@ interface ServerChannel {
 }
 
 interface ServerSticker {
-  _id: string;
+  id: string;
   name: string;
   description?: string;
   imageUrl: string;
@@ -282,6 +283,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [stickers, setStickers] = useState<ServerSticker[]>([]);
   const [emojiSearch, setEmojiSearch] = useState("");
   const [stickerSearch, setStickerSearch] = useState("");
+  const [renamingEmojiId, setRenamingEmojiId] = useState<string | null>(null);
+  const [emojiRenameValue, setEmojiRenameValue] = useState("");
+  const [renamingStickerId, setRenamingStickerId] = useState<string | null>(null);
+  const [stickerRenameValue, setStickerRenameValue] = useState("");
   const [soundboardSounds, setSoundboardSounds] = useState<{ _id: string; name: string; url: string; emoji: string }[]>([]);
   const [isUploadingSound, setIsUploadingSound] = useState(false);
   const [trimmerOpen, setTrimmerOpen] = useState(false);
@@ -543,14 +548,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             const emojisRes = await fetch(`/api/servers/${currentServer.id}/emojis`);
             if (emojisRes.ok) {
               const data = await emojisRes.json();
-              setEmojis(data.emojis || []);
+              setEmojis((data.emojis || []).map((e: any) => ({ id: e.id || e._id, name: e.name, imageUrl: e.imageUrl || e.url, animated: e.animated })));
             }
             break;
           case "stickers":
             const stickersRes = await fetch(`/api/servers/${currentServer.id}/stickers`);
             if (stickersRes.ok) {
               const data = await stickersRes.json();
-              setStickers(data.stickers || []);
+              setStickers((data.stickers || []).map((s: any) => ({ id: s.id || s._id, name: s.name, description: s.description, imageUrl: s.imageUrl || s.url, tags: s.tags })));
             }
             break;
           case "audit-log":
@@ -1141,7 +1146,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       if (response.ok) {
         const data = await response.json();
-        setEmojis(prev => [...prev, data.emoji]);
+        const e = data.emoji;
+        setEmojis(prev => [...prev, { id: e.id || e._id, name: e.name, imageUrl: e.imageUrl || e.url, animated: e.animated }]);
         toast.success(gt("Emoji uploaded!"));
       } else {
         const data = await response.json();
@@ -1166,7 +1172,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       });
 
       if (response.ok) {
-        setEmojis(prev => prev.filter(e => e._id !== emojiId));
+        setEmojis(prev => prev.filter(e => e.id !== emojiId));
         toast.success(gt("Emoji deleted"));
       } else {
         toast.error(gt("Failed to delete emoji"));
@@ -1174,6 +1180,52 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     } catch (error) {
       console.error("Failed to delete emoji:", error);
       toast.error(gt("Failed to delete emoji"));
+    }
+  };
+
+  const handleRenameEmoji = async (emojiId: string) => {
+    if (!currentServer || !emojiRenameValue.trim()) return;
+    try {
+      const response = await fetch(`/api/servers/${currentServer.id}/emojis/${emojiId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: emojiRenameValue.trim() }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setEmojis(prev => prev.map(e => e.id === emojiId ? { ...e, name: data.emoji.name } : e));
+        toast.success(gt("Emoji renamed"));
+        setRenamingEmojiId(null);
+        setEmojiRenameValue("");
+      } else {
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || gt("Failed to rename emoji"));
+      }
+    } catch {
+      toast.error(gt("Failed to rename emoji"));
+    }
+  };
+
+  const handleRenameSticker = async (stickerId: string) => {
+    if (!currentServer || !stickerRenameValue.trim()) return;
+    try {
+      const response = await fetch(`/api/servers/${currentServer.id}/stickers/${stickerId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: stickerRenameValue.trim() }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setStickers(prev => prev.map(s => s.id === stickerId ? { ...s, name: data.sticker.name } : s));
+        toast.success(gt("Sticker renamed"));
+        setRenamingStickerId(null);
+        setStickerRenameValue("");
+      } else {
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || gt("Failed to rename sticker"));
+      }
+    } catch {
+      toast.error(gt("Failed to rename sticker"));
     }
   };
 
@@ -1220,7 +1272,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       if (createRes.ok) {
         const data = await createRes.json();
-        setStickers((prev) => [data.sticker, ...prev]);
+        const s = data.sticker;
+        setStickers((prev) => [{ id: s.id || s._id, name: s.name, description: s.description, imageUrl: s.imageUrl || s.url, tags: s.tags }, ...prev]);
         toast.success(gt("Sticker uploaded"));
       } else {
         const data = await createRes.json();
@@ -1244,7 +1297,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         method: "DELETE",
       });
       if (response.ok) {
-        setStickers((prev) => prev.filter((sticker) => sticker._id !== stickerId));
+        setStickers((prev) => prev.filter((sticker) => sticker.id !== stickerId));
         toast.success(gt("Sticker deleted"));
       } else {
         toast.error(gt("Failed to delete sticker"));
@@ -2420,7 +2473,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
           {filteredEmojis.map((emoji) => (
             <div
-              key={emoji._id}
+              key={emoji.id}
               className="relative group aspect-square bg-[#111111] border border-[#222222] rounded-lg p-2 flex flex-col items-center justify-center hover:border-[#8B5CF6]/50 transition-colors"
               title={`:${emoji.name}:`}
             >
@@ -2433,14 +2486,55 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <span className="absolute top-1 left-1 px-1 py-0.5 text-[8px] font-bold bg-[#8B5CF6] text-white rounded">GIF</span>
               )}
               <button
-                onClick={() => handleDeleteEmoji(emoji._id)}
+                onClick={() => handleDeleteEmoji(emoji.id)}
                 className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="w-3 h-3 text-white" />
               </button>
-              <span className="absolute bottom-0 left-0 right-0 text-xs text-center text-[#888888] truncate px-1">
-                :{emoji.name}:
-              </span>
+              <button
+                onClick={() => {
+                  setRenamingEmojiId(emoji.id);
+                  setEmojiRenameValue(emoji.name);
+                }}
+                className="absolute top-1 right-7 p-1 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Pencil className="w-3 h-3 text-white" />
+              </button>
+              {renamingEmojiId === emoji.id ? (
+                <div className="absolute inset-0 bg-[#111111] flex flex-col items-center justify-center gap-1 p-2 z-10">
+                  <input
+                    type="text"
+                    value={emojiRenameValue}
+                    onChange={(e) => setEmojiRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameEmoji(emoji.id);
+                      if (e.key === "Escape") { setRenamingEmojiId(null); setEmojiRenameValue(""); }
+                    }}
+                    autoFocus
+                    maxLength={32}
+                    className="w-full text-xs bg-[#222222] text-white rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
+                    placeholder="Name"
+                  />
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => handleRenameEmoji(emoji.id)}
+                      className="p-1 bg-[#8B5CF6] hover:bg-[#7C3AED] rounded"
+                    >
+                      <Check className="w-3 h-3 text-white" />
+                    </button>
+                    <button
+                      onClick={() => { setRenamingEmojiId(null); setEmojiRenameValue(""); }}
+                      className="p-1 bg-[#333333] hover:bg-[#444444] rounded"
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <span className="absolute bottom-0 left-0 right-0 text-xs text-center text-[#888888] truncate px-1">
+                  :{emoji.name}:
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -2516,7 +2610,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
           {filteredStickers.map((sticker) => (
             <div
-              key={sticker._id}
+              key={sticker.id}
               className="relative group rounded-lg bg-[#111111] border border-[#222222] p-2 hover:border-[#8B5CF6]/50 transition-colors"
               title={sticker.name}
             >
@@ -2526,12 +2620,53 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 className="w-full aspect-square object-contain rounded"
               />
               <button
-                onClick={() => handleDeleteSticker(sticker._id)}
+                onClick={() => handleDeleteSticker(sticker.id)}
                 className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
               >
                 <X className="w-3 h-3 text-white" />
               </button>
-              <p className="text-xs text-center text-[#888888] mt-1 truncate">{sticker.name}</p>
+              <button
+                onClick={() => {
+                  setRenamingStickerId(sticker.id);
+                  setStickerRenameValue(sticker.name);
+                }}
+                className="absolute top-1 right-7 p-1 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Pencil className="w-3 h-3 text-white" />
+              </button>
+              {renamingStickerId === sticker.id ? (
+                <div className="mt-2 flex flex-col gap-1">
+                  <input
+                    type="text"
+                    value={stickerRenameValue}
+                    onChange={(e) => setStickerRenameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameSticker(sticker.id);
+                      if (e.key === "Escape") { setRenamingStickerId(null); setStickerRenameValue(""); }
+                    }}
+                    autoFocus
+                    maxLength={30}
+                    className="w-full text-xs bg-[#222222] text-white rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
+                    placeholder="Name"
+                  />
+                  <div className="flex gap-1 justify-center">
+                    <button
+                      onClick={() => handleRenameSticker(sticker.id)}
+                      className="p-1 bg-[#8B5CF6] hover:bg-[#7C3AED] rounded"
+                    >
+                      <Check className="w-3 h-3 text-white" />
+                    </button>
+                    <button
+                      onClick={() => { setRenamingStickerId(null); setStickerRenameValue(""); }}
+                      className="p-1 bg-[#333333] hover:bg-[#444444] rounded"
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-center text-[#888888] mt-1 truncate">{sticker.name}</p>
+              )}
             </div>
           ))}
         </div>

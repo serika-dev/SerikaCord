@@ -23,9 +23,10 @@ import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { getMoeActivity } from '@/lib/services/moeActivity';
 import { getLastFmNowPlaying } from '@/lib/services/lastfmService';
-// Helper to safely compare IDs
+import { normalizeId } from '@/lib/db/normalizeId';
+// Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
-  return id1 === id2;
+  return normalizeId(id1) === normalizeId(id2);
 }
 
 // Helper function for auth

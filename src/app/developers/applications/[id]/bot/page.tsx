@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Copy, Check,  RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon } from "lucide-react";
+import { Copy, Check,  RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -41,6 +41,96 @@ export default function BotPage() {
   const [interactionsUrl, setInteractionsUrl] = useState("");
   const [savingInteractions, setSavingInteractions] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
+
+  // Bot profile (username / display name / avatar / banner).
+  const [botUsername, setBotUsername] = useState("");
+  const [botDisplayName, setBotDisplayName] = useState("");
+  const [botAvatar, setBotAvatar] = useState<string | null>(null);
+  const [botBanner, setBotBanner] = useState<string | null>(null);
+  const [savedUsername, setSavedUsername] = useState("");
+  const [savedDisplayName, setSavedDisplayName] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
+
+  const hasBotUser = !!app?.botId;
+
+  useEffect(() => {
+    if (!hasBotUser) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/developers/applications/${appId}/bot`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const bot = data.bot;
+        if (!bot || cancelled) return;
+        setBotUsername(bot.username || "");
+        setSavedUsername(bot.username || "");
+        setBotDisplayName(bot.displayName || "");
+        setSavedDisplayName(bot.displayName || "");
+        setBotAvatar(bot.avatar || null);
+        setBotBanner(bot.banner || null);
+      } catch {
+        /* profile is optional; ignore */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [appId, hasBotUser]);
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true);
+    try {
+      const res = await fetch(`/api/developers/applications/${appId}/bot`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: botUsername.trim(), displayName: botDisplayName.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setBotUsername(data.bot?.username ?? botUsername);
+        setSavedUsername(data.bot?.username ?? botUsername);
+        setBotDisplayName(data.bot?.displayName ?? botDisplayName);
+        setSavedDisplayName(data.bot?.displayName ?? botDisplayName);
+        toast.success(gt("Bot profile updated"));
+      } else {
+        toast.error(data.error || gt("Failed to update bot profile"));
+      }
+    } catch {
+      toast.error(gt("Failed to update bot profile"));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const handleImageUpload = async (kind: "avatar" | "banner", file: File) => {
+    const setUploading = kind === "avatar" ? setUploadingAvatar : setUploadingBanner;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`/api/developers/applications/${appId}/bot/${kind}`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        if (kind === "avatar") setBotAvatar(data.url);
+        else setBotBanner(data.url);
+        toast.success(kind === "avatar" ? gt("Bot avatar updated") : gt("Bot banner updated"));
+      } else {
+        toast.error(data.error || gt("Failed to upload image"));
+      }
+    } catch {
+      toast.error(gt("Failed to upload image"));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const profileDirty = botUsername.trim() !== savedUsername || botDisplayName.trim() !== savedDisplayName;
 
   useEffect(() => {
     if (app) {
@@ -216,6 +306,99 @@ export default function BotPage() {
             {resetting ? <Loader size={24} className="size-4" /> : <RefreshCw className="size-4" />}
             {gt("Reset Token")}
           </button>
+        </div>
+      )}
+
+      {/* Bot Profile */}
+      {hasBot && hasBotUser && (
+        <div className="mb-8">
+          <h3 className="text-sm font-semibold mb-1">{gt("Bot Profile")}</h3>
+          <p className="text-xs text-[#666] mb-4">
+            {gt("Customize how your bot appears across SerikaCord — its username, display name, avatar, and banner.")}
+          </p>
+
+          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+            {/* Banner + avatar */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => bannerInputRef.current?.click()}
+                className="group relative block w-full h-28 bg-gradient-to-br from-[#8B5CF6]/30 to-[#6366f1]/30 overflow-hidden"
+                aria-label={gt("Upload banner")}
+              >
+                {botBanner && <img src={botBanner} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors opacity-0 group-hover:opacity-100 text-white text-xs font-medium gap-1.5">
+                  {uploadingBanner ? <Loader size={24} className="size-4" /> : <Upload className="size-4" />}
+                  {gt("Change banner")}
+                </span>
+              </button>
+              <input
+                ref={bannerInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload("banner", f); e.target.value = ""; }}
+              />
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                className="group absolute -bottom-8 left-4 size-16 rounded-full border-4 border-[#141414] bg-[#1a1a1a] overflow-hidden"
+                aria-label={gt("Upload avatar")}
+              >
+                {botAvatar
+                  ? <img src={botAvatar} alt="" className="w-full h-full object-cover" />
+                  : <span className="flex items-center justify-center w-full h-full"><BotIcon className="size-6 text-[#8B5CF6]" /></span>}
+                <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/50 transition-colors opacity-0 group-hover:opacity-100 text-white">
+                  {uploadingAvatar ? <Loader size={24} className="size-4" /> : <Upload className="size-4" />}
+                </span>
+              </button>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload("avatar", f); e.target.value = ""; }}
+              />
+            </div>
+
+            {/* Fields */}
+            <div className="pt-11 px-4 pb-4 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-1.5">{gt("Username")}</label>
+                <div className="flex items-center bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-3 focus-within:border-[#8B5CF6]/50">
+                  <span className="text-sm text-[#666]">@</span>
+                  <input
+                    type="text"
+                    value={botUsername}
+                    onChange={(e) => setBotUsername(e.target.value)}
+                    placeholder="my_bot"
+                    maxLength={32}
+                    className="flex-1 bg-transparent px-1.5 py-2.5 text-sm text-[#ccc] font-mono outline-none"
+                  />
+                </div>
+                <p className="text-[11px] text-[#666] mt-1">{gt("2-32 characters. Letters, numbers, underscores and periods.")}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-1.5">{gt("Display Name")}</label>
+                <input
+                  type="text"
+                  value={botDisplayName}
+                  onChange={(e) => setBotDisplayName(e.target.value)}
+                  placeholder={gt("My Bot")}
+                  maxLength={32}
+                  className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-[#ccc] outline-none focus:border-[#8B5CF6]/50"
+                />
+              </div>
+              <button
+                onClick={handleSaveProfile}
+                disabled={savingProfile || !profileDirty}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {savingProfile ? <Loader size={24} className="size-4" /> : null}
+                {gt("Save Profile")}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

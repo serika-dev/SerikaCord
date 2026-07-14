@@ -6,13 +6,24 @@ import { Message } from '@/lib/models/Message';
 import { AdminLog, type AdminActionType } from '@/lib/models/AdminLog';
 import { getPlatformSettings, updatePlatformSettings } from '@/lib/models/PlatformSettings';
 import { TtsSound } from '@/lib/models/TtsSound';
+import { checkRateLimit } from '@/lib/security';
 
 // System user ID for Serika Broadcast
 export const SERIKA_BROADCAST_ID = '00000000-0000-0000-0000-000000000001';
 
-// Helper function for admin auth
-async function getAdminAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
-  // Import getAuth from index to avoid circular dependency
+/**
+ * Multi-layer admin auth verification:
+ * 1. Authenticate the user (JWT/cookie)
+ * 2. Re-fetch user from DB to ensure fresh staff status (not stale JWT)
+ * 3. Verify user has admin or developer privileges (NOT moderator/staff)
+ * 4. Rate-limit admin API access
+ * 5. Log access attempts for audit trail
+ */
+async function getAdminAuth(
+  headers: Record<string, string | undefined>,
+  cookie: Record<string, { value?: unknown }>,
+  request?: { url?: string }
+) {
   const { authenticateRequest } = await import('@/lib/services/auth');
   const authHeader = headers.authorization ?? null;
   const authToken = cookie.auth_token?.value;
@@ -21,15 +32,51 @@ async function getAdminAuth(headers: Record<string, string | undefined>, cookie:
     cookies.auth_token = authToken;
   }
   const { user, error } = await authenticateRequest(authHeader, cookies);
-  
+
   if (!user) {
-    return { user: null, error: error || 'Unauthorized', isAdmin: false };
+    return { user: null, error: error || 'Unauthorized', isAdmin: false, status: 401 as const };
   }
-  
-  // Check if user is staff with admin permissions
-  const isAdmin = user.isStaff && (user.staffRole === 'admin' || user.badges?.includes('admin') || user.badges?.includes('staff'));
-  
-  return { user, error: null, isAdmin };
+
+  // Layer 2: Re-fetch user from DB to ensure staff status is current
+  const dbUser = await User.findById(user.id);
+  if (!dbUser) {
+    return { user: null, error: 'User not found', isAdmin: false, status: 401 as const };
+  }
+
+  // Layer 3: Check if user is banned
+  if (dbUser.isBanned) {
+    return { user: null, error: 'Account banned', isAdmin: false, status: 403 as const };
+  }
+
+  // Layer 4: Verify admin or developer privileges (NOT moderator/staff)
+  const badges = (dbUser.badges || []) as string[];
+  const isAdminRole = dbUser.isStaff && dbUser.staffRole === 'admin';
+  const hasAdminBadge = badges.includes('admin');
+  const hasDevBadge = badges.includes('serikacord_developer');
+  const isAdmin = isAdminRole || hasAdminBadge || hasDevBadge;
+
+  if (!isAdmin) {
+    // Log unauthorized admin access attempt
+    try {
+      await AdminLog.create({
+        adminId: dbUser.id,
+        action: 'update_settings' as AdminActionType, // Reuse existing enum value for access denied
+        targetType: 'platform',
+        targetId: 'admin_panel',
+        details: { denied: true, reason: 'insufficient_privileges', endpoint: request?.url },
+      });
+    } catch { /* best-effort */ }
+    return { user: null, error: 'Admin access required', isAdmin: false, status: 403 as const };
+  }
+
+  // Layer 5: Rate-limit admin API calls (stricter than normal)
+  const rateKey = `admin:${dbUser.id}`;
+  const rateLimit = await checkRateLimit('admin', rateKey);
+  if (!rateLimit.success) {
+    return { user: null, error: 'Rate limited', isAdmin: false, status: 429 as const };
+  }
+
+  return { user: dbUser, error: null, isAdmin: true, status: 200 as const };
 }
 
 // Log admin action
@@ -60,9 +107,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
   
   // Search users
   .get('/users/search', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -72,10 +119,10 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     const skip = (pageNum - 1) * limitNum;
 
     const allUsers = await User.find({});
-    let filtered = allUsers;
+    let filtered = allUsers.filter(u => !u.username?.startsWith('discord-'));
     if (q) {
       const lowerQ = q.toLowerCase();
-      filtered = allUsers.filter(u => 
+      filtered = filtered.filter(u => 
         u.username?.toLowerCase().includes(lowerQ) ||
         u.email?.toLowerCase().includes(lowerQ) ||
         u.displayName?.toLowerCase().includes(lowerQ)
@@ -109,9 +156,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get user details
   .get('/users/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -161,9 +208,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Ban user
   .post('/users/:userId/ban', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -207,9 +254,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Unban user
   .post('/users/:userId/unban', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -241,9 +288,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Update user badges
   .patch('/users/:userId/badges', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -318,9 +365,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Search servers
   .get('/servers/search', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -374,9 +421,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Delete server
   .delete('/servers/:serverId', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -416,9 +463,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Toggle server partner status
   .post('/servers/:serverId/partner', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -462,9 +509,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Toggle server discoverability
   .post('/servers/:serverId/discovery', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -500,9 +547,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Transfer server ownership
   .post('/servers/:serverId/transfer', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -566,9 +613,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get platform settings
   .get('/settings', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -578,9 +625,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Update platform settings
   .patch('/settings', async ({ headers, cookie, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -637,9 +684,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Publish global announcement
   .post('/broadcast', async ({ headers, cookie, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -768,9 +815,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get admin activity logs
   .get('/logs', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -828,22 +875,22 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // List all experiments
   .get('/experiments', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
     const { Experiment } = await import('@/lib/models/Experiment');
-    const { status, page = '1', limit = '20' } = query as { status?: string; page?: string; limit?: string };
+    const { status: expStatus, page = '1', limit = '20' } = query as { status?: string; page?: string; limit?: string };
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
     const allExperiments = await Experiment.find({});
     let filtered = allExperiments;
-    if (status) {
-      filtered = allExperiments.filter(e => e.status === status);
+    if (expStatus) {
+      filtered = allExperiments.filter(e => e.status === expStatus);
     }
     filtered.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
     const total = filtered.length;
@@ -876,9 +923,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get experiment by ID
   .get('/experiments/:experimentId', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -912,9 +959,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Create experiment
   .post('/experiments', async ({ headers, cookie, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -993,9 +1040,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Update experiment
   .patch('/experiments/:experimentId', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -1013,7 +1060,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       variants,
       rolloutPercentage,
       filters,
-      status,
+      status: expBodyStatus,
     } = body as {
       name?: string;
       description?: string;
@@ -1031,12 +1078,12 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     if (filters) updates.filters = filters;
     
     // Handle status changes
-    if (status && status !== experiment.status) {
-      updates.status = status;
-      if (status === 'running' && !experiment.startedAt) {
+    if (expBodyStatus && expBodyStatus !== experiment.status) {
+      updates.status = expBodyStatus;
+      if (expBodyStatus === 'running' && !experiment.startedAt) {
         updates.startedAt = new Date();
       }
-      if (status === 'completed' && !experiment.endedAt) {
+      if (expBodyStatus === 'completed' && !experiment.endedAt) {
         updates.endedAt = new Date();
       }
     }
@@ -1077,9 +1124,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Delete experiment
   .delete('/experiments/:experimentId', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -1110,9 +1157,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get user's experiment variant
   .get('/experiments/:experimentId/variant/:userId', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -1152,22 +1199,22 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // List connected instances
   .get('/instances', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
     const { Instance } = await import('@/lib/models/Instance');
-    const { status, page = '1', limit = '20' } = query as { status?: string; page?: string; limit?: string };
+    const { status: instStatus, page = '1', limit = '20' } = query as { status?: string; page?: string; limit?: string };
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
     const allInstances = await Instance.find({}) as any[];
     let filtered = allInstances;
-    if (status) {
-      filtered = allInstances.filter((i: any) => i.status === status);
+    if (instStatus) {
+      filtered = allInstances.filter((i: any) => i.status === instStatus);
     }
     filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     const total = filtered.length;
@@ -1198,9 +1245,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Approve instance
   .post('/instances/:instanceId/approve', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -1231,9 +1278,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Revoke instance
   .post('/instances/:instanceId/revoke', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
@@ -1272,29 +1319,65 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
   
   // Get platform stats
   .get('/stats', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
 
     const allUsers = await User.find({});
     const allServers = await Server.find({});
     const allMessages = await Message.find({});
-    const bannedUsers = allUsers.filter(u => u.isBanned);
+    // Filter out legacy discord- prefixed users (now stored in DiscordUser table)
+    const realUsers = allUsers.filter(u => !u.username?.startsWith('discord-'));
+    const bannedUsers = realUsers.filter(u => u.isBanned);
+    const botUsers = realUsers.filter(u => u.isBot);
 
     // Get today's new users
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayMs = today.getTime();
-    const newUsersToday = allUsers.filter(u => new Date(u.createdAt ?? 0).getTime() >= todayMs).length;
+    const newUsersToday = realUsers.filter(u => new Date(u.createdAt ?? 0).getTime() >= todayMs).length;
+
+    // New users this week
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekMs = weekAgo.getTime();
+    const newUsersThisWeek = realUsers.filter(u => new Date(u.createdAt ?? 0).getTime() >= weekMs).length;
+
+    // Messages today
+    const messagesToday = allMessages.filter(m => new Date(m.createdAt ?? 0).getTime() >= todayMs).length;
+
+    // Online users (presence heartbeat within 5 min)
+    const now = Date.now();
+    const onlineUsers = realUsers.filter(u => {
+      if (u.status === 'offline' || u.status === 'invisible') return false;
+      const hb = u.presenceLastHeartbeatAt;
+      if (!hb) return false;
+      return new Date(hb).getTime() >= now - 5 * 60 * 1000;
+    }).length;
+
+    // Total server members across all servers
+    const allServerMembers = await ServerMember.find({});
+    const totalMemberships = allServerMembers.length;
+
+    // Active servers (created in last 30 days)
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const activeServers = allServers.filter(s => new Date(s.createdAt ?? 0).getTime() >= thirtyDaysAgo.getTime()).length;
 
     return {
-      users: allUsers.length,
+      users: realUsers.length,
       servers: allServers.length,
       messages: allMessages.length,
       banned: bannedUsers.length,
+      bots: botUsers.length,
       newUsersToday,
+      newUsersThisWeek,
+      messagesToday,
+      onlineUsers,
+      totalMemberships,
+      activeServers,
     };
   })
 
@@ -1302,9 +1385,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // List all configured TTS sound triggers
   .get('/tts-sounds', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const sounds = await TtsSound.find({});
@@ -1313,9 +1396,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Create a TTS sound trigger
   .post('/tts-sounds', async ({ headers, cookie, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const { triggerWord, path, label, enabled } = body;
@@ -1347,9 +1430,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Update a TTS sound trigger
   .patch('/tts-sounds/:id', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const updates: Record<string, unknown> = {};
@@ -1377,9 +1460,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Delete a TTS sound trigger
   .delete('/tts-sounds/:id', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     await TtsSound.deleteById(params.id);
@@ -1391,9 +1474,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // List all configured TTS voices
   .get('/tts-voices', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const { TtsVoice } = await import('@/lib/models/TtsVoice');
@@ -1403,9 +1486,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Create a TTS custom voice
   .post('/tts-voices', async ({ headers, cookie, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const { name, provider, referenceId, description, enabled, isDefault } = body;
@@ -1446,9 +1529,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Update a TTS voice
   .patch('/tts-voices/:id', async ({ headers, cookie, params, body, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const { TtsVoice } = await import('@/lib/models/TtsVoice');
@@ -1481,9 +1564,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Set a voice as the platform default
   .patch('/tts-voices/:id/default', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const { TtsVoice } = await import('@/lib/models/TtsVoice');
@@ -1498,9 +1581,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Delete a TTS voice
   .delete('/tts-voices/:id', async ({ headers, cookie, params, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const { TtsVoice } = await import('@/lib/models/TtsVoice');
@@ -1513,9 +1596,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get locale stats from Serika Translate
   .get('/translate/stats', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const apiKey = process.env.SERIKA_TRANSLATE_KEY;
@@ -1543,9 +1626,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get translation keys from Serika Translate
   .get('/translate/keys', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const apiKey = process.env.SERIKA_TRANSLATE_KEY;
@@ -1575,9 +1658,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Get activity log from Serika Translate
   .get('/translate/activity', async ({ headers, cookie, query, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const apiKey = process.env.SERIKA_TRANSLATE_KEY;
@@ -1605,9 +1688,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Push source strings to Serika Translate
   .post('/translate/push', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const apiKey = process.env.SERIKA_TRANSLATE_KEY;
@@ -1650,9 +1733,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Pull translations from Serika Translate (non-destructive)
   .post('/translate/pull', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const apiKey = process.env.SERIKA_TRANSLATE_KEY;
@@ -1735,9 +1818,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
 
   // Full sync: push then pull
   .post('/translate/sync', async ({ headers, cookie, set }) => {
-    const { user, error, isAdmin } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user || !isAdmin) {
-      set.status = 403;
+      set.status = status;
       return { error: error || 'Admin access required' };
     }
     const apiKey = process.env.SERIKA_TRANSLATE_KEY;

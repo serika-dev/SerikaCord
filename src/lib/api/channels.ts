@@ -7,10 +7,11 @@ import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
+import { normalizeId } from '@/lib/db/normalizeId';
 
-// Helper to safely compare IDs
+// Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
-  return id1 === id2;
+  return normalizeId(id1) === normalizeId(id2);
 }
 
 // Permission bits
@@ -18,6 +19,7 @@ const PERM_ADMINISTRATOR = 1n << 3n;
 const PERM_MANAGE_MESSAGES = 1n << 13n;
 const PERM_VIEW_CHANNEL = 1n << 10n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
+const PERM_PIN_MESSAGES = 1n << 51n;
 
 /**
  * Whether a user can moderate messages in a server — i.e. delete other people's
@@ -45,6 +47,34 @@ async function canManageMessagesInServer(
   for (const [, perms] of rolePerms) {
     if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
     if ((perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a user can pin/unpin messages in a server — true for the server owner
+ * or anyone whose roles grant PIN_MESSAGES, MANAGE_MESSAGES, or ADMINISTRATOR.
+ */
+async function canPinMessagesInServer(
+  serverId: string | null | undefined,
+  userId: string,
+  membership?: { roles?: string[] | null } | null,
+): Promise<boolean> {
+  if (!serverId) return false;
+  const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
+  const [server, member] = await Promise.all([
+    cachedOwner ? null : Server.findById(serverId),
+    membership ?? ServerMember.findOne({ serverId, userId }),
+  ]);
+  const serverOwnerId = cachedOwner || server?.ownerId;
+  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
+  const roleIds = (member?.roles || []) as string[];
+  if (roleIds.length === 0) return false;
+  const rolePerms = await getRolePermissions(roleIds, serverId);
+  for (const [, perms] of rolePerms) {
+    if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
+    if ((perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES) return true;
+    if ((perms & PERM_PIN_MESSAGES) === PERM_PIN_MESSAGES) return true;
   }
   return false;
 }
@@ -666,6 +696,32 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       channelId: t.String(),
     }),
   })
+  // List application (bot) slash commands available in this channel, grouped by
+  // application, for the composer command palette.
+  .get('/:channelId/application-commands', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const { getChannelAppCommands } = await import('@/lib/services/appCommands');
+    const groups = await getChannelAppCommands({
+      serverId: channel.serverId ?? null,
+      recipientIds: channel.recipientIds ?? null,
+    });
+    return { groups };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+    }),
+  })
   // Update channel
   .patch('/:channelId', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -1154,6 +1210,25 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
     const authorMap = new Map(authors.map((a: any) => [a.id, a]));
 
+    // Fetch Discord users for author IDs not found in the User table
+    const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
+    if (missingAuthorIds.length > 0) {
+      const { DiscordUser } = await import('@/lib/models/DiscordUser');
+      const discordAuthors = await DiscordUser.findMany(missingAuthorIds);
+      for (const da of discordAuthors) {
+        authorMap.set(da.id, {
+          id: da.id,
+          username: da.username || `discord-${da.discordId}`,
+          displayName: da.displayName,
+          avatar: da.avatar,
+          status: 'offline',
+          isBot: da.isBot,
+          isSystem: false,
+          isDiscord: true,
+        });
+      }
+    }
+
     // Batch fetch referenced messages
     const refIds = Array.from(new Set(messages.map((m: any) => m.referencedMessageId).filter(Boolean))) as string[];
     const refMessages = refIds.length > 0 ? await Message.find({ id: { in: refIds } }) : [];
@@ -1162,6 +1237,24 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const refAuthorIds = Array.from(new Set(refMessages.map((r: any) => r.authorId).filter(Boolean))) as string[];
     const refAuthors = refAuthorIds.length > 0 ? await User.find({ id: { in: refAuthorIds } }) : [];
     const refAuthorMap = new Map(refAuthors.map((a: any) => [a.id, a]));
+    // Fetch Discord users for ref authors not found in User table
+    const missingRefAuthorIds = refAuthorIds.filter((id) => !refAuthorMap.has(id));
+    if (missingRefAuthorIds.length > 0) {
+      const { DiscordUser } = await import('@/lib/models/DiscordUser');
+      const refDiscordAuthors = await DiscordUser.findMany(missingRefAuthorIds);
+      for (const da of refDiscordAuthors) {
+        refAuthorMap.set(da.id, {
+          id: da.id,
+          username: da.username || `discord-${da.discordId}`,
+          displayName: da.displayName,
+          avatar: da.avatar,
+          status: 'offline',
+          isBot: da.isBot,
+          isSystem: false,
+          isDiscord: true,
+        });
+      }
+    }
 
     // Transform for frontend - return array directly and map id
     // Phase 1: Decrypt all message contents in parallel
@@ -1204,7 +1297,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isSystem: authorData.isSystem,
         isBot: Boolean(authorData.isBot),
         isVerified: Boolean(authorData.isVerified),
-        isDiscord: authorData.username?.startsWith('discord-') || false,
+        isDiscord: (authorData as any).isDiscord || authorData.username?.startsWith('discord-') || false,
       } : null;
 
       const customEmojis = emojiResults[idx].emojis.map(e => ({
@@ -1338,7 +1431,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const authorIds = Array.from(new Set(sortedCandidates.map((m: any) => m.authorId).filter(Boolean))) as string[];
     const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
     const authorMap = new Map(authors.map((a: any) => [a.id, a]));
-
+    // Fetch Discord users for authors not found in User table
+    const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
+    if (missingAuthorIds.length > 0) {
+      const { DiscordUser } = await import('@/lib/models/DiscordUser');
+      const discordAuthors = await DiscordUser.findMany(missingAuthorIds);
+      for (const da of discordAuthors) {
+        authorMap.set(da.id, {
+          id: da.id,
+          username: da.username || `discord-${da.discordId}`,
+          displayName: da.displayName,
+          avatar: da.avatar,
+        });
+      }
+    }
     const lowered = rawQuery.toLowerCase();
     const results: Array<Record<string, unknown>> = [];
 
@@ -1397,6 +1503,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!hasAccess || !channel) {
       set.status = 403;
       return { error: error || 'Access denied' };
+    }
+
+    // Enforce timeout (communication disabled) on server channels
+    if (channel.serverId && membership) {
+      const disabledUntil = (membership as any).communicationDisabledUntil;
+      if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
+        set.status = 403;
+        return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
+      }
     }
 
     if (channel.type === 'public_thread' || channel.type === 'private_thread') {
@@ -1581,10 +1696,23 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (message.referencedMessageId) {
       const reference = await Message.findById(message.referencedMessageId);
       if (reference) {
-        const [refAuthor, refDecrypted] = await Promise.all([
-          reference.authorId ? User.findById(reference.authorId) : Promise.resolve(null),
-          reference.content ? decryptFromStorage(reference.content) : Promise.resolve(''),
-        ]);
+        let refAuthor = reference.authorId ? await User.findById(reference.authorId) : null;
+        // Fall back to DiscordUser if not found in User table
+        if (!refAuthor && reference.authorId) {
+          const { DiscordUser } = await import('@/lib/models/DiscordUser');
+          const da = await DiscordUser.findById(reference.authorId);
+          if (da) {
+            refAuthor = {
+              id: da.id,
+              username: da.username || `discord-${da.discordId}`,
+              displayName: da.displayName,
+              avatar: da.avatar,
+              isBot: da.isBot,
+              isVerified: false,
+            } as any;
+          }
+        }
+        const refDecrypted = reference.content ? await decryptFromStorage(reference.content) : '';
         referencedMessage = {
           id: reference.id,
           content: refDecrypted,
@@ -1744,6 +1872,24 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const authorIds = Array.from(new Set(pinnedMessages.map((m: any) => m.authorId).filter(Boolean))) as string[];
     const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
     const authorMap = new Map(authors.map((a: any) => [a.id, a]));
+    // Fetch Discord users for authors not found in User table
+    const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
+    if (missingAuthorIds.length > 0) {
+      const { DiscordUser } = await import('@/lib/models/DiscordUser');
+      const discordAuthors = await DiscordUser.findMany(missingAuthorIds);
+      for (const da of discordAuthors) {
+        authorMap.set(da.id, {
+          id: da.id,
+          username: da.username || `discord-${da.discordId}`,
+          displayName: da.displayName,
+          avatar: da.avatar,
+          status: 'offline',
+          isBot: da.isBot,
+          isSystem: false,
+          isDiscord: true,
+        });
+      }
+    }
 
     // Batch decrypt + batch parse emojis for pinned messages
     const pinnedContents = await Promise.all(
@@ -1820,6 +1966,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Message not found' };
     }
 
+    // DMs (no serverId): both participants can pin. Server channels: require
+    // PIN_MESSAGES, MANAGE_MESSAGES, ADMINISTRATOR, or ownership.
+    if (channel.serverId) {
+      const canPin = await canPinMessagesInServer(channel.serverId, user.id);
+      if (!canPin) {
+        set.status = 403;
+        return { error: 'Missing Permissions' };
+      }
+    }
+
     await Message.updateById(message.id, { pinned: true });
 
     publishToChannel(params.channelId, {
@@ -1873,6 +2029,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!message) {
       set.status = 404;
       return { error: 'Message not found' };
+    }
+
+    // DMs (no serverId): both participants can unpin. Server channels: require
+    // PIN_MESSAGES, MANAGE_MESSAGES, ADMINISTRATOR, or ownership.
+    if (channel.serverId) {
+      const canPin = await canPinMessagesInServer(channel.serverId, user.id);
+      if (!canPin) {
+        set.status = 403;
+        return { error: 'Missing Permissions' };
+      }
     }
 
     await Message.updateById(message.id, { pinned: false });

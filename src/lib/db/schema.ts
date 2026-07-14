@@ -39,7 +39,7 @@ const adminActionTypeEnum = pgEnum('admin_action_type', [
   'revoke_partner', 'toggle_discovery', 'transfer_ownership', 'update_settings',
   'broadcast_announcement', 'resolve_report', 'dismiss_report', 'delete_message',
   'impersonate_user', 'create_experiment', 'update_experiment', 'delete_experiment',
-  'approve_instance', 'revoke_instance',
+  'approve_instance', 'revoke_instance', 'timeout_member',
 ]);
 const adminTargetTypeEnum = pgEnum('admin_target_type', ['user', 'server', 'message', 'platform']);
 const connectionProviderEnum = pgEnum('connection_provider', [
@@ -442,6 +442,19 @@ export const userConnections = pgTable('user_connections', {
   userProviderAccountUnique: uniqueIndex('user_connections_user_id_provider_account_id_unique').on(t.userId, t.provider, t.accountId),
 }));
 
+export const discordUsers = pgTable('discord_users', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  discordId: text('discord_id').notNull().unique(),
+  username: text('username'),
+  displayName: text('display_name').notNull(),
+  avatar: text('avatar'),
+  isBot: boolean('is_bot').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  discordIdIdx: uniqueIndex('discord_users_discord_id_idx').on(t.discordId),
+}));
+
 export const adminLogs = pgTable('admin_logs', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   adminId: uuid('admin_id').notNull(),
@@ -695,6 +708,8 @@ export type UserDeviceSessionRow = typeof userDeviceSessions.$inferSelect;
 export type UserDeviceSessionInsert = typeof userDeviceSessions.$inferInsert;
 export type UserConnectionRow = typeof userConnections.$inferSelect;
 export type UserConnectionInsert = typeof userConnections.$inferInsert;
+export type DiscordUserRow = typeof discordUsers.$inferSelect;
+export type DiscordUserInsert = typeof discordUsers.$inferInsert;
 export type AdminLogRow = typeof adminLogs.$inferSelect;
 export type AdminLogInsert = typeof adminLogs.$inferInsert;
 export type PlatformSettingsRow = typeof platformSettings.$inferSelect;

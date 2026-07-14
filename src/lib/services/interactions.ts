@@ -1,6 +1,7 @@
 import { Application, Message, User } from '@/lib/models';
 import { AppCommand } from '@/lib/models/AppCommand';
 import { signInteraction } from '@/lib/services/appIdentity';
+import { OPTION_TYPES, type AppCommandOption } from '@/lib/services/appCommands';
 
 // Interaction types (Discord)
 const INTERACTION_PING = 1;
@@ -10,6 +11,128 @@ const INTERACTION_APPLICATION_COMMAND = 2;
 const CB_PONG = 1;
 const CB_CHANNEL_MESSAGE = 4;
 const CB_DEFERRED_CHANNEL_MESSAGE = 5;
+
+/** Split a command string into tokens, keeping `"quoted values"` together. */
+function tokenize(input: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (const char of input) {
+    if (char === '"') { inQuotes = !inQuotes; continue; }
+    if (/\s/.test(char) && !inQuotes) {
+      if (current) { tokens.push(current); current = ''; }
+      continue;
+    }
+    current += char;
+  }
+  if (current) tokens.push(current);
+  return tokens;
+}
+
+/** Coerce a raw string value to the JSON type implied by a Discord option type. */
+function coerceOptionValue(type: number, raw: string): string | number | boolean {
+  switch (type) {
+    case OPTION_TYPES.INTEGER: {
+      const n = parseInt(raw, 10);
+      return Number.isNaN(n) ? raw : n;
+    }
+    case OPTION_TYPES.NUMBER: {
+      const n = parseFloat(raw);
+      return Number.isNaN(n) ? raw : n;
+    }
+    case OPTION_TYPES.BOOLEAN:
+      return raw.toLowerCase() === 'true' || raw === '1' || raw.toLowerCase() === 'yes';
+    default:
+      return raw;
+  }
+}
+
+/**
+ * Resolve a flat token list against a command's declared leaf options into
+ * Discord-style option values. Supports `name:value` named options in any order
+ * plus positional fallback for anything not explicitly named.
+ */
+function resolveLeafOptions(
+  declared: AppCommandOption[],
+  tokens: string[],
+): { name: string; type: number; value: string | number | boolean }[] {
+  const leaves = declared.filter(
+    (o) => o.type !== OPTION_TYPES.SUB_COMMAND && o.type !== OPTION_TYPES.SUB_COMMAND_GROUP,
+  );
+  const byName = new Map(leaves.map((o) => [o.name.toLowerCase(), o]));
+  const named = new Map<string, string>();
+  const positional: string[] = [];
+
+  for (const token of tokens) {
+    const sep = token.indexOf(':');
+    if (sep > 0) {
+      const key = token.slice(0, sep).toLowerCase();
+      if (byName.has(key)) {
+        named.set(key, token.slice(sep + 1));
+        continue;
+      }
+    }
+    positional.push(token);
+  }
+
+  const result: { name: string; type: number; value: string | number | boolean }[] = [];
+  let posIdx = 0;
+  for (const opt of leaves) {
+    const key = opt.name.toLowerCase();
+    let raw: string | undefined;
+    if (named.has(key)) {
+      raw = named.get(key);
+    } else if (posIdx < positional.length) {
+      // A free-text final option (e.g. a message/reason) greedily takes the rest.
+      const isLast = opt === leaves[leaves.length - 1];
+      raw = isLast && opt.type === OPTION_TYPES.STRING
+        ? positional.slice(posIdx).join(' ')
+        : positional[posIdx];
+      posIdx += isLast && opt.type === OPTION_TYPES.STRING ? positional.length - posIdx : 1;
+    }
+    if (raw === undefined || raw === '') {
+      if (opt.required) result.push({ name: opt.name, type: opt.type, value: '' });
+      continue;
+    }
+    result.push({ name: opt.name, type: opt.type, value: coerceOptionValue(opt.type, raw) });
+  }
+  return result;
+}
+
+/**
+ * Build the nested `data.options` for an interaction, walking subcommand and
+ * subcommand-group paths declared on the command before resolving leaf options.
+ */
+function buildInteractionOptions(
+  declared: AppCommandOption[],
+  tokens: string[],
+): any[] {
+  const first = tokens[0]?.toLowerCase();
+
+  const group = declared.find(
+    (o) => o.type === OPTION_TYPES.SUB_COMMAND_GROUP && o.name.toLowerCase() === first,
+  );
+  if (group) {
+    return [{
+      name: group.name,
+      type: OPTION_TYPES.SUB_COMMAND_GROUP,
+      options: buildInteractionOptions(group.options ?? [], tokens.slice(1)),
+    }];
+  }
+
+  const sub = declared.find(
+    (o) => o.type === OPTION_TYPES.SUB_COMMAND && o.name.toLowerCase() === first,
+  );
+  if (sub) {
+    return [{
+      name: sub.name,
+      type: OPTION_TYPES.SUB_COMMAND,
+      options: resolveLeafOptions(sub.options ?? [], tokens.slice(1)),
+    }];
+  }
+
+  return resolveLeafOptions(declared, tokens);
+}
 
 interface InternalMessageLike {
   id: string;
@@ -83,7 +206,8 @@ export async function maybeDispatchSlashInteraction(message: InternalMessageLike
   const content = (message.content ?? '').trim();
   if (!content.startsWith('/')) return;
 
-  const [rawName, ...rest] = content.slice(1).split(/\s+/);
+  const tokens = tokenize(content.slice(1));
+  const rawName = tokens.shift();
   const name = rawName?.toLowerCase();
   if (!name) return;
 
@@ -101,14 +225,10 @@ export async function maybeDispatchSlashInteraction(message: InternalMessageLike
   const app = await Application.findById(cmd.applicationId);
   if (!app || !app.interactionsEndpointUrl || !app.botId) return;
 
-  // Map trailing words to the declared options positionally (STRING values only,
-  // which covers the common slash-command case).
-  const options = (cmd.options as any[]) ?? [];
-  const optionValues = options.map((opt, i) => ({
-    name: opt.name,
-    type: opt.type ?? 3,
-    value: rest[i] ?? '',
-  }));
+  // Resolve trailing tokens against the declared option tree: subcommands,
+  // subcommand groups, and named/positional typed leaf options.
+  const declared = (cmd.options as AppCommandOption[]) ?? [];
+  const optionValues = buildInteractionOptions(declared, tokens);
 
   const member = message.author
     ? { user: { id: message.author.id, username: message.author.username ?? '' }, roles: [] }

@@ -34,6 +34,8 @@ export interface MessageGroupProps<M extends ChatMessage> {
   currentUserId?: string;
   /** Owner / MANAGE_MESSAGES — can delete other people's messages. */
   canModerate?: boolean;
+  /** Owner / MANAGE_MESSAGES / PIN_MESSAGES — can pin or unpin messages. */
+  canPin?: boolean;
   serverId?: string;
   serverName?: string;
   /** Enables swipe actions on the entire row (mobile). */
@@ -79,6 +81,7 @@ function MessageGroupInner<M extends ChatMessage>({
   group,
   currentUserId,
   canModerate = false,
+  canPin = false,
   serverId,
   serverName,
   swipeEnabled = false,
@@ -320,6 +323,7 @@ function MessageGroupInner<M extends ChatMessage>({
                       onReply={onReply}
                       onCopy={onCopy}
                       onPinToggle={onPinToggle}
+                      canPin={canPin}
                       onEdit={onEdit}
                       onDelete={onDelete}
                       serverEmojis={serverEmojis}
@@ -411,6 +415,7 @@ function arePropsEqual<M extends ChatMessage>(
   return (
     prev.currentUserId === next.currentUserId &&
     prev.canModerate === next.canModerate &&
+    prev.canPin === next.canPin &&
     prev.serverId === next.serverId &&
     prev.serverName === next.serverName &&
     prev.swipeEnabled === next.swipeEnabled &&

@@ -158,6 +158,26 @@ function verify(req, rawBody, PUBLIC_KEY) {
         ["data", "object", "Command data: name, options, resolved, etc."],
       ]} />
 
+      <H3 id="subcommand-options">{gt("Subcommand option nesting")}</H3>
+      <P>
+        {gt("When a command uses subcommands, the chosen subcommand appears as a single option (type 1), and the leaf option values are nested inside its")}{" "}<InlineCode>options</InlineCode> {gt("array. Named options may arrive in any order, and their")}{" "}<InlineCode>value</InlineCode> {gt("is coerced to the JSON type implied by the option type (integer, number, boolean, or string).")}
+      </P>
+      <CodeBlock lang="json">{`"data": {
+  "id": "1130000000000000000",
+  "name": "amq",
+  "type": 1,
+  "options": [
+    {
+      "name": "start",
+      "type": 1,
+      "options": [
+        { "name": "rounds", "type": 4, "value": 5 },
+        { "name": "mode", "type": 3, "value": "audio" }
+      ]
+    }
+  ]
+}`}</CodeBlock>
+
       <H2 id="followups">{gt("Follow-up messages")}</H2>
       <P>
         {gt("After the initial response, you can send follow-up messages using the interaction token:")}

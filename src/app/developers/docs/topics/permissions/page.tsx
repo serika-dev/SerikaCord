@@ -64,6 +64,13 @@ export default async function PermissionsDoc() {
         ["1 << 41", "VIEW_CREATOR_MONETIZATION_ANALYTICS", gt("View monetization analytics")],
         ["1 << 42", "USE_EXTERNAL_SOUNDS", gt("Use external sounds")],
         ["1 << 43", "SEND_VOICE_MESSAGES", gt("Send voice messages")],
+        ["1 << 44", "USE_SOUNDBOARD", gt("Use soundboard")],
+        ["1 << 45", "CREATE_EXPRESSIONS", gt("Create emoji, stickers, and sounds")],
+        ["1 << 46", "CREATE_EVENTS", gt("Create guild events")],
+        ["1 << 48", "SET_VOICE_CHANNEL_STATUS", gt("Set voice channel status")],
+        ["1 << 49", "SEND_POLLS", gt("Create polls")],
+        ["1 << 50", "USE_EXTERNAL_APPS", gt("Use external apps")],
+        ["1 << 51", "PIN_MESSAGES", gt("Pin or unpin messages")],
       ]} />
 
       <H2 id="administrator">{gt("Administrator Permission")}</H2>

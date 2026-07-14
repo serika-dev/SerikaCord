@@ -75,9 +75,10 @@ async function findBridgedChannel(guildId: string, discordChannelId: string): Pr
   return null;
 }
 
-async function getOrCreateDiscordUser(discordAuthor: any): Promise<any> {
+async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean; isLinked: boolean }> {
   const { User } = await import('@/lib/models');
   const { UserConnection } = await import('@/lib/models/UserConnection');
+  const { DiscordUser } = await import('@/lib/models/DiscordUser');
 
   // 1. Check if there's a Serika user with discordId matching this Discord user
   if (discordAuthor.id) {
@@ -88,9 +89,23 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<any> {
         const updated = await User.updateById(linkedUser.id, {
           discordUsername: discordAuthor.username,
         });
-        return updated || linkedUser;
+        return {
+          id: (updated || linkedUser).id,
+          username: (updated || linkedUser).username,
+          displayName: (updated || linkedUser).displayName,
+          avatar: (updated || linkedUser).avatar || null,
+          isBot: (updated || linkedUser).isBot || false,
+          isLinked: true,
+        };
       }
-      return linkedUser;
+      return {
+        id: linkedUser.id,
+        username: linkedUser.username,
+        displayName: linkedUser.displayName,
+        avatar: linkedUser.avatar || null,
+        isBot: linkedUser.isBot || false,
+        isLinked: true,
+      };
     }
   }
 
@@ -104,33 +119,36 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<any> {
         if (!linkedUser.discordId) {
           await User.updateById(linkedUser.id, { discordId: discordAuthor.id, discordUsername: discordAuthor.username });
         }
-        return linkedUser;
+        return {
+          id: linkedUser.id,
+          username: linkedUser.username,
+          displayName: linkedUser.displayName,
+          avatar: linkedUser.avatar || null,
+          isBot: linkedUser.isBot || false,
+          isLinked: true,
+        };
       }
     }
   }
 
-  // 3. Fall back to creating a discord- prefixed bot user
-  const username = `discord-${discordAuthor.id}`;
-  let serikaUser = await User.findOne({ username });
-  if (!serikaUser) {
-    serikaUser = await User.create({
-      username,
-      displayName: buildDisplayName(discordAuthor),
-      avatar: getAvatarUrl(discordAuthor),
-      isBot: discordAuthor.bot || false,
-      isSystem: false,
-    });
-  } else {
-    const newDisplayName = buildDisplayName(discordAuthor);
-    const newAvatar = getAvatarUrl(discordAuthor);
-    if (serikaUser.displayName !== newDisplayName || serikaUser.avatar !== newAvatar) {
-      serikaUser = await User.updateById(serikaUser.id, {
-        displayName: newDisplayName,
-        avatar: newAvatar,
-      }) || serikaUser;
-    }
-  }
-  return serikaUser;
+  // 3. Fall back to creating/updating a DiscordUser entry (separate from User table)
+  const newDisplayName = buildDisplayName(discordAuthor);
+  const newAvatar = getAvatarUrl(discordAuthor);
+  const discordUser = await DiscordUser.upsertByDiscordId(discordAuthor.id, {
+    username: discordAuthor.username,
+    displayName: newDisplayName,
+    avatar: newAvatar,
+    isBot: discordAuthor.bot || false,
+  });
+
+  return {
+    id: discordUser.id,
+    username: discordUser.username || discordAuthor.username,
+    displayName: discordUser.displayName,
+    avatar: discordUser.avatar,
+    isBot: discordUser.isBot || false,
+    isLinked: false,
+  };
 }
 
 export async function startDiscordBot() {
@@ -247,7 +265,7 @@ export async function startDiscordBot() {
             if (!chan) return;
 
             const serikaUser = await getOrCreateDiscordUser(d.author);
-            const isLinkedAccount = !serikaUser.username.startsWith('discord-');
+            const isLinkedAccount = serikaUser.isLinked;
 
             // Convert Discord content to Serika-friendly format
             const rawContent = d.content || '';

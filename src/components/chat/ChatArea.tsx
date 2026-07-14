@@ -60,6 +60,12 @@ import {
   type SlashCommand,
   type SlashCommandParam,
 } from "@/lib/chat/slashCommands";
+import {
+  flattenAppCommands,
+  parseAppCommandContext,
+  OPT,
+  type AppLeafCommand,
+} from "@/lib/chat/appCommandContext";
 import type { ChatMessage } from "@/lib/chat/types";
 import { EMOJI_NAMES } from "@/lib/constants/emojis";
 import { T, useGT, useLocale } from "gt-next";
@@ -84,7 +90,7 @@ interface MentionRole {
 
 interface MentionSuggestion {
   id: string;
-  kind: "user" | "role" | "everyone" | "here" | "emoji" | "unicode-emoji" | "command" | "param-user" | "param-duration" | "param-choice" | "param-hint" | "channel";
+  kind: "user" | "role" | "everyone" | "here" | "emoji" | "unicode-emoji" | "command" | "param-user" | "param-duration" | "param-choice" | "param-hint" | "channel" | "app-command" | "app-option" | "app-choice";
   unicodeChar?: string;
   label: string;
   description?: string;
@@ -99,6 +105,17 @@ interface MentionSuggestion {
   commandName?: string;
   commandHint?: string;
   category?: string;
+  // App (bot) command fields
+  appName?: string;
+  appIcon?: string | null;
+  botId?: string;
+  emoji?: string;
+  /** Full space-joined command path, e.g. "amq start". */
+  fullName?: string;
+  /** Discord option type for app-option suggestions. */
+  optionType?: number;
+  /** For app-command entries: the command's leaf options (for the pills header). */
+  optionNames?: string[];
 }
 
 function escapeRegex(input: string): string {
@@ -142,6 +159,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const locale = useLocale();
   const perms = usePermissions(currentServer?.id);
   const canModerateMessages = perms.isOwner || perms.can("MANAGE_MESSAGES");
+  const canPinMessages = canModerateMessages || perms.can("PIN_MESSAGES");
   const router = useRouter();
   const isMobile = useIsMobile();
   const messageBarRef = useRef<MessageBarHandle>(null);
@@ -174,6 +192,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const mentionRangeRef = useRef<{ start: number; end: number } | null>(null);
+  // Registered bot (application) commands available in this channel, flattened
+  // into individually-invokable leaf commands for the slash palette.
+  const [appLeaves, setAppLeaves] = useState<AppLeafCommand[]>([]);
 
   // Header utilities
   const [channelMuted, setChannelMuted] = useState(false);
@@ -185,6 +206,29 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<Message[]>([]);
+
+  // Fetch registered bot slash commands available in the active channel.
+  useEffect(() => {
+    const channelId = currentChannel?.id;
+    if (!channelId) {
+      setAppLeaves([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/channels/${channelId}/application-commands`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (!cancelled) setAppLeaves(flattenAppCommands(data.groups || []));
+      } catch {
+        /* commands are optional; ignore fetch failures */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentChannel?.id]);
 
   // Fetch server emojis (per-server SWR: paint cache instantly, revalidate).
   useEffect(() => {
@@ -579,23 +623,43 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       // Slash command autocomplete: `/query` at the start of the message (no spaces)
       const slashMatch = beforeCursor.match(/^\/([a-zA-Z0-9_]*)$/);
       if (slashMatch) {
-        const query = slashMatch[1];
+        const query = slashMatch[1].toLowerCase();
         const isServer = !!currentServer;
         const commands = getCommandSuggestions(query, isServer);
-        if (commands.length > 0) {
+        // Registered bot commands whose full path matches the query.
+        const appMatches = appLeaves.filter(
+          (leaf) =>
+            !query ||
+            leaf.fullName.toLowerCase().includes(query) ||
+            leaf.description.toLowerCase().includes(query),
+        );
+        const builtInSuggestions: MentionSuggestion[] = commands.map((cmd: SlashCommand) => ({
+          id: cmd.name,
+          kind: "command" as const,
+          label: cmd.name,
+          description: cmd.description,
+          usage: cmd.usage,
+          category: cmd.category,
+          commandHint: cmd.hint,
+        }));
+        const appSuggestions: MentionSuggestion[] = appMatches.map((leaf) => ({
+          id: `${leaf.application.id}:${leaf.fullName}`,
+          kind: "app-command" as const,
+          label: leaf.fullName,
+          description: leaf.description,
+          appName: leaf.application.name,
+          appIcon: leaf.application.icon,
+          botId: leaf.application.botId ?? undefined,
+          fullName: leaf.fullName,
+          optionNames: leaf.options
+            .filter((o) => o.type !== OPT.SUB_COMMAND && o.type !== OPT.SUB_COMMAND_GROUP)
+            .map((o) => o.name),
+        }));
+        const merged = [...appSuggestions, ...builtInSuggestions];
+        if (merged.length > 0) {
           const cmdStart = 1; // position after the '/'
           mentionRangeRef.current = { start: cmdStart, end: caretPosition };
-          setMentionSuggestions(
-            commands.map((cmd: SlashCommand) => ({
-              id: cmd.name,
-              kind: "command" as const,
-              label: cmd.name,
-              description: cmd.description,
-              usage: cmd.usage,
-              category: cmd.category,
-              commandHint: cmd.hint,
-            })),
-          );
+          setMentionSuggestions(merged);
           setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
           return;
         }
@@ -715,6 +779,124 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
               },
             ]);
             setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
+            return;
+          }
+        }
+      }
+
+      // App (bot) command parameter autocomplete: `/amq start ...`
+      if (appLeaves.length > 0 && beforeCursor.startsWith("/") && /\s/.test(beforeCursor)) {
+        const appCtx = parseAppCommandContext(beforeCursor, appLeaves);
+        if (appCtx) {
+          const { leaf, option, currentArg, valueMode, remaining } = appCtx;
+          const cmdName = leaf.fullName;
+          const argLower = currentArg.toLowerCase();
+          const valueRange = { start: caretPosition - currentArg.length, end: caretPosition };
+
+          // Options list (screenshot: OPTIONS → difficulty / mode / anilist).
+          if (!valueMode) {
+            const optionList = remaining.filter(
+              (o) => !argLower || o.name.toLowerCase().includes(argLower),
+            );
+            if (optionList.length > 0) {
+              mentionRangeRef.current = valueRange;
+              setMentionSuggestions(
+                optionList.map((o) => ({
+                  id: o.name,
+                  kind: "app-option" as const,
+                  label: o.name,
+                  description: o.description || "",
+                  paramName: o.name,
+                  paramRequired: o.required,
+                  commandName: cmdName,
+                  optionType: o.type,
+                })),
+              );
+              setActiveMentionIndex((prev) => (prev !== 0 ? 0 : prev));
+              return;
+            }
+          }
+
+          // Value picker for the active option.
+          if (option) {
+            // USER option → member list.
+            if (option.type === OPT.USER && mentionUsers.length > 0) {
+              const userSuggestions = mentionUsers
+                .filter((entry) => {
+                  const username = (entry.username || "").toLowerCase();
+                  const displayName = (entry.displayName || "").toLowerCase();
+                  return username.includes(argLower) || displayName.includes(argLower);
+                })
+                .slice(0, 8)
+                .map((entry) => ({
+                  id: entry.id,
+                  kind: "param-user" as const,
+                  label: entry.displayName || entry.username,
+                  description: entry.username,
+                  color: userRoleColorMap[entry.id],
+                  paramName: option.name,
+                  paramRequired: option.required,
+                  commandName: cmdName,
+                }));
+              if (userSuggestions.length > 0) {
+                mentionRangeRef.current = valueRange;
+                setMentionSuggestions(userSuggestions);
+                setActiveMentionIndex((prev) => (prev !== 0 ? 0 : prev));
+                return;
+              }
+            }
+
+            // Explicit choices (screenshot: 🎵 Audio — guess from theme song).
+            const choices =
+              option.choices && option.choices.length > 0
+                ? option.choices
+                : option.type === OPT.BOOLEAN
+                  ? [
+                      { name: "True", value: "true" },
+                      { name: "False", value: "false" },
+                    ]
+                  : null;
+            if (choices) {
+              const filtered = choices.filter(
+                (c) =>
+                  !argLower ||
+                  c.name.toLowerCase().includes(argLower) ||
+                  String(c.value).toLowerCase().includes(argLower),
+              );
+              if (filtered.length > 0) {
+                mentionRangeRef.current = valueRange;
+                setMentionSuggestions(
+                  filtered.map((c) => ({
+                    id: String(c.value),
+                    kind: "app-choice" as const,
+                    label: c.name,
+                    description: (c as { description?: string }).description,
+                    emoji: (c as { emoji?: string }).emoji,
+                    paramName: option.name,
+                    paramRequired: option.required,
+                    commandName: cmdName,
+                  })),
+                );
+                setActiveMentionIndex((prev) => (prev !== 0 ? 0 : prev));
+                return;
+              }
+            }
+
+            // Free-text option → hint card.
+            mentionRangeRef.current = valueRange;
+            setMentionSuggestions([
+              {
+                id: "__app-option-hint__",
+                kind: "app-option" as const,
+                label: option.name,
+                description: option.description || "",
+                paramName: option.name,
+                paramRequired: option.required,
+                commandName: cmdName,
+                optionType: option.type,
+              },
+            ]);
+            setActiveMentionIndex((prev) => (prev !== 0 ? 0 : prev));
             return;
           }
         }
@@ -915,7 +1097,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       setMentionSuggestions(nextSuggestions);
       setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
     },
-    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, channels]
+    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, channels, appLeaves]
   );
 
   const insertMentionFromSuggestion = useCallback(
@@ -943,6 +1125,20 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       } else if (suggestion.kind === "command") {
         // Replace /query with /command + space
         composer.replaceRange(0, activeRange.end, `/${suggestion.label} `);
+      } else if (suggestion.kind === "app-command") {
+        // Replace /query with the full command path + space (options follow).
+        composer.replaceRange(0, activeRange.end, `/${suggestion.fullName || suggestion.label} `);
+      } else if (suggestion.kind === "app-option") {
+        // Picking an option name inserts `name:` so the value picker opens next.
+        if (suggestion.id === "__app-option-hint__") {
+          mentionRangeRef.current = null;
+          setMentionSuggestions([]);
+          return;
+        }
+        composer.replaceRange(activeRange.start, activeRange.end, `${suggestion.label}:`);
+      } else if (suggestion.kind === "app-choice") {
+        // Insert the chosen option value, then a space to advance.
+        composer.replaceRange(activeRange.start, activeRange.end, `${suggestion.id} `);
       } else if (suggestion.kind === "param-user") {
         // Insert user mention pill for command param
         composer.replaceRangeWithMention(activeRange.start, activeRange.end, {
@@ -1032,7 +1228,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       if (e.key === "Tab") {
         const selected = mentionSuggestions[activeMentionIndex];
         if (selected) {
-          if (selected.kind === "param-hint") {
+          if (selected.kind === "param-hint" || selected.id === "__app-option-hint__") {
             mentionRangeRef.current = null;
             setMentionSuggestions([]);
             setActiveMentionIndex(0);
@@ -1250,6 +1446,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         actions={chat.actions}
         currentUserId={user?.id}
         canModerate={canModerateMessages}
+        canPin={canPinMessages}
         serverId={currentServer?.id}
         serverName={currentServer?.name}
         swipeEnabled={isMobile}
@@ -1405,6 +1602,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         menu={chat.actions.contextMenu}
         isOwn={(message) => message.authorId === user?.id}
         canModerate={canModerateMessages}
+        canPin={canPinMessages}
         onClose={() => chat.actions.setContextMenu(null)}
         onReply={(message) => {
           chat.actions.setReplyToMessage(message);

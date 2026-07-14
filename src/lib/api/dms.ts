@@ -4,13 +4,15 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams } from '@/lib/security';
+import { isSystemUser } from '@/lib/services/systemUsers';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
+import { normalizeId } from '@/lib/db/normalizeId';
 
 function compareIds(id1: string, id2: string): boolean {
-  return id1 === id2;
+  return normalizeId(id1) === normalizeId(id2);
 }
 
 const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<@&[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<#(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>|<a?:[a-zA-Z0-9_]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<t:-?\d{1,13}(?::[tTdDfFRC](?:\[[^\]]*\])?)?>|<t:-?\d{1,13}>/g;
@@ -367,10 +369,21 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
 
     // Check if friends or can DM (skip for system users)
+    // Also skip if a DM channel already exists (e.g. created by broadcast system)
     const isFriend = (user.friends || []).some((f: string) => compareIds(f, recipient.id));
-    if (!isFriend && !recipient.isSystem && (recipient.settings as any)?.privacy?.directMessages !== 'everyone') {
-      set.status = 403;
-      return { error: 'You cannot message this user' };
+    const recipientIsSystem = recipient.isSystem || isSystemUser(recipient.id);
+    if (!isFriend && !recipientIsSystem && (recipient.settings as any)?.privacy?.directMessages !== 'everyone') {
+      // Check if a DM channel already exists — if so, allow viewing messages
+      const existingChannels = await Channel.find({ type: 'dm', recipientId: user.id });
+      const hasExistingChannel = existingChannels.some(c =>
+        c.recipientIds &&
+        c.recipientIds.length === 2 &&
+        c.recipientIds.includes(recipient.id)
+      );
+      if (!hasExistingChannel) {
+        set.status = 403;
+        return { error: 'You cannot message this user' };
+      }
     }
 
     // Get or create DM channel
@@ -546,7 +559,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     // Check DM permissions (skip for system users)
     const isFriend = (user.friends || []).some((f: string) => compareIds(f, recipient.id));
-    if (!isFriend && !recipient.isSystem && (recipient.settings as any)?.privacy?.directMessages !== 'everyone') {
+    const recipientIsSystem = recipient.isSystem || isSystemUser(recipient.id);
+    if (!isFriend && !recipientIsSystem && (recipient.settings as any)?.privacy?.directMessages !== 'everyone') {
       set.status = 403;
       return { error: 'You cannot message this user' };
     }

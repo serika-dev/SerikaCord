@@ -32,6 +32,8 @@ interface MessageHoverActionsProps<M extends ChatMessage> {
   onReply: (message: M) => void;
   onCopy: (content: string) => void;
   onPinToggle: (message: M) => void;
+  /** Owner / MANAGE_MESSAGES / PIN_MESSAGES — can pin or unpin messages. */
+  canPin?: boolean;
   onEdit: (message: M) => void;
   onDelete: (message: M) => void;
   serverEmojis?: PickerEmoji[];
@@ -52,6 +54,7 @@ export function MessageHoverActions<M extends ChatMessage>({
   onReply,
   onCopy,
   onPinToggle,
+  canPin = false,
   onEdit,
   onDelete,
   serverEmojis,
@@ -123,12 +126,14 @@ export function MessageHoverActions<M extends ChatMessage>({
             >
               <Copy className="w-4 h-4 mr-2" /> {gt("Copy Text")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => onPinToggle(message)}
-              className="hover:bg-[var(--bg-hover)] cursor-pointer"
-            >
-              <Pin className="w-4 h-4 mr-2" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
-            </DropdownMenuItem>
+            {canPin && (
+              <DropdownMenuItem
+                onClick={() => onPinToggle(message)}
+                className="hover:bg-[var(--bg-hover)] cursor-pointer"
+              >
+                <Pin className="w-4 h-4 mr-2" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
+              </DropdownMenuItem>
+            )}
             {isOwn && (
               <>
                 <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />

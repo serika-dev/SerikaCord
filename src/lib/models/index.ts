@@ -12,6 +12,7 @@ export { ServerMemberApplication, type IServerMemberApplication } from './Server
 export { AuthorizedApp, type IAuthorizedApp } from './AuthorizedApp';
 export { UserDeviceSession, type IUserDeviceSession } from './UserDeviceSession';
 export { UserConnection, type IUserConnection } from './UserConnection';
+export { DiscordUser, type IDiscordUser } from './DiscordUser';
 export { AdminLog, type IAdminLog } from './AdminLog';
 export { PlatformSettings, getPlatformSettings, updatePlatformSettings, getEncryptionKey, type IPlatformSettings } from './PlatformSettings';
 export { Experiment, getUserVariant, type IExperiment, type IExperimentVariant, type ExperimentType, type ExperimentStatus } from './Experiment';
