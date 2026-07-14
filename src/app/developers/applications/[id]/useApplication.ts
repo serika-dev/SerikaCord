@@ -8,7 +8,7 @@ export interface ApplicationData {
   id: string;
   name: string;
   description?: string;
-  icon?: string;
+  icon?: string | null;
   coverImage?: string;
   botId?: string;
   botPublic?: boolean;

@@ -12,7 +12,7 @@ interface App {
   id: string;
   name: string;
   description?: string;
-  icon?: string;
+  icon?: string | null;
   botPublic?: boolean;
   botId?: string;
   botAvatar?: string | null;

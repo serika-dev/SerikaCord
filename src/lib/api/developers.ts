@@ -113,7 +113,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   // Batch-fetch bot avatars for apps that have a bot user
   const botIds = apps.map((a: any) => a.botId).filter(Boolean) as string[];
-  const botUsers = botIds.length > 0 ? await User.find({ id: { in: botIds } }) : [];
+  const botUsers = botIds.length > 0 ? await User.find({ id: { in: botIds }, isBot: true }) : [];
   const botAvatarMap = new Map(botUsers.map((u: any) => [u.id, { avatar: u.avatar, username: u.username }]));
 
   const enriched = apps.map((a: any) => {

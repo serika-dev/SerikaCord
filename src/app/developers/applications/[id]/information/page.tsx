@@ -72,7 +72,7 @@ export default function InformationPage() {
   };
 
   const handleRemoveIcon = async () => {
-    const ok = await saveApp({ icon: null as any });
+    const ok = await saveApp({ icon: null });
     if (ok) toast.success(gt("Icon removed"));
   };
 

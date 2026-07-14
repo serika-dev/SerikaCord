@@ -46,12 +46,14 @@ export async function ensureBotProvisioned(app: IApplication) {
   }
 
   if (!app.botId) {
-    const base = (app.name || 'bot').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24) || 'bot';
-    let username = base.length >= 3 ? base : `${base}bot`;
+    const rawBase = (app.name || 'bot').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24) || 'bot';
+    const base = rawBase.length >= 3 ? rawBase : `${rawBase}bot`;
+    let username = base;
     // Ensure username uniqueness — keep trying with longer suffixes until we find a free one
     let suffix = '';
     let usedRandom = false;
-    for (;;) {
+    let lastSuffix = '';
+    for (let attempt = 0; attempt < 100; attempt++) {
       const candidate = `${base}${suffix}`.slice(0, 32);
       const existing = await User.findOne({ username: candidate });
       if (!existing) {
@@ -59,16 +61,16 @@ export async function ensureBotProvisioned(app: IApplication) {
         break;
       }
       if (usedRandom) {
-        // Already tried random once — generate another random suffix
         suffix = crypto.randomBytes(3).toString('hex');
         continue;
       }
       suffix = app.clientId.slice(-6 - suffix.length);
-      if (suffix.length === 0) {
-        // Exhausted clientId digits — fall back to random
+      // Detect no-progress (short clientId exhausted) or empty suffix — switch to random
+      if (suffix.length === 0 || suffix === lastSuffix) {
         usedRandom = true;
         suffix = crypto.randomBytes(3).toString('hex');
       }
+      lastSuffix = suffix;
     }
     const defaultAvatar = app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name || username)}`;
     const botUser = await User.create({
