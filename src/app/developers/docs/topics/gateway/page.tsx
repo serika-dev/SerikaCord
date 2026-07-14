@@ -220,6 +220,18 @@ export default async function GatewayDoc() {
         ["4014", gt("Disallowed intent(s)"), gt("No")],
       ]} />
 
+      <H2 id="troubleshooting">{gt("Troubleshooting connection drops")}</H2>
+      <P>
+        {gt("A connection that opens, receives")} <InlineCode>Hello</InlineCode> {gt("(op 10), then closes almost immediately with code")}{" "}
+        <InlineCode>1006</InlineCode> {gt("(abnormal close, no close frame) is not an application or token problem — the Gateway closes intentionally with a 4xxx code. A")}{" "}
+        <InlineCode>1006</InlineCode> {gt("means an intermediary (reverse proxy, CDN, or firewall) severed the TCP connection.")}
+      </P>
+      <UL>
+        <li><Strong>{gt("Cloudflare / CDN:")}</Strong> {gt("ensure WebSockets are enabled, and that bot-mitigation features (Bot Fight Mode / Super Bot Fight Mode, \"Under Attack\" mode, or a WAF managed rule) are not terminating the non-browser WebSocket. Add a WAF skip/allow rule for the Gateway path.")}</li>
+        <li><Strong>{gt("Reverse proxy (nginx/Traefik):")}</Strong> {gt("forward the")} <InlineCode>Upgrade</InlineCode> {gt("and")} <InlineCode>Connection: upgrade</InlineCode> {gt("headers, use HTTP/1.1 to the origin, and set a long read/idle timeout. Do not apply request/connection rate limiting to the Gateway route.")}</li>
+        <li><Strong>{gt("Isolate the layer:")}</Strong> {gt("connect directly to the origin (bypassing the CDN) — if it stays up, the CDN/edge is the cause.")}</li>
+      </UL>
+
       <H2 id="key-events">{gt("Key Dispatch Events")}</H2>
       <Table headers={[gt("Event"), gt("Intent"), gt("Description")]} rows={[
         ["READY", "—", gt("Initial connection established, provides session_id and user")],
