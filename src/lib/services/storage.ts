@@ -23,7 +23,8 @@ export type UploadCategory =
   | 'server-banners' 
   | 'emojis'
   | 'stickers'
-  | 'audio';
+  | 'audio'
+  | 'app-icons';
 
 interface UploadResult {
   url: string;
@@ -75,6 +76,7 @@ function getMaxSize(category: UploadCategory): number {
     emojis: 256 * 1024, // 256KB
     stickers: 512 * 1024, // 512KB
     audio: 20 * 1024 * 1024, // 20MB
+    'app-icons': config.MAX_AVATAR_SIZE,
   };
 
   return categorySizes[category] ?? config.MAX_FILE_SIZE;

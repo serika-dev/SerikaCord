@@ -110,7 +110,18 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   const apps = await Application.find({ ownerId: user.id });
   apps.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  return { applications: apps.map(sanitizeApp) };
+
+  // Batch-fetch bot avatars for apps that have a bot user
+  const botIds = apps.map((a: any) => a.botId).filter(Boolean) as string[];
+  const botUsers = botIds.length > 0 ? await User.find({ id: { in: botIds } }) : [];
+  const botAvatarMap = new Map(botUsers.map((u: any) => [u.id, { avatar: u.avatar, username: u.username }]));
+
+  const enriched = apps.map((a: any) => {
+    const sanitized = sanitizeApp(a);
+    const botInfo = a.botId ? botAvatarMap.get(a.botId) : null;
+    return { ...sanitized, botAvatar: botInfo?.avatar ?? null, botUsername: botInfo?.username ?? null };
+  });
+  return { applications: enriched };
 })
 
 // Create application
@@ -178,7 +189,14 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const webhookCount = webhooks.length;
 
   const sanitized = sanitizeApp(app);
-  return { application: { ...sanitized, emojiCount, webhookCount } };
+  let botAvatar: string | null = null;
+  let botUsername: string | null = null;
+  if (app.botId) {
+    const botUser = await User.findById(app.botId);
+    botAvatar = botUser?.avatar ?? null;
+    botUsername = botUser?.username ?? null;
+  }
+  return { application: { ...sanitized, emojiCount, webhookCount, botAvatar, botUsername } };
 })
 
 // Update application
@@ -1084,9 +1102,48 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   }
 }, {
   body: t.Object({ file: t.File() }),
-});
+})
 
-// ─── OAuth2 Router ─────────────────────────────────────────
+// Upload application icon.
+.post('/applications/:id/icon', async ({ headers, cookie, params, body, request, set }) => {
+  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+
+  const app = await Application.findById(params.id);
+  if (!app) { set.status = 404; return { error: 'Application not found' }; }
+  if (app.ownerId !== user.id) { set.status = 403; return { error: 'Only the owner can edit the application' }; }
+
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit('upload', `${user.id}:${ip}`);
+  if (!rateLimit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter }; }
+
+  const { file } = body as { file?: File };
+  if (!file) { set.status = 400; return { error: 'No file provided' }; }
+  if (!VALID_IMAGE_TYPES.has(file.type)) {
+    set.status = 400;
+    return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+  }
+  if (file.size > config.MAX_AVATAR_SIZE) {
+    set.status = 400;
+    return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
+  }
+
+  try {
+    if (app.icon && app.icon.includes(config.B2_BUCKET_NAME)) {
+      try { await storage.deleteByUrl(app.icon); } catch { /* best-effort cleanup */ }
+    }
+    const result = await storage.uploadFromFormData(file, 'app-icons', { userId: user.id });
+    await Application.updateById(app.id, { icon: result.url });
+    return { success: true, url: result.url };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to upload icon';
+    console.error('App icon upload error:', error);
+    set.status = 500;
+    return { error: message };
+  }
+}, {
+  body: t.Object({ file: t.File() }),
+})
 
 export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
   .post('/token', async ({ body, set }) => {

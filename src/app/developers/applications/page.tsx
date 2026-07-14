@@ -15,6 +15,8 @@ interface App {
   icon?: string;
   botPublic?: boolean;
   botId?: string;
+  botAvatar?: string | null;
+  botUsername?: string | null;
   createdAt: string;
   serverCount?: number;
   verified?: boolean;
@@ -184,6 +186,8 @@ export default function ApplicationsPage() {
                     <div className="size-12 rounded-2xl bg-gradient-to-tr from-[#8B5CF6]/10 to-[#6366f1]/10 border border-white/[0.08] flex items-center justify-center shrink-0 overflow-hidden shadow-md">
                       {app.icon ? (
                         <img src={app.icon} alt="" className="size-full object-cover" />
+                      ) : app.botAvatar ? (
+                        <img src={app.botAvatar} alt="" className="size-full object-cover" />
                       ) : (
                         <img 
                           src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name)}`} 

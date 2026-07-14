@@ -33,6 +33,8 @@ export interface ApplicationData {
   gatewayIntents?: number;
   interactionsEndpointUrl?: string | null;
   publicKey?: string | null;
+  botAvatar?: string | null;
+  botUsername?: string | null;
 }
 
 export function useApplication(appId: string) {

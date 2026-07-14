@@ -48,9 +48,27 @@ export async function ensureBotProvisioned(app: IApplication) {
   if (!app.botId) {
     const base = (app.name || 'bot').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24) || 'bot';
     let username = base.length >= 3 ? base : `${base}bot`;
-    const existing = await User.findOne({ username });
-    if (existing) {
-      username = `${base}${app.clientId.slice(-6)}`.slice(0, 32);
+    // Ensure username uniqueness — keep trying with longer suffixes until we find a free one
+    let suffix = '';
+    let usedRandom = false;
+    for (;;) {
+      const candidate = `${base}${suffix}`.slice(0, 32);
+      const existing = await User.findOne({ username: candidate });
+      if (!existing) {
+        username = candidate;
+        break;
+      }
+      if (usedRandom) {
+        // Already tried random once — generate another random suffix
+        suffix = crypto.randomBytes(3).toString('hex');
+        continue;
+      }
+      suffix = app.clientId.slice(-6 - suffix.length);
+      if (suffix.length === 0) {
+        // Exhausted clientId digits — fall back to random
+        usedRandom = true;
+        suffix = crypto.randomBytes(3).toString('hex');
+      }
     }
     const defaultAvatar = app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name || username)}`;
     const botUser = await User.create({

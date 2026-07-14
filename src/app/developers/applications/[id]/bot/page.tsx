@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
-import { Copy, Check,  RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon, Upload } from "lucide-react";
+import { Copy, Check, RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon, Upload, KeyRound, Settings, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -244,23 +244,27 @@ export default function BotPage() {
   const hasBot = !!token || !!app?.botToken;
 
   return (
-    <div>
-      <h1 className="text-xl font-bold mb-6">{gt("Bot")}</h1>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <div>
+        <h1 className="text-xl font-bold">{gt("Bot")}</h1>
+        <p className="text-xs text-[#888] mt-1">{gt("Manage your bot user, token, gateway intents, and interactions endpoint.")}</p>
+      </div>
 
       {/* Enable Bot */}
       {!hasBot && (
-        <div className="mb-8 rounded-xl border border-white/[0.08] bg-white/[0.02] p-6 text-center">
-          <div className="size-14 rounded-2xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 flex items-center justify-center mx-auto mb-3">
-            <BotIcon className="size-7 text-[#8B5CF6]" />
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-8 text-center">
+          <div className="size-16 rounded-2xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 border border-white/[0.08] flex items-center justify-center mx-auto mb-4 shadow-[0_0_20px_rgba(139,92,246,0.1)]">
+            <BotIcon className="size-8 text-[#8B5CF6]" />
           </div>
-          <h3 className="text-sm font-semibold mb-1">{gt("No bot user yet")}</h3>
-          <p className="text-sm text-[#777] mb-4 max-w-sm mx-auto">
+          <h3 className="text-sm font-semibold mb-1.5">{gt("No bot user yet")}</h3>
+          <p className="text-sm text-[#777] mb-5 max-w-sm mx-auto leading-relaxed">
             {gt("Enable a bot user for this application to get a bot token and connect to the SerikaCord gateway.")}
           </p>
           <button
             onClick={handleEnableBot}
             disabled={enabling}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] hover:from-[#7C3AED] hover:to-[#6D28D9] disabled:opacity-40 text-white text-sm font-semibold rounded-xl shadow-[0_0_20px_rgba(139,92,246,0.2)] transition-all hover:scale-[1.01] active:scale-[0.99]"
           >
             {enabling ? <Loader size={24} className="size-4" /> : <BotIcon className="size-4" />}
             {gt("Enable Bot")}
@@ -268,56 +272,64 @@ export default function BotPage() {
         </div>
       )}
 
-      {/* Bot Token */}
+      {/* Bot Token Card */}
       {hasBot && (
-        <div className="mb-8">
-          <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-2">
-            {gt("Token")}
-          </label>
-          <p className="text-xs text-[#666] mb-3">
-            {gt("Keep your token secret. Do not commit it to public repositories.")}
-          </p>
-          <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
-            <code className="text-sm text-[#ccc] flex-1 truncate font-mono">
-              {token ? (showToken ? token : "••••••••••••••••••••••••••") : gt("No token set")}
-            </code>
-            {token && (
-              <>
-                <button
-                  onClick={() => setShowToken(!showToken)}
-                  className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
-                >
-                  {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-                <button
-                  onClick={copyToken}
-                  className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
-                >
-                  {copied ? <Check className="size-4 text-green-400" /> : <Copy className="size-4" />}
-                </button>
-              </>
-            )}
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="p-5 border-b border-white/[0.04]">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <KeyRound className="size-4 text-[#8B5CF6]" />
+              {gt("Token")}
+            </h2>
+            <p className="text-[11px] text-[#666] mt-1">{gt("Keep your token secret. Do not commit it to public repositories.")}</p>
           </div>
-          <button
-            onClick={handleResetToken}
-            disabled={resetting}
-            className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors"
-          >
-            {resetting ? <Loader size={24} className="size-4" /> : <RefreshCw className="size-4" />}
-            {gt("Reset Token")}
-          </button>
+          <div className="p-5">
+            <div className="flex items-center gap-2 bg-[#111] border border-white/[0.08] rounded-lg px-4 py-2.5">
+              <code className="text-sm text-[#ccc] flex-1 truncate font-mono">
+                {token ? (showToken ? token : "••••••••••••••••••••••••••") : gt("No token set")}
+              </code>
+              {token && (
+                <>
+                  <button
+                    onClick={() => setShowToken(!showToken)}
+                    className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
+                  >
+                    {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </button>
+                  <button
+                    onClick={copyToken}
+                    className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
+                  >
+                    {copied ? <Check className="size-4 text-green-400" /> : <Copy className="size-4" />}
+                  </button>
+                </>
+              )}
+            </div>
+            <button
+              onClick={handleResetToken}
+              disabled={resetting}
+              className="mt-3 flex items-center gap-2 px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 text-sm font-medium rounded-lg transition-colors"
+            >
+              {resetting ? <Loader size={24} className="size-4" /> : <RefreshCw className="size-4" />}
+              {gt("Reset Token")}
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Bot Profile */}
+      {/* Bot Profile Card */}
       {hasBot && hasBotUser && (
-        <div className="mb-8">
-          <h3 className="text-sm font-semibold mb-1">{gt("Bot Profile")}</h3>
-          <p className="text-xs text-[#666] mb-4">
-            {gt("Customize how your bot appears across SerikaCord — its username, display name, avatar, and banner.")}
-          </p>
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="p-5 border-b border-white/[0.04]">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <BotIcon className="size-4 text-[#8B5CF6]" />
+              {gt("Bot Profile")}
+            </h2>
+            <p className="text-[11px] text-[#666] mt-1">
+              {gt("Customize how your bot appears across SerikaCord — its username, display name, avatar, and banner.")}
+            </p>
+          </div>
 
-          <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+          <div className="overflow-hidden">
             {/* Banner + avatar */}
             <div className="relative">
               <button
@@ -342,7 +354,7 @@ export default function BotPage() {
               <button
                 type="button"
                 onClick={() => avatarInputRef.current?.click()}
-                className="group absolute -bottom-8 left-4 size-16 rounded-full border-4 border-[#141414] bg-[#1a1a1a] overflow-hidden"
+                className="group absolute -bottom-8 left-5 size-16 rounded-full border-4 border-[#0d0d0d] bg-[#1a1a1a] overflow-hidden"
                 aria-label={gt("Upload avatar")}
               >
                 {botAvatar
@@ -362,10 +374,10 @@ export default function BotPage() {
             </div>
 
             {/* Fields */}
-            <div className="pt-11 px-4 pb-4 space-y-4">
+            <div className="pt-11 px-5 pb-5 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-[#888] uppercase tracking-wide mb-1.5">{gt("Username")}</label>
-                <div className="flex items-center bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-3 focus-within:border-[#8B5CF6]/50">
+                <div className="flex items-center bg-[#111] border border-white/[0.08] rounded-lg px-3 focus-within:border-[#8B5CF6]/50 transition-colors">
                   <span className="text-sm text-[#666]">@</span>
                   <input
                     type="text"
@@ -386,7 +398,7 @@ export default function BotPage() {
                   onChange={(e) => setBotDisplayName(e.target.value)}
                   placeholder={gt("My Bot")}
                   maxLength={32}
-                  className="w-full bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-[#ccc] outline-none focus:border-[#8B5CF6]/50"
+                  className="w-full bg-[#111] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-[#ccc] outline-none focus:border-[#8B5CF6]/50 transition-colors"
                 />
               </div>
               <button
@@ -402,145 +414,171 @@ export default function BotPage() {
         </div>
       )}
 
-      {/* Bot Settings */}
-      <div className="space-y-4 mb-8">
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-semibold">{gt("Public Bot")}</h3>
-              <p className="text-xs text-[#888] mt-1">
-                {gt("Allow others to invite your bot to their servers via OAuth2.")}
-              </p>
-            </div>
-            <button
-              onClick={() => handleTogglePublic(!botPublic)}
-              disabled={saving}
-              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-                botPublic ? "bg-[#8B5CF6]" : "bg-[#333]"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
-                  botPublic ? "translate-x-5" : ""
-                }`}
-              />
-            </button>
-          </div>
+      {/* Bot Settings Card */}
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+        <div className="p-5 border-b border-white/[0.04]">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Settings className="size-4 text-[#8B5CF6]" />
+            {gt("Settings")}
+          </h2>
         </div>
-
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h3 className="text-sm font-semibold">{gt("Require OAuth2 Code Grant")}</h3>
-              <p className="text-xs text-[#888] mt-1">
-                {gt("Requires users to complete the OAuth2 code grant flow when adding your bot.")}
-              </p>
-            </div>
-            <button
-              onClick={() => handleToggleCodeGrant(!botRequireCodeGrant)}
-              disabled={saving}
-              className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-                botRequireCodeGrant ? "bg-[#8B5CF6]" : "bg-[#333]"
-              }`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
-                  botRequireCodeGrant ? "translate-x-5" : ""
+        <div className="divide-y divide-white/[0.04]">
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold">{gt("Public Bot")}</h3>
+                <p className="text-xs text-[#888] mt-1">
+                  {gt("Allow others to invite your bot to their servers via OAuth2.")}
+                </p>
+              </div>
+              <button
+                onClick={() => handleTogglePublic(!botPublic)}
+                disabled={saving}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                  botPublic ? "bg-[#8B5CF6]" : "bg-[#333]"
                 }`}
-              />
-            </button>
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
+                    botPublic ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold">{gt("Require OAuth2 Code Grant")}</h3>
+                <p className="text-xs text-[#888] mt-1">
+                  {gt("Requires users to complete the OAuth2 code grant flow when adding your bot.")}
+                </p>
+              </div>
+              <button
+                onClick={() => handleToggleCodeGrant(!botRequireCodeGrant)}
+                disabled={saving}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                  botRequireCodeGrant ? "bg-[#8B5CF6]" : "bg-[#333]"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
+                    botRequireCodeGrant ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Privileged Gateway Intents */}
-      <div className="mb-8">
-        <h3 className="text-sm font-semibold mb-3">{gt("Privileged Gateway Intents")}</h3>
-        <p className="text-xs text-[#666] mb-3">
-          {gt("Some intents require verification if your bot is in 100+ servers.")}
-        </p>
-        <div className="space-y-3">
+      {/* Privileged Gateway Intents Card */}
+      <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+        <div className="p-5 border-b border-white/[0.04]">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Zap className="size-4 text-[#8B5CF6]" />
+            {gt("Privileged Gateway Intents")}
+          </h2>
+          <p className="text-[11px] text-[#666] mt-1">
+            {gt("Some intents require verification if your bot is in 100+ servers.")}
+          </p>
+        </div>
+        <div className="divide-y divide-white/[0.04]">
           {INTENTS.map((intent) => {
             const enabled = (intents & intent.bit) === intent.bit;
             return (
-              <div
-                key={intent.name}
-                className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.08] bg-white/[0.02] p-4"
-              >
-                <div>
-                  <h4 className="text-sm font-semibold">{intentLabel(intent.bit, gt).name}</h4>
-                  <p className="text-xs text-[#888] mt-1">{intentLabel(intent.bit, gt).desc}</p>
-                  {app?.verified === false && (app?.serverCount || 0) >= 100 && (
-                    <p className="text-xs text-yellow-500 mt-2 flex items-center gap-1">
-                      <AlertTriangle className="size-3" /> {gt("Requires verification for bots in 100+ servers.")}
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleToggleIntent(intent.bit, enabled)}
-                  disabled={saving}
-                  className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
-                    enabled ? "bg-[#8B5CF6]" : "bg-[#333]"
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
-                      enabled ? "translate-x-5" : ""
+              <div key={intent.name} className="p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h4 className="text-sm font-semibold">{intentLabel(intent.bit, gt).name}</h4>
+                    <p className="text-xs text-[#888] mt-1">{intentLabel(intent.bit, gt).desc}</p>
+                    {app?.verified === false && (app?.serverCount || 0) >= 100 && (
+                      <p className="text-xs text-yellow-500 mt-2 flex items-center gap-1">
+                        <AlertTriangle className="size-3" /> {gt("Requires verification for bots in 100+ servers.")}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleToggleIntent(intent.bit, enabled)}
+                    disabled={saving}
+                    className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                      enabled ? "bg-[#8B5CF6]" : "bg-[#333]"
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
+                        enabled ? "translate-x-5" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Public Key */}
+      {/* Public Key Card */}
       {hasBot && app?.publicKey && (
-        <div className="mb-8">
-          <h3 className="text-sm font-semibold mb-2">{gt("Public Key")}</h3>
-          <p className="text-xs text-[#666] mb-3">
-            {gt("Used to verify the signatures on interaction requests we send to your endpoint.")}
-          </p>
-          <div className="flex items-center gap-2 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5">
-            <code className="text-sm text-[#ccc] flex-1 truncate font-mono">{app.publicKey}</code>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(app.publicKey!);
-                setCopiedKey(true);
-                setTimeout(() => setCopiedKey(false), 2000);
-              }}
-              className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
-            >
-              {copiedKey ? <Check className="size-4 text-green-400" /> : <Copy className="size-4" />}
-            </button>
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="p-5 border-b border-white/[0.04]">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <KeyRound className="size-4 text-[#8B5CF6]" />
+              {gt("Public Key")}
+            </h2>
+            <p className="text-[11px] text-[#666] mt-1">
+              {gt("Used to verify the signatures on interaction requests we send to your endpoint.")}
+            </p>
+          </div>
+          <div className="p-5">
+            <div className="flex items-center gap-2 bg-[#111] border border-white/[0.08] rounded-lg px-4 py-2.5">
+              <code className="text-sm text-[#ccc] flex-1 truncate font-mono">{app.publicKey}</code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(app.publicKey!);
+                  setCopiedKey(true);
+                  setTimeout(() => setCopiedKey(false), 2000);
+                }}
+                className="p-1.5 rounded hover:bg-white/10 text-[#888] hover:text-white transition-colors"
+              >
+                {copiedKey ? <Check className="size-4 text-green-400" /> : <Copy className="size-4" />}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Interactions Endpoint URL */}
+      {/* Interactions Endpoint Card */}
       {hasBot && (
-        <div className="mb-8">
-          <h3 className="text-sm font-semibold mb-2">{gt("Interactions Endpoint URL")}</h3>
-          <p className="text-xs text-[#666] mb-3">
-            {gt("Optional. If set, we POST interaction (slash command) events here with an Ed25519 signature instead of only delivering them over the gateway. We verify the URL with a PING before saving.")}
-          </p>
-          <div className="flex items-center gap-2">
-            <input
-              type="url"
-              value={interactionsUrl}
-              onChange={(e) => setInteractionsUrl(e.target.value)}
-              placeholder="https://example.com/interactions"
-              className="flex-1 bg-[#1a1a1a] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-[#ccc] font-mono outline-none focus:border-[#8B5CF6]/50"
-            />
-            <button
-              onClick={handleSaveInteractions}
-              disabled={savingInteractions}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
-            >
-              {savingInteractions ? <Loader size={24} className="size-4" /> : null}
-              {gt("Save")}
-            </button>
+        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <div className="p-5 border-b border-white/[0.04]">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <Zap className="size-4 text-[#8B5CF6]" />
+              {gt("Interactions Endpoint URL")}
+            </h2>
+            <p className="text-[11px] text-[#666] mt-1">
+              {gt("Optional. If set, we POST interaction (slash command) events here with an Ed25519 signature instead of only delivering them over the gateway. We verify the URL with a PING before saving.")}
+            </p>
+          </div>
+          <div className="p-5">
+            <div className="flex items-center gap-2">
+              <input
+                type="url"
+                value={interactionsUrl}
+                onChange={(e) => setInteractionsUrl(e.target.value)}
+                placeholder="https://example.com/interactions"
+                className="flex-1 bg-[#111] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-[#ccc] font-mono outline-none focus:border-[#8B5CF6]/50 transition-colors"
+              />
+              <button
+                onClick={handleSaveInteractions}
+                disabled={savingInteractions}
+                className="flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors shrink-0"
+              >
+                {savingInteractions ? <Loader size={24} className="size-4" /> : null}
+                {gt("Save")}
+              </button>
+            </div>
           </div>
         </div>
       )}
