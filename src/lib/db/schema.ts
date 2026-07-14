@@ -39,7 +39,7 @@ const adminActionTypeEnum = pgEnum('admin_action_type', [
   'revoke_partner', 'toggle_discovery', 'transfer_ownership', 'update_settings',
   'broadcast_announcement', 'resolve_report', 'dismiss_report', 'delete_message',
   'impersonate_user', 'create_experiment', 'update_experiment', 'delete_experiment',
-  'approve_instance', 'revoke_instance',
+  'approve_instance', 'revoke_instance', 'timeout_member',
 ]);
 const adminTargetTypeEnum = pgEnum('admin_target_type', ['user', 'server', 'message', 'platform']);
 const connectionProviderEnum = pgEnum('connection_provider', [

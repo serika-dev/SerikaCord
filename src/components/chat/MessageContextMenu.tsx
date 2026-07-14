@@ -10,6 +10,8 @@ interface MessageContextMenuProps<M extends ChatMessage> {
   isOwn: (message: M) => boolean;
   /** Owner / MANAGE_MESSAGES — can delete other people's messages. */
   canModerate?: boolean;
+  /** Owner / MANAGE_MESSAGES / PIN_MESSAGES — can pin or unpin messages. */
+  canPin?: boolean;
   onClose: () => void;
   onReply: (message: M) => void;
   onAddReaction?: (message: M) => void;
@@ -27,6 +29,7 @@ export function MessageContextMenu<M extends ChatMessage>({
   menu,
   isOwn,
   canModerate = false,
+  canPin = false,
   onClose,
   onReply,
   onAddReaction,
@@ -90,10 +93,14 @@ export function MessageContextMenu<M extends ChatMessage>({
       <button onClick={run(() => onCopy(message.content))} className={itemClass}>
         <Copy className="w-4 h-4" /> {gt("Copy Text")}
       </button>
-      <div className="h-px bg-[var(--border-subtle)] my-1" />
-      <button onClick={run(() => onPinToggle(message))} className={itemClass}>
-        <Pin className="w-4 h-4" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
-      </button>
+      {canPin && (
+        <>
+          <div className="h-px bg-[var(--border-subtle)] my-1" />
+          <button onClick={run(() => onPinToggle(message))} className={itemClass}>
+            <Pin className="w-4 h-4" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
+          </button>
+        </>
+      )}
       {(own || canDelete) && (
         <div className="h-px bg-[var(--border-subtle)] my-1" />
       )}

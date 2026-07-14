@@ -63,6 +63,9 @@ export const rateLimiters_config = {
   
   // Friend requests
   friendRequest: { points: 20, duration: 86400 }, // 20 friend requests per day
+
+  // Admin API (stricter)
+  admin: { points: 60, duration: 60 }, // 60 admin requests per minute
 } as const;
 
 export async function checkRateLimit(

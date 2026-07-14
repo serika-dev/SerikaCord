@@ -18,6 +18,7 @@ const PERM_ADMINISTRATOR = 1n << 3n;
 const PERM_MANAGE_MESSAGES = 1n << 13n;
 const PERM_VIEW_CHANNEL = 1n << 10n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
+const PERM_PIN_MESSAGES = 1n << 51n;
 
 /**
  * Whether a user can moderate messages in a server — i.e. delete other people's
@@ -45,6 +46,34 @@ async function canManageMessagesInServer(
   for (const [, perms] of rolePerms) {
     if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
     if ((perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a user can pin/unpin messages in a server — true for the server owner
+ * or anyone whose roles grant PIN_MESSAGES, MANAGE_MESSAGES, or ADMINISTRATOR.
+ */
+async function canPinMessagesInServer(
+  serverId: string | null | undefined,
+  userId: string,
+  membership?: { roles?: string[] | null } | null,
+): Promise<boolean> {
+  if (!serverId) return false;
+  const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
+  const [server, member] = await Promise.all([
+    cachedOwner ? null : Server.findById(serverId),
+    membership ?? ServerMember.findOne({ serverId, userId }),
+  ]);
+  const serverOwnerId = cachedOwner || server?.ownerId;
+  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
+  const roleIds = (member?.roles || []) as string[];
+  if (roleIds.length === 0) return false;
+  const rolePerms = await getRolePermissions(roleIds, serverId);
+  for (const [, perms] of rolePerms) {
+    if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
+    if ((perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES) return true;
+    if ((perms & PERM_PIN_MESSAGES) === PERM_PIN_MESSAGES) return true;
   }
   return false;
 }
@@ -661,6 +690,32 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     return { channel };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+    }),
+  })
+  // List application (bot) slash commands available in this channel, grouped by
+  // application, for the composer command palette.
+  .get('/:channelId/application-commands', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const { getChannelAppCommands } = await import('@/lib/services/appCommands');
+    const groups = await getChannelAppCommands({
+      serverId: channel.serverId ?? null,
+      recipientIds: channel.recipientIds ?? null,
+    });
+    return { groups };
   }, {
     params: t.Object({
       channelId: t.String(),
@@ -1399,6 +1454,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
 
+    // Enforce timeout (communication disabled) on server channels
+    if (channel.serverId && membership) {
+      const disabledUntil = (membership as any).communicationDisabledUntil;
+      if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
+        set.status = 403;
+        return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
+      }
+    }
+
     if (channel.type === 'public_thread' || channel.type === 'private_thread') {
       const threadMembers = Array.isArray(channel.threadMemberIds) ? (channel.threadMemberIds as string[]) : [];
       if (!threadMembers.includes(user.id)) {
@@ -1820,6 +1884,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Message not found' };
     }
 
+    // DMs (no serverId): both participants can pin. Server channels: require
+    // PIN_MESSAGES, MANAGE_MESSAGES, ADMINISTRATOR, or ownership.
+    if (channel.serverId) {
+      const canPin = await canPinMessagesInServer(channel.serverId, user.id);
+      if (!canPin) {
+        set.status = 403;
+        return { error: 'Missing Permissions' };
+      }
+    }
+
     await Message.updateById(message.id, { pinned: true });
 
     publishToChannel(params.channelId, {
@@ -1873,6 +1947,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!message) {
       set.status = 404;
       return { error: 'Message not found' };
+    }
+
+    // DMs (no serverId): both participants can unpin. Server channels: require
+    // PIN_MESSAGES, MANAGE_MESSAGES, ADMINISTRATOR, or ownership.
+    if (channel.serverId) {
+      const canPin = await canPinMessagesInServer(channel.serverId, user.id);
+      if (!canPin) {
+        set.status = 403;
+        return { error: 'Missing Permissions' };
+      }
     }
 
     await Message.updateById(message.id, { pinned: false });

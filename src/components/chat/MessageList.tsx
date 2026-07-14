@@ -55,6 +55,8 @@ interface MessageListProps<M extends ChatMessage> {
   currentUserId?: string;
   /** Owner / MANAGE_MESSAGES — can delete other people's messages. */
   canModerate?: boolean;
+  /** Owner / MANAGE_MESSAGES / PIN_MESSAGES — can pin or unpin messages. */
+  canPin?: boolean;
   serverId?: string;
   serverName?: string;
   swipeEnabled?: boolean;
@@ -86,6 +88,7 @@ function MessageListInner<M extends ChatMessage>(
     actions,
     currentUserId,
     canModerate = false,
+    canPin = false,
     serverId,
     serverName,
     swipeEnabled = false,
@@ -350,6 +353,7 @@ function MessageListInner<M extends ChatMessage>(
                   group={group}
                   currentUserId={currentUserId}
                   canModerate={canModerate}
+                  canPin={canPin}
                   serverId={serverId}
                   serverName={serverName}
                   swipeEnabled={swipeEnabled}

@@ -30,6 +30,34 @@ function compareIds(id1: string, id2: string): boolean {
   return id1 === id2;
 }
 
+// Permission bits (mirrors @/lib/permissions/bits).
+const BOT_PERM_ADMINISTRATOR = 1n << 3n;
+const BOT_PERM_MANAGE_MESSAGES = 1n << 13n;
+const BOT_PERM_PIN_MESSAGES = 1n << 51n;
+
+/**
+ * Resolve a bot's effective permission bitfield within a server by OR-ing the
+ * permissions of every role on its member record. Server owner gets everything.
+ */
+async function getBotServerPermissions(serverId: string | null | undefined, botId: string): Promise<bigint> {
+  if (!serverId) return 0n;
+  const server = await Server.findById(serverId);
+  if (server && compareIds(server.ownerId, botId)) return ~0n;
+  const member = await ServerMember.findOne({ serverId, userId: botId });
+  const roleIds = (member?.roles || []) as string[];
+  if (roleIds.length === 0) return 0n;
+  const roles = await Role.find({ id: { in: roleIds }, serverId });
+  let bitfield = 0n;
+  for (const role of roles) bitfield |= BigInt((role as any).permissions || '0');
+  return bitfield;
+}
+
+/** True if `bitfield` grants `permission` (ADMINISTRATOR implies all). */
+function botHasPermission(bitfield: bigint, permission: bigint): boolean {
+  if ((bitfield & BOT_PERM_ADMINISTRATOR) === BOT_PERM_ADMINISTRATOR) return true;
+  return (bitfield & permission) === permission;
+}
+
 // ─── Discord-compatible response formatters ────────────────
 
 function formatUser(user: any) {
@@ -524,7 +552,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   // Author or manage messages permission
   const isAuthor = compareIds(msg.authorId, auth.botUser.id);
   if (!isAuthor) {
-    // TODO: check MANAGE_MESSAGES permission via server member roles
+    const channel = await Channel.findById(params.channelId);
+    const perms = await getBotServerPermissions(channel?.serverId, auth.botUser.id);
+    if (!botHasPermission(perms, BOT_PERM_MANAGE_MESSAGES)) {
+      set.status = 403; return { code: 50013, message: 'Missing Permissions' };
+    }
   }
 
   await Message.deleteById(params.messageId);
@@ -540,10 +572,74 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 400; return { code: 50016, message: 'Invalid number of messages (2-100)' };
   }
 
+  // Bulk delete always requires MANAGE_MESSAGES.
+  const bulkChannel = await Channel.findById(params.channelId);
+  const bulkPerms = await getBotServerPermissions(bulkChannel?.serverId, auth.botUser.id);
+  if (!botHasPermission(bulkPerms, BOT_PERM_MANAGE_MESSAGES)) {
+    set.status = 403; return { code: 50013, message: 'Missing Permissions' };
+  }
+
   for (const id of messages) {
     await Message.deleteById(id);
   }
   return { deleted_messages: messages };
+})
+
+// ─── Pins ──────────────────────────────────────────────────
+.get('/channels/:channelId/pins', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+
+  const pinned = await Message.find({ channelId: params.channelId, pinned: true, isDeleted: false });
+  const formatted = await Promise.all((pinned as any[]).map(async (msg) => {
+    const author = msg.authorId ? await User.findById(msg.authorId) : null;
+    return formatMessage({ ...msg, authorId: author || msg.authorId });
+  }));
+  return formatted;
+})
+.put('/channels/:channelId/pins/:messageId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+
+  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await Message.findById(params.messageId);
+  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+
+  const channel = await Channel.findById(params.channelId);
+  const perms = await getBotServerPermissions(channel?.serverId, auth.botUser.id);
+  if (!botHasPermission(perms, BOT_PERM_PIN_MESSAGES) && !botHasPermission(perms, BOT_PERM_MANAGE_MESSAGES)) {
+    set.status = 403; return { code: 50013, message: 'Missing Permissions' };
+  }
+
+  await Message.updateById(params.messageId, { pinned: true });
+  try {
+    const { publishToChannel } = await import('@/lib/api/channels');
+    publishToChannel(params.channelId, { type: 'pin_update', messageId: params.messageId, pinned: true, updatedBy: auth.botUser.id });
+  } catch {}
+  set.status = 204;
+  return '';
+})
+.delete('/channels/:channelId/pins/:messageId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+
+  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await Message.findById(params.messageId);
+  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+
+  const channel = await Channel.findById(params.channelId);
+  const perms = await getBotServerPermissions(channel?.serverId, auth.botUser.id);
+  if (!botHasPermission(perms, BOT_PERM_PIN_MESSAGES) && !botHasPermission(perms, BOT_PERM_MANAGE_MESSAGES)) {
+    set.status = 403; return { code: 50013, message: 'Missing Permissions' };
+  }
+
+  await Message.updateById(params.messageId, { pinned: false });
+  try {
+    const { publishToChannel } = await import('@/lib/api/channels');
+    publishToChannel(params.channelId, { type: 'pin_update', messageId: params.messageId, pinned: false, updatedBy: auth.botUser.id });
+  } catch {}
+  set.status = 204;
+  return '';
 })
 
 // ─── Reactions ─────────────────────────────────────────────
@@ -639,38 +735,6 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
   await Message.updateById(params.messageId, { reactions: [] });
-  set.status = 204;
-  return '';
-})
-
-// ─── Pins ──────────────────────────────────────────────────
-.get('/channels/:channelId/pins', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const messages = await Message.find({ channelId: params.channelId });
-  const pinned = messages.filter((m: any) => m.pinned);
-  const authorIds = [...new Set(pinned.map((m: any) => m.authorId).filter(Boolean))] as string[];
-  const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
-  const authorMap = new Map(authors.map((u: any) => [u.id, u]));
-  return pinned.map((m: any) => formatMessage({ ...m, authorId: authorMap.get(m.authorId) || m.authorId }));
-})
-.put('/channels/:channelId/pins/:messageId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  await Message.updateById(params.messageId, { pinned: true });
-  set.status = 204;
-  return '';
-})
-.delete('/channels/:channelId/pins/:messageId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  await Message.updateById(params.messageId, { pinned: false });
   set.status = 204;
   return '';
 })

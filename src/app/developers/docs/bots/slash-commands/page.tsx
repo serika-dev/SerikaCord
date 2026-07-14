@@ -133,6 +133,26 @@ export default async function SlashCommandsDoc() {
         ["autocomplete", "boolean", gt("Enable autocomplete suggestions (default: false)")],
       ]} />
 
+      <H2 id="choice-extensions">{gt("Rich choices (SerikaCord extension)")}</H2>
+      <P>
+        {gt("On top of the standard")}{" "}<InlineCode>name</InlineCode> {gt("and")}{" "}<InlineCode>value</InlineCode>{" "}
+        {gt("choice fields, SerikaCord lets you attach an optional")}{" "}<InlineCode>description</InlineCode> {gt("and")}{" "}
+        <InlineCode>emoji</InlineCode> {gt("to each choice. The in-app command palette renders these as a rich picker — an emoji, the choice name, and a short description.")}
+      </P>
+      <CodeBlock lang="json">{`{
+  "name": "mode",
+  "description": "Game mode",
+  "type": 3,
+  "choices": [
+    { "name": "Audio", "value": "audio", "emoji": "🎵", "description": "guess from theme song (default)" },
+    { "name": "Video", "value": "video", "emoji": "🎬", "description": "guess from theme video (no audio)" },
+    { "name": "Screenshot", "value": "screenshot", "emoji": "🖼️", "description": "guess from a random frame" }
+  ]
+}`}</CodeBlock>
+      <Callout type="info" title={gt("Graceful fallback")}>
+        {gt("The extra fields are ignored by standard Discord-compatible clients, so your command definition stays portable.")}
+      </Callout>
+
       <H2 id="subcommands">{gt("Subcommands and groups")}</H2>
       <P>
         {gt("Use")}{" "}<InlineCode>SUB_COMMAND</InlineCode> {gt("(type 1) and")}{" "}<InlineCode>SUB_COMMAND_GROUP</InlineCode>{" "}

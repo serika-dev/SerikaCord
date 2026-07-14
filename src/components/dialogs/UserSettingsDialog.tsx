@@ -52,6 +52,14 @@ import {
   Award,
   Megaphone,
   Mic2,
+  ChevronDown,
+  Ban,
+  FileText,
+  Server,
+  Globe,
+  UserCog,
+  AlertTriangle,
+  Zap,
 } from "lucide-react";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
@@ -603,7 +611,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   }>>([]);
   const [adminLogs, setAdminLogs] = useState<Array<{
     id: string;
-    admin: { username: string; displayName?: string; avatar?: string };
+    admin: { id?: string; username: string; displayName?: string; avatar?: string };
     action: string;
     targetType: string;
     targetId: string;
@@ -660,6 +668,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   } | null>(null);
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const [adminLogPage, setAdminLogPage] = useState(1);
+  const [adminLogPagination, setAdminLogPagination] = useState<{ page: number; limit: number; total: number; pages: number } | null>(null);
   const [announcementText, setAnnouncementText] = useState("");
   const [oembedDomainInput, setOembedDomainInput] = useState("");
   const [fileTypeInput, setFileTypeInput] = useState("");
@@ -1067,7 +1078,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           setServerBanner(data.url);
         }
         toast.success(gt("Banner updated!"));
-        await refresh();
+        void refresh();
       } else {
         const data = await response.json();
         toast.error(data.error || gt("Failed to upload banner"));
@@ -1094,6 +1105,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     const formData = new FormData();
     formData.append("file", croppedBlob, `${cropperType}.png`);
 
+    // Optimistically show the cropped image immediately from a local object URL
+    // so the preview updates instantly instead of waiting on the network round
+    // trip + image load. Swapped for the real URL on success, reverted on error.
+    const localUrl = URL.createObjectURL(croppedBlob);
+    const prevAvatar = user?.avatar;
+    const prevBanner = user?.banner;
+    const prevServerAvatar = serverAvatar;
+    const prevServerBanner = serverBanner;
+    if (profileTab === "main") {
+      if (isAvatar) updateUser({ avatar: localUrl });
+      else updateUser({ banner: localUrl });
+    } else {
+      if (isAvatar) setServerAvatar(localUrl);
+      else setServerBanner(localUrl);
+    }
+
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -1115,13 +1142,33 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             setServerBanner(data.url);
           }
         }
+        URL.revokeObjectURL(localUrl);
         toast.success(gt("{type} updated!", { type: isAvatar ? gt("Avatar") : gt("Banner") }));
-        await refresh();
+        // Fire-and-forget: the optimistic + confirmed URL already reflects the
+        // change, so don't block the UI on a full profile refetch.
+        void refresh();
       } else {
+        // Revert the optimistic preview on failure.
+        URL.revokeObjectURL(localUrl);
+        if (profileTab === "main") {
+          if (isAvatar) updateUser({ avatar: prevAvatar });
+          else updateUser({ banner: prevBanner });
+        } else {
+          if (isAvatar) setServerAvatar(prevServerAvatar);
+          else setServerBanner(prevServerBanner);
+        }
         const data = await response.json();
         toast.error(data.error || gt("Failed to upload {type}", { type: cropperType }));
       }
     } catch (error) {
+      URL.revokeObjectURL(localUrl);
+      if (profileTab === "main") {
+        if (isAvatar) updateUser({ avatar: prevAvatar });
+        else updateUser({ banner: prevBanner });
+      } else {
+        if (isAvatar) setServerAvatar(prevServerAvatar);
+        else setServerBanner(prevServerBanner);
+      }
       toast.error(gt("Failed to upload {type}", { type: cropperType }));
     } finally {
       setUploading(false);
@@ -1223,14 +1270,20 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
-  const fetchAdminLogs = async (filter?: string) => {
+  const fetchAdminLogs = async (filter?: string, page?: number) => {
     setIsLoadingAdmin(true);
     try {
-      const url = filter && filter !== "all" ? `/api/admin/logs?type=${filter}` : "/api/admin/logs";
+      const pageNum = page || adminLogPage;
+      const params = new URLSearchParams();
+      if (filter && filter !== "all") params.set("type", filter);
+      params.set("page", String(pageNum));
+      params.set("limit", "50");
+      const url = `/api/admin/logs?${params.toString()}`;
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         setAdminLogs(data.logs);
+        setAdminLogPagination(data.pagination || null);
       }
     } catch (error) {
       console.error("Failed to fetch admin logs:", error);
@@ -1447,8 +1500,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
-  // Load admin data when tabs are activated
+  // Admin section visibility: only admins and developers (NOT moderator/staff)
+  const isStaff = user?.badges?.some((badge: string) =>
+    ['admin', 'serikacord_developer'].includes(badge)
+  );
+
+  // Load admin data when tabs are activated (only for admins/developers)
   useEffect(() => {
+    if (!isStaff) return;
     if (activeTab === "admin-settings" && !platformSettings) {
       fetchPlatformSettings();
       fetchAdminStats();
@@ -1466,7 +1525,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         })
         .catch(() => {});
     }
-  }, [activeTab]);
+  }, [activeTab, isStaff]);
 
   const renderBadges = () => {
     if (!user?.badges || user.badges.length === 0) return null;
@@ -1493,83 +1552,87 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     );
   };
 
+  // Build the (translated) menu once per locale/staff change instead of on
+  // every keystroke — this array runs ~35 gt() lookups, which is a big chunk
+  // of the per-render cost while typing in any settings field.
+  const menuSections = useMemo(() => {
+    const sections = [
+      {
+        title: gt("User Settings"),
+        items: [
+          { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User },
+          { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare },
+          { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock },
+          { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
+          { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
+          { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
+        ],
+      },
+      {
+        title: gt("Billing Settings"),
+        items: [
+          { id: "premium" as SettingsTab, label: gt("Serika+"), icon: Crown },
+        ],
+      },
+      {
+        title: gt("App Settings"),
+        items: [
+          { id: "appearance" as SettingsTab, label: gt("Appearance"), icon: Palette },
+          { id: "accessibility" as SettingsTab, label: gt("Accessibility"), icon: Accessibility },
+          { id: "voice-video" as SettingsTab, label: gt("Voice & Video"), icon: Mic },
+          { id: "text-images" as SettingsTab, label: gt("Text & Images"), icon: Image },
+          { id: "notifications" as SettingsTab, label: gt("Notifications"), icon: Bell },
+          { id: "keybinds" as SettingsTab, label: gt("Keybinds"), icon: Keyboard },
+          { id: "language" as SettingsTab, label: gt("Language"), icon: Languages },
+          { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings },
+        ],
+      },
+    ];
+
+    if (isStaff) {
+      sections.push({
+        title: gt("Admin — Users"),
+        items: [
+          { id: "admin-users" as SettingsTab, label: gt("User Management"), icon: Users },
+          { id: "admin-badges" as SettingsTab, label: gt("Badge Management"), icon: Award },
+        ],
+      });
+      sections.push({
+        title: gt("Admin — Platform"),
+        items: [
+          { id: "admin-servers" as SettingsTab, label: gt("Server Management"), icon: Database },
+          { id: "admin-announcements" as SettingsTab, label: gt("Announcements"), icon: Megaphone },
+          { id: "admin-settings" as SettingsTab, label: gt("Platform Settings"), icon: Settings },
+        ],
+      });
+      sections.push({
+        title: gt("Admin — System"),
+        items: [
+          { id: "admin-logs" as SettingsTab, label: gt("Activity Logs"), icon: Activity },
+          { id: "admin-experiments" as SettingsTab, label: gt("Experiments"), icon: FlaskConical },
+          { id: "admin-tts-sounds" as SettingsTab, label: gt("TTS Sounds"), icon: Volume2 },
+          { id: "admin-tts-voices" as SettingsTab, label: gt("TTS Voices"), icon: Mic2 },
+          { id: "admin-translations" as SettingsTab, label: gt("Translations"), icon: Languages },
+        ],
+      });
+    }
+    return sections;
+  }, [gt, isStaff]);
+
+  // Filter menu items based on search — only recompute when the query or the
+  // (memoized) menu actually changes.
+  const filteredSections = useMemo(() => (
+    searchQuery
+      ? menuSections.map(section => ({
+        ...section,
+        items: section.items.filter(item =>
+          item.label.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+      })).filter(section => section.items.length > 0)
+      : menuSections
+  ), [menuSections, searchQuery]);
+
   if (!open) return null;
-
-  const menuSections = [
-    {
-      title: gt("User Settings"),
-      items: [
-        { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User },
-        { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare },
-        { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock },
-        { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
-        { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
-        { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
-      ],
-    },
-    {
-      title: gt("Billing Settings"),
-      items: [
-        { id: "premium" as SettingsTab, label: gt("Serika+"), icon: Crown },
-      ],
-    },
-    {
-      title: gt("App Settings"),
-      items: [
-        { id: "appearance" as SettingsTab, label: gt("Appearance"), icon: Palette },
-        { id: "accessibility" as SettingsTab, label: gt("Accessibility"), icon: Accessibility },
-        { id: "voice-video" as SettingsTab, label: gt("Voice & Video"), icon: Mic },
-        { id: "text-images" as SettingsTab, label: gt("Text & Images"), icon: Image },
-        { id: "notifications" as SettingsTab, label: gt("Notifications"), icon: Bell },
-        { id: "keybinds" as SettingsTab, label: gt("Keybinds"), icon: Keyboard },
-        { id: "language" as SettingsTab, label: gt("Language"), icon: Languages },
-        { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings },
-      ],
-    },
-  ];
-
-  // Add admin section if user has staff badge
-  const isStaff = user?.badges?.some((badge: string) =>
-    ['staff', 'admin', 'moderator', 'serikacord_developer'].includes(badge)
-  );
-
-  if (isStaff) {
-    menuSections.push({
-      title: gt("Admin — Users"),
-      items: [
-        { id: "admin-users" as SettingsTab, label: gt("User Management"), icon: Users },
-        { id: "admin-badges" as SettingsTab, label: gt("Badge Management"), icon: Award },
-      ],
-    });
-    menuSections.push({
-      title: gt("Admin — Platform"),
-      items: [
-        { id: "admin-servers" as SettingsTab, label: gt("Server Management"), icon: Database },
-        { id: "admin-announcements" as SettingsTab, label: gt("Announcements"), icon: Megaphone },
-        { id: "admin-settings" as SettingsTab, label: gt("Platform Settings"), icon: Settings },
-      ],
-    });
-    menuSections.push({
-      title: gt("Admin — System"),
-      items: [
-        { id: "admin-logs" as SettingsTab, label: gt("Activity Logs"), icon: Activity },
-        { id: "admin-experiments" as SettingsTab, label: gt("Experiments"), icon: FlaskConical },
-        { id: "admin-tts-sounds" as SettingsTab, label: gt("TTS Sounds"), icon: Volume2 },
-        { id: "admin-tts-voices" as SettingsTab, label: gt("TTS Voices"), icon: Mic2 },
-        { id: "admin-translations" as SettingsTab, label: gt("Translations"), icon: Languages },
-      ],
-    });
-  }
-
-  // Filter menu items based on search
-  const filteredSections = searchQuery
-    ? menuSections.map(section => ({
-      ...section,
-      items: section.items.filter(item =>
-        item.label.toLowerCase().includes(searchQuery.toLowerCase())
-      ),
-    })).filter(section => section.items.length > 0)
-    : menuSections;
 
   return (
     <div className="fixed inset-0 z-50 bg-[var(--bg-app)] text-[var(--text-primary)]">
@@ -1697,47 +1760,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
           <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
             <div className={cn("py-6 px-4 md:py-10 md:px-10 mx-auto pb-24", (activeTab.startsWith("admin-") || activeTab === "profiles") ? "max-w-[1100px]" : "max-w-[740px]")}>
-              {/* Admin Logs Tab */}
-              {activeTab === "admin-logs" && (
-                <div>
-                  <div className="flex items-center justify-between mb-6">
-                    <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Activity Logs")}</h2>
-                    <div className="flex gap-2">
-                      {/* Filter Dropdown would go here */}
-                    </div>
-                  </div>
+              {/* Admin Logs Tab — rendered in the admin section below */}
 
-                  <div className="space-y-4">
-                    {adminLogs.map((log) => (
-                      <div key={log.id} className="p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                              {log.action}
-                            </span>
-                            <span className="text-sm text-[var(--text-muted)]">
-                              {gt("by {name}", { name: log.admin.displayName || log.admin.username })}
-                            </span>
-                          </div>
-                          <span className="text-xs text-[var(--text-muted)]">
-                            {new Date(log.createdAt).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="text-sm">
-                          <span className="text-[var(--text-secondary)]">{log.targetType}: </span>
-                          <span className="font-mono text-[var(--text-primary)]">{log.targetId}</span>
-                        </div>
-                        {log.details && (
-                          <pre className="mt-2 p-2 rounded bg-[var(--bg-card)] text-xs overflow-x-auto text-[var(--text-secondary)]">
-                            {JSON.stringify(log.details, null, 2)}
-                          </pre>
-                        )}
-                      </div>
-                    ))}
-                    {isLoadingAdmin && <Loader size={24} className="mx-auto" />}
-                  </div>
-                </div>
-              )}
 
               {/* Profiles Tab */}
               {activeTab === "profiles" && (
@@ -4024,71 +4048,213 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     {gt("Activity Logs")}
                   </h2>
                   <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                    <div className="flex gap-2 mb-4">
-                      <button
-                        onClick={() => { setAdminLogFilter("all"); fetchAdminLogs("all"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "all" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
-                      >
-                        {gt("All")}
-                      </button>
-                      <button
-                        onClick={() => { setAdminLogFilter("bans"); fetchAdminLogs("bans"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "bans" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
-                      >
-                        {gt("Bans")}
-                      </button>
-                      <button
-                        onClick={() => { setAdminLogFilter("reports"); fetchAdminLogs("reports"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "reports" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
-                      >
-                        {gt("Reports")}
-                      </button>
-                      <button
-                        onClick={() => { setAdminLogFilter("admin"); fetchAdminLogs("admin"); }}
-                        className={cn("px-3 py-1.5 rounded text-sm", adminLogFilter === "admin" ? "bg-[#8B5CF6] text-white" : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]")}
-                      >
-                        {gt("Admin Actions")}
-                      </button>
+                    {/* Filter buttons */}
+                    <div className="flex gap-2 mb-4 flex-wrap">
+                      {(["all", "bans", "reports", "admin"] as const).map((f) => (
+                        <button
+                          key={f}
+                          onClick={() => {
+                            setAdminLogFilter(f);
+                            setAdminLogPage(1);
+                            fetchAdminLogs(f, 1);
+                          }}
+                          className={cn(
+                            "px-3 py-1.5 rounded text-sm transition-colors",
+                            adminLogFilter === f
+                              ? "bg-[#8B5CF6] text-white"
+                              : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]"
+                          )}
+                        >
+                          {f === "all" ? gt("All") : f === "bans" ? gt("Bans") : f === "reports" ? gt("Reports") : gt("Admin Actions")}
+                        </button>
+                      ))}
                     </div>
+
+                    {/* Log entries */}
                     <div className="space-y-2">
                       {isLoadingAdmin ? (
                         <div className="flex items-center justify-center py-8">
                           <Loader size={24} />
                         </div>
                       ) : adminLogs.length === 0 ? (
-                        <div className="p-3 bg-[var(--bg-card)] rounded-lg">
+                        <div className="p-4 bg-[var(--bg-card)] rounded-lg text-center">
+                          <FileText className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-2" />
                           <p className="text-white text-sm">{gt("No activity logs yet")}</p>
                           <p className="text-[var(--text-muted)] text-xs mt-1">{gt("Admin actions will appear here")}</p>
                         </div>
                       ) : (
-                        adminLogs.map((log) => (
-                          <div key={log.id} className="p-3 bg-[var(--bg-card)] rounded-lg">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-2">
-                                <Avatar className="w-6 h-6">
-                                  <AvatarImage src={log.admin?.avatar} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
-                                    {log.admin?.displayName?.charAt(0) || log.admin?.username?.charAt(0) || "?"}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="text-white text-sm font-medium">
-                                  {log.admin?.displayName || log.admin?.username}
-                                </span>
-                                <span className="text-[var(--text-muted)] text-sm">
-                                  {log.action.replace(/_/g, " ")}
-                                </span>
-                              </div>
-                              <span className="text-[var(--text-muted)] text-xs">
-                                {new Date(log.createdAt).toLocaleString()}
-                              </span>
+                        adminLogs.map((log) => {
+                          const isExpanded = expandedLogId === log.id;
+                          const actionIcon = (() => {
+                            const a = log.action;
+                            if (a.includes("ban")) return { icon: Ban, color: "#EF4444" };
+                            if (a.includes("report")) return { icon: AlertTriangle, color: "#F59E0B" };
+                            if (a.includes("broadcast") || a.includes("announcement")) return { icon: Megaphone, color: "#3B82F6" };
+                            if (a.includes("partner") || a.includes("discovery")) return { icon: Globe, color: "#10B981" };
+                            if (a.includes("server") || a.includes("transfer")) return { icon: Server, color: "#8B5CF6" };
+                            if (a.includes("badge")) return { icon: Award, color: "#F59E0B" };
+                            if (a.includes("experiment")) return { icon: FlaskConical, color: "#06B6D4" };
+                            if (a.includes("timeout")) return { icon: Clock, color: "#F59E0B" };
+                            if (a.includes("settings") || a.includes("update")) return { icon: Settings, color: "#6B7280" };
+                            return { icon: Zap, color: "#8B5CF6" };
+                          })();
+                          const ActionIcon = actionIcon.icon;
+                          const targetIcon = log.targetType === "user" ? UserCog : log.targetType === "server" ? Server : log.targetType === "message" ? MessageSquare : Globe;
+                          const TargetIcon = targetIcon;
+                          const timeAgo = (() => {
+                            const diff = Date.now() - new Date(log.createdAt).getTime();
+                            const mins = Math.floor(diff / 60000);
+                            const hours = Math.floor(mins / 60);
+                            const days = Math.floor(hours / 24);
+                            if (days > 0) return `${days}d ago`;
+                            if (hours > 0) return `${hours}h ago`;
+                            if (mins > 0) return `${mins}m ago`;
+                            return "just now";
+                          })();
+                          return (
+                            <div
+                              key={log.id}
+                              className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] overflow-hidden transition-all hover:border-[var(--border-strong)]"
+                            >
+                              {/* Header row — clickable to expand */}
+                              <button
+                                onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                                className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-[var(--bg-hover)]/50 transition-colors"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  {/* Action icon */}
+                                  <div
+                                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                    style={{ backgroundColor: `${actionIcon.color}15` }}
+                                  >
+                                    <ActionIcon className="w-4 h-4" style={{ color: actionIcon.color }} />
+                                  </div>
+                                  {/* Admin avatar + name */}
+                                  <Avatar className="w-6 h-6 flex-shrink-0">
+                                    <AvatarImage src={log.admin?.avatar} />
+                                    <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                                      {log.admin?.displayName?.charAt(0) || log.admin?.username?.charAt(0) || "?"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-white text-sm font-medium truncate">
+                                        {log.admin?.displayName || log.admin?.username || "Unknown"}
+                                      </span>
+                                      <span
+                                        className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
+                                        style={{ backgroundColor: `${actionIcon.color}20`, color: actionIcon.color }}
+                                      >
+                                        {log.action.replace(/_/g, " ")}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] mt-0.5">
+                                      <TargetIcon className="w-3 h-3" />
+                                      <span>{log.targetType}</span>
+                                      <span className="font-mono opacity-60">{log.targetId.slice(0, 8)}...</span>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className="text-[var(--text-muted)] text-xs hidden sm:inline">
+                                    {timeAgo}
+                                  </span>
+                                  <ChevronDown
+                                    className={cn(
+                                      "w-4 h-4 text-[var(--text-muted)] transition-transform",
+                                      isExpanded && "rotate-180"
+                                    )}
+                                  />
+                                </div>
+                              </button>
+
+                              {/* Expanded details */}
+                              {isExpanded && (
+                                <div className="px-3 pb-3 pt-1 space-y-2 border-t border-[var(--border-subtle)]">
+                                  {/* Timestamp */}
+                                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] pt-2">
+                                    <Clock className="w-3 h-3" />
+                                    <span>{new Date(log.createdAt).toLocaleString()}</span>
+                                  </div>
+
+                                  {/* Reason */}
+                                  {log.reason && (
+                                    <div className="flex items-start gap-2 text-sm">
+                                      <AlertTriangle className="w-4 h-4 text-[#F59E0B] flex-shrink-0 mt-0.5" />
+                                      <div>
+                                        <span className="text-[var(--text-muted)] text-xs uppercase font-semibold">{gt("Reason")}</span>
+                                        <p className="text-[var(--text-secondary)]">{log.reason}</p>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Target ID full */}
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <TargetIcon className="w-3 h-3 text-[var(--text-muted)]" />
+                                    <span className="text-[var(--text-muted)] uppercase font-semibold">{gt("Target")}:</span>
+                                    <span className="font-mono text-[var(--text-secondary)]">{log.targetId}</span>
+                                  </div>
+
+                                  {/* Admin ID */}
+                                  {log.admin?.id && (
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <UserCog className="w-3 h-3 text-[var(--text-muted)]" />
+                                      <span className="text-[var(--text-muted)] uppercase font-semibold">{gt("Admin ID")}:</span>
+                                      <span className="font-mono text-[var(--text-secondary)]">{log.admin.id}</span>
+                                    </div>
+                                  )}
+
+                                  {/* Details JSON */}
+                                  {log.details && Object.keys(log.details).length > 0 && (
+                                    <div>
+                                      <p className="text-[var(--text-muted)] text-xs uppercase font-semibold mb-1">{gt("Details")}</p>
+                                      <pre className="p-2.5 rounded bg-[var(--bg-app)] text-xs overflow-x-auto text-[var(--text-secondary)] border border-[var(--border-subtle)] max-h-60">
+                                        {JSON.stringify(log.details, null, 2)}
+                                      </pre>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            {log.reason && (
-                              <p className="text-[var(--text-secondary)] text-sm mt-1">{gt("Reason: {reason}", { reason: log.reason })}</p>
-                            )}
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
+
+                    {/* Pagination */}
+                    {adminLogPagination && adminLogPagination.pages > 1 && (
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-[var(--border-subtle)]">
+                        <span className="text-xs text-[var(--text-muted)]">
+                          {gt("Page {page} of {pages}", { page: adminLogPagination.page, pages: adminLogPagination.pages })}
+                          {" · "}
+                          {adminLogPagination.total} {gt("total")}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              const prev = Math.max(1, adminLogPage - 1);
+                              setAdminLogPage(prev);
+                              fetchAdminLogs(adminLogFilter, prev);
+                            }}
+                            disabled={adminLogPage <= 1}
+                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {gt("Previous")}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const next = Math.min(adminLogPagination.pages, adminLogPage + 1);
+                              setAdminLogPage(next);
+                              fetchAdminLogs(adminLogFilter, next);
+                            }}
+                            disabled={adminLogPage >= adminLogPagination.pages}
+                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {gt("Next")}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

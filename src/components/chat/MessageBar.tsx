@@ -35,6 +35,7 @@ import {
   Gavel,
   Gauge,
   Megaphone,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -109,7 +110,7 @@ interface ServerSticker {
 
 interface MentionSuggestion {
   id: string;
-  kind: "user" | "role" | "everyone" | "here" | "emoji" | "unicode-emoji" | "command" | "param-user" | "param-duration" | "param-choice" | "param-hint" | "channel";
+  kind: "user" | "role" | "everyone" | "here" | "emoji" | "unicode-emoji" | "command" | "param-user" | "param-duration" | "param-choice" | "param-hint" | "channel" | "app-command" | "app-option" | "app-choice";
   unicodeChar?: string;
   label: string;
   description?: string;
@@ -123,6 +124,13 @@ interface MentionSuggestion {
   commandName?: string;
   commandHint?: string;
   category?: string;
+  appName?: string;
+  appIcon?: string | null;
+  botId?: string;
+  emoji?: string;
+  fullName?: string;
+  optionType?: number;
+  optionNames?: string[];
 }
 
 interface ReplyTarget {
@@ -576,68 +584,174 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
             {/* Mention suggestions overlay */}
             {mentionSuggestions.length > 0 && (
               <div className="absolute left-2 right-2 bottom-[calc(100%+8px)] z-20 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-alt)] shadow-[var(--app-elev-2)] overflow-hidden max-h-80 overflow-y-auto">
-                {/* Command list with category grouping */}
-                {mentionSuggestions.every(s => s.kind === "command") && (() => {
-                  const grouped = new Map<string, MentionSuggestion[]>();
+                {/* Command list — bot commands grouped by application, then
+                    built-in commands grouped by category (Discord-style). */}
+                {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "command" || s.kind === "app-command") && (() => {
+                  // Preserve first-seen order so the running index matches the
+                  // flat suggestion array used for keyboard navigation.
+                  const groups: { key: string; kind: "app" | "cat"; label: string; icon?: string | null; items: MentionSuggestion[] }[] = [];
+                  const indexOf = new Map<string, number>();
+                  const catMeta: Record<string, { label: string; color: string }> = {
+                    moderation: { label: gt("Moderation"), color: "text-red-400" },
+                    utility: { label: gt("Utility"), color: "text-blue-400" },
+                    fun: { label: gt("Fun"), color: "text-amber-400" },
+                  };
                   for (const s of mentionSuggestions) {
-                    const cat = s.category || "utility";
-                    if (!grouped.has(cat)) grouped.set(cat, []);
-                    grouped.get(cat)!.push(s);
+                    const key = s.kind === "app-command" ? `app:${s.appName}` : `cat:${s.category || "utility"}`;
+                    if (!indexOf.has(key)) {
+                      indexOf.set(key, groups.length);
+                      groups.push({
+                        key,
+                        kind: s.kind === "app-command" ? "app" : "cat",
+                        label: s.kind === "app-command" ? (s.appName || gt("Bot")) : catMeta[s.category || "utility"].label,
+                        icon: s.kind === "app-command" ? s.appIcon : undefined,
+                        items: [],
+                      });
+                    }
+                    groups[indexOf.get(key)!].items.push(s);
                   }
-                  const orderedCats = ["moderation", "utility", "fun"].filter(c => grouped.has(c));
                   let globalIdx = 0;
-                  return orderedCats.map(cat => {
-                    const items = grouped.get(cat)!;
-                    const catIcon = CATEGORY_ICONS[cat];
-                    const catLabel = cat === "moderation" ? gt("Moderation") : cat === "utility" ? gt("Utility") : gt("Fun");
-                    const catColor = cat === "moderation" ? "text-red-400" : cat === "utility" ? "text-blue-400" : "text-amber-400";
-                    return (
-                      <div key={`cat-${cat}`}>
-                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50 sticky top-0 z-10">
-                          <span className={cn("shrink-0", catColor)}>{catIcon}</span>
-                          <span className={cn("text-[10px] font-bold uppercase tracking-wider", catColor)}>{catLabel}</span>
-                          <span className="text-[10px] text-[var(--app-muted)] ml-auto">{items.length}</span>
-                        </div>
-                        {items.map((suggestion) => {
-                          const idx = globalIdx++;
-                          const cmdIcon = COMMAND_ICONS[suggestion.id as keyof typeof COMMAND_ICONS] || <Hash className="w-3.5 h-3.5" />;
-                          return (
-                            <button
-                              key={`${suggestion.kind}-${suggestion.id}`}
-                              type="button"
-                              onMouseDown={(event) => {
-                                event.preventDefault();
-                                onMentionSelect?.(suggestion);
-                              }}
-                              className={cn(
-                                "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                                idx === activeMentionIndex
-                                  ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
-                                  : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
-                              )}
-                            >
-                              <span className="flex items-center justify-center w-7 h-7 shrink-0 rounded-md bg-[#8B5CF6]/15 text-[#a78bfa]">
-                                {cmdIcon}
-                              </span>
-                              <span className="flex flex-col min-w-0 gap-0.5">
-                                <span className="truncate font-mono text-sm text-[#a78bfa]">/{suggestion.label}</span>
-                                <span className="truncate text-xs text-[var(--app-muted)]">{suggestion.description}</span>
-                                {suggestion.commandHint && (
-                                  <span className="truncate text-[10px] text-[var(--app-muted)]/60 italic">{suggestion.commandHint}</span>
-                                )}
-                              </span>
-                              {suggestion.usage && (
-                                <span className="ml-auto text-[10px] font-mono text-[var(--app-muted)]/70 truncate shrink-0 max-w-[140px]">
-                                  {suggestion.usage}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
+                  return groups.map((group) => (
+                    <div key={group.key}>
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50 sticky top-0 z-10">
+                        {group.kind === "app" ? (
+                          group.icon ? (
+                            <img src={group.icon} alt="" className="w-4 h-4 rounded-sm object-cover shrink-0" />
+                          ) : (
+                            <Bot className="w-3.5 h-3.5 text-[#a78bfa] shrink-0" />
+                          )
+                        ) : (
+                          <span className={cn("shrink-0", catMeta[group.key.slice(4)]?.color)}>{CATEGORY_ICONS[group.key.slice(4)]}</span>
+                        )}
+                        <span className={cn("text-[10px] font-bold uppercase tracking-wider truncate", group.kind === "app" ? "text-[#a78bfa]" : catMeta[group.key.slice(4)]?.color)}>{group.label}</span>
+                        <span className="text-[10px] text-[var(--app-muted)] ml-auto">{group.items.length}</span>
                       </div>
-                    );
-                  });
+                      {group.items.map((suggestion) => {
+                        const idx = globalIdx++;
+                        const isApp = suggestion.kind === "app-command";
+                        const cmdIcon = isApp
+                          ? (suggestion.appIcon
+                              ? <img src={suggestion.appIcon} alt="" className="w-full h-full rounded-md object-cover" />
+                              : <Bot className="w-3.5 h-3.5" />)
+                          : (COMMAND_ICONS[suggestion.id as keyof typeof COMMAND_ICONS] || <Hash className="w-3.5 h-3.5" />);
+                        return (
+                          <button
+                            key={`${suggestion.kind}-${suggestion.id}`}
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              onMentionSelect?.(suggestion);
+                            }}
+                            className={cn(
+                              "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
+                              idx === activeMentionIndex
+                                ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
+                                : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
+                            )}
+                          >
+                            <span className="flex items-center justify-center w-7 h-7 shrink-0 rounded-md bg-[#8B5CF6]/15 text-[#a78bfa] overflow-hidden">
+                              {cmdIcon}
+                            </span>
+                            <span className="flex flex-col min-w-0 gap-0.5">
+                              <span className="truncate font-mono text-sm text-[#a78bfa]">/{suggestion.label}</span>
+                              <span className="truncate text-xs text-[var(--app-muted)]">{suggestion.description}</span>
+                              {suggestion.commandHint && (
+                                <span className="truncate text-[10px] text-[var(--app-muted)]/60 italic">{suggestion.commandHint}</span>
+                              )}
+                            </span>
+                            {isApp && suggestion.appName ? (
+                              <span className="ml-auto text-[11px] text-[var(--app-muted)] truncate shrink-0 max-w-[140px]">
+                                {suggestion.appName}
+                              </span>
+                            ) : suggestion.usage ? (
+                              <span className="ml-auto text-[10px] font-mono text-[var(--app-muted)]/70 truncate shrink-0 max-w-[140px]">
+                                {suggestion.usage}
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ));
                 })()}
+
+                {/* App command OPTIONS list (screenshot: difficulty / mode / anilist) */}
+                {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "app-option") && mentionSuggestions[0].id !== "__app-option-hint__" && (
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">{gt("Options")}</span>
+                      <span className="font-mono text-[10px] text-[#a78bfa] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
+                    </div>
+                    {mentionSuggestions.map((suggestion, index) => (
+                      <button
+                        key={`${suggestion.kind}-${suggestion.id}`}
+                        type="button"
+                        onMouseDown={(event) => { event.preventDefault(); onMentionSelect?.(suggestion); }}
+                        className={cn(
+                          "w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
+                          index === activeMentionIndex
+                            ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
+                            : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
+                        )}
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="font-mono text-sm text-[var(--text-primary)] truncate">{suggestion.label}</span>
+                          {suggestion.paramRequired && (
+                            <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0">{gt("required")}</span>
+                          )}
+                        </span>
+                        {suggestion.description && (
+                          <span className="text-xs text-[var(--app-muted)] truncate shrink-0 max-w-[55%]">{suggestion.description}</span>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {/* App command choice list (screenshot: 🎵 Audio — guess from theme song) */}
+                {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "app-choice") && (
+                  <>
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">{mentionSuggestions[0].paramName}</span>
+                      <span className="font-mono text-[10px] text-[#a78bfa] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
+                    </div>
+                    {mentionSuggestions.map((suggestion, index) => (
+                      <button
+                        key={`${suggestion.kind}-${suggestion.id}`}
+                        type="button"
+                        onMouseDown={(event) => { event.preventDefault(); onMentionSelect?.(suggestion); }}
+                        className={cn(
+                          "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors",
+                          index === activeMentionIndex
+                            ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
+                            : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
+                        )}
+                      >
+                        {suggestion.emoji && <span className="text-base shrink-0">{suggestion.emoji}</span>}
+                        <span className="text-sm text-[var(--text-primary)] truncate">{suggestion.label}</span>
+                        {suggestion.description && (
+                          <span className="text-xs text-[var(--app-muted)] truncate">— {suggestion.description}</span>
+                        )}
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {/* App free-text option hint (single card) */}
+                {mentionSuggestions.length === 1 && mentionSuggestions[0].kind === "app-option" && mentionSuggestions[0].id === "__app-option-hint__" && (
+                  <div className="px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-mono text-sm text-[#a78bfa]">/{mentionSuggestions[0].commandName}</span>
+                      <span className="text-xs text-[var(--app-muted)]">—</span>
+                      <span className="text-xs font-semibold text-[var(--text-secondary)]">{mentionSuggestions[0].paramName}</span>
+                      {mentionSuggestions[0].paramRequired && (
+                        <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded">{gt("required")}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[var(--app-muted)] leading-relaxed">{mentionSuggestions[0].description}</p>
+                    <p className="text-[10px] text-[var(--app-muted)]/60 mt-1.5">{gt("Type your value and press space…")}</p>
+                  </div>
+                )}
 
                 {/* Param hint card (single item) */}
                 {mentionSuggestions.length === 1 && mentionSuggestions[0].kind === "param-hint" && (() => {
@@ -816,7 +930,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 })()}
 
                 {/* Regular mention/emoji suggestions (non-command, non-param) */}
-                {mentionSuggestions.length > 0 && !mentionSuggestions.every(s => s.kind === "command") && !mentionSuggestions.some(s => s.kind === "param-user" || s.kind === "param-duration" || s.kind === "param-choice" || s.kind === "param-hint") && mentionSuggestions.map((suggestion, index) => {
+                {mentionSuggestions.length > 0 && !mentionSuggestions.some(s => s.kind === "command" || s.kind === "app-command" || s.kind === "app-option" || s.kind === "app-choice" || s.kind === "param-user" || s.kind === "param-duration" || s.kind === "param-choice" || s.kind === "param-hint") && mentionSuggestions.map((suggestion, index) => {
                   return (
                     <button
                       key={`${suggestion.kind}-${suggestion.id}`}

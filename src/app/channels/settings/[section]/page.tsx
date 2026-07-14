@@ -675,6 +675,11 @@ export default function MobileSettingsSectionPage() {
                         const file = e.target.files?.[0];
                         if (!file) return;
                         setIsUploadingAvatar(true);
+                        // Optimistically preview from a local object URL so the
+                        // avatar updates instantly instead of waiting on upload.
+                        const localUrl = URL.createObjectURL(file);
+                        const prevAvatar = user?.avatar;
+                        updateUser({ avatar: localUrl });
                         const formData = new FormData();
                         formData.append("file", file);
                         try {
@@ -685,12 +690,17 @@ export default function MobileSettingsSectionPage() {
                           if (res.ok) {
                             const data = await res.json();
                             updateUser({ avatar: data.url });
+                            URL.revokeObjectURL(localUrl);
                             toast.success(gt("Avatar updated!"));
                           } else {
                             const data = await res.json();
+                            updateUser({ avatar: prevAvatar });
+                            URL.revokeObjectURL(localUrl);
                             toast.error(data.error || gt("Failed to upload avatar"));
                           }
                         } catch {
+                          updateUser({ avatar: prevAvatar });
+                          URL.revokeObjectURL(localUrl);
                           toast.error(gt("Failed to upload avatar"));
                         } finally {
                           setIsUploadingAvatar(false);
@@ -735,6 +745,11 @@ export default function MobileSettingsSectionPage() {
                       const file = e.target.files?.[0];
                       if (!file) return;
                       setIsUploadingBanner(true);
+                      // Optimistically preview from a local object URL so the
+                      // banner updates instantly instead of waiting on upload.
+                      const localUrl = URL.createObjectURL(file);
+                      const prevBanner = user?.banner;
+                      updateUser({ banner: localUrl });
                       const formData = new FormData();
                       formData.append("file", file);
                       try {
@@ -745,12 +760,17 @@ export default function MobileSettingsSectionPage() {
                         if (res.ok) {
                           const data = await res.json();
                           updateUser({ banner: data.url });
+                          URL.revokeObjectURL(localUrl);
                           toast.success(gt("Banner updated!"));
                         } else {
                           const data = await res.json();
+                          updateUser({ banner: prevBanner });
+                          URL.revokeObjectURL(localUrl);
                           toast.error(data.error || gt("Failed to upload banner"));
                         }
                       } catch {
+                        updateUser({ banner: prevBanner });
+                        URL.revokeObjectURL(localUrl);
                         toast.error(gt("Failed to upload banner"));
                       } finally {
                         setIsUploadingBanner(false);

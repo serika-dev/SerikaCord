@@ -364,6 +364,7 @@ export default function DMConversationPage() {
           loadOlderMessages={chat.loadOlderMessages}
           actions={chat.actions}
           currentUserId={user.id}
+          canPin
           swipeEnabled={isMobile}
           mentionUsers={mentionUsers}
           serverEmojis={availableServerEmojis}
@@ -448,6 +449,7 @@ export default function DMConversationPage() {
       <MessageContextMenu
         menu={chat.actions.contextMenu}
         isOwn={(message) => message.authorId === user.id}
+        canPin
         onClose={() => chat.actions.setContextMenu(null)}
         onReply={(message) => {
           chat.actions.setReplyToMessage(message);

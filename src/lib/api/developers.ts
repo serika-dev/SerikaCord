@@ -3,6 +3,10 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { Application, DeveloperTeam, AppWebhook, AppEmoji, User } from '@/lib/models';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
+import { storage } from '@/lib/services/storage';
+import { checkRateLimit, getClientIP } from '@/lib/security';
+
+const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 // ─── Helpers ───────────────────────────────────────────────
 
@@ -959,12 +963,127 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     bot: {
       id: botUser.id,
       username: botUser.username,
+      displayName: botUser.displayName ?? botUser.username,
       avatar: botUser.avatar,
+      banner: botUser.banner ?? null,
       public: app.botPublic ?? false,
       require_code_grant: app.botRequireCodeGrant ?? false,
       token: app.botToken ?? null,
     },
   };
+})
+
+// Update the bot user's profile (username / display name).
+.patch('/applications/:id/bot', async ({ headers, cookie, params, body, set }) => {
+  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+
+  const app = await Application.findById(params.id);
+  if (!app) { set.status = 404; return { error: 'Application not found' }; }
+  if (app.ownerId !== user.id) { set.status = 403; return { error: 'Only the owner can edit the bot profile' }; }
+  if (!app.botId) { set.status = 400; return { error: 'Enable the bot before editing its profile' }; }
+
+  const { username, displayName } = (body as { username?: string; displayName?: string });
+  const updates: Record<string, unknown> = {};
+
+  if (username !== undefined) {
+    const normalized = username.trim().toLowerCase();
+    if (!/^[a-z0-9_.]{2,32}$/.test(normalized)) {
+      set.status = 400;
+      return { error: 'Username must be 2-32 characters using letters, numbers, underscores or periods.' };
+    }
+    const existing = await User.findOne({ username: normalized });
+    if (existing && existing.id !== app.botId) {
+      set.status = 409;
+      return { error: 'That username is already taken.' };
+    }
+    updates.username = normalized;
+  }
+
+  if (displayName !== undefined) {
+    const trimmed = displayName.trim();
+    if (trimmed.length > 32) {
+      set.status = 400;
+      return { error: 'Display name must be 32 characters or fewer.' };
+    }
+    updates.displayName = trimmed || null;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    set.status = 400;
+    return { error: 'Nothing to update.' };
+  }
+
+  const updated = await User.updateById(app.botId, updates);
+  if (!updated) { set.status = 404; return { error: 'Bot user not found' }; }
+  return {
+    bot: {
+      id: updated.id,
+      username: updated.username,
+      displayName: updated.displayName ?? updated.username,
+      avatar: updated.avatar,
+      banner: updated.banner ?? null,
+    },
+  };
+}, {
+  body: t.Object({
+    username: t.Optional(t.String({ maxLength: 32 })),
+    displayName: t.Optional(t.String({ maxLength: 64 })),
+  }),
+})
+
+// Upload the bot's avatar or banner image.
+.post('/applications/:id/bot/:kind', async ({ headers, cookie, params, body, request, set }) => {
+  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+
+  const kind = params.kind;
+  if (kind !== 'avatar' && kind !== 'banner') { set.status = 404; return { error: 'Not found' }; }
+
+  const app = await Application.findById(params.id);
+  if (!app) { set.status = 404; return { error: 'Application not found' }; }
+  if (app.ownerId !== user.id) { set.status = 403; return { error: 'Only the owner can edit the bot profile' }; }
+  if (!app.botId) { set.status = 400; return { error: 'Enable the bot before editing its profile' }; }
+
+  const botUser = await User.findById(app.botId);
+  if (!botUser) { set.status = 404; return { error: 'Bot user not found' }; }
+
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit('upload', `${user.id}:${ip}`);
+  if (!rateLimit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter }; }
+
+  const { file } = body as { file?: File };
+  if (!file) { set.status = 400; return { error: 'No file provided' }; }
+  if (!VALID_IMAGE_TYPES.has(file.type)) {
+    set.status = 400;
+    return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+  }
+  const maxSize = kind === 'banner'
+    ? (file.type === 'image/gif' ? 50 * 1024 * 1024 : config.MAX_BANNER_SIZE)
+    : config.MAX_AVATAR_SIZE;
+  if (file.size > maxSize) {
+    set.status = 400;
+    return { error: `File too large. Maximum size is ${maxSize / 1024 / 1024}MB.` };
+  }
+
+  try {
+    const current = kind === 'banner' ? botUser.banner : botUser.avatar;
+    if (current && current.includes(config.B2_BUCKET_NAME)) {
+      try { await storage.deleteByUrl(current); } catch { /* best-effort cleanup */ }
+    }
+    const result = await storage.uploadFromFormData(file, kind === 'banner' ? 'banners' : 'avatars', {
+      userId: botUser.id,
+    });
+    await User.updateById(botUser.id, kind === 'banner' ? { banner: result.url } : { avatar: result.url });
+    return { success: true, url: result.url };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : `Failed to upload ${kind}`;
+    console.error(`Bot ${kind} upload error:`, error);
+    set.status = 500;
+    return { error: message };
+  }
+}, {
+  body: t.Object({ file: t.File() }),
 });
 
 // ─── OAuth2 Router ─────────────────────────────────────────

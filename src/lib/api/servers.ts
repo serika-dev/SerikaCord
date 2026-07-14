@@ -53,6 +53,7 @@ const PERM_MANAGE_ROLES = 1n << 28n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
 const PERM_BAN_MEMBERS = 1n << 2n;
 const PERM_KICK_MEMBERS = 1n << 1n;
+const PERM_MODERATE_MEMBERS = 1n << 40n;
 
 // In-memory cache for role permission checks: serverId+roleId -> permissions bigint string
 // TTL 60s — roles change rarely, but we don't want stale perms forever.
@@ -142,6 +143,21 @@ async function canKickMembers(server: { ownerId: string; id: string }, userId: s
     if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
     if ((perms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS) return true;
     if ((perms & PERM_BAN_MEMBERS) === PERM_BAN_MEMBERS) return true;
+  }
+  return false;
+}
+
+// Check if user can timeout members (owner or has MODERATE_MEMBERS / ADMINISTRATOR)
+async function canTimeoutMembers(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
+  if (server.ownerId === userId) return true;
+  const member = await ServerMember.findOne({ serverId: server.id, userId });
+  if (!member) return false;
+  const roleIds = (member.roles || []) as string[];
+  if (roleIds.length === 0) return false;
+  const rolePerms = await getRolePermissionsForServer(roleIds, server.id);
+  for (const [, perms] of rolePerms) {
+    if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
+    if ((perms & PERM_MODERATE_MEMBERS) === PERM_MODERATE_MEMBERS) return true;
   }
   return false;
 }
@@ -3167,6 +3183,73 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       userId: t.String(),
     }),
     body: t.Object({
+      reason: t.Optional(t.String({ maxLength: 512 })),
+    }),
+  })
+  // Timeout member (MODERATE_MEMBERS)
+  .post('/:serverId/members/:userId/timeout', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.userId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+
+    if (!await canTimeoutMembers(server, user.id)) {
+      set.status = 403;
+      return { error: 'You do not have permission to timeout members' };
+    }
+
+    if (server.ownerId === params.userId) {
+      set.status = 400;
+      return { error: 'You cannot timeout the server owner' };
+    }
+
+    const targetMember = await ServerMember.findOne({
+      serverId: params.serverId,
+      userId: params.userId,
+    });
+    if (!targetMember) {
+      set.status = 404;
+      return { error: 'User is not a server member' };
+    }
+
+    const durationMs = Math.min(Math.max(Number(body.durationMs) || 0, 1000), 28 * 24 * 60 * 60 * 1000);
+    if (durationMs <= 0) {
+      set.status = 400;
+      return { error: 'Invalid duration' };
+    }
+
+    const until = new Date(Date.now() + durationMs);
+    await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: until });
+
+    await AdminLog.create({
+      adminId: user.id,
+      action: 'timeout_member',
+      targetType: 'server',
+      targetId: params.serverId,
+      reason: body.reason || null,
+      details: { userId: params.userId, durationMs, until: until.toISOString() },
+    });
+
+    return { success: true, communicationDisabledUntil: until.toISOString() };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      userId: t.String(),
+    }),
+    body: t.Object({
+      durationMs: t.Number({ minimum: 1, maximum: 28 * 24 * 60 * 60 * 1000 }),
       reason: t.Optional(t.String({ maxLength: 512 })),
     }),
   })
