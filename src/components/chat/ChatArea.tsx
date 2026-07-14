@@ -556,9 +556,31 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           });
           await chat.sendMessage({ contentOverride: `/tts ${result.ttsText}` });
         } else if (result.sendAsMessage) {
-          // Commands like /me, /shrug, /8ball, /roll produce a message
           composer?.clear();
-          await chat.sendMessage({ contentOverride: result.sendAsMessage });
+          if (result.ephemeral) {
+            // Ephemeral built-ins (/roll, /8ball) — only the invoker sees them.
+            chat.resetTyping();
+            chat.addEphemeralMessage({
+              id: `eph-local-${Date.now()}`,
+              content: result.sendAsMessage,
+              authorId: user?.id,
+              author: user
+                ? {
+                    id: user.id,
+                    username: user.username,
+                    displayName: user.displayName || user.username,
+                    avatar: user.avatar,
+                  }
+                : null,
+              channelId: currentChannel?.id,
+              createdAt: new Date().toISOString(),
+              ephemeral: true,
+              type: "default",
+            });
+          } else {
+            // Public built-ins (/me, /shrug) — sent as a normal message.
+            await chat.sendMessage({ contentOverride: result.sendAsMessage });
+          }
         } else {
           composer?.clear();
           chat.resetTyping();
@@ -567,7 +589,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       }
     }
 
-    // Normal send
+    // Normal send. Bot (application) slash commands are detected server-side:
+    // the message endpoint dispatches the interaction and returns without
+    // persisting the raw "/command" text (see sendMessage reconciliation).
     void chat.sendMessage();
   }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice]);
 

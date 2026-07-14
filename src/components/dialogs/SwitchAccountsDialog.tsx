@@ -11,6 +11,7 @@ import {
   parseSavedAccountsCookie,
   removeSavedAccountToken,
 } from "@/lib/services/savedAccountsCookie";
+import { clearMessageCache } from "@/hooks/useChatSession";
 
 export function SwitchAccountsDialog({
   open,
@@ -70,6 +71,9 @@ export function SwitchAccountsDialog({
         }
 
         onOpenChange(false);
+        // Clear cached messages from the previous account before reloading
+        // to prevent cross-account message leakage via localStorage SWR cache.
+        clearMessageCache();
         // Full reload to refresh all context (servers, DMs, etc.)
         window.location.reload();
       } else {
@@ -101,6 +105,8 @@ export function SwitchAccountsDialog({
       await login(email.trim(), password.trim());
 
       onOpenChange(false);
+      // Clear cached messages from the previous account before reloading.
+      clearMessageCache();
       // Full reload to refresh all context (servers, DMs, etc.)
       window.location.reload();
     } catch (err: any) {
@@ -120,6 +126,7 @@ export function SwitchAccountsDialog({
     setIsLoading(true);
     try {
       await logout();
+      clearMessageCache();
       onOpenChange(false);
       window.location.href = "/login";
     } catch {

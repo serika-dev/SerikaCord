@@ -281,6 +281,10 @@ html.theme-midnight body {
   input[type="range"] {
     accent-color: var(--app-accent);
   }
+
+  ::selection {
+    background: color-mix(in srgb, var(--app-accent) 30%, transparent);
+  }
 }
 
 .premium-panel {

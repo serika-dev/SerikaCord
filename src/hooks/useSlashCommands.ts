@@ -24,6 +24,8 @@ interface SlashCommandResult {
   ttsText?: string;
   /** For commands that produce a message to send (e.g. /me, /shrug, /8ball, /roll) */
   sendAsMessage?: string;
+  /** When true, `sendAsMessage` is shown only to the invoker (ephemeral). */
+  ephemeral?: boolean;
 }
 
 /**
@@ -379,7 +381,7 @@ export function useSlashCommands({
             return { handled: true };
           }
           const result = Math.floor(Math.random() * sides) + 1;
-          return { handled: true, sendAsMessage: gt("🎲 You rolled a **{result}** (d{sides})", { result, sides }) };
+          return { handled: true, sendAsMessage: gt("🎲 You rolled a **{result}** (d{sides})", { result, sides }), ephemeral: true };
         }
 
         case "8ball": {
@@ -396,7 +398,7 @@ export function useSlashCommands({
             gt("Outlook not so good."), gt("Very doubtful."),
           ];
           const answer = answers[Math.floor(Math.random() * answers.length)];
-          return { handled: true, sendAsMessage: `🎱 **${answer}**` };
+          return { handled: true, sendAsMessage: `🎱 **${answer}**`, ephemeral: true };
         }
 
         case "me": {

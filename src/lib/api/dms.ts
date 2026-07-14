@@ -507,6 +507,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         referencedMessageId: typeof msg.referencedMessageId === 'string' ? msg.referencedMessageId : undefined,
         referencedMessage,
         sticker: msg.sticker || undefined,
+        interaction: (msg as any).interaction ?? undefined,
       };
     });
 

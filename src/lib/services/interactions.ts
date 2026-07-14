@@ -1,4 +1,4 @@
-import { Application, Message, User } from '@/lib/models';
+import { Application, Message, User, ServerMember } from '@/lib/models';
 import { AppCommand } from '@/lib/models/AppCommand';
 import { signInteraction } from '@/lib/services/appIdentity';
 import { OPTION_TYPES, type AppCommandOption } from '@/lib/services/appCommands';
@@ -22,7 +22,16 @@ interface InteractionMeta {
   channelId: string;
   serverId: string | null;
   invokerId: string;
+  /** Command name + invoker, so the client can show "X used /name". */
+  commandName: string;
+  invokerName: string;
   expiresAt: number;
+}
+
+/** Interaction reference attached to a bot response for the "used /cmd" header. */
+interface InteractionRef {
+  name: string;
+  user: { id: string; username: string };
 }
 const interactionStore = new Map<string, InteractionMeta>();
 const INTERACTION_TTL_MS = 15 * 60 * 1000;
@@ -228,79 +237,133 @@ export async function verifyInteractionEndpoint(app: {
 
 /**
  * If a user message is a slash-command invocation (`/name ...`) that maps to a
- * registered application command with an HTTP interactions endpoint, build and
- * dispatch an APPLICATION_COMMAND interaction, then apply the bot's response.
+ * registered application command, build and dispatch an APPLICATION_COMMAND
+ * interaction, then apply the bot's response.
+ *
+ * Returns `true` when the content was a *recognized* application command (so the
+ * caller should treat it as consumed and NOT post it as a plain message), and
+ * `false` when it isn't a command at all.
  */
-export async function maybeDispatchSlashInteraction(message: InternalMessageLike) {
+export async function maybeDispatchSlashInteraction(message: InternalMessageLike): Promise<boolean> {
   const content = (message.content ?? '').trim();
-  if (!content.startsWith('/')) return;
+  if (!content.startsWith('/')) return false;
 
   const tokens = tokenize(content.slice(1));
   const rawName = tokens.shift();
   const name = rawName?.toLowerCase();
-  if (!name) return;
-
-  // Prefer a guild-scoped command, then a global one.
-  const query: Record<string, unknown> = { name };
-  const cmds = await AppCommand.find(query);
-  if (!cmds.length) return;
+  if (!name) return false;
 
   const guildId = message.serverId ?? null;
-  const cmd =
-    cmds.find((c: any) => c.guildId && guildId && c.guildId === guildId) ??
-    cmds.find((c: any) => !c.guildId);
-  if (!cmd) return;
 
-  const app = await Application.findById(cmd.applicationId);
-  if (!app || !app.interactionsEndpointUrl || !app.botId) return;
+  // Find every command registered under this name. Filter by name in-process too,
+  // in case the model's find doesn't apply the name filter.
+  const allCmds = (await AppCommand.find({ name })) as any[];
+  const matching = allCmds.filter((c) => (c.name ?? '').toLowerCase() === name);
+  if (matching.length === 0) return false;
 
-  // Resolve trailing tokens against the declared option tree: subcommands,
-  // subcommand groups, and named/positional typed leaf options.
-  const declared = (cmd.options as AppCommandOption[]) ?? [];
-  const optionValues = buildInteractionOptions(declared, tokens);
+  // Collapse to ONE command per application: prefer a guild-scoped command for
+  // this guild, otherwise the app's global command. This is what lets two
+  // different bots expose the same command name — each is dispatched its own
+  // interaction independently.
+  const perApp = new Map<string, any>();
+  for (const c of matching) {
+    const appId = String(c.applicationId);
+    const isGuildMatch = !!(c.guildId && guildId && c.guildId === guildId);
+    const isGlobal = !c.guildId;
+    if (!isGuildMatch && !isGlobal) continue; // guild command for a different guild
+    const existing = perApp.get(appId);
+    const existingIsGuild = !!(existing && existing.guildId && guildId && existing.guildId === guildId);
+    if (!existing || (isGuildMatch && !existingIsGuild)) perApp.set(appId, c);
+  }
+  if (perApp.size === 0) return false;
 
+  const invokerId = message.author?.id ?? '';
   const member = message.author
     ? { user: { id: message.author.id, username: message.author.username ?? '' }, roles: [] }
     : undefined;
 
-  const interactionToken = `${message.id}.${Math.random().toString(36).slice(2)}`;
-  const invokerId = message.author?.id ?? '';
+  let dispatchedAny = false;
 
-  const interaction = {
+  await Promise.all(
+    [...perApp.values()].map(async (cmd) => {
+      const app = await Application.findById(cmd.applicationId);
+      if (!app || !app.botId) return;
+
+      // Only dispatch to bots actually present where the command was invoked, so
+      // a global command from an unrelated server's bot doesn't fire here.
+      if (guildId) {
+        const isMember = await ServerMember.findOne({ serverId: guildId, userId: app.botId });
+        if (!isMember) return;
+      }
+
+      const declared = (cmd.options as AppCommandOption[]) ?? [];
+      const optionValues = buildInteractionOptions(declared, tokens);
+      // Token is unique per (message, app) so two bots' responses don't collide.
+      const interactionToken = `${message.id}.${app.botId}.${Math.random().toString(36).slice(2)}`;
+
+      const interaction = {
+        id: crypto.randomUUID(),
+        application_id: app.clientId,
+        type: INTERACTION_APPLICATION_COMMAND,
+        token: interactionToken,
+        version: 1,
+        channel_id: message.channelId,
+        guild_id: guildId ?? undefined,
+        member,
+        user: message.author ? { id: message.author.id, username: message.author.username ?? '' } : undefined,
+        data: { id: cmd.id, name: cmd.name, type: cmd.type ?? 1, options: optionValues },
+      };
+
+      const invokerName = message.author?.username ?? '';
+      storeInteraction(interactionToken, {
+        botId: app.botId,
+        channelId: message.channelId,
+        serverId: message.serverId ?? null,
+        invokerId,
+        commandName: cmd.name,
+        invokerName,
+      });
+
+      dispatchedAny = true;
+      const interactionRef: InteractionRef = { name: cmd.name, user: { id: invokerId, username: invokerName } };
+
+      if (app.interactionsEndpointUrl) {
+        // HTTP interactions endpoint (Discord-style signed webhook).
+        const result = await postSignedInteraction(app, interaction);
+        if (result && result.ok && result.body?.type === CB_CHANNEL_MESSAGE && result.body.data) {
+          await sendBotResponse(app.botId, message.channelId, message.serverId ?? null, result.body.data, invokerId, interactionRef);
+        }
+        void CB_DEFERRED_CHANNEL_MESSAGE; // deferred: bot follows up via the callback endpoint
+      } else {
+        // Gateway-connected bot with no HTTP endpoint: deliver the interaction
+        // over the gateway. The bot replies via POST /interactions/:id/:token/callback.
+        const { emitInteractionCreate } = await import('@/lib/services/gatewayEvents');
+        await emitInteractionCreate({ botId: app.botId, guildId, interaction });
+      }
+    }),
+  );
+
+  return dispatchedAny;
+}
+
+/**
+ * Dispatch a slash-command invocation that has NOT been persisted as a message
+ * (the composer routes app-command sends here so the raw `/command` text is
+ * never posted). Returns true when the content was a recognized command.
+ */
+export async function dispatchSlashCommand(input: {
+  content: string;
+  channelId: string;
+  serverId: string | null;
+  author: { id: string; username?: string; displayName?: string } | null;
+}): Promise<boolean> {
+  return maybeDispatchSlashInteraction({
     id: crypto.randomUUID(),
-    application_id: app.clientId,
-    type: INTERACTION_APPLICATION_COMMAND,
-    token: interactionToken,
-    version: 1,
-    channel_id: message.channelId,
-    guild_id: guildId ?? undefined,
-    member,
-    user: message.author ? { id: message.author.id, username: message.author.username ?? '' } : undefined,
-    data: {
-      id: cmd.id,
-      name: cmd.name,
-      type: cmd.type ?? 1,
-      options: optionValues,
-    },
-  };
-
-  // Store metadata so the bot can send followup messages via the callback endpoint.
-  storeInteraction(interactionToken, {
-    botId: app.botId,
-    channelId: message.channelId,
-    serverId: message.serverId ?? null,
-    invokerId,
+    content: input.content,
+    channelId: input.channelId,
+    serverId: input.serverId,
+    author: input.author,
   });
-
-  const result = await postSignedInteraction(app, interaction);
-  if (!result || !result.ok || !result.body) return;
-
-  const cb = result.body;
-  if (cb.type === CB_CHANNEL_MESSAGE && cb.data) {
-    await sendBotResponse(app.botId, message.channelId, message.serverId ?? null, cb.data, invokerId);
-  }
-  // CB_DEFERRED_CHANNEL_MESSAGE: bot will follow up via REST; nothing to do here.
-  void CB_DEFERRED_CHANNEL_MESSAGE;
 }
 
 /** Create a message authored by the bot in response to an interaction. */
@@ -310,6 +373,7 @@ async function sendBotResponse(
   serverId: string | null,
   data: { content?: string; embeds?: unknown[]; flags?: number },
   invokerId?: string,
+  interactionRef?: InteractionRef,
 ) {
   if (!data.content && !(data.embeds && data.embeds.length)) return;
 
@@ -340,6 +404,7 @@ async function sendBotResponse(
       embeds: data.embeds ?? [],
       type: 'default',
       ephemeral: true,
+      interaction: interactionRef,
     };
 
     try {
@@ -361,6 +426,7 @@ async function sendBotResponse(
     content: data.content ?? '',
     embeds: data.embeds ?? [],
     type: 'default',
+    interaction: interactionRef ?? null,
   });
 
   const messageResponse = {
@@ -374,6 +440,7 @@ async function sendBotResponse(
     attachments: [],
     embeds: data.embeds ?? [],
     type: 'default',
+    interaction: interactionRef,
   };
 
   try {
@@ -403,6 +470,10 @@ export async function handleInteractionCallback(
     return { ok: true };
   }
 
-  await sendBotResponse(meta.botId, meta.channelId, meta.serverId, data, meta.invokerId);
+  const interactionRef: InteractionRef = {
+    name: meta.commandName,
+    user: { id: meta.invokerId, username: meta.invokerName },
+  };
+  await sendBotResponse(meta.botId, meta.channelId, meta.serverId, data, meta.invokerId, interactionRef);
   return { ok: true };
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { Fragment, memo, useMemo } from "react";
 import { Pencil, Pin, Reply, Smile, Trash2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
@@ -202,7 +202,22 @@ function MessageGroupInner<M extends ChatMessage>({
         const isEditing = editingMessageId === message.id;
         const pickerOpen = reactionPickerMessageId === message.id;
         return (
-          <SwipeableRow key={message.id} actions={buildSwipeActions(message)} className="hover:z-40">
+          <Fragment key={message.id}>
+            {message.interaction && (
+              <div className="ml-[3.5rem] mb-0.5 flex items-center gap-1 text-xs text-[var(--app-muted)] truncate">
+                <Reply className="w-3 h-3 flex-shrink-0 -scale-x-100" />
+                <span className="truncate">
+                  <span className="font-medium text-[var(--text-primary)]">
+                    {message.interaction.user.username}
+                  </span>{" "}
+                  {gt("used")}{" "}
+                  <span className="font-medium text-[var(--text-primary)]">
+                    /{message.interaction.name}
+                  </span>
+                </span>
+              </div>
+            )}
+          <SwipeableRow actions={buildSwipeActions(message)} className="hover:z-40">
             <div
               id={`message-${message.id}`}
               className={cn("flex gap-4 relative group/message hover:z-50", message.pending && "opacity-60")}
@@ -341,6 +356,7 @@ function MessageGroupInner<M extends ChatMessage>({
               </div>
             </div>
           </SwipeableRow>
+          </Fragment>
         );
       })}
     </div>

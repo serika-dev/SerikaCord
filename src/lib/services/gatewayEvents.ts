@@ -199,6 +199,25 @@ export function emitGuildCreate(opts: { guildId: string; targetBotId: string; gu
   });
 }
 
+/**
+ * Deliver an APPLICATION_COMMAND (or other) interaction to a specific bot over
+ * the gateway. Targeted by botId; intent 0 so it always reaches the bot. The
+ * bot responds via POST /interactions/:id/:token/callback.
+ */
+export function emitInteractionCreate(opts: {
+  botId: string;
+  guildId?: string | null;
+  interaction: unknown;
+}) {
+  return publish({
+    t: 'INTERACTION_CREATE',
+    guildId: opts.guildId ?? null,
+    intent: 0,
+    targetBotId: opts.botId,
+    d: opts.interaction,
+  });
+}
+
 export function gatewayBotUrl() {
   return config.GATEWAY_URL;
 }

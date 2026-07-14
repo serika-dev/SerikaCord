@@ -107,6 +107,22 @@ function dedupeMessages<M extends ChatMessage>(raw: RawMessagePayload[]): M[] {
   return out;
 }
 
+/** Clear all cached messages (in-memory + localStorage). Call on account switch / login / logout to prevent cross-account message leakage. */
+export function clearMessageCache(): void {
+  messageCache.clear();
+  inflightPrefetch.clear();
+  if (typeof localStorage === "undefined") return;
+  try {
+    const idx: string[] = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");
+    for (const key of idx) {
+      localStorage.removeItem(LS_MSG_PREFIX + key);
+    }
+    localStorage.removeItem(LS_INDEX_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** True if this REST base already has messages warmed in the SWR cache. */
 export function hasCachedMessages(apiBase: string): boolean {
   const cached = messageCache.get(apiBase);
@@ -687,12 +703,19 @@ export function useChatSession<M extends ChatMessage>({
 
         if (response.ok) {
           const payload = await response.json().catch(() => null);
-          const raw = payload?.message || payload;
-          if (raw && (raw.id || raw._id)) {
-            const confirmed = normalizeIncomingMessage<M>(raw);
-            setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? { ...m, ...confirmed, pending: false } : m))
-            );
+          if (payload?.interaction) {
+            // The content was a bot slash command dispatched as an interaction —
+            // nothing to render here; the bot's reply arrives over SSE. Drop the
+            // optimistic "/command" bubble.
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          } else {
+            const raw = payload?.message || payload;
+            if (raw && (raw.id || raw._id)) {
+              const confirmed = normalizeIncomingMessage<M>(raw);
+              setMessages((prev) =>
+                prev.map((m) => (m.id === tempId ? { ...m, ...confirmed, pending: false } : m))
+              );
+            }
           }
         } else {
           const data = await response.json().catch(() => null);
@@ -714,6 +737,19 @@ export function useChatSession<M extends ChatMessage>({
     },
     [apiBase, contextId, isSending, user, messageBarRef, actions, resetTyping]
   );
+
+  /**
+   * Inject a client-only ephemeral message visible to the current user. Used by
+   * built-in slash commands whose output only the invoker should see — nothing
+   * is sent to the server or other clients.
+   */
+  const addEphemeralMessage = useCallback((raw: Record<string, unknown>) => {
+    const incoming = normalizeIncomingMessage<M>(raw);
+    setMessages((prev) =>
+      prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]
+    );
+    latestRef.current.onShouldScrollToBottom?.();
+  }, []);
 
   const handleGifSelect = useCallback(
     (gifUrl: string) => void sendMessage({ contentOverride: gifUrl }),
@@ -769,6 +805,7 @@ export function useChatSession<M extends ChatMessage>({
     signalTyping,
     resetTyping,
     sendMessage,
+    addEphemeralMessage,
     handleGifSelect,
     handleStickerSelect,
     handleEmojiSelect,

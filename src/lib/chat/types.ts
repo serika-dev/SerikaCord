@@ -101,6 +101,8 @@ export interface ChatMessage {
   pending?: boolean;
   /** Ephemeral messages are only visible to the invoking user and are not persisted. */
   ephemeral?: boolean;
+  /** Set on a bot's slash-command response: who invoked which command. */
+  interaction?: { name: string; user: { id: string; username: string } };
 }
 
 export interface MessageGroupData<M extends ChatMessage = ChatMessage> {

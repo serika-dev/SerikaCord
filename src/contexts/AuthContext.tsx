@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
 import { upsertSavedAccount } from "@/lib/services/savedAccounts";
+import { clearMessageCache } from "@/hooks/useChatSession";
 
 export type BadgeId = 
   | 'staff' | 'admin' | 'moderator' 
@@ -240,6 +241,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Wait for the context to pick up the new auth cookie before returning.
     await refresh();
+    // Clear any cached messages from a previous session to prevent
+    // cross-account message leakage via localStorage SWR cache.
+    clearMessageCache();
   }, [refresh]);
 
   const register = useCallback(async (data: { email: string; username: string; password: string; displayName?: string }) => {
@@ -263,6 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set offline before logging out
     try { await setOnlineStatus("offline"); } catch {}
     try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+    clearMessageCache();
     setUser(null);
   }, [setOnlineStatus]);
 
