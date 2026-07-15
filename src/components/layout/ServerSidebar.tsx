@@ -21,7 +21,7 @@ import {
   FolderPlus, FolderMinus, Folder as FolderIcon, Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { motion, Reorder } from "framer-motion";
+import { motion } from "framer-motion";
 import { useMentions } from "@/hooks/useMentions";
 import { useServerMutes } from "@/hooks/useServerMutes";
 import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout";
@@ -98,14 +98,69 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
 
   const liveIds = useMemo(() => uniqueServers.map((s) => s.id), [uniqueServers]);
   const {
-    entries, folders, reorder, createFolder, addToFolder, removeFromFolder,
+    entries, folders, reorder, createFolder, mergeIntoNewFolder, addToFolder, removeFromFolder,
     renameFolder, recolorFolder, folderColors,
   } = useServerLayout(liveIds);
+
+  const entryKey = (e: ServerLayoutEntry) => (e.kind === "server" ? `s:${e.id}` : `f:${e.id}`);
 
   const [menuServerId, setMenuServerId] = useState<string | null>(null);
   const [menuFolderId, setMenuFolderId] = useState<string | null>(null);
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [renamingFolder, setRenamingFolder] = useState<string | null>(null);
+
+  // ── native drag & drop for the server rail ─────────────────────────────────
+  // Keyed by entry key (`s:<id>` / `f:<id>`). `dropTarget.mode` is "into" when
+  // hovering the middle of a target (create/merge folder) or "before"/"after"
+  // when hovering its top/bottom edge (reorder).
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ key: string; mode: "into" | "before" | "after" } | null>(null);
+
+  const handleDragOver = (e: React.DragEvent, target: ServerLayoutEntry) => {
+    if (!draggingKey) return;
+    const targetKey = entryKey(target);
+    if (targetKey === draggingKey) { setDropTarget(null); return; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const third = rect.height / 3;
+    // Only servers/folders can *receive* a merge; a dragged folder can't nest.
+    const draggingIsServer = draggingKey.startsWith("s:");
+    let mode: "into" | "before" | "after";
+    if (draggingIsServer && y > third && y < third * 2) mode = "into";
+    else mode = y < rect.height / 2 ? "before" : "after";
+    setDropTarget({ key: targetKey, mode });
+  };
+
+  const applyDrop = (target: ServerLayoutEntry) => {
+    const source = draggingKey;
+    setDraggingKey(null);
+    const dt = dropTarget;
+    setDropTarget(null);
+    if (!source || !dt) return;
+    const targetKey = entryKey(target);
+    if (source === targetKey) return;
+
+    if (dt.mode === "into" && source.startsWith("s:")) {
+      const sourceId = source.slice(2);
+      if (target.kind === "folder") { addToFolder(sourceId, target.id); return; }
+      mergeIntoNewFolder(sourceId, target.id); // server onto server
+      return;
+    }
+
+    // Reorder at the top level.
+    const src = entries.find((en) => entryKey(en) === source);
+    if (!src) return;
+    const without = entries.filter((en) => entryKey(en) !== source);
+    const targetIdx = without.findIndex((en) => entryKey(en) === targetKey);
+    if (targetIdx === -1) return;
+    const insertAt = dt.mode === "before" ? targetIdx : targetIdx + 1;
+    without.splice(insertAt, 0, src);
+    reorder(without);
+  };
+
+  const clearDrag = () => { setDraggingKey(null); setDropTarget(null); };
 
   // ── DM unread rail ────────────────────────────────────────────────────────
   // A DM is "unread" only when it has a real message that is newer than the last
@@ -230,7 +285,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
             >
               {server.icon ? (
                 <Avatar className={cn("rounded-none", inFolder ? "w-10 h-10" : "w-12 h-12")}>
-                  <AvatarImage src={server.icon} alt={server.name} />
+                  <AvatarImage src={server.icon} alt={server.name} draggable={false} />
                   <AvatarFallback className="rounded-none bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                     {server.name.charAt(0).toUpperCase()}
                   </AvatarFallback>
@@ -354,7 +409,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                   <div className="grid grid-cols-2 gap-0.5 p-1.5 w-full h-full">
                     {folderServers.slice(0, 4).map((s) => (
                       s.icon ? (
-                        <img key={s.id} src={s.icon} alt="" className="w-full h-full object-cover rounded-[4px]" />
+                        <img key={s.id} src={s.icon} alt="" draggable={false} className="w-full h-full object-cover rounded-[4px]" />
                       ) : (
                         <span key={s.id} className="flex items-center justify-center rounded-[4px] bg-[var(--bg-sidebar-elevated)] text-[9px] font-bold text-[var(--text-primary)]">
                           {s.name.charAt(0).toUpperCase()}
@@ -518,27 +573,42 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
 
         <Separator className="w-8 h-0.5 bg-[var(--app-border)] rounded-full" />
 
-        {/* Server List — drag to rearrange, folders group servers */}
-        <div className="flex-1 w-full overflow-y-auto server-rail-scroll py-0.5">
-          <Reorder.Group
-            axis="y"
-            values={entries}
-            onReorder={reorder}
-            className="flex flex-col items-center gap-2"
-          >
-            {entries.map((entry) => (
-              <Reorder.Item
-                key={entry.kind === "server" ? `s:${entry.id}` : `f:${entry.id}`}
-                value={entry}
-                className="w-full flex justify-center"
-                whileDrag={{ scale: 1.06, zIndex: 50 }}
-              >
-                {entry.kind === "server"
-                  ? (serversById.has(entry.id) ? renderServerIcon(serversById.get(entry.id)!, false) : null)
-                  : renderFolder(entry)}
-              </Reorder.Item>
-            ))}
-          </Reorder.Group>
+        {/* Server List — drag a server onto another to make a folder, or between
+            items to reorder. Native DnD so the avatar image itself never gets
+            dragged and no horizontal scroll appears. */}
+        <div className="flex-1 w-full overflow-x-hidden overflow-y-auto server-rail-scroll py-0.5">
+          <div className="flex flex-col items-center gap-2">
+            {entries.map((entry) => {
+              const key = entryKey(entry);
+              const isDragging = draggingKey === key;
+              const isDropInto = dropTarget?.key === key && dropTarget.mode === "into";
+              const showBefore = dropTarget?.key === key && dropTarget.mode === "before";
+              const showAfter = dropTarget?.key === key && dropTarget.mode === "after";
+              return (
+                <div
+                  key={key}
+                  draggable
+                  onDragStart={(e) => { setDraggingKey(key); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); }}
+                  onDragEnd={clearDrag}
+                  onDragOver={(e) => handleDragOver(e, entry)}
+                  onDrop={(e) => { e.preventDefault(); applyDrop(entry); }}
+                  className={cn(
+                    "relative w-full flex justify-center transition-opacity",
+                    isDragging && "opacity-40"
+                  )}
+                >
+                  {/* reorder position indicators */}
+                  {showBefore && <span className="absolute -top-1 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-[var(--app-accent)]" />}
+                  {showAfter && <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-[var(--app-accent)]" />}
+                  <div className={cn("rounded-[16px] transition-shadow", isDropInto && "ring-2 ring-[var(--app-accent)] ring-offset-2 ring-offset-[var(--app-bg)]")}>
+                    {entry.kind === "server"
+                      ? (serversById.has(entry.id) ? renderServerIcon(serversById.get(entry.id)!, false) : null)
+                      : renderFolder(entry)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         <Separator className="w-8 h-0.5 bg-[var(--app-border)] rounded-full" />

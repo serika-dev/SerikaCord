@@ -399,7 +399,7 @@ export default function DMConversationPage() {
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />
 
         {/* Message input */}
-        <div className="p-2 sm:p-4 pt-0 safe-area-bottom">
+        <div className="pt-0">
           {recipient?.isSystem ? (
             <div className="flex items-center gap-2 px-4 py-3 bg-[var(--bg-card)]/50 border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] text-sm">
               <Shield className="w-4 h-4 text-blue-400 flex-shrink-0" />

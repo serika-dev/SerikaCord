@@ -614,10 +614,10 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'Invalid file type. Stickers must be PNG/APNG/GIF/WebP.' };
     }
 
-    const MAX_STICKER_SIZE = 512 * 1024;
+    const MAX_STICKER_SIZE = 20 * 1024 * 1024;
     if (file.size > MAX_STICKER_SIZE) {
       set.status = 400;
-      return { error: 'Sticker must be less than 512KB.' };
+      return { error: 'Sticker must be less than 20MB.' };
     }
 
     try {
@@ -673,11 +673,11 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
     }
 
-    // Validate file size (256KB max for emoji)
-    const MAX_EMOJI_SIZE = 256 * 1024;
+    // Validate file size (20MB max for emoji)
+    const MAX_EMOJI_SIZE = 20 * 1024 * 1024;
     if (file.size > MAX_EMOJI_SIZE) {
       set.status = 400;
-      return { error: 'Emoji must be less than 256KB.' };
+      return { error: 'Emoji must be less than 20MB.' };
     }
 
     try {

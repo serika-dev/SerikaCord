@@ -73,8 +73,8 @@ function getMaxSize(category: UploadCategory): number {
     'server-icons': config.MAX_AVATAR_SIZE,
     'server-banners': config.MAX_BANNER_SIZE,
     attachments: config.MAX_FILE_SIZE,
-    emojis: 256 * 1024, // 256KB
-    stickers: 512 * 1024, // 512KB
+    emojis: 20 * 1024 * 1024, // 20MB
+    stickers: 20 * 1024 * 1024, // 20MB
     audio: 20 * 1024 * 1024, // 20MB
     'app-icons': config.MAX_AVATAR_SIZE,
   };

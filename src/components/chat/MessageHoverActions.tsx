@@ -106,6 +106,15 @@ export function MessageHoverActions<M extends ChatMessage>({
         >
           <Reply className="w-4 h-4 text-[var(--app-muted)]" />
         </button>
+        {isOwn && (
+          <button
+            onClick={() => onEdit(message)}
+            className="p-1.5 hover:bg-black/20 transition-colors"
+            title={gt("Edit")}
+          >
+            <Pencil className="w-4 h-4 text-[var(--app-muted)]" />
+          </button>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title={gt("More")}>

@@ -481,7 +481,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
 
         {/* Attachment Previews */}
         {attachments.length > 0 && (
-          <div className="px-2 sm:px-4 pb-2">
+          <div className="px-1 sm:px-2 pb-1">
             <div className="flex flex-wrap gap-2 p-2 bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)]">
               {attachments.map((file, index) => (
                 <div key={index} className="relative group">
@@ -540,7 +540,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         {/* Message Input */}
         <div
           className={cn(
-            "px-2 sm:px-4 pb-2 sm:pb-3 flex-shrink-0 relative",
+            "px-1 sm:px-2 pb-1 sm:pb-1.5 flex-shrink-0 relative",
             isDragOver && "after:absolute after:inset-1 after:rounded-lg after:border-2 after:border-dashed after:border-[#8B5CF6] after:bg-[#8B5CF6]/10 after:pointer-events-none"
           )}
           onPaste={handlePaste}

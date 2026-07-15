@@ -124,6 +124,32 @@ export function useServerLayout(liveServerIds: string[]) {
     });
   }, []);
 
+  // Drop one server onto another (top-level) → new folder holding both, placed
+  // where the target server was. Mirrors Discord's drag-to-create-folder.
+  const mergeIntoNewFolder = useCallback((sourceServerId: string, targetServerId: string) => {
+    if (sourceServerId === targetServerId) return;
+    setEntries((prev) => {
+      const targetIdx = prev.findIndex((e) => e.kind === "server" && e.id === targetServerId);
+      if (targetIdx === -1) return prev;
+      const folder: ServerLayoutEntry = {
+        kind: "folder",
+        id: newId(),
+        name: "New Folder",
+        color: randomFolderColor(),
+        serverIds: [targetServerId, sourceServerId],
+      };
+      const next = prev.filter(
+        (e) => !(e.kind === "server" && (e.id === sourceServerId || e.id === targetServerId))
+      );
+      const insertAt = next.findIndex((e) => e.kind === "server" && e.id === targetServerId);
+      // targetServerId was removed above, so recompute using original index clamp.
+      const at = insertAt === -1 ? Math.min(targetIdx, next.length) : insertAt;
+      next.splice(at, 0, folder);
+      save({ entries: next });
+      return next;
+    });
+  }, []);
+
   const addToFolder = useCallback((serverId: string, folderId: string) => {
     setEntries((prev) => {
       const next = prev
@@ -191,6 +217,7 @@ export function useServerLayout(liveServerIds: string[]) {
     folders,
     reorder,
     createFolder,
+    mergeIntoNewFolder,
     addToFolder,
     removeFromFolder,
     renameFolder,
