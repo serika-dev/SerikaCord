@@ -12,7 +12,7 @@ import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, Crown } from "lucide-react";
+import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, Crown, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,8 @@ interface FullProfileDialogProps {
   isFriend?: boolean;
   serverId?: string;
   showOwnerCrown?: boolean;
+  /** When provided and the viewer can moderate, shows a Mod View button. */
+  onOpenModView?: () => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -56,6 +58,7 @@ export function FullProfileDialog({
   isFriend = false,
   serverId,
   showOwnerCrown = false,
+  onOpenModView,
 }: FullProfileDialogProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
@@ -69,6 +72,26 @@ export function FullProfileDialog({
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
+  const [canModerate, setCanModerate] = useState(false);
+
+  // Gate the Mod View entry on the viewer actually having moderation perms.
+  useEffect(() => {
+    if (!open || !serverId || !onOpenModView || isSelf || !user.id) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/servers/${serverId}/members/@me/permissions`);
+        if (!res.ok || !active) return;
+        const p = await res.json();
+        const bits = [1n << 3n, 1n << 1n, 1n << 2n, 1n << 40n, 1n << 28n];
+        const perms = BigInt(p.permissions ?? "0");
+        setCanModerate(Boolean(p.isOwner) || bits.some((b) => (perms & b) === b));
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { active = false; };
+  }, [open, serverId, onOpenModView, isSelf, user.id]);
 
   const status = fullUser.status ?? "offline";
   const displayName = fullUser.displayName || fullUser.username;
@@ -238,6 +261,16 @@ export function FullProfileDialog({
 
               {/* Actions */}
               <div className="flex justify-end gap-2 pt-3 min-h-[44px]">
+                {!isSelf && user.id && serverId && canModerate && onOpenModView && (
+                  <button
+                    onClick={onOpenModView}
+                    aria-label={gt("Open in Mod View")}
+                    title={gt("Open in Mod View")}
+                    className="p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-white transition-all mr-auto"
+                  >
+                    <ShieldAlert className="w-4 h-4" />
+                  </button>
+                )}
                 {!isSelf && user.id && (
                   <>
                     <button

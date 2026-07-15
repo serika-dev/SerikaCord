@@ -910,6 +910,18 @@ export function ChannelSidebar({
     offline: "#555555",
   };
 
+  // While navigating DM→server the ServerContext hasn't loaded `currentServer`
+  // yet. Without this guard the DM list flashes for a frame. If the URL points
+  // at a real server, show a channel-sidebar skeleton instead of that flash.
+  if (!currentServer) {
+    const serverMatch = pathname?.match(/^\/channels\/([^/]+)/);
+    const specialRoutes = ["explore", "settings", "me", "notifications", "profile", "messages"];
+    const expectingServer = Boolean(serverMatch && !specialRoutes.includes(serverMatch[1]));
+    if (expectingServer) {
+      return <ChannelSidebarSkeleton />;
+    }
+  }
+
   if (!currentServer) {
     return (
       <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
@@ -1471,6 +1483,36 @@ function UserPanel({ user }: UserPanelProps) {
         >
           <Settings className="w-5 h-5" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder shown while the target server's channel list is still loading,
+ *  so switching from a DM into a server doesn't flash the DM list. */
+function ChannelSidebarSkeleton() {
+  return (
+    <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
+      {/* Server header bar */}
+      <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)] shrink-0">
+        <div className="h-4 w-32 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+      </div>
+      {/* Channel rows */}
+      <div className="flex-1 px-2 pt-4 space-y-4 overflow-hidden">
+        {[0, 1, 2].map((group) => (
+          <div key={group} className="space-y-1.5">
+            <div className="h-3 w-20 mx-2 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+            {Array.from({ length: 3 + group }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                <div className="w-4 h-4 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+                <div
+                  className="h-3 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse"
+                  style={{ width: `${50 + ((i * 17 + group * 11) % 40)}%` }}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );

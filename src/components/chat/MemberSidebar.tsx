@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useRef } from "react";
-import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, UserCircle, X } from "lucide-react";
+import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, UserCircle, X, Clock } from "lucide-react";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserActivity } from "@/hooks/useMoeActivity";
@@ -9,7 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
@@ -43,6 +43,7 @@ interface Member {
   isSystem?: boolean;
   isVerified?: boolean;
   joinedAt?: string | null;
+  communicationDisabledUntil?: string | null;
   roles: MemberRole[];
   highestRole?: MemberRole | null;
   highestHoistedRole?: MemberRole | null;
@@ -126,8 +127,21 @@ export function MemberSidebar() {
       <ScrollArea className="h-full member-scroll-area">
         <div className="py-4 space-y-4">
           {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
+            <div className="space-y-4">
+              {[0, 1].map((group) => (
+                <div key={group} className="space-y-1">
+                  <div className="mx-4 h-3 w-16 rounded bg-[var(--app-surface)] animate-pulse" />
+                  {Array.from({ length: 4 - group }).map((_, i) => (
+                    <div key={i} className="mx-2 px-2 py-1.5 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-[var(--app-surface)] animate-pulse shrink-0" />
+                      <div
+                        className="h-3 rounded bg-[var(--app-surface)] animate-pulse"
+                        style={{ width: `${45 + ((i * 19 + group * 13) % 40)}%` }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ) : (
             <>
@@ -187,6 +201,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
   const extraGameCount = gameActivities.length > 1 ? gameActivities.length - 1 : 0;
   const subtitle = (!isOffline && member.customStatus) || null;
   const nameplateBg = getNameplateBackground(member.customization);
+  const timeout = getTimeoutRemaining(member.communicationDisabledUntil);
 
   return (
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">
@@ -235,6 +250,14 @@ function MemberItem({ member, serverId }: MemberItemProps) {
                 <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
+                )}
+                {timeout.active && (
+                  <span
+                    title={gt("Timed out — {time} remaining", { time: timeout.label })}
+                    className="inline-flex flex-shrink-0 text-[#EF4444]"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                  </span>
                 )}
                 {member.isSystem && (
                   <span className="inline-flex items-center px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">

@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/popover";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
+import { ModViewDialog } from "@/components/user/ModViewDialog";
 import { useIsMobile } from "@/hooks/useIsMobile";
 
 interface MemberProfilePopupProps {
@@ -114,6 +115,7 @@ function MemberProfilePopupBody({
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(!initialOpen ? false : !isMobile);
   const [fullProfileOpen, setFullProfileOpen] = useState(initialOpen && isMobile);
+  const [modViewOpen, setModViewOpen] = useState(false);
   const [fullProfile, setFullProfile] = useState<ProfileCardUser>(member);
 
   // Seed from the `member` prop, but do NOT throw away the fuller profile we
@@ -195,7 +197,11 @@ function MemberProfilePopupBody({
           isFriend={fullProfile.isFriend}
           serverId={serverId}
           showOwnerCrown={Boolean(serverId)}
+          onOpenModView={serverId ? () => { setFullProfileOpen(false); setModViewOpen(true); } : undefined}
         />
+        {serverId && (
+          <ModViewDialog user={fullProfile} serverId={serverId} open={modViewOpen} onOpenChange={setModViewOpen} />
+        )}
       </>
     );
   }
@@ -223,6 +229,7 @@ function MemberProfilePopupBody({
             setOpen(false);
             setFullProfileOpen(true);
           }}
+          onOpenModView={serverId ? () => { setOpen(false); setModViewOpen(true); } : undefined}
         />
       </PopoverContent>
     </Popover>
@@ -235,7 +242,11 @@ function MemberProfilePopupBody({
       isFriend={fullProfile.isFriend}
       serverId={serverId}
       showOwnerCrown={Boolean(serverId)}
+      onOpenModView={serverId ? () => { setFullProfileOpen(false); setModViewOpen(true); } : undefined}
     />
+    {serverId && (
+      <ModViewDialog user={fullProfile} serverId={serverId} open={modViewOpen} onOpenChange={setModViewOpen} />
+    )}
     </>
   );
 }

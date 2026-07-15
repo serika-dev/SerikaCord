@@ -314,7 +314,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         setMembers(prev => {
           if (!isSwitch && prev.length === rawMembers.length) {
             // Lightweight signature comparison instead of full JSON.stringify
-            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${JSON.stringify(m.customization?.nameplate || "")}`;
+            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${m.communicationDisabledUntil || ""}|${JSON.stringify(m.customization?.nameplate || "")}`;
             const prevSig = prev.map(sig).join("\n");
             const newSig = rawMembers.map(sig).join("\n");
             if (prevSig === newSig) return prev;

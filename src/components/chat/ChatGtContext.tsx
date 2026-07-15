@@ -98,6 +98,8 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       // the (per-message, dynamic) call site without a dev warning.
       "{names} and {count} more": gt("{names} and {count} more", { names: "{names}", count: "{count}" }),
       "Joined {name}": gt("Joined {name}", { name: "{name}" }),
+      // MessageGroupHeader — timeout indicator
+      "Timed out — {time} remaining": gt("Timed out — {time} remaining", { time: "{time}" }),
     };
 
     return (str, params) => {

@@ -2,13 +2,14 @@
 
 import { memo } from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Crown, Check } from "lucide-react";
+import { Crown, Check, Clock } from "lucide-react";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { StaffPill } from "@/components/chat/StaffPill";
 import { SystemPill } from "@/components/chat/SystemPill";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useServerMembers } from "@/contexts/ServerContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
-import { cn } from "@/lib/utils";
+import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { useChatGt } from "./ChatGtContext";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
@@ -64,6 +65,14 @@ interface GroupHeaderProps {
 export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor }: GroupHeaderProps) {
   const gt = useChatGt();
   const { settings } = useTheme();
+  // Server-only: surface a red clock next to timed-out members. In DMs the
+  // members list is empty so this is a no-op.
+  const { members } = useServerMembers();
+  const authorTimeout = serverId
+    ? getTimeoutRemaining(
+        (members as Array<{ id: string; communicationDisabledUntil?: string | null }>).find((m) => m.id === author.id)?.communicationDisabledUntil
+      )
+    : { active: false, label: "" };
   const name = author.displayName || author.username || gt("Unknown");
   const styleClasses = getDisplayNameStyleClasses(author.customization?.displayNameStyle);
   const styleInline = getDisplayNameStyleInline(author.customization?.displayNameStyle);
@@ -96,6 +105,11 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
             <span>{name}</span>
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
+            )}
+            {authorTimeout.active && (
+              <span title={gt("Timed out — {time} remaining", { time: authorTimeout.label })} className="inline-flex flex-shrink-0 text-[#EF4444]">
+                <Clock className="w-3.5 h-3.5" />
+              </span>
             )}
             {author.isSystem && (
               <SystemPill isSystem={author.isSystem} />

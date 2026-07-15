@@ -18,6 +18,7 @@ import {
   Plus,
   X,
   Clock,
+  ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -126,6 +127,9 @@ interface ProfileCardProps {
   hideConnections?: boolean;
   /** Remove rounded corners (e.g. for DM sidebar full-height view) */
   noRoundedCorners?: boolean;
+  /** When provided and the viewer can moderate, shows an "Open in Mod View"
+   *  button that calls this instead of opening a dialog internally. */
+  onOpenModView?: () => void;
 }
 
 /**
@@ -144,6 +148,7 @@ export function ProfileCard({
   hideMessageButton = false,
   hideConnections = false,
   noRoundedCorners = false,
+  onOpenModView,
 }: ProfileCardProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
@@ -157,6 +162,7 @@ export function ProfileCard({
   const [serverRoles, setServerRoles] = useState<Array<{ id: string; name: string; color?: string; isDefault?: boolean }>>([]);
   const [fullProfileOpen, setFullProfileOpen] = useState(false);
   const [canManageRoles, setCanManageRoles] = useState(false);
+  const [canModerate, setCanModerate] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [isUpdatingRoles, setIsUpdatingRoles] = useState(false);
 
@@ -190,6 +196,12 @@ export function ProfileCard({
           const permData = await permRes.json();
           const can = permData.isOwner || hasPermissionBit(permData.permissions, MANAGE_ROLES_BIT);
           setCanManageRoles(can);
+          // Moderation entry: owner, admin, or any of kick/ban/timeout/manage-roles.
+          const MOD_BITS = [1n << 3n, 1n << 1n, 1n << 2n, 1n << 40n, MANAGE_ROLES_BIT];
+          setCanModerate(
+            Boolean(permData.isOwner) ||
+              MOD_BITS.some((bit) => hasPermissionBit(permData.permissions, bit))
+          );
         }
       } catch {
         // ignore
@@ -321,6 +333,16 @@ export function ProfileCard({
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-3 min-h-[44px]">
+          {!isSelf && user.id && serverId && canModerate && onOpenModView && (
+            <button
+              onClick={onOpenModView}
+              aria-label={gt("Open in Mod View")}
+              title={gt("Open in Mod View")}
+              className="p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-white transition-all mr-auto"
+            >
+              <ShieldAlert className="w-4 h-4" />
+            </button>
+          )}
           {!isSelf && user.id && (
             <>
               {!hideMessageButton && (

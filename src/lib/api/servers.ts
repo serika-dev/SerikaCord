@@ -307,6 +307,7 @@ function normalizeMemberDto(member: {
   nickname?: string | null;
   avatar?: string | null;
   banner?: string | null;
+  communicationDisabledUntil?: Date | string | null;
 }, ownerId?: string | null) {
   const memberRoles = (member.roles || [])
     .map((role) => normalizeRoleDto(role))
@@ -333,6 +334,7 @@ function normalizeMemberDto(member: {
     isOwner: ownerId ? ownerId === userData?.id : false,
     customization: userData?.customization || null,
     joinedAt: member.joinedAt || null,
+    communicationDisabledUntil: member.communicationDisabledUntil || null,
     roles: memberRoles,
     highestRole,
     highestHoistedRole,
@@ -1526,6 +1528,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       bio: userData?.bio || null,
       banner: rawMember.banner || userData?.banner || null,
       badges: userData?.badges || [],
+      communicationDisabledUntil: rawMember.communicationDisabledUntil || null,
       isOwner: server ? server.ownerId === rawMember.userId : false,
     };
   }, {
@@ -3343,12 +3346,22 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'User is not a server member' };
     }
 
-    const durationMs = Math.min(Math.max(Number(body.durationMs) || 0, 1000), 28 * 24 * 60 * 60 * 1000);
-    if (durationMs <= 0) {
-      set.status = 400;
-      return { error: 'Invalid duration' };
+    // durationMs of 0 clears the timeout; otherwise clamp to [1s, 28d].
+    const rawDuration = Number(body.durationMs) || 0;
+    if (rawDuration <= 0) {
+      await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: null });
+      await AdminLog.create({
+        adminId: user.id,
+        action: 'timeout_member',
+        targetType: 'server',
+        targetId: params.serverId,
+        reason: body.reason || null,
+        details: { userId: params.userId, durationMs: 0, cleared: true },
+      });
+      return { success: true, communicationDisabledUntil: null };
     }
 
+    const durationMs = Math.min(Math.max(rawDuration, 1000), 28 * 24 * 60 * 60 * 1000);
     const until = new Date(Date.now() + durationMs);
     await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: until });
 
@@ -3368,7 +3381,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       userId: t.String(),
     }),
     body: t.Object({
-      durationMs: t.Number({ minimum: 1, maximum: 28 * 24 * 60 * 60 * 1000 }),
+      durationMs: t.Number({ minimum: 0, maximum: 28 * 24 * 60 * 60 * 1000 }),
       reason: t.Optional(t.String({ maxLength: 512 })),
     }),
   })
