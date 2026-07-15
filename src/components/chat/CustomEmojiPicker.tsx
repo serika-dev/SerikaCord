@@ -91,42 +91,33 @@ function getEmojiUrl(emoji: string): string {
     .filter(Boolean)
     .join('-')
     .replace(/-fe0f/g, ''); // Remove variation selector
-  return `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/${codePoints}.svg`;
+  return `https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/${codePoints}.svg`;
 }
 
 // Memoized emoji button component - only re-renders when emoji changes.
-// `fast` renders the native unicode glyph (zero network requests, instant paint)
-// instead of loading a remote twemoji SVG per emoji.
+// Always renders the twemoji SVG so the picker matches how emoji look in chat.
+// The speed win in the "fast" variant comes from content-visibility windowing on
+// the sections (below), which also keeps these images from loading until scrolled
+// into view — not from swapping the artwork.
 const EmojiButton = memo(function EmojiButton({
   emoji,
   onClick,
-  fast,
 }: {
   emoji: string;
   onClick: () => void;
-  fast?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       className="w-10 h-10 flex items-center justify-center hover:bg-[#2a2a40] rounded-lg transition-colors"
     >
-      {fast ? (
-        <span
-          className="text-2xl leading-none select-none"
-          style={{ fontFamily: '"Twemoji Mozilla", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}
-        >
-          {emoji}
-        </span>
-      ) : (
-        <img
-          src={getEmojiUrl(emoji)}
-          alt={emoji}
-          className="w-7 h-7"
-          loading="lazy"
-          decoding="async"
-        />
-      )}
+      <img
+        src={getEmojiUrl(emoji)}
+        alt={emoji}
+        className="w-7 h-7"
+        loading="lazy"
+        decoding="async"
+      />
     </button>
   );
 });
@@ -607,7 +598,6 @@ export function CustomEmojiPicker({
                           <EmojiButton
                             key={`recent-u-${idx}`}
                             emoji={entry.emoji}
-                            fast={fast}
                             onClick={() => handleEmojiClick(entry.emoji)}
                           />
                         )
@@ -628,7 +618,6 @@ export function CustomEmojiPicker({
                         <EmojiButton
                           key={`fav-${idx}`}
                           emoji={emoji}
-                          fast={fast}
                           onClick={() => handleEmojiClick(emoji)}
                         />
                       ))}
@@ -672,7 +661,6 @@ export function CustomEmojiPicker({
                         <EmojiButton
                           key={`${category.id}-${idx}`}
                           emoji={emoji}
-                          fast={fast}
                           onClick={() => handleEmojiClick(emoji)}
                         />
                       ))}

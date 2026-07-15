@@ -618,6 +618,29 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     ]);
     const userServerIds = userServerMemberships.map((m: any) => m.serverId);
 
+    // Bot (application) slash command in a DM with a bot: dispatch the interaction
+    // to that bot and DON'T persist the raw "/command" text. The bot's response
+    // (or an ephemeral reply) arrives over the DM SSE stream. Only plain-text
+    // sends can be commands (no attachments/sticker).
+    if (
+      recipient.isBot &&
+      content && content.trim().startsWith('/') &&
+      (!attachments || attachments.length === 0) && !stickerData
+    ) {
+      const { dispatchSlashCommand } = await import('@/lib/services/interactions');
+      const consumed = await dispatchSlashCommand({
+        content: content.trim(),
+        channelId: channel.id,
+        serverId: null,
+        author: { id: user.id, username: user.username ?? undefined, displayName: user.displayName ?? undefined },
+        restrictToBotId: recipient.id,
+      }).catch(() => false);
+      if (consumed) {
+        // Signals the client to drop its optimistic message without rendering it.
+        return { interaction: true };
+      }
+    }
+
     // Parse and validate custom emojis
     const emojiResult = await parseCustomEmojis(sanitizedContent, undefined, userServerIds);
     

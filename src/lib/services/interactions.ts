@@ -244,7 +244,12 @@ export async function verifyInteractionEndpoint(app: {
  * caller should treat it as consumed and NOT post it as a plain message), and
  * `false` when it isn't a command at all.
  */
-export async function maybeDispatchSlashInteraction(message: InternalMessageLike): Promise<boolean> {
+export async function maybeDispatchSlashInteraction(
+  message: InternalMessageLike,
+  // In a DM, only the bot on the other end should receive the command — pass its
+  // id here so a global command doesn't fan out to every unrelated bot.
+  restrictToBotId?: string | null,
+): Promise<boolean> {
   const content = (message.content ?? '').trim();
   if (!content.startsWith('/')) return false;
 
@@ -288,6 +293,9 @@ export async function maybeDispatchSlashInteraction(message: InternalMessageLike
     [...perApp.values()].map(async (cmd) => {
       const app = await Application.findById(cmd.applicationId);
       if (!app || !app.botId) return;
+
+      // In a DM, restrict dispatch to the recipient bot only.
+      if (restrictToBotId && app.botId !== restrictToBotId) return;
 
       // Only dispatch to bots actually present where the command was invoked, so
       // a global command from an unrelated server's bot doesn't fire here.
@@ -356,6 +364,8 @@ export async function dispatchSlashCommand(input: {
   channelId: string;
   serverId: string | null;
   author: { id: string; username?: string; displayName?: string } | null;
+  // Set for DMs: restrict dispatch to this (recipient) bot only.
+  restrictToBotId?: string | null;
 }): Promise<boolean> {
   return maybeDispatchSlashInteraction({
     id: crypto.randomUUID(),
@@ -363,7 +373,7 @@ export async function dispatchSlashCommand(input: {
     channelId: input.channelId,
     serverId: input.serverId,
     author: input.author,
-  });
+  }, input.restrictToBotId);
 }
 
 /** Create a message authored by the bot in response to an interaction. */
