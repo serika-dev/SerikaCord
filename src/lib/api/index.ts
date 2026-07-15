@@ -1896,6 +1896,76 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       blocked: blockedIds.map(mapBlockedUser).filter(Boolean),
     };
   })
+  .get('/active', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const friendIds = (user.friends || []) as string[];
+    if (friendIds.length === 0) return { active: [] };
+
+    const friends = await User.find({ id: { in: friendIds } });
+    const now = new Date();
+
+    const activeEntries = await Promise.all(
+      friends.map(async (friend) => {
+        const showActivity = (friend.settings as any)?.privacy?.showActivity ?? true;
+        if (!showActivity) return null;
+
+        const friendId = friend.id;
+        const [watchActivity, richPresenceDocs, lastfmConnection] = await Promise.all([
+          getMoeActivity(friendId).catch(() => null),
+          RichPresence.find({ userId: friendId }).catch(() => []),
+          UserConnection.findOne({ userId: friendId, provider: 'lastfm' as any }).catch(() => null),
+        ]);
+
+        const activeRichPresence = (richPresenceDocs as any[]).filter((doc) => doc.expiresAt && new Date(doc.expiresAt) > now);
+        const activities = activeRichPresence.map((doc) => ({
+          type: doc.type,
+          name: doc.name,
+          details: doc.details ?? null,
+          state: doc.state ?? null,
+          largeImageUrl: doc.largeImageUrl ?? null,
+          largeImageText: doc.largeImageText ?? null,
+          smallImageUrl: doc.smallImageUrl ?? null,
+          smallImageText: doc.smallImageText ?? null,
+          startedAt: doc.startedAt ?? null,
+          endsAt: doc.endsAt ?? null,
+        }));
+
+        let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
+        if (lastfmConnection?.accountId) {
+          music = await getLastFmNowPlaying(lastfmConnection.accountId).catch(() => null);
+        }
+
+        const hasActivity = watchActivity || activities.length > 0 || music;
+        if (!hasActivity) return null;
+
+        return {
+          friend: {
+            id: friend.id,
+            username: friend.username,
+            displayName: friend.displayName,
+            avatar: friend.avatar,
+            status: getPublicPresenceStatus(friend),
+            customStatus: friend.customStatus,
+            isPremium: friend.isPremium,
+            badges: friend.badges || [],
+          },
+          activity: {
+            activity: watchActivity,
+            music,
+            game: activities[0] ?? null,
+            activities,
+          },
+        };
+      })
+    );
+
+    return { active: activeEntries.filter(Boolean) };
+  })
   .get('/stream', async ({ headers, cookie }) => {
     const sseHeaders = {
       'Content-Type': 'text/event-stream',

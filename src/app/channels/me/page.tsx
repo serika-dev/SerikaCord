@@ -33,6 +33,10 @@ import { T, useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
 import { Loader } from "@/components/ui/Loader";
 import { toast } from "sonner";
+import { GameActivityCard } from "@/components/user/GameActivityCard";
+import { NowWatchingCard } from "@/components/user/NowWatchingCard";
+import { MusicActivityCard } from "@/components/user/MusicActivityCard";
+import type { GameActivity, MusicActivity, MoeActivity } from "@/hooks/useMoeActivity";
 
 type Tab = "online" | "all" | "pending" | "blocked" | "add";
 
@@ -55,6 +59,16 @@ interface FriendsData {
     outgoing: Friend[];
   };
   blocked: Friend[];
+}
+
+interface ActiveFriend {
+  friend: Friend;
+  activity: {
+    activity: MoeActivity | null;
+    music: MusicActivity | null;
+    game: GameActivity | null;
+    activities: GameActivity[];
+  };
 }
 
 const statusColors = {
@@ -80,6 +94,8 @@ export default function DirectMessagesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [addFriendUsername, setAddFriendUsername] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [activeFriends, setActiveFriends] = useState<ActiveFriend[]>([]);
+  const [isLoadingActive, setIsLoadingActive] = useState(false);
   const [friendsData, setFriendsData] = useState<FriendsData>({
     friends: [],
     pending: { incoming: [], outgoing: [] },
@@ -110,9 +126,27 @@ export default function DirectMessagesPage() {
     }
   }, []);
 
+  const fetchActiveFriends = useCallback(async () => {
+    setIsLoadingActive(true);
+    try {
+      const response = await fetch("/api/friends/active");
+      if (response.ok) {
+        const data = await response.json();
+        setActiveFriends((data.active || []) as ActiveFriend[]);
+      }
+    } catch (error) {
+      console.error("Failed to fetch active friends:", error);
+    } finally {
+      setIsLoadingActive(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchFriends();
-  }, [fetchFriends]);
+    fetchActiveFriends();
+    const timer = setInterval(fetchActiveFriends, 30_000);
+    return () => clearInterval(timer);
+  }, [fetchFriends, fetchActiveFriends]);
 
   useEffect(() => {
     const connectSSE = () => {
@@ -297,11 +331,11 @@ export default function DirectMessagesPage() {
     return true;
   });
 
-  const tabs = [
-    { id: "online" as Tab, label: gt("Online"), count: onlineFriends.length },
-    { id: "all" as Tab, label: gt("All"), count: friendsData.friends.length },
-    { id: "pending" as Tab, label: gt("Pending"), count: friendsData.pending.incoming.length + friendsData.pending.outgoing.length },
-    { id: "blocked" as Tab, label: gt("Blocked"), count: friendsData.blocked.length },
+  const tabs: { id: Tab; label: string; count: number }[] = [
+    { id: "online", label: gt("Online"), count: onlineFriends.length },
+    { id: "all", label: gt("All"), count: friendsData.friends.length },
+    { id: "pending", label: gt("Pending"), count: friendsData.pending.incoming.length + friendsData.pending.outgoing.length },
+    { id: "blocked", label: gt("Blocked"), count: friendsData.blocked.length },
   ];
 
   // Start DM with friend
@@ -863,6 +897,100 @@ export default function DirectMessagesPage() {
             </div>
           )}
         </div>
+        {(activeTab === "online" || activeTab === "all") && (
+          <div className="w-80 border-l border-[var(--border-subtle)] bg-[var(--bg-card)] hidden lg:flex flex-col">
+            <div className="p-4 border-b border-[var(--border-subtle)]">
+              <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wide">
+                <T>Active Now</T>
+              </h3>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                {activeFriends.length} {activeFriends.length === 1 ? gt("friend") : gt("friends")}
+              </p>
+            </div>
+            <ScrollArea className="flex-1">
+              <div className="p-4 flex flex-col gap-4">
+                {isLoadingActive ? (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader size={24} />
+                  </div>
+                ) : activeFriends.length > 0 ? (
+                  activeFriends.map((entry) => (
+                    <ActiveFriendCard
+                      key={entry.friend.id}
+                      entry={entry}
+                      onMessage={() => startDM(entry.friend.id)}
+                    />
+                  ))
+                ) : (
+                  <div className="text-center py-10 px-2">
+                    <p className="text-sm text-[var(--text-muted)]">
+                      {gt("When friends are active, they'll show up here")}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ActiveFriendCard({ entry, onMessage }: { entry: ActiveFriend; onMessage: () => void }) {
+  const gt = useGT();
+  const { friend, activity } = entry;
+  const displayName = friend.displayName || friend.username;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 transition-colors hover:border-[var(--app-accent)]/30">
+      {/* Friend header */}
+      <div className="flex items-center justify-between gap-3">
+        <button
+          onClick={onMessage}
+          className="flex items-center gap-3 min-w-0 text-left group"
+        >
+          <div className="relative shrink-0">
+            <Avatar className="w-11 h-11">
+              <AvatarImage src={friend.avatar} />
+              <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
+                {displayName.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div
+              className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-card)]"
+              style={{ backgroundColor: statusColors[friend.status] }}
+            />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="font-semibold text-[var(--text-primary)] text-sm truncate group-hover:text-[var(--app-accent)] transition-colors">
+                {displayName}
+              </p>
+              {friend.isPremium && <Crown className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />}
+            </div>
+            <p className="text-xs text-[var(--text-muted)] truncate">
+              {friend.customStatus || statusLabels[friend.status]}
+            </p>
+          </div>
+        </button>
+        <button
+          onClick={onMessage}
+          aria-label={gt("Message")}
+          title={gt("Message")}
+          className="p-2 rounded-full bg-[var(--bg-hover)] hover:bg-[var(--app-accent)] text-[var(--text-secondary)] hover:text-white transition-colors shrink-0"
+        >
+          <MessageCircle className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Activity cards */}
+      <div className="flex flex-col gap-2">
+        {activity.activity && <NowWatchingCard activity={activity.activity} />}
+        {activity.music && <MusicActivityCard music={activity.music} />}
+        {activity.activities.map((game, idx) => (
+          <GameActivityCard key={`${game.type}-${game.name}-${idx}`} game={game} />
+        ))}
       </div>
     </div>
   );
