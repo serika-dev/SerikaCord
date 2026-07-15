@@ -567,7 +567,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                 <div
                   key={s.id}
                   draggable
-                  onDragStart={(e) => { setDraggingKey(sKey); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sKey); }}
+                  onDragStart={(e) => { e.stopPropagation(); setDraggingKey(sKey); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", sKey); }}
                   onDragEnd={clearDrag}
                   className={cn("transition-opacity", isDraggingOut && "opacity-40")}
                 >
