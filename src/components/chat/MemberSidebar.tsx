@@ -122,7 +122,7 @@ export function MemberSidebar() {
   if (!currentServer) return null;
 
   return (
-    <div className="w-full md:w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden">
+    <div className="w-full md:w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden" style={{ touchAction: "pan-y" }}>
       <ScrollArea className="h-full member-scroll-area">
         <div className="py-4 space-y-4">
           {isLoading ? (
@@ -199,7 +199,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
           "relative overflow-hidden w-full px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] transition-all group",
           isOffline && "opacity-50"
         )}
-        style={{ width: "calc(100% - 16px)" }}
+        style={{ width: "calc(100% - 16px)", touchAction: "pan-y" }}
       >
         {nameplateBg && (
           <span

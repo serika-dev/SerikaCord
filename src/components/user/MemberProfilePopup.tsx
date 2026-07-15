@@ -42,6 +42,9 @@ export function MemberProfilePopup({
   const [armed, setArmed] = useState(false);
   // Touch users have no hover to pre-arm on, so a tap must open immediately.
   const autoOpenRef = useRef(false);
+  // Track touch start position to distinguish tap vs scroll on mobile.
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const touchCancelledRef = useRef(false);
 
   if (!armed) {
     const arm = (autoOpen: boolean) => {
@@ -53,8 +56,32 @@ export function MemberProfilePopup({
     return (
       <span
         style={{ display: "contents" }}
-        onPointerEnter={(e) => arm(e.pointerType === "touch")}
-        onPointerDown={(e) => arm(e.pointerType === "touch")}
+        onPointerEnter={(e) => { if (e.pointerType !== "touch") arm(false); }}
+        onPointerDown={(e) => {
+          if (e.pointerType === "touch") {
+            // Don't arm immediately — wait to see if this is a tap or a scroll.
+            touchStartRef.current = { x: e.clientX, y: e.clientY };
+            touchCancelledRef.current = false;
+          } else {
+            arm(false);
+          }
+        }}
+        onPointerMove={(e) => {
+          if (touchStartRef.current && !touchCancelledRef.current) {
+            const dx = e.clientX - touchStartRef.current.x;
+            const dy = e.clientY - touchStartRef.current.y;
+            if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+              touchCancelledRef.current = true;
+            }
+          }
+        }}
+        onPointerUp={(e) => {
+          if (e.pointerType === "touch" && touchStartRef.current && !touchCancelledRef.current) {
+            arm(true);
+          }
+          touchStartRef.current = null;
+        }}
+        onPointerCancel={() => { touchStartRef.current = null; }}
         onFocus={() => arm(false)}
       >
         {children}
