@@ -8,7 +8,7 @@ import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 
 interface Experiment {
-  _id: string;
+  id: string;
   name: string;
   key: string;
   description?: string;
@@ -58,7 +58,7 @@ export function AdminExperimentsPanel() {
   const handleToggleStatus = async (experiment: Experiment) => {
     const next = experiment.status === "running" ? "paused" : "running";
     try {
-      const res = await fetch(`/api/admin/experiments/${experiment._id}`, {
+      const res = await fetch(`/api/admin/experiments/${experiment.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: next }),
@@ -75,7 +75,7 @@ export function AdminExperimentsPanel() {
   const handleDelete = async (experiment: Experiment) => {
     if (!confirm(gt("Delete experiment \"{name}\"?", { name: experiment.name }))) return;
     try {
-      const res = await fetch(`/api/admin/experiments/${experiment._id}`, { method: "DELETE" });
+      const res = await fetch(`/api/admin/experiments/${experiment.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete experiment");
       toast.success(gt("Experiment deleted"));
       await fetchExperiments();
@@ -126,7 +126,7 @@ export function AdminExperimentsPanel() {
     if (!confirm(gt("Delete {count} inactive experiments? This cannot be undone.", { count: inactiveExperiments.length }))) return;
     await Promise.all(
       inactiveExperiments.map((exp) =>
-        fetch(`/api/admin/experiments/${exp._id}`, { method: "DELETE" }).catch(console.error)
+        fetch(`/api/admin/experiments/${exp.id}`, { method: "DELETE" }).catch(console.error)
       )
     );
     toast.success(gt("Inactive experiments removed"));
@@ -216,7 +216,7 @@ export function AdminExperimentsPanel() {
           <div className="space-y-2">
             {[...activeExperiments, ...inactiveExperiments].map((exp) => (
               <div
-                key={exp._id}
+                key={exp.id}
                 className={cn(
                   "flex items-center justify-between p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]",
                   exp.status === "running" && "border-l-4 border-l-[var(--accent-color)]"
