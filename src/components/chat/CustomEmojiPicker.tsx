@@ -25,6 +25,13 @@ interface CustomEmoji {
   animated?: boolean;
 }
 
+interface UnifiedEmojiFavorite {
+  emoji: string;
+  name: string;
+  customEmojiId?: string;
+  url?: string;
+}
+
 interface StickerItem {
   id: string;
   name: string;
@@ -420,10 +427,24 @@ export function CustomEmojiPicker({
   // Build favorites list from DB-backed hook, merging with any prop-provided ones
   const filteredFavorites = useMemo(() => {
     // DB favorites take priority; merge prop favorites as fallback
-    const dbEmojiFavs = favReady ? emojiFavs.map(f => f.emoji) : favoriteEmojis;
+    const dbEmojiFavs: UnifiedEmojiFavorite[] = favReady
+      ? emojiFavs.map(f => ({
+          emoji: f.emoji,
+          name: f.name || (f.customEmojiId ? f.emoji.replace(/:/g, "") : (EMOJI_TO_NAME[f.emoji] || "emoji")),
+          customEmojiId: f.customEmojiId || undefined,
+          url: f.url || undefined,
+        }))
+      : favoriteEmojis.map(emoji => {
+          const isCustom = emoji.startsWith(":") && emoji.endsWith(":");
+          return {
+            emoji,
+            name: isCustom ? emoji.replace(/:/g, "") : (EMOJI_TO_NAME[emoji] || "emoji"),
+          };
+        });
+
     if (!deferredSearch.trim()) return dbEmojiFavs;
     const query = deferredSearch.toLowerCase();
-    return dbEmojiFavs.filter(emoji => (EMOJI_TO_NAME[emoji]?.includes(query) ?? false));
+    return dbEmojiFavs.filter(entry => entry.name.toLowerCase().includes(query));
   }, [deferredSearch, favoriteEmojis, emojiFavs, favReady]);
 
   // Group stickers by server for sidebar sections
@@ -951,14 +972,31 @@ export function CustomEmojiPicker({
                       {gt("Favorites")}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
-                      {filteredFavorites.map((emoji, idx) => (
-                        <EmojiButton
-                          key={`fav-${idx}`}
-                          emoji={emoji}
-                          onClick={() => handleEmojiClick(emoji)}
-                          onContextMenu={(e) => handleEmojiContextMenu(e, emoji)}
-                        />
-                      ))}
+                      {filteredFavorites.map((entry, idx) => {
+                        if (entry.customEmojiId) {
+                          const emojiData = {
+                            id: entry.customEmojiId,
+                            name: entry.name,
+                            url: entry.url || "",
+                          };
+                          return (
+                            <CustomEmojiButton
+                              key={`fav-${idx}`}
+                              emoji={emojiData}
+                              onClick={() => handleEmojiClick(entry.emoji, true, emojiData)}
+                              onContextMenu={(e) => handleEmojiContextMenu(e, entry.emoji, emojiData)}
+                            />
+                          );
+                        }
+                        return (
+                          <EmojiButton
+                            key={`fav-${idx}`}
+                            emoji={entry.emoji}
+                            onClick={() => handleEmojiClick(entry.emoji)}
+                            onContextMenu={(e) => handleEmojiContextMenu(e, entry.emoji)}
+                          />
+                        );
+                      })}
                     </div>
                   </div>
                 )}
