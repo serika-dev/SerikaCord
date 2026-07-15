@@ -4551,7 +4551,7 @@ async function resolveInviteCode(code: string): Promise<
 // Invite routes
 export const inviteRoutes = new Elysia({ prefix: '/invites' })
   // Get invite info
-  .get('/:code', async ({ params, set }) => {
+  .get('/:code', async ({ headers, cookie, params, set }) => {
     const resolved = await resolveInviteCode(params.code);
 
     if (!resolved) {
@@ -4568,8 +4568,23 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
 
     const onlineCount = await computeOnlineCount(resolved.serverId);
 
+    // Best-effort: if the requester is authenticated, tell them whether they're
+    // already a member so the invite UI can offer "Open Server" instead of
+    // pretending they still need to join.
+    let isMember = false;
+    try {
+      const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+      if (user) {
+        const existing = await ServerMember.findOne({ serverId: resolved.serverId, userId: user.id });
+        isMember = !!existing;
+      }
+    } catch {
+      /* unauthenticated / bad token — treat as non-member */
+    }
+
     return {
       code: params.code,
+      isMember,
       server: {
         id: server.id,
         name: server.name,

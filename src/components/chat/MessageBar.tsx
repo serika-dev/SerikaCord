@@ -97,6 +97,7 @@ interface ServerEmoji {
   url: string;
   serverId?: string;
   serverName?: string;
+  serverIcon?: string;
   animated?: boolean;
 }
 

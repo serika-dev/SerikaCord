@@ -837,17 +837,21 @@ const userRoutes = new Elysia({ prefix: '/users' })
         ServerEmoji.find({ serverId: { in: serverIds }, available: true }),
         Server.find({ id: { in: serverIds } }),
       ]);
-      const serverNameMap = new Map(servers.map(s => [s.id, s.name]));
+      const serverDataMap = new Map(servers.map(s => [s.id, { name: s.name, icon: s.icon }]));
 
       return {
-        emojis: emojis.map(e => ({
-          id: e.id,
-          name: e.name,
-          url: e.imageUrl,
-          animated: e.animated,
-          serverId: e.serverId,
-          serverName: serverNameMap.get(e.serverId) || 'Unknown',
-        })),
+        emojis: emojis.map(e => {
+          const serverData = serverDataMap.get(e.serverId);
+          return {
+            id: e.id,
+            name: e.name,
+            url: e.imageUrl,
+            animated: e.animated,
+            serverId: e.serverId,
+            serverName: serverData?.name || 'Unknown',
+            serverIcon: serverData?.icon || undefined,
+          };
+        }),
       };
     } catch (error) {
       console.error('Failed to fetch user emojis:', error);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, useMemo, useDeferredValue, memo } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Search, Clock, Star, Smile, Users, Dog, Apple, Gamepad2, 
   Plane, Lightbulb, Heart, Flag, ImageIcon, Sticker, X, Plus
@@ -17,6 +18,7 @@ interface CustomEmoji {
   url: string;
   serverId?: string;
   serverName?: string;
+  serverIcon?: string;
   animated?: boolean;
 }
 
@@ -225,6 +227,7 @@ export function CustomEmojiPicker({
   initialTab = "emoji",
 }: EmojiPickerProps) {
   const gt = useGT();
+  const router = useRouter();
   const [search, setSearch] = useState("");
   // Keep typing responsive: filtering runs against the deferred value so
   // keystrokes never block on re-filtering thousands of emojis.
@@ -260,9 +263,14 @@ export function CustomEmojiPicker({
           .filter((e) => e.serverName)
           .map((e) => [e.id, e.serverName as string])
       );
+      const iconById = new Map(
+        availableServerEmojis
+          .filter((e) => e.serverIcon)
+          .map((e) => [e.id, e.serverIcon as string])
+      );
       const currentServerIds = new Set(serverEmojis.map(e => e.id));
       const enrichedCurrent = serverEmojis.map((e) =>
-        e.serverName ? e : { ...e, serverName: nameById.get(e.id) }
+        e.serverName ? e : { ...e, serverName: nameById.get(e.id), serverIcon: e.serverIcon ?? iconById.get(e.id) }
       );
       const others = availableServerEmojis.filter(e => !currentServerIds.has(e.id));
       return [...enrichedCurrent, ...others];
@@ -296,7 +304,7 @@ export function CustomEmojiPicker({
   // Group custom emojis by their server (current server first, since
   // allCustomEmojis puts the current server's emojis before the others)
   const groupedCustomEmojis = useMemo(() => {
-    const groups: Array<{ server: string; emojis: CustomEmoji[] }> = [];
+    const groups: Array<{ server: string; serverId?: string; serverIcon?: string; emojis: CustomEmoji[] }> = [];
     const indexByServer = new Map<string, number>();
     for (const emoji of filteredCustomEmojis) {
       const server = emoji.serverName || serverName;
@@ -304,7 +312,7 @@ export function CustomEmojiPicker({
       if (index === undefined) {
         index = groups.length;
         indexByServer.set(server, index);
-        groups.push({ server, emojis: [] });
+        groups.push({ server, serverId: emoji.serverId, serverIcon: emoji.serverIcon, emojis: [] });
       }
       groups[index].emojis.push(emoji);
     }
@@ -676,7 +684,22 @@ export function CustomEmojiPicker({
                 {groupedCustomEmojis.map((group) => (
                   <div key={`server-${group.server}`}>
                     <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
-                      {group.server}
+                      {group.serverIcon && group.serverId ? (
+                        <button
+                          onClick={() => router.push(`/channels/${group.serverId}`)}
+                          className="flex items-center gap-1.5 hover:text-white transition-colors"
+                          title={`Jump to ${group.server}`}
+                        >
+                          <img
+                            src={group.serverIcon}
+                            alt={group.server}
+                            className="w-4 h-4 rounded-full object-cover"
+                          />
+                          {group.server}
+                        </button>
+                      ) : (
+                        group.server
+                      )}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
                       {group.emojis.map((emoji) => (

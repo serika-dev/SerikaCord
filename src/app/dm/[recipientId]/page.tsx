@@ -70,7 +70,7 @@ export default function DMConversationPage() {
   const messageListRef = useRef<MessageListHandle>(null);
 
   const [availableServerEmojis, setAvailableServerEmojis] = useState<
-    Array<{ id: string; name: string; url: string; serverId?: string; serverName?: string; animated?: boolean }>
+    Array<{ id: string; name: string; url: string; serverId?: string; serverName?: string; serverIcon?: string; animated?: boolean }>
   >([]);
   const [availableServerStickers, setAvailableServerStickers] = useState<
     Array<{ id: string; name: string; imageUrl: string; serverId?: string; serverName?: string }>

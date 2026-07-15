@@ -903,6 +903,52 @@ export function ChannelSidebar({
     }
   }, [currentServer, fetchDMChannels]);
 
+  // Keep the DM list live while it's shown (no server selected): re-fetch on tab
+  // focus/visibility as a resilient fallback for the SSE stream below.
+  usePolling(fetchDMChannels, 20000, !currentServer);
+
+  // Real-time DM list updates: when a new DM/message arrives the server pushes a
+  // `dm:list:update` over this stream, so a new conversation or reordered
+  // conversation shows up instantly without waiting for the poll. Mirrors the
+  // mobile MessagesView subscription. Only connected while the DM list is shown.
+  useEffect(() => {
+    if (currentServer) return;
+    let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      source = new EventSource("/api/dms/stream");
+      source.onopen = () => {
+        attempts = 0;
+      };
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "dm:list:update") void fetchDMChannels();
+        } catch {
+          /* ignore malformed events */
+        }
+      };
+      source.onerror = () => {
+        source?.close();
+        if (closed) return;
+        const backoff = Math.min(1000 * 2 ** attempts, 30000);
+        attempts += 1;
+        reconnectTimer = setTimeout(connect, backoff);
+      };
+    };
+    connect();
+
+    return () => {
+      closed = true;
+      source?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [currentServer, fetchDMChannels]);
+
   const statusColors: Record<string, string> = {
     online: "#23A559",
     idle: "#F0B232",

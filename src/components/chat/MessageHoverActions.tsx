@@ -20,6 +20,7 @@ interface PickerEmoji {
   url: string;
   serverId?: string;
   serverName?: string;
+  serverIcon?: string;
   animated?: boolean;
 }
 

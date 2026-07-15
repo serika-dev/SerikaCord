@@ -179,6 +179,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     url: string;
     serverId: string;
     serverName?: string;
+    serverIcon?: string;
     animated?: boolean;
   }>>([]);
   const [serverStickers, setServerStickers] = useState<Array<{
@@ -268,12 +269,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const response = await fetch('/api/users/@me/emojis');
         if (response.ok) {
           const data = await response.json();
-          const mapped = (data.emojis || []).map((emoji: { id?: string; _id?: string; name?: string; url?: string; imageUrl?: string; serverId?: string; serverName?: string; animated?: boolean }) => ({
+          const mapped = (data.emojis || []).map((emoji: { id?: string; _id?: string; name?: string; url?: string; imageUrl?: string; serverId?: string; serverName?: string; serverIcon?: string; animated?: boolean }) => ({
             id: emoji.id || emoji._id,
             name: emoji.name,
             url: emoji.url || emoji.imageUrl,
             serverId: emoji.serverId || '',
             serverName: emoji.serverName,
+            serverIcon: emoji.serverIcon,
             animated: emoji.animated,
           }));
           setAllServerEmojis(mapped);
