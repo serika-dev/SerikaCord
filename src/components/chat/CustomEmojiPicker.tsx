@@ -600,8 +600,8 @@ export function CustomEmojiPicker({
           <div className="flex flex-1 min-h-0">
             {/* Category Sidebar */}
             <div className="w-12 h-[440px] max-h-[60dvh] bg-[#0f0f1a] flex flex-col items-center py-2 gap-1 border-r border-[#2a2a40] overflow-y-auto scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent">
-              {/* Standard category icons — recent/favorites/smileys at top */}
-              {CATEGORY_ICONS.map((cat) => {
+              {/* Recent + Favorites first */}
+              {CATEGORY_ICONS.filter((cat) => cat.id === "recent" || cat.id === "favorites").map((cat) => {
                 const IconComponent = cat.icon;
                 const isActive = activeSection === cat.id;
                 return (
@@ -620,7 +620,7 @@ export function CustomEmojiPicker({
                   </button>
                 );
               })}
-              {/* Server icons — after standard categories, scrollable */}
+              {/* Server icons — after recent/favorites, before twemoji */}
               {groupedCustomEmojis.map((group) => {
                 const sectionId = `server-${group.serverId || group.server}`;
                 const isActive = activeSection === sectionId;
@@ -647,6 +647,26 @@ export function CustomEmojiPicker({
                         {group.server.charAt(0).toUpperCase()}
                       </span>
                     )}
+                  </button>
+                );
+              })}
+              {/* Twemoji standard category icons — after servers */}
+              {CATEGORY_ICONS.filter((cat) => cat.id !== "recent" && cat.id !== "favorites").map((cat) => {
+                const IconComponent = cat.icon;
+                const isActive = activeSection === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => scrollToSection(cat.id)}
+                    className={cn(
+                      "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0",
+                      isActive 
+                        ? "bg-[#8B5CF6] text-white" 
+                        : "text-[#8888aa] hover:bg-[#2a2a40] hover:text-white"
+                    )}
+                    title={emojiCategoryLabel(cat.id, gt)}
+                  >
+                    <IconComponent className="w-5 h-5" />
                   </button>
                 );
               })}

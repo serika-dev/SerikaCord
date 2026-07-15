@@ -1064,6 +1064,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       variants,
       rolloutPercentage,
       filters,
+      excludedUsers: bodyExcludedUsers,
+      userOverrides: bodyUserOverrides,
       status: expBodyStatus,
     } = body as {
       name?: string;
@@ -1071,6 +1073,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       variants?: Array<{ id: string; name: string; weight: number; config?: Record<string, unknown> }>;
       rolloutPercentage?: number;
       filters?: Array<{ type: string; operator: string; value: unknown }>;
+      excludedUsers?: string[];
+      userOverrides?: Array<{ userId: string; variantId: string }>;
       status?: string;
     };
 
@@ -1080,6 +1084,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     if (variants) updates.variants = variants;
     if (rolloutPercentage !== undefined) updates.rolloutPercentage = rolloutPercentage;
     if (filters) updates.filters = filters;
+    if (bodyExcludedUsers !== undefined) updates.excludedUsers = bodyExcludedUsers;
+    if (bodyUserOverrides !== undefined) updates.userOverrides = bodyUserOverrides;
     
     // Handle status changes
     if (expBodyStatus && expBodyStatus !== experiment.status) {
@@ -1121,6 +1127,11 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
         type: t.String(),
         operator: t.String(),
         value: t.Unknown(),
+      }))),
+      excludedUsers: t.Optional(t.Array(t.String())),
+      userOverrides: t.Optional(t.Array(t.Object({
+        userId: t.String(),
+        variantId: t.String(),
       }))),
       status: t.Optional(t.String()),
     }),
@@ -1192,6 +1203,180 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       },
       variant,
     };
+  }, {
+    params: t.Object({
+      experimentId: t.String(),
+      userId: t.String(),
+    }),
+  })
+
+  // List managed users for an experiment
+  .get('/experiments/:experimentId/users', async ({ headers, cookie, params, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { Experiment } = await import('@/lib/models/Experiment');
+    const experiment = await Experiment.findById(params.experimentId);
+
+    if (!experiment) {
+      set.status = 404;
+      return { error: 'Experiment not found' };
+    }
+
+    const excludedUsers = (experiment.excludedUsers as string[]) || [];
+    const userOverrides = (experiment.userOverrides as Array<{ userId: string; variantId: string }>) || [];
+
+    const allUserIds = [...new Set([...excludedUsers, ...userOverrides.map(o => o.userId)])];
+    const users = allUserIds.length > 0 ? await User.find({ id: { in: allUserIds } }) : [];
+    const userMap = new Map(users.map(u => [u.id, u]));
+
+    const managedUsers = allUserIds.map(id => {
+      const u = userMap.get(id);
+      const override = userOverrides.find(o => o.userId === id);
+      return {
+        id,
+        username: u?.username ?? 'Unknown',
+        displayName: u?.displayName ?? null,
+        status: excludedUsers.includes(id) ? 'excluded' : 'included',
+        variantId: override?.variantId ?? null,
+      };
+    });
+
+    return { users: managedUsers };
+  }, {
+    params: t.Object({
+      experimentId: t.String(),
+    }),
+  })
+
+  // Add user to experiment (include or exclude)
+  .post('/experiments/:experimentId/users', async ({ headers, cookie, params, body, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { Experiment } = await import('@/lib/models/Experiment');
+    const experiment = await Experiment.findById(params.experimentId);
+
+    if (!experiment) {
+      set.status = 404;
+      return { error: 'Experiment not found' };
+    }
+
+    const { userId, action } = body as { userId: string; action: 'include' | 'exclude' };
+
+    if (!userId || !userId.trim()) {
+      set.status = 400;
+      return { error: 'User ID is required' };
+    }
+
+    const targetUser = await User.findById(userId.trim());
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+
+    const excludedUsers = (experiment.excludedUsers as string[]) || [];
+    const userOverrides = (experiment.userOverrides as Array<{ userId: string; variantId: string }>) || [];
+    const variants = (experiment.variants as Array<{ id: string; name: string; weight: number }>) || [];
+
+    const updates: Record<string, unknown> = {};
+
+    if (action === 'exclude') {
+      if (!excludedUsers.includes(targetUser.id)) {
+        updates.excludedUsers = [...excludedUsers, targetUser.id];
+      }
+      // Remove from overrides if present
+      const filteredOverrides = userOverrides.filter(o => o.userId !== targetUser.id);
+      if (filteredOverrides.length !== userOverrides.length) {
+        updates.userOverrides = filteredOverrides;
+      }
+    } else {
+      // Include: remove from excluded, add to overrides with first non-control variant (or 'enabled')
+      const filteredExcluded = excludedUsers.filter(id => id !== targetUser.id);
+      if (filteredExcluded.length !== excludedUsers.length) {
+        updates.excludedUsers = filteredExcluded;
+      }
+
+      const existingOverride = userOverrides.find(o => o.userId === targetUser.id);
+      if (!existingOverride) {
+        const enabledVariant = variants.find(v => v.id === 'enabled') || variants.find(v => v.id !== 'control') || variants[0];
+        updates.userOverrides = [...userOverrides, { userId: targetUser.id, variantId: enabledVariant?.id ?? 'enabled' }];
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await Experiment.updateById(experiment.id, updates);
+    }
+
+    await logAdminAction(
+      user.id,
+      'update_experiment',
+      'platform',
+      experiment.id,
+      { action, userId: targetUser.id, username: targetUser.username }
+    );
+
+    return { success: true, action, user: { id: targetUser.id, username: targetUser.username } };
+  }, {
+    params: t.Object({
+      experimentId: t.String(),
+    }),
+    body: t.Object({
+      userId: t.String(),
+      action: t.Union([t.Literal('include'), t.Literal('exclude')]),
+    }),
+  })
+
+  // Remove user from experiment management
+  .delete('/experiments/:experimentId/users/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { Experiment } = await import('@/lib/models/Experiment');
+    const experiment = await Experiment.findById(params.experimentId);
+
+    if (!experiment) {
+      set.status = 404;
+      return { error: 'Experiment not found' };
+    }
+
+    const excludedUsers = (experiment.excludedUsers as string[]) || [];
+    const userOverrides = (experiment.userOverrides as Array<{ userId: string; variantId: string }>) || [];
+
+    const updates: Record<string, unknown> = {};
+
+    const filteredExcluded = excludedUsers.filter(id => id !== params.userId);
+    if (filteredExcluded.length !== excludedUsers.length) {
+      updates.excludedUsers = filteredExcluded;
+    }
+
+    const filteredOverrides = userOverrides.filter(o => o.userId !== params.userId);
+    if (filteredOverrides.length !== userOverrides.length) {
+      updates.userOverrides = filteredOverrides;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await Experiment.updateById(experiment.id, updates);
+    }
+
+    await logAdminAction(
+      user.id,
+      'update_experiment',
+      'platform',
+      experiment.id,
+      { action: 'remove_user', userId: params.userId }
+    );
+
+    return { success: true };
   }, {
     params: t.Object({
       experimentId: t.String(),
