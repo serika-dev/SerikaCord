@@ -6,6 +6,7 @@ import { Message } from '@/lib/models/Message';
 import { AdminLog, type AdminActionType } from '@/lib/models/AdminLog';
 import { getPlatformSettings, updatePlatformSettings } from '@/lib/models/PlatformSettings';
 import { TtsSound } from '@/lib/models/TtsSound';
+import { BugReport } from '@/lib/models/BugReport';
 import { checkRateLimit } from '@/lib/security';
 
 // System user ID for Serika Broadcast
@@ -2108,4 +2109,184 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       set.status = 500;
       return { error: 'Failed to sync translations' };
     }
+  })
+
+  // ==================== BUG REPORTS MANAGEMENT ====================
+
+  // List all bug reports (with optional filters)
+  .get('/bug-reports', async ({ headers, cookie, query, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { status: filterStatus, priority, category, page = '1', limit = '20' } = query as any;
+    const pageNum = Math.max(1, parseInt(page));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
+    const offset = (pageNum - 1) * limitNum;
+
+    const filter: Record<string, unknown> = { _limit: limitNum, _orderByPriority: true };
+    if (filterStatus && filterStatus !== 'all') filter.status = filterStatus;
+    if (priority && priority !== 'all') filter.priority = priority;
+    if (category && category !== 'all') filter.category = category;
+
+    const allReports = await BugReport.find(filter);
+    const total = allReports.length;
+    const reports = allReports.slice(offset, offset + limitNum);
+
+    // Fetch reporter info
+    const reporterIds = [...new Set(reports.map(r => r.reporterId))];
+    const reporters = reporterIds.length > 0 ? await User.find({ id: { in: reporterIds } }) : [];
+    const reporterMap = new Map(reporters.map(u => [u.id, u]));
+
+    return {
+      reports: reports.map(r => ({
+        ...r,
+        reporter: reporterMap.get(r.reporterId)
+          ? { id: reporterMap.get(r.reporterId)!.id, username: reporterMap.get(r.reporterId)!.username, displayName: reporterMap.get(r.reporterId)!.displayName, avatar: reporterMap.get(r.reporterId)!.avatar }
+          : null,
+      })),
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum),
+      },
+    };
+  })
+
+  // Get a single bug report with full details
+  .get('/bug-reports/:id', async ({ headers, cookie, params, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const report = await BugReport.findById(params.id);
+    if (!report) {
+      set.status = 404;
+      return { error: 'Bug report not found' };
+    }
+
+    const reporter = await User.findById(report.reporterId);
+
+    return {
+      ...report,
+      reporter: reporter
+        ? { id: reporter.id, username: reporter.username, displayName: reporter.displayName, avatar: reporter.avatar, email: reporter.email }
+        : null,
+    };
+  })
+
+  // Update bug report (priority, status, admin notes, assignment)
+  .patch('/bug-reports/:id', async ({ headers, cookie, params, body, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const report = await BugReport.findById(params.id);
+    if (!report) {
+      set.status = 404;
+      return { error: 'Bug report not found' };
+    }
+
+    const { priority, status: newStatus, adminNotes, assignedTo } = body as any;
+
+    const updates: Record<string, unknown> = {};
+    if (priority && ['low', 'medium', 'high', 'critical'].includes(priority)) {
+      updates.priority = priority;
+    }
+    if (newStatus && ['open', 'acknowledged', 'resolved', 'wont_fix'].includes(newStatus)) {
+      updates.status = newStatus;
+      if (newStatus === 'resolved' || newStatus === 'wont_fix') {
+        updates.resolvedAt = new Date();
+        updates.resolvedBy = user.id;
+      } else {
+        updates.resolvedAt = null;
+        updates.resolvedBy = null;
+      }
+    }
+    if (adminNotes !== undefined) {
+      updates.adminNotes = adminNotes;
+    }
+    if (assignedTo !== undefined) {
+      updates.assignedTo = assignedTo || null;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      set.status = 400;
+      return { error: 'No valid fields to update' };
+    }
+
+    const updated = await BugReport.updateById(params.id, updates);
+
+    await logAdminAction(user.id, 'update_settings', 'platform', params.id, {
+      action: 'bug_report_update',
+      priority: updates.priority,
+      status: updates.status,
+      adminNotes: updates.adminNotes !== undefined,
+      assignedTo: updates.assignedTo !== undefined,
+    });
+
+    return { report: updated };
+  }, {
+    body: t.Object({
+      priority: t.Optional(t.Union([t.Literal('low'), t.Literal('medium'), t.Literal('high'), t.Literal('critical')])),
+      status: t.Optional(t.Union([t.Literal('open'), t.Literal('acknowledged'), t.Literal('resolved'), t.Literal('wont_fix')])),
+      adminNotes: t.Optional(t.String()),
+      assignedTo: t.Optional(t.String()),
+    }),
+  })
+
+  // Delete a bug report
+  .delete('/bug-reports/:id', async ({ headers, cookie, params, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const report = await BugReport.findById(params.id);
+    if (!report) {
+      set.status = 404;
+      return { error: 'Bug report not found' };
+    }
+
+    await BugReport.deleteById(params.id);
+
+    await logAdminAction(user.id, 'update_settings', 'platform', params.id, {
+      action: 'bug_report_delete',
+    });
+
+    return { success: true };
+  })
+
+  // Get bug report statistics
+  .get('/bug-reports/stats', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const allReports = await BugReport.find({});
+    const stats = {
+      total: allReports.length,
+      open: allReports.filter(r => r.status === 'open').length,
+      acknowledged: allReports.filter(r => r.status === 'acknowledged').length,
+      resolved: allReports.filter(r => r.status === 'resolved').length,
+      wontFix: allReports.filter(r => r.status === 'wont_fix').length,
+      byPriority: {
+        low: allReports.filter(r => r.priority === 'low').length,
+        medium: allReports.filter(r => r.priority === 'medium').length,
+        high: allReports.filter(r => r.priority === 'high').length,
+        critical: allReports.filter(r => r.priority === 'critical').length,
+      },
+    };
+
+    return { stats };
   });

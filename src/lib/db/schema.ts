@@ -46,6 +46,12 @@ const connectionProviderEnum = pgEnum('connection_provider', [
   'discord', 'twitch', 'youtube', 'github', 'spotify', 'website',
   'lastfm', 'steam', 'xbox', 'psn', 'roblox', 'twitter', 'instagram', 'battlenet', 'serika',
 ]);
+const bugReportPriorityEnum = pgEnum('bug_report_priority', ['low', 'medium', 'high', 'critical']);
+const bugReportStatusEnum = pgEnum('bug_report_status', ['open', 'acknowledged', 'resolved', 'wont_fix']);
+const bugReportCategoryEnum = pgEnum('bug_report_category', [
+  'crash', 'visual', 'functionality', 'performance', 'security',
+  'audio', 'network', 'ui_ux', 'other',
+]);
 
 // ─── Tables ───────────────────────────────────────────────
 
@@ -680,6 +686,36 @@ export const channelWebhooks = pgTable('channel_webhooks', {
   serverIdx: index('channel_webhooks_server_id_idx').on(t.serverId),
 }));
 
+export const bugReports = pgTable('bug_reports', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  reporterId: uuid('reporter_id').notNull(),
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+  category: bugReportCategoryEnum('category').default('other'),
+  priority: bugReportPriorityEnum('priority').default('low'),
+  status: bugReportStatusEnum('status').default('open'),
+  stepsToReproduce: text('steps_to_reproduce'),
+  expectedBehavior: text('expected_behavior'),
+  actualBehavior: text('actual_behavior'),
+  attachments: jsonb('attachments').default([]),
+  browserInfo: text('browser_info'),
+  osInfo: text('os_info'),
+  appVersion: text('app_version'),
+  assignedTo: uuid('assigned_to'),
+  adminNotes: text('admin_notes'),
+  resolvedAt: timestamp('resolved_at'),
+  resolvedBy: uuid('resolved_by'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  reporterIdx: index('bug_reports_reporter_id_idx').on(t.reporterId),
+  statusIdx: index('bug_reports_status_idx').on(t.status),
+  priorityIdx: index('bug_reports_priority_idx').on(t.priority),
+  categoryIdx: index('bug_reports_category_idx').on(t.category),
+  createdIdx: index('bug_reports_created_at_idx').on(t.createdAt),
+  priorityCreatedIdx: index('bug_reports_priority_created_at_idx').on(t.priority, t.createdAt),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
 export type UserRow = typeof users.$inferSelect;
@@ -734,3 +770,5 @@ export type RichPresenceRow = typeof richPresence.$inferSelect;
 export type RichPresenceInsert = typeof richPresence.$inferInsert;
 export type ChannelWebhookRow = typeof channelWebhooks.$inferSelect;
 export type ChannelWebhookInsert = typeof channelWebhooks.$inferInsert;
+export type BugReportRow = typeof bugReports.$inferSelect;
+export type BugReportInsert = typeof bugReports.$inferInsert;

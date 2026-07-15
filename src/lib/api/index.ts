@@ -5,7 +5,7 @@ import { config } from '@/lib/config';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
-import { User, type IUser, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message } from '@/lib/models';
+import { User, type IUser, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
 import { RichPresence } from '@/lib/models/RichPresence';
 import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCount } from './servers';
@@ -2461,6 +2461,143 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
     }),
   });
 
+// Bug Report routes (user-facing)
+const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
+  // Submit a new bug report
+  .post('/', async ({ headers, cookie, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { title, description, category, stepsToReproduce, expectedBehavior, actualBehavior, attachments, browserInfo, osInfo, appVersion } = body as any;
+
+    if (!title?.trim() || !description?.trim()) {
+      set.status = 400;
+      return { error: 'Title and description are required' };
+    }
+
+    if (title.trim().length > 200) {
+      set.status = 400;
+      return { error: 'Title must be 200 characters or less' };
+    }
+
+    if (description.trim().length > 5000) {
+      set.status = 400;
+      return { error: 'Description must be 5000 characters or less' };
+    }
+
+    // Rate limit: max 5 bug reports per hour per user
+    const rateKey = `bug-report:${user.id}`;
+    const rateLimit = await checkRateLimit('bugReport', rateKey);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'You are submitting bug reports too quickly. Please try again later.' };
+    }
+
+    const report = await BugReport.create({
+      reporterId: user.id,
+      title: title.trim(),
+      description: description.trim(),
+      category: category || 'other',
+      priority: 'low',
+      status: 'open',
+      stepsToReproduce: stepsToReproduce?.trim() || null,
+      expectedBehavior: expectedBehavior?.trim() || null,
+      actualBehavior: actualBehavior?.trim() || null,
+      attachments: attachments || [],
+      browserInfo: browserInfo || null,
+      osInfo: osInfo || null,
+      appVersion: appVersion || null,
+    });
+
+    return { report };
+  }, {
+    body: t.Object({
+      title: t.String(),
+      description: t.String(),
+      category: t.Optional(t.String()),
+      stepsToReproduce: t.Optional(t.String()),
+      expectedBehavior: t.Optional(t.String()),
+      actualBehavior: t.Optional(t.String()),
+      attachments: t.Optional(t.Any()),
+      browserInfo: t.Optional(t.String()),
+      osInfo: t.Optional(t.String()),
+      appVersion: t.Optional(t.String()),
+    }),
+  })
+
+  // List own bug reports
+  .get('/me', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const reports = await BugReport.find({ reporterId: user.id });
+    return { reports };
+  })
+
+  // Get a single bug report (only if owned by user)
+  .get('/:id', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const report = await BugReport.findById(params.id);
+    if (!report) {
+      set.status = 404;
+      return { error: 'Bug report not found' };
+    }
+
+    if (report.reporterId !== user.id) {
+      set.status = 403;
+      return { error: 'You can only view your own bug reports' };
+    }
+
+    return { report };
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+  })
+
+  // Delete own bug report (only if open)
+  .delete('/:id', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const report = await BugReport.findById(params.id);
+    if (!report) {
+      set.status = 404;
+      return { error: 'Bug report not found' };
+    }
+
+    if (report.reporterId !== user.id) {
+      set.status = 403;
+      return { error: 'You can only delete your own bug reports' };
+    }
+
+    if (report.status === 'resolved' || report.status === 'wont_fix') {
+      set.status = 400;
+      return { error: 'Cannot delete a resolved or closed bug report' };
+    }
+
+    await BugReport.deleteById(params.id);
+    return { success: true };
+  }, {
+    params: t.Object({
+      id: t.String(),
+    }),
+  });
+
 // Notifications routes
 const notificationsRoutes = new Elysia({ prefix: '/notifications' })
   .get('/', async ({ headers, cookie, set }) => {
@@ -2935,6 +3072,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
   .use(internalRoutes)
   .use(userRoutes)
+  .use(bugReportRoutes)
   .use(notificationsRoutes)
   .use(friendsRoutes)
   .use(serverRoutes)

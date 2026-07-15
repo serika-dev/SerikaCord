@@ -264,6 +264,137 @@ function Spoiler({ children }: { children: React.ReactNode }) {
   );
 }
 
+const ANSI_FG_COLORS: Record<number, string> = {
+  30: "#4f545c", 31: "#dc322f", 32: "#85c46c", 33: "#e5c100",
+  34: "#58a6ff", 35: "#b00588", 36: "#00b3b3", 37: "#ffffff",
+  90: "#4f545c", 91: "#ff6b6b", 92: "#5fff5f", 93: "#ffff5f",
+  94: "#5f5fff", 95: "#ff5fff", 96: "#5fffff", 97: "#ffffff",
+};
+
+const ANSI_BG_COLORS: Record<number, string> = {
+  40: "#4f545c", 41: "#dc322f", 42: "#85c46c", 43: "#e5c100",
+  44: "#58a6ff", 45: "#b00588", 46: "#00b3b3", 47: "#ffffff",
+  100: "#4f545c", 101: "#ff6b6b", 102: "#5fff5f", 103: "#ffff5f",
+  104: "#5f5fff", 105: "#ff5fff", 106: "#5fffff", 107: "#ffffff",
+};
+
+interface AnsiStyle {
+  bold: boolean;
+  dim: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  fg: string | null;
+  bg: string | null;
+}
+
+function parseAnsiToSpans(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  // Match ESC[...m sequences (real ANSI) or bare [...m (Discord-style without ESC).
+  const re = /\x1b?\[([\d;]*)m/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  const style: AnsiStyle = {
+    bold: false, dim: false, italic: false, underline: false,
+    strikethrough: false, fg: null, bg: null,
+  };
+  let key = 0;
+
+  const flush = (text: string) => {
+    if (text.length === 0) return;
+    const css: React.CSSProperties = {};
+    if (style.fg) css.color = style.fg;
+    if (style.bg) css.backgroundColor = style.bg;
+    if (style.bold) css.fontWeight = "bold";
+    if (style.dim) css.opacity = "0.5";
+    if (style.italic) css.fontStyle = "italic";
+    if (style.underline || style.strikethrough) {
+      const decos: string[] = [];
+      if (style.underline) decos.push("underline");
+      if (style.strikethrough) decos.push("line-through");
+      css.textDecoration = decos.join(" ");
+    }
+    const hasStyle = style.fg || style.bg || style.bold || style.dim ||
+      style.italic || style.underline || style.strikethrough;
+    if (hasStyle) {
+      nodes.push(<span key={`a-${key++}`} style={css}>{text}</span>);
+    } else {
+      nodes.push(<span key={`a-${key++}`}>{text}</span>);
+    }
+  };
+
+  while ((match = re.exec(text)) !== null) {
+    // Flush text before the escape sequence
+    if (match.index > lastIndex) {
+      flush(text.slice(lastIndex, match.index));
+    }
+    // Parse the SGR parameters
+    const params = match[1].split(";").map((s) => parseInt(s, 10));
+    if (params.length === 0 || (params.length === 1 && params[0] === 0)) {
+      // Reset
+      style.bold = false; style.dim = false; style.italic = false;
+      style.underline = false; style.strikethrough = false;
+      style.fg = null; style.bg = null;
+    } else {
+      for (let i = 0; i < params.length; i++) {
+        const code = params[i];
+        if (code === 0) {
+          style.bold = false; style.dim = false; style.italic = false;
+          style.underline = false; style.strikethrough = false;
+          style.fg = null; style.bg = null;
+        } else if (code === 1) style.bold = true;
+        else if (code === 2) style.dim = true;
+        else if (code === 3) style.italic = true;
+        else if (code === 4) style.underline = true;
+        else if (code === 9) style.strikethrough = true;
+        else if (code === 22) { style.bold = false; style.dim = false; }
+        else if (code === 23) style.italic = false;
+        else if (code === 24) style.underline = false;
+        else if (code === 29) style.strikethrough = false;
+        else if (code === 39) style.fg = null;
+        else if (code === 49) style.bg = null;
+        else if (ANSI_FG_COLORS[code]) style.fg = ANSI_FG_COLORS[code];
+        else if (ANSI_BG_COLORS[code]) style.bg = ANSI_BG_COLORS[code];
+        else if (code === 38) {
+          // Extended foreground: 38;5;n (256) or 38;2;r;g;b (truecolor)
+          if (params[i + 1] === 5 && params[i + 2] !== undefined) {
+            style.fg = `var(--ansi-256-${params[i + 2]}, #ffffff)`;
+            i += 2;
+          } else if (params[i + 1] === 2 && params[i + 4] !== undefined) {
+            style.fg = `rgb(${params[i + 2]}, ${params[i + 3]}, ${params[i + 4]})`;
+            i += 4;
+          }
+        } else if (code === 48) {
+          if (params[i + 1] === 5 && params[i + 2] !== undefined) {
+            style.bg = `var(--ansi-256-${params[i + 2]}, #4f545c)`;
+            i += 2;
+          } else if (params[i + 1] === 2 && params[i + 4] !== undefined) {
+            style.bg = `rgb(${params[i + 2]}, ${params[i + 3]}, ${params[i + 4]})`;
+            i += 4;
+          }
+        }
+      }
+    }
+    lastIndex = re.lastIndex;
+  }
+
+  // Flush remaining text
+  if (lastIndex < text.length) {
+    flush(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+const AnsiCodeblock = memo(function AnsiCodeblock({ code }: { code: string }) {
+  const spans = useMemo(() => parseAnsiToSpans(code), [code]);
+  return (
+    <pre className="p-3 overflow-x-auto">
+      <code className="text-[0.85em] font-mono text-[var(--text-primary)] whitespace-pre">{spans}</code>
+    </pre>
+  );
+});
+
 function renderInlineNodes(nodes: MarkdownNode[], keyPrefix: string): React.ReactNode[] {
   return nodes.map((node, i) => {
     const key = `${keyPrefix}-${i}`;
@@ -313,7 +444,8 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           case "codeblock": {
             const code = block.code || "";
             const isSingleLine = !code.includes("\n");
-            if (isSingleLine) {
+            const isAnsi = block.lang === "ansi";
+            if (isSingleLine && !isAnsi) {
               return (
                 <pre key={key} className="my-1 px-3 py-2 rounded-md bg-[var(--app-surface-alt)] border border-[var(--app-border)] overflow-x-auto inline-block w-fit max-w-full">
                   <code className="text-[0.9em] font-mono text-[var(--text-primary)]">{code}</code>
@@ -336,9 +468,13 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
                     </button>
                   </div>
                 )}
-                <pre className="p-3 overflow-x-auto">
-                  <code className="text-[0.85em] font-mono text-[var(--text-primary)]">{code}</code>
-                </pre>
+                {isAnsi ? (
+                  <AnsiCodeblock code={code} />
+                ) : (
+                  <pre className="p-3 overflow-x-auto">
+                    <code className="text-[0.85em] font-mono text-[var(--text-primary)]">{code}</code>
+                  </pre>
+                )}
               </div>
             );
           }

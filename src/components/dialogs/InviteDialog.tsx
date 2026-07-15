@@ -62,25 +62,32 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   // Generate invite on open
   useEffect(() => {
     if (open && currentServer) {
-      fetchVanityInfo();
-      generateInvite();
+      // Fetch vanity info first; only create a real invite when the server
+      // isn't locked to its custom (vanity) link.
+      (async () => {
+        const locked = await fetchVanityInfo();
+        if (!locked) {
+          generateInvite();
+        }
+      })();
     }
   }, [open, currentServer]);
 
-  const fetchVanityInfo = async () => {
-    if (!currentServer) return;
+  const fetchVanityInfo = async (): Promise<boolean> => {
+    if (!currentServer) return false;
     try {
       const res = await fetch(`/api/servers/${currentServer.id}/vanity-url`);
       if (res.ok) {
         const data = await res.json();
-        setVanityInfo({
-          code: data.code ?? null,
-          lockToVanity: Boolean(data.lockToVanity),
-        });
+        const code = data.code ?? null;
+        const lockToVanity = Boolean(data.lockToVanity);
+        setVanityInfo({ code, lockToVanity });
+        return lockToVanity && Boolean(code);
       }
     } catch {
       // ignore — vanity info is optional
     }
+    return false;
   };
 
   // Set initial channel

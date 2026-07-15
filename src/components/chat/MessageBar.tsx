@@ -11,6 +11,7 @@ import {
 import {
   PlusCircle,
   ImageIcon,
+  ImagePlay,
   Sticker,
   Smile,
   SendHorizontal, 
@@ -1032,7 +1033,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
                 title={gt("Open GIF picker")}
               >
-                <ImageIcon className="w-6 h-6" />
+                <ImagePlay className="w-6 h-6" />
               </button>
 
               {/* Sticker picker button */}

@@ -24,3 +24,4 @@ export { AppEmoji, type IAppEmoji } from './AppEmoji';
 export { AppCommand, type IAppCommand } from './AppCommand';
 export { RichPresence, type IRichPresence } from './RichPresence';
 export { ChannelWebhook, type IChannelWebhook } from './ChannelWebhook';
+export { BugReport, type IBugReport, type BugReportPriority, type BugReportStatus, type BugReportCategory } from './BugReport';

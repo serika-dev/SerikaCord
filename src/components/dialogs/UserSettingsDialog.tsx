@@ -64,6 +64,8 @@ import {
   Calendar,
   Bot,
   RefreshCw,
+  Bug,
+  ShieldAlert,
 } from "lucide-react";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
@@ -74,6 +76,8 @@ import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPan
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
+import { BugReportPanel } from "@/components/settings/BugReportPanel";
+import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
@@ -111,7 +115,9 @@ type SettingsTab =
   | "admin-tts-sounds"
   | "admin-tts-voices"
   | "admin-translations"
-  | "admin-stats";
+  | "admin-stats"
+  | "bug-reports"
+  | "admin-bug-reports";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -1586,6 +1592,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
           { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
           { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
+          { id: "bug-reports" as SettingsTab, label: gt("Bug Reports"), icon: Bug },
         ],
       },
       {
@@ -1634,6 +1641,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           { id: "admin-tts-sounds" as SettingsTab, label: gt("TTS Sounds"), icon: Volume2 },
           { id: "admin-tts-voices" as SettingsTab, label: gt("TTS Voices"), icon: Mic2 },
           { id: "admin-translations" as SettingsTab, label: gt("Translations"), icon: Languages },
+          { id: "admin-bug-reports" as SettingsTab, label: gt("Bug Reports"), icon: ShieldAlert },
         ],
       });
     }
@@ -4595,6 +4603,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Translations */}
               {activeTab === "admin-translations" && isStaff && (
                 <AdminTranslationsPanel />
+              )}
+
+              {/* Bug Reports - User */}
+              {activeTab === "bug-reports" && (
+                <BugReportPanel />
+              )}
+
+              {/* Admin Panel - Bug Reports */}
+              {activeTab === "admin-bug-reports" && isStaff && (
+                <AdminBugReportsPanel />
               )}
             </div>
           </ScrollArea>
