@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useMemo, memo } from "react";
-import twemoji from "twemoji";
+import twemoji from "@twemoji/api";
 import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";

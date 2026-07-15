@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useMemo } from "react";
-import twemoji from "twemoji";
+import twemoji from "@twemoji/api";
 import { cn } from "@/lib/utils";
 
 interface CustomEmojiData {

@@ -890,7 +890,11 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     const allExperiments = await Experiment.find({});
     let filtered = allExperiments;
     if (expStatus) {
-      filtered = allExperiments.filter(e => e.status === expStatus);
+      // Frontend passes a comma-separated list (e.g. "running,paused,draft").
+      const statuses = expStatus.split(',').map(s => s.trim()).filter(Boolean);
+      if (statuses.length > 0) {
+        filtered = allExperiments.filter(e => e.status && statuses.includes(e.status));
+      }
     }
     filtered.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
     const total = filtered.length;
