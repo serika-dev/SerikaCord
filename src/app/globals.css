@@ -281,10 +281,19 @@ html.theme-midnight body {
   input[type="range"] {
     accent-color: var(--app-accent);
   }
+}
 
-  ::selection {
-    background: color-mix(in srgb, var(--app-accent) 30%, transparent);
-  }
+/* Text selection highlight — outside @layer base so it overrides Tailwind utilities */
+::selection {
+  background: color-mix(in srgb, var(--app-accent) 30%, transparent);
+  color: inherit;
+}
+
+input::selection,
+textarea::selection,
+[contenteditable]::selection {
+  background: color-mix(in srgb, var(--app-accent) 35%, transparent);
+  color: inherit;
 }
 
 .premium-panel {

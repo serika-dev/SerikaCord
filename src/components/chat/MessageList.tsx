@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -119,6 +120,7 @@ function MessageListInner<M extends ChatMessage>(
   const animateInRef = useRef(true);
   const [animateIn, setAnimateIn] = useState(true);
   const [newMessagesCount, setNewMessagesCount] = useState(0);
+  const [newMessageStartId, setNewMessageStartId] = useState<string | null>(null);
   const [showContentFade, setShowContentFade] = useState(false);
   const wasLoadingRef = useRef(isLoading);
   const messageCount = useMemo(
@@ -145,6 +147,7 @@ function MessageListInner<M extends ChatMessage>(
     wasLoadingRef.current = true;
     Promise.resolve().then(() => {
       setNewMessagesCount(0);
+      setNewMessageStartId(null);
       setAnimateIn(true);
       setShowContentFade(false);
     });
@@ -238,7 +241,18 @@ function MessageListInner<M extends ChatMessage>(
         });
       }
     } else {
-      setNewMessagesCount((c) => c + (messageCount - prevCount));
+      let delta = messageCount - prevCount;
+      setNewMessagesCount((c) => c + delta);
+      // Record the first new message group's ID for the separator line
+      for (let i = groups.length - 1; i >= 0; i--) {
+        const g = groups[i];
+        if (g.messages.length >= delta) {
+          const startIdx = g.messages.length - delta;
+          setNewMessageStartId(g.messages[startIdx]?.id ?? g.messages[0]?.id ?? null);
+          break;
+        }
+        delta -= g.messages.length;
+      }
     }
     // Disable staggered animation after the initial batch has rendered.
     animateInRef.current = false;
@@ -270,7 +284,10 @@ function MessageListInner<M extends ChatMessage>(
         isAtBottomRef.current = atBottom;
         latestRef.current.onAtBottomChange?.(atBottom);
       }
-      if (atBottom) setNewMessagesCount(0);
+      if (atBottom) {
+        setNewMessagesCount(0);
+        setNewMessageStartId(null);
+      }
 
       if (scrollTop < 500 && hasMoreOlder && !isLoadingMore) {
         prevScrollHeightRef.current = viewport.scrollHeight;
@@ -339,9 +356,16 @@ function MessageListInner<M extends ChatMessage>(
                 const shouldAnimate = animateIn && idx < 12;
                 const isLastGroup = idx === groups.length - 1;
                 const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
+                const showNewSeparator = newMessageStartId === group.messages[0]?.id;
                 return (
+                <Fragment key={`group-${group.messages[0].id}`}>
+                {showNewSeparator && (
+                  <div className="flex items-center gap-2 px-4 my-2 select-none">
+                    <span className="text-xs font-semibold text-[var(--app-accent)] whitespace-nowrap">{gt("New")}</span>
+                    <div className="h-px flex-1 bg-[var(--app-accent)]" />
+                  </div>
+                )}
                 <div
-                  key={`group-${group.messages[0].id}`}
                   className={cn(
                     "msg-group-cv",
                     shouldAnimate && "msg-fade-in",
@@ -384,6 +408,7 @@ function MessageListInner<M extends ChatMessage>(
                   formattedTimestamp={formattedTimestamps[idx]}
                 />
                 </div>
+                </Fragment>
                 );
               })
             )}
@@ -397,6 +422,7 @@ function MessageListInner<M extends ChatMessage>(
         <button
           onClick={() => {
             setNewMessagesCount(0);
+            setNewMessageStartId(null);
             isAtBottomRef.current = true;
             scrollToBottom();
           }}

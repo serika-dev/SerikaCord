@@ -345,7 +345,9 @@ export default function DirectMessagesPage() {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex-1 flex bg-[var(--bg-app)] overflow-hidden">
+      {/* Left column: header + content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
       {/* Header */}
       <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-app)] flex-shrink-0">
         <div className="px-3 sm:px-6 pt-4 pb-3">
@@ -897,42 +899,44 @@ export default function DirectMessagesPage() {
             </div>
           )}
         </div>
-        {(activeTab === "online" || activeTab === "all") && (
-          <div className="w-80 border-l border-[var(--border-subtle)] bg-[var(--bg-card)] hidden lg:flex flex-col">
-            <div className="p-4 border-b border-[var(--border-subtle)]">
-              <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wide">
-                <T>Active Now</T>
-              </h3>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                {activeFriends.length} {activeFriends.length === 1 ? gt("friend") : gt("friends")}
-              </p>
-            </div>
-            <ScrollArea className="flex-1">
-              <div className="p-4 flex flex-col gap-4">
-                {isLoadingActive ? (
-                  <div className="flex items-center justify-center py-10">
-                    <Loader size={24} />
-                  </div>
-                ) : activeFriends.length > 0 ? (
-                  activeFriends.map((entry) => (
-                    <ActiveFriendCard
-                      key={entry.friend.id}
-                      entry={entry}
-                      onMessage={() => startDM(entry.friend.id)}
-                    />
-                  ))
-                ) : (
-                  <div className="text-center py-10 px-2">
-                    <p className="text-sm text-[var(--text-muted)]">
-                      {gt("When friends are active, they'll show up here")}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-        )}
       </div>
+      </div>
+      {/* Active Now sidebar — full height */}
+      {(activeTab === "online" || activeTab === "all") && (
+        <div className="w-80 border-l border-[var(--border-subtle)] bg-[var(--bg-card)] hidden lg:flex flex-col shrink-0">
+          <div className="p-4 border-b border-[var(--border-subtle)] flex-shrink-0">
+            <h3 className="text-sm font-bold text-[var(--text-primary)] uppercase tracking-wide">
+              <T>Active Now</T>
+            </h3>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+              {activeFriends.length} {activeFriends.length === 1 ? gt("friend") : gt("friends")}
+            </p>
+          </div>
+          <ScrollArea className="flex-1">
+            <div className="p-4 flex flex-col gap-4">
+              {isLoadingActive ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader size={24} />
+                </div>
+              ) : activeFriends.length > 0 ? (
+                activeFriends.map((entry) => (
+                  <ActiveFriendCard
+                    key={entry.friend.id}
+                    entry={entry}
+                    onMessage={() => startDM(entry.friend.id)}
+                  />
+                ))
+              ) : (
+                <div className="text-center py-10 px-2">
+                  <p className="text-sm text-[var(--text-muted)]">
+                    {gt("When friends are active, they'll show up here")}
+                  </p>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
     </div>
   );
 }

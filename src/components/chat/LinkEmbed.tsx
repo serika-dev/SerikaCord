@@ -50,7 +50,7 @@ function GifEmbedFrame({
         {label}
       </a>
       <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-        <GifFavoriteButton url={url} title={alt} source={source} />
+        <GifFavoriteButton url={gifSrc} title={alt} source={source} />
       </div>
     </div>
   );
