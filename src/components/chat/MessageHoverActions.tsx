@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Copy, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
@@ -63,6 +64,26 @@ export function MessageHoverActions<M extends ChatMessage>({
   serverName,
 }: MessageHoverActionsProps<M>) {
   const gt = useChatGt();
+  const [shiftHeld, setShiftHeld] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShiftHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setShiftHeld(false);
+    };
+    const onBlur = () => setShiftHeld(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []);
+
   const handlePickerSelect = (
     emoji: string,
     isCustom?: boolean,
@@ -116,50 +137,80 @@ export function MessageHoverActions<M extends ChatMessage>({
             <Pencil className="w-4 h-4 text-[var(--app-muted)]" />
           </button>
         )}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title={gt("More")}>
-              <MoreHorizontal className="w-4 h-4 text-[var(--app-muted)]" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="bottom"
-            align="end"
-            className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-w-[160px]"
-          >
-            <DropdownMenuItem onClick={() => onReply(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
-              <Reply className="w-4 h-4 mr-2" /> {gt("Reply")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
+        {shiftHeld ? (
+          <>
+            <button
               onClick={() => onCopy(message.content)}
-              className="hover:bg-[var(--bg-hover)] cursor-pointer"
+              className="p-1.5 hover:bg-black/20 transition-colors"
+              title={gt("Copy Text")}
             >
-              <Copy className="w-4 h-4 mr-2" /> {gt("Copy Text")}
-            </DropdownMenuItem>
+              <Copy className="w-4 h-4 text-[var(--app-muted)]" />
+            </button>
             {canPin && (
-              <DropdownMenuItem
+              <button
                 onClick={() => onPinToggle(message)}
-                className="hover:bg-[var(--bg-hover)] cursor-pointer"
+                className="p-1.5 hover:bg-black/20 transition-colors"
+                title={message.pinned ? gt("Unpin Message") : gt("Pin Message")}
               >
-                <Pin className="w-4 h-4 mr-2" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
-              </DropdownMenuItem>
+                <Pin className="w-4 h-4 text-[var(--app-muted)]" />
+              </button>
             )}
             {isOwn && (
-              <>
-                <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
-                <DropdownMenuItem onClick={() => onEdit(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
-                  <Pencil className="w-4 h-4 mr-2" /> {gt("Edit Message")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => onDelete(message)}
-                  className="hover:bg-red-500/20 text-red-400 cursor-pointer"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" /> {gt("Delete Message")}
-                </DropdownMenuItem>
-              </>
+              <button
+                onClick={() => onDelete(message)}
+                className="p-1.5 hover:bg-red-500/20 rounded-r-md transition-colors"
+                title={gt("Delete Message")}
+              >
+                <Trash2 className="w-4 h-4 text-red-400" />
+              </button>
             )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+          </>
+        ) : (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title={gt("More")}>
+                <MoreHorizontal className="w-4 h-4 text-[var(--app-muted)]" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="bottom"
+              align="end"
+              className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-w-[160px]"
+            >
+              <DropdownMenuItem onClick={() => onReply(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                <Reply className="w-4 h-4 mr-2" /> {gt("Reply")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onCopy(message.content)}
+                className="hover:bg-[var(--bg-hover)] cursor-pointer"
+              >
+                <Copy className="w-4 h-4 mr-2" /> {gt("Copy Text")}
+              </DropdownMenuItem>
+              {canPin && (
+                <DropdownMenuItem
+                  onClick={() => onPinToggle(message)}
+                  className="hover:bg-[var(--bg-hover)] cursor-pointer"
+                >
+                  <Pin className="w-4 h-4 mr-2" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
+                </DropdownMenuItem>
+              )}
+              {isOwn && (
+                <>
+                  <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
+                  <DropdownMenuItem onClick={() => onEdit(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                    <Pencil className="w-4 h-4 mr-2" /> {gt("Edit Message")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onDelete(message)}
+                    className="hover:bg-red-500/20 text-red-400 cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" /> {gt("Delete Message")}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </div>
   );
