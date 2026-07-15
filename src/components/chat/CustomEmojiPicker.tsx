@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, useMemo, memo } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo, useDeferredValue, memo } from "react";
+import { useExperiment } from "@/hooks/useExperiments";
 import { 
   Search, Clock, Star, Smile, Users, Dog, Apple, Gamepad2, 
   Plane, Lightbulb, Heart, Flag, ImageIcon, Sticker, X, Plus
@@ -93,26 +94,39 @@ function getEmojiUrl(emoji: string): string {
   return `https://cdn.jsdelivr.net/gh/twitter/twemoji@latest/assets/svg/${codePoints}.svg`;
 }
 
-// Memoized emoji button component - only re-renders when emoji changes
-const EmojiButton = memo(function EmojiButton({ 
-  emoji, 
-  onClick
-}: { 
-  emoji: string; 
+// Memoized emoji button component - only re-renders when emoji changes.
+// `fast` renders the native unicode glyph (zero network requests, instant paint)
+// instead of loading a remote twemoji SVG per emoji.
+const EmojiButton = memo(function EmojiButton({
+  emoji,
+  onClick,
+  fast,
+}: {
+  emoji: string;
   onClick: () => void;
+  fast?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       className="w-10 h-10 flex items-center justify-center hover:bg-[#2a2a40] rounded-lg transition-colors"
     >
-      <img 
-        src={getEmojiUrl(emoji)} 
-        alt={emoji}
-        className="w-7 h-7"
-        loading="lazy"
-        decoding="async"
-      />
+      {fast ? (
+        <span
+          className="text-2xl leading-none select-none"
+          style={{ fontFamily: '"Twemoji Mozilla", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}
+        >
+          {emoji}
+        </span>
+      ) : (
+        <img
+          src={getEmojiUrl(emoji)}
+          alt={emoji}
+          className="w-7 h-7"
+          loading="lazy"
+          decoding="async"
+        />
+      )}
     </button>
   );
 });
@@ -172,7 +186,13 @@ export function CustomEmojiPicker({
   initialTab = "emoji",
 }: EmojiPickerProps) {
   const gt = useGT();
+  // A/B experiment: 50% of users get the faster native-glyph picker.
+  const { variant } = useExperiment("better_emoji_picker");
+  const fast = variant?.id === "treatment" || (variant?.config as { enabled?: boolean } | undefined)?.enabled === true;
   const [search, setSearch] = useState("");
+  // Keep typing responsive: filtering runs against the deferred value so
+  // keystrokes never block on re-filtering thousands of emojis.
+  const deferredSearch = useDeferredValue(search);
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [recentEntries, setRecentEntries] = useState<RecentEmojiEntry[]>([]);
 
@@ -216,9 +236,9 @@ export function CustomEmojiPicker({
 
   // Filter emojis based on search — uses shortcode names for keyword search
   const filteredCategories = useMemo(() => {
-    if (!search.trim()) return EMOJI_CATEGORIES;
-    
-    const query = search.toLowerCase();
+    if (!deferredSearch.trim()) return EMOJI_CATEGORIES;
+
+    const query = deferredSearch.toLowerCase();
     return EMOJI_CATEGORIES.map(category => ({
       ...category,
       emojis: category.emojis.filter(emoji => {
@@ -226,16 +246,16 @@ export function CustomEmojiPicker({
         return name && name.includes(query);
       }),
     })).filter(category => category.emojis.length > 0);
-  }, [search]);
+  }, [deferredSearch]);
 
   // Filter custom emojis
   const filteredCustomEmojis = useMemo(() => {
-    if (!search.trim()) return allCustomEmojis;
-    const query = search.toLowerCase();
+    if (!deferredSearch.trim()) return allCustomEmojis;
+    const query = deferredSearch.toLowerCase();
     return allCustomEmojis.filter(emoji =>
       emoji.name.toLowerCase().includes(query)
     );
-  }, [search, allCustomEmojis]);
+  }, [deferredSearch, allCustomEmojis]);
 
   // Group custom emojis by their server (current server first, since
   // allCustomEmojis puts the current server's emojis before the others)
@@ -263,18 +283,18 @@ export function CustomEmojiPicker({
       ...recentEntries,
       ...fromProps.filter((e) => e.kind === "unicode" && !seen.has(`u:${e.emoji}`)),
     ];
-    if (!search.trim()) return combined;
-    const query = search.toLowerCase();
+    if (!deferredSearch.trim()) return combined;
+    const query = deferredSearch.toLowerCase();
     return combined.filter((entry) =>
       entry.kind === "custom" ? entry.name.toLowerCase().includes(query) : (EMOJI_TO_NAME[entry.emoji]?.includes(query) ?? false)
     );
-  }, [search, recentEmojis, recentEntries]);
+  }, [deferredSearch, recentEmojis, recentEntries]);
 
   const filteredFavorites = useMemo(() => {
-    if (!search.trim()) return favoriteEmojis;
-    const query = search.toLowerCase();
+    if (!deferredSearch.trim()) return favoriteEmojis;
+    const query = deferredSearch.toLowerCase();
     return favoriteEmojis.filter(emoji => (EMOJI_TO_NAME[emoji]?.includes(query) ?? false));
-  }, [search, favoriteEmojis]);
+  }, [deferredSearch, favoriteEmojis]);
 
   const handleEmojiClick = useCallback((emoji: string, isCustom = false, emojiData?: CustomEmoji) => {
     // Record in recently used (persisted locally)
@@ -587,6 +607,7 @@ export function CustomEmojiPicker({
                           <EmojiButton
                             key={`recent-u-${idx}`}
                             emoji={entry.emoji}
+                            fast={fast}
                             onClick={() => handleEmojiClick(entry.emoji)}
                           />
                         )
@@ -607,6 +628,7 @@ export function CustomEmojiPicker({
                         <EmojiButton
                           key={`fav-${idx}`}
                           emoji={emoji}
+                          fast={fast}
                           onClick={() => handleEmojiClick(emoji)}
                         />
                       ))}
@@ -634,7 +656,14 @@ export function CustomEmojiPicker({
 
                 {/* Standard Emoji Categories */}
                 {filteredCategories.map((category) => (
-                  <div key={category.id} ref={setSectionRef(category.id)}>
+                  <div
+                    key={category.id}
+                    ref={setSectionRef(category.id)}
+                    // content-visibility lets the browser skip layout/paint for
+                    // off-screen sections; contain-intrinsic-size reserves the
+                    // right scroll height so scrolling stays smooth.
+                    style={fast ? { contentVisibility: "auto", containIntrinsicSize: `${Math.ceil(category.emojis.length / 8) * 40 + 28}px` } : undefined}
+                  >
                     <h3 className="text-xs font-semibold text-[#8888aa] mb-2 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
                       {category.name}
                     </h3>
@@ -643,6 +672,7 @@ export function CustomEmojiPicker({
                         <EmojiButton
                           key={`${category.id}-${idx}`}
                           emoji={emoji}
+                          fast={fast}
                           onClick={() => handleEmojiClick(emoji)}
                         />
                       ))}
