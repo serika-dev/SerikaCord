@@ -53,6 +53,7 @@ function getDefaultUserSettings() {
       showRoleColors: true,
       enableAnimations: true,
       saturation: 100,
+      showTimestamps: true,
     },
     notifications: {
       desktop: true,

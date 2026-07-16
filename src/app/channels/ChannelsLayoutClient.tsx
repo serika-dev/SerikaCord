@@ -144,6 +144,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   }>({ open: false });
   const [showUserSettings, setShowUserSettings] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
+  const [inviteServerId, setInviteServerId] = useState<string | null>(null);
   const [showServerSettings, setShowServerSettings] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -182,7 +183,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Listen for custom events from UserPanel and mobile views
   useEffect(() => {
     const handleOpenSettings = () => setShowUserSettings(true);
-    const handleOpenInvite = () => setShowInvite(true);
+    const handleOpenInvite = () => { setInviteServerId(null); setShowInvite(true); };
     const handleOpenServerSettings = () => setShowServerSettings(true);
     window.addEventListener('openUserSettings', handleOpenSettings);
     window.addEventListener('openInviteDialog', handleOpenInvite);
@@ -329,6 +330,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         <InviteDialog
           open={showInvite}
           onOpenChange={setShowInvite}
+          serverId={inviteServerId}
         />
         <ServerSettingsDialog
           open={showServerSettings}
@@ -345,14 +347,14 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       <div className="flex flex-shrink-0 h-full min-h-0">
         <ServerSidebar
           onCreateServer={() => setShowCreateServer(true)}
-          onInvitePeople={() => setShowInvite(true)}
+          onInvitePeople={(serverId?: string) => { setInviteServerId(serverId ?? null); setShowInvite(true); }}
         />
         {pathname !== "/channels/explore" && (
           <ChannelSidebar
             onCreateChannel={(defaultType, defaultParentId) =>
               setCreateChannelOptions({ open: true, defaultType, defaultParentId })
             }
-            onInvitePeople={() => setShowInvite(true)}
+            onInvitePeople={() => { setInviteServerId(null); setShowInvite(true); }}
             onServerSettings={() => setShowServerSettings(true)}
           />
         )}
@@ -394,6 +396,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       <InviteDialog
         open={showInvite}
         onOpenChange={setShowInvite}
+        serverId={inviteServerId}
       />
       <ServerSettingsDialog
         open={showServerSettings}

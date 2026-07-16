@@ -51,6 +51,7 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { onHotkey } from "@/lib/keybinds";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { useAuth } from "@/contexts/AuthContext";
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   clear: <Eraser className="w-3.5 h-3.5" />,
@@ -227,6 +228,9 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     ref
   ) {
     const gt = useGT();
+    const { user } = useAuth();
+    const emojiPickerEnabled = user?.settings?.textImages?.emojiPicker !== false;
+    const stickerSuggestionsEnabled = user?.settings?.textImages?.stickerSuggestions !== false;
     const composerRef = useRef<RichComposerHandle>(null);
 
     // Draft persistence: save the previous context's unsent text and restore the
@@ -1096,6 +1100,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               </button>
 
               {/* Sticker picker button */}
+              {stickerSuggestionsEnabled && (
               <button
                 type="button"
                 onClick={() => {
@@ -1107,8 +1112,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               >
                 <Sticker className="w-6 h-6" />
               </button>
+              )}
 
               {/* Emoji picker button */}
+              {emojiPickerEnabled && (
               <Popover
                 open={showEmojiPicker}
                 onOpenChange={(open) => {
@@ -1145,6 +1152,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   />
                 </PopoverContent>
               </Popover>
+              )}
 
               {/* Send button (shows spinner while sending/uploading, but stays clickable) */}
               {(canSend || isSending || isUploading) && (

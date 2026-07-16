@@ -467,6 +467,351 @@ function ConnectionsTabContent({
   );
 }
 
+/* ─── Voice & Video Tab ─── */
+
+function VoiceVideoTab({
+  userSettings,
+  isLoadingSettings,
+  saveSettingsPatch,
+  gt,
+}: {
+  userSettings: Record<string, any> | null;
+  isLoadingSettings: boolean;
+  saveSettingsPatch: (patch: Record<string, any>, sectionLabel: string) => void;
+  gt: GTFunc;
+}) {
+  const [micTesting, setMicTesting] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const micAnalyserRef = useRef<{ analyser: AnalyserNode; ctx: AudioContext; stream: MediaStream } | null>(null);
+  const micAnimRef = useRef<number>(0);
+
+  const startMicTest = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: Boolean(userSettings?.voiceVideo?.echoCancellation),
+          noiseSuppression: Boolean(userSettings?.voiceVideo?.noiseSuppression),
+          autoGainControl: Boolean(userSettings?.voiceVideo?.autoGainControl),
+        },
+        video: false,
+      });
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      micAnalyserRef.current = { analyser, ctx, stream };
+      setMicTesting(true);
+
+      const tick = () => {
+        const data = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        setMicLevel(Math.min(1, Math.sqrt(sum / data.length) * 2));
+        micAnimRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch {
+      toast.error(gt("Microphone access denied"));
+    }
+  };
+
+  const stopMicTest = () => {
+    setMicTesting(false);
+    setMicLevel(0);
+    if (micAnimRef.current) cancelAnimationFrame(micAnimRef.current);
+    if (micAnalyserRef.current) {
+      micAnalyserRef.current.stream.getTracks().forEach((t) => t.stop());
+      micAnalyserRef.current.ctx.close();
+      micAnalyserRef.current = null;
+    }
+  };
+
+  const startVideoPreview = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { width: 640, height: 360 },
+      });
+      setVideoStream(stream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch {
+      toast.error(gt("Camera access denied"));
+    }
+  };
+
+  const stopVideoPreview = () => {
+    if (videoStream) {
+      videoStream.getTracks().forEach((t) => t.stop());
+      setVideoStream(null);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      stopMicTest();
+      stopVideoPreview();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const ttsEnabled = Boolean(userSettings?.accessibility?.tts);
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Voice & Video")}</h2>
+
+      {/* Voice Settings */}
+      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
+        <div className="flex items-center gap-3 mb-1">
+          <Mic className="w-5 h-5 text-[var(--app-accent)]" />
+          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Input Device")}</h3>
+        </div>
+
+        {isLoadingSettings || !userSettings ? (
+          <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
+        ) : (
+          <>
+            {/* Input Volume */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Input Volume")}</label>
+                <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.inputVolume ?? 100}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={200}
+                value={userSettings.voiceVideo?.inputVolume ?? 100}
+                onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), inputVolume: Number(e.target.value) } }, "voice-video")}
+                className="w-full accent-[var(--app-accent)]"
+              />
+            </div>
+
+            {/* Mic Test */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Microphone Test")}</label>
+                <button
+                  onClick={micTesting ? stopMicTest : startMicTest}
+                  className={cn(
+                    "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5",
+                    micTesting
+                      ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                      : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                  )}
+                >
+                  {micTesting ? (
+                    <><span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" /> {gt("Stop")}</>
+                  ) : (
+                    <><Mic2 className="w-3.5 h-3.5" /> {gt("Test")}</>
+                  )}
+                </button>
+              </div>
+              {micTesting && (
+                <div className="h-8 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] overflow-hidden relative">
+                  <div
+                    className="h-full bg-gradient-to-r from-[var(--app-accent)] to-[#10B981] transition-[width] duration-75"
+                    style={{ width: `${Math.round(micLevel * 100)}%` }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="h-px bg-[var(--border-subtle)]" />
+
+            {/* Audio Processing Toggles */}
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("Noise Suppression")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Reduce background noise from your microphone")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.noiseSuppression)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")} />
+            </label>
+
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("Echo Cancellation")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Prevent echo from speakers into your microphone")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.echoCancellation)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")} />
+            </label>
+
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("Automatic Gain Control")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Automatically adjust microphone volume")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.autoGainControl)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoGainControl: checked } }, "voice-video")} />
+            </label>
+
+            <div className="h-px bg-[var(--border-subtle)]" />
+
+            {/* Push to Talk */}
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("Push to Talk")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Hold a key to transmit voice")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.pushToTalk)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")} />
+            </label>
+            {userSettings.voiceVideo?.pushToTalk && (
+              <div className="ml-0 p-3 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">
+                <label className="text-xs text-[var(--text-muted)] block mb-2">{gt("Push to Talk Key")}</label>
+                <input
+                  type="text"
+                  value={userSettings.voiceVideo?.pushToTalkKey || "V"}
+                  onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalkKey: e.target.value.toUpperCase().slice(0, 1) } }, "voice-video")}
+                  className="w-16 text-center font-mono text-lg px-2 py-1.5 rounded-lg bg-[var(--bg-input)] text-white border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
+                  maxLength={1}
+                />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Output Settings */}
+      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
+        <div className="flex items-center gap-3 mb-1">
+          <Volume2 className="w-5 h-5 text-[var(--app-accent)]" />
+          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Output Device")}</h3>
+        </div>
+        {isLoadingSettings || !userSettings ? (
+          <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Output Volume")}</label>
+              <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.outputVolume ?? 100}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              value={userSettings.voiceVideo?.outputVolume ?? 100}
+              onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), outputVolume: Number(e.target.value) } }, "voice-video")}
+              className="w-full accent-[var(--app-accent)]"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Video Preview */}
+      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
+        <div className="flex items-center gap-3 mb-1">
+          <Camera className="w-5 h-5 text-[var(--app-accent)]" />
+          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Camera Preview")}</h3>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={videoStream ? stopVideoPreview : startVideoPreview}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
+              videoStream
+                ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
+                : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+            )}
+          >
+            {videoStream ? gt("Stop Preview") : gt("Start Preview")}
+          </button>
+          <label className="flex items-center justify-between cursor-pointer flex-1">
+            <span className="text-sm text-[var(--text-primary)]">{gt("Stream Preview")}</span>
+            <ToggleSwitch size="sm" checked={Boolean(userSettings?.voiceVideo?.streamPreview)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings?.voiceVideo || {}), streamPreview: checked } }, "voice-video")} />
+          </label>
+        </div>
+        {videoStream && (
+          <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
+            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover video-mirror" />
+          </div>
+        )}
+      </div>
+
+      {/* Text-to-Speech */}
+      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
+        <div className="flex items-center gap-3 mb-1">
+          <Megaphone className="w-5 h-5 text-[var(--app-accent)]" />
+          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Text-to-Speech")}</h3>
+        </div>
+        {isLoadingSettings || !userSettings ? (
+          <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
+        ) : (
+          <>
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("Text-to-Speech")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Read incoming messages aloud")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={ttsEnabled} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "voice-video")} />
+            </label>
+
+            {/* TTS Usage Guide */}
+            <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
+              <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>
+              <p className="text-xs text-[var(--text-muted)]">
+                {gt("Type")} <code className="px-1 py-0.5 rounded bg-white/10 text-white">/tts</code> {gt("before your message to send it as speech.")}
+              </p>
+              <p className="text-xs text-white pl-3">
+                <code className="px-1 py-0.5 rounded bg-white/10">/tts [f] Hello</code> — {gt("female voice")}
+              </p>
+              <p className="text-xs text-white pl-3">
+                <code className="px-1 py-0.5 rounded bg-white/10">/tts [m] Hello</code> — {gt("male voice")}
+              </p>
+              <p className="text-xs text-[var(--text-muted)]">
+                {gt("Keywords:")} <span className="text-white">[f]</span>, <span className="text-white">[female]</span>, <span className="text-white">[girl]</span> {gt("for female")} &middot; <span className="text-white">[m]</span>, <span className="text-white">[male]</span>, <span className="text-white">[boy]</span> {gt("for male")}
+              </p>
+              <p className="text-xs text-[var(--text-muted)]">
+                {gt("Voices are English-only. Set a default below or override per message.")}
+              </p>
+            </div>
+
+            {/* Reading speed */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--text-primary)] font-medium">{gt("Reading speed")}</span>
+                <span className="text-xs text-[var(--text-muted)] tabular-nums">
+                  {(userSettings.accessibility?.ttsRate ?? 1).toFixed(1)}×
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={2}
+                step={0.1}
+                value={userSettings.accessibility?.ttsRate ?? 1}
+                onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsRate: parseFloat(e.target.value) } }, "voice-video")}
+                className="w-full accent-[var(--app-accent)]"
+              />
+            </div>
+
+            {/* Voice gender */}
+            <label className="flex items-center justify-between">
+              <span className="text-sm text-[var(--text-primary)] font-medium">{gt("Voice")}</span>
+              <select
+                value={userSettings.accessibility?.ttsVoice ?? "auto"}
+                onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsVoice: e.target.value } }, "voice-video")}
+                className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
+              >
+                <option value="auto">{gt("Automatic")}</option>
+                <option value="female">{gt("Female")}</option>
+                <option value="male">{gt("Male")}</option>
+              </select>
+            </label>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
@@ -2747,6 +3092,27 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     </p>
                   </div>
 
+                  {/* Saturation */}
+                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
+                    <h3 className="text-base font-bold text-white mb-2">{gt("Saturation")}</h3>
+                    <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Adjust the colour saturation of the entire app")}</p>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs text-[var(--text-secondary)]">0%</span>
+                      <input
+                        type="range"
+                        min="0"
+                        max="200"
+                        value={userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}
+                        onChange={(e) => saveAppearancePatch({ saturation: Number(e.target.value) })}
+                        className="flex-1 accent-[var(--accent-color)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
+                      />
+                      <span className="text-xs text-[var(--text-secondary)]">200%</span>
+                    </div>
+                    <p className="text-sm text-[var(--text-secondary)] mt-3 tabular-nums">
+                      {userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}%
+                    </p>
+                  </div>
+
                   {/* Message Display */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
                     <h3 className="text-base font-bold text-white mb-4">{gt("Message Display")}</h3>
@@ -2803,40 +3169,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
               {/* Voice & Video Tab */}
               {activeTab === "voice-video" && (
-                <div>
-                  <h2 className="text-xl font-bold text-white mb-5">{gt("Voice & Video")}</h2>
-                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                    <div className="flex items-center gap-4 mb-4">
-                      <Volume2 className="w-10 h-10 text-[#8B5CF6]" />
-                      <div>
-                        <h3 className="text-white font-bold">{gt("Voice Settings")}</h3>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Configure microphone and audio output")}</p>
-                      </div>
-                    </div>
-                    {isLoadingSettings || !userSettings ? (
-                      <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
-                    ) : (
-                      <div className="space-y-3">
-                        <label className="flex items-center justify-between">
-                          <span className="text-white">{gt("Noise suppression")}</span>
-                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.noiseSuppression)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")} />
-                        </label>
-                        <label className="flex items-center justify-between">
-                          <span className="text-white">{gt("Echo cancellation")}</span>
-                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.echoCancellation)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")} />
-                        </label>
-                        <label className="flex items-center justify-between">
-                          <span className="text-white">{gt("Push to talk")}</span>
-                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.pushToTalk)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")} />
-                        </label>
-                        <label className="flex items-center justify-between">
-                          <span className="text-white">{gt("Stream preview")}</span>
-                          <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.streamPreview)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), streamPreview: checked } }, "voice-video")} />
-                        </label>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                <VoiceVideoTab
+                  userSettings={userSettings}
+                  isLoadingSettings={isLoadingSettings}
+                  saveSettingsPatch={saveSettingsPatch}
+                  gt={gt}
+                />
               )}
 
               {/* Notifications Tab */}
@@ -3254,89 +3592,95 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {activeTab === "accessibility" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Reduced motion")}</span>
+                            <div>
+                              <span className="text-white">{gt("Reduced motion")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Minimise animations and transitions")}</p>
+                            </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.reducedMotion)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("High contrast")}</span>
+                            <div>
+                              <span className="text-white">{gt("High contrast")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Increase text and border contrast for readability")}</p>
+                            </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.highContrast)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Text-to-Speech")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.tts)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "accessibility")} />
-                          </label>
-
-                          {/* TTS Usage Guide */}
-                          <div className="mt-2 mb-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
-                            <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>
-                            <p className="text-xs text-[var(--text-muted)]">
-                              {gt("Type")} <code className="px-1 py-0.5 rounded bg-white/10 text-white">/tts</code> {gt("before your message to send it as speech.")}
-                            </p>
-                            <p className="text-xs text-[var(--text-muted)]">
-                              {gt("Switch voice per message with keywords:")}
-                            </p>
-                            <p className="text-xs text-white pl-3">
-                              <code className="px-1 py-0.5 rounded bg-white/10">/tts [f] Hello</code> — {gt("female voice")}
-                            </p>
-                            <p className="text-xs text-white pl-3">
-                              <code className="px-1 py-0.5 rounded bg-white/10">/tts [m] Hello</code> — {gt("male voice")}
-                            </p>
-                            <p className="text-xs text-[var(--text-muted)]">
-                              {gt("Keywords:")} <span className="text-white">[f]</span>, <span className="text-white">[female]</span>, <span className="text-white">[girl]</span> {gt("for female")} &middot; <span className="text-white">[m]</span>, <span className="text-white">[male]</span>, <span className="text-white">[boy]</span> {gt("for male")}
-                            </p>
-                            <p className="text-xs text-[var(--text-muted)]">
-                              {gt("Voices are English-only. Set a default below or override per message.")}
-                            </p>
-                          </div>
-
-                          {/* Reading speed */}
-                          <div className="py-2">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-white">{gt("Reading speed")}</span>
-                              <span className="text-sm text-[var(--text-secondary)]">
-                                {(userSettings.accessibility?.ttsRate ?? 1).toFixed(1)}×
-                              </span>
+                            <div>
+                              <span className="text-white">{gt("Dyslexic font")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Use a dyslexia-friendly font in chat")}</p>
                             </div>
-                            <input
-                              type="range"
-                              min={0.5}
-                              max={2}
-                              step={0.1}
-                              value={userSettings.accessibility?.ttsRate ?? 1}
-                              onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsRate: parseFloat(e.target.value) } }, "accessibility")}
-                              className="w-full accent-[#8B5CF6]"
-                            />
-                          </div>
-
-                          {/* Voice gender */}
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Voice")}</span>
-                            <select
-                              value={userSettings.accessibility?.ttsVoice ?? "auto"}
-                              onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsVoice: e.target.value } }, "accessibility")}
-                              className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
-                            >
-                              <option value="auto">{gt("Automatic")}</option>
-                              <option value="female">{gt("Female")}</option>
-                              <option value="male">{gt("Male")}</option>
-                            </select>
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.dyslexicFont)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), dyslexicFont: checked } }, "accessibility")} />
                           </label>
+                          <div className="py-2">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-white">{gt("Message spacing")}</span>
+                              <span className="text-xs text-[var(--text-secondary)]">{userSettings.accessibility?.messageSpacing === "compact" ? gt("Compact") : gt("Cozy")}</span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), messageSpacing: "cozy" } }, "accessibility")}
+                                className={cn(
+                                  "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
+                                  userSettings.accessibility?.messageSpacing !== "compact"
+                                    ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
+                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                                )}
+                              >
+                                {gt("Cozy")}
+                              </button>
+                              <button
+                                onClick={() => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), messageSpacing: "compact" } }, "accessibility")}
+                                className={cn(
+                                  "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
+                                  userSettings.accessibility?.messageSpacing === "compact"
+                                    ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
+                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                                )}
+                              >
+                                {gt("Compact")}
+                              </button>
+                            </div>
+                          </div>
                         </>
                       )}
 
                       {activeTab === "text-images" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Inline media")}</span>
+                            <div>
+                              <span className="text-white">{gt("Inline media")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Display images and videos inline in chat")}</p>
+                            </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineMedia)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Inline embeds")}</span>
+                            <div>
+                              <span className="text-white">{gt("Inline embeds")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Show rich link previews and embeds")}</p>
+                            </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineEmbeds)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("GIF autoplay")}</span>
+                            <div>
+                              <span className="text-white">{gt("GIF autoplay")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Play animated GIFs automatically")}</p>
+                            </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.gifAutoplay)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images")} />
+                          </label>
+                          <label className="flex items-center justify-between py-2">
+                            <div>
+                              <span className="text-white">{gt("Emoji picker")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Show the emoji picker button in the message bar")}</p>
+                            </div>
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.emojiPicker)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), emojiPicker: checked } }, "text-images")} />
+                          </label>
+                          <label className="flex items-center justify-between py-2">
+                            <div>
+                              <span className="text-white">{gt("Sticker suggestions")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Show sticker suggestions while typing")}</p>
+                            </div>
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.stickerSuggestions)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), stickerSuggestions: checked } }, "text-images")} />
                           </label>
                         </>
                       )}
@@ -3465,9 +3809,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         </>
                       )}
 
-                      <div className="text-xs text-[var(--text-muted)]">
-                        {isSavingSettings ? `${gt("Saving")} ${isSavingSettings}...` : gt("Changes are saved instantly.")}
-                      </div>
+                      {isSavingSettings && (
+                        <div className="text-xs text-[var(--app-accent)]">
+                          {gt("Saving")} {isSavingSettings}...
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

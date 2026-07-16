@@ -13,6 +13,7 @@ import { MessageEditForm } from "@/components/chat/MessageEditForm";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useChatGt } from "./ChatGtContext";
+import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 
 interface MentionUser {
@@ -111,6 +112,9 @@ function MessageGroupInner<M extends ChatMessage>({
   formattedTimestamp,
 }: MessageGroupProps<M>) {
   const gt = useChatGt();
+  const { user } = useAuth();
+  const inlineMediaEnabled = user?.settings?.textImages?.inlineMedia !== false;
+  const inlineEmbedsEnabled = user?.settings?.textImages?.inlineEmbeds !== false;
   // Merge mention users with message authors and referenced message authors
   // so that mentions resolve even for users who left the server or aren't in
   // the member list fetched for autocomplete.
@@ -326,16 +330,20 @@ function MessageGroupInner<M extends ChatMessage>({
                       </div>
                     )}
 
+                    {inlineEmbedsEnabled && (
                     <LinkEmbed
                       content={message.content}
                       onMediaClick={(src, alt) => onMediaClick(src, alt, message.id)}
                     />
+                    )}
 
+                    {inlineMediaEnabled && (
                     <MessageAttachments
                       attachments={message.attachments}
                       messageId={message.id}
                       onMediaClick={onMediaClick}
                     />
+                    )}
 
                     <MessageReactions
                       reactions={message.reactions}

@@ -368,7 +368,7 @@ textarea::selection,
 .chat-message-body {
   min-width: 0;
   max-width: 100%;
-  font-size: var(--chat-font-size-fluid);
+  font-size: var(--chat-font-size, var(--chat-font-size-fluid));
   line-height: var(--chat-line-height);
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -636,6 +636,72 @@ textarea::selection,
      stays inside the painted box without adding vertical gaps between groups. */
   padding-top: 0.75rem;
   margin-top: -0.75rem;
+}
+
+/* ─── Accessibility & Display CSS Classes ─── */
+
+/* High contrast: boost text contrast and border visibility */
+html.high-contrast {
+  --app-text: #ffffff;
+  --app-muted: #c0c8da;
+  --app-muted-2: #9aa4b8;
+  --app-border: #3a4458;
+  --border-subtle: #3a4458;
+  --border-strong: #4a5468;
+}
+html.high-contrast.theme-light {
+  --app-text: #000000;
+  --app-muted: #2a3a52;
+  --app-muted-2: #4a5a72;
+  --app-border: #8a96aa;
+  --border-subtle: #8a96aa;
+  --border-strong: #6a768a;
+}
+
+/* Dyslexic font: use a dyslexia-friendly font stack */
+html.dyslexic-font {
+  --font-sans: "OpenDyslexic", "Comic Sans MS", "Verdana", system-ui, -apple-system, sans-serif;
+}
+html.dyslexic-font body,
+html.dyslexic-font .chat-message-body {
+  font-family: "OpenDyslexic", "Comic Sans MS", "Verdana", system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  word-spacing: 0.08em;
+}
+
+/* Message spacing: compact vs cozy */
+html.message-spacing-compact .chat-message-row {
+  padding-block: 0.1rem;
+}
+html.message-spacing-compact .msg-group-cv {
+  padding-top: 0.3rem;
+  margin-top: -0.3rem;
+}
+html.message-spacing-cozy .chat-message-row {
+  padding-block: 0.25rem;
+}
+
+/* Saturation filter applied to the whole app */
+html.saturation-filter body {
+  filter: saturate(var(--saturation, 100%));
+}
+
+/* Disable animated emojis: show only first frame */
+html.no-animated-emojis .twemoji img.emoji[src*=".gif"],
+html.no-animated-emojis img.custom-emoji[src*=".gif"] {
+  background-image: none;
+}
+html.no-animated-emojis img.custom-emoji[alt*="animated"],
+html.no-animated-emojis img.emoji[alt*="animated"] {
+  animation: none !important;
+}
+
+/* Disable animated avatars: show static poster frame */
+html.no-animated-avatars img[src*=".gif"] {
+  pointer-events: none;
+}
+html.no-animated-avatars .avatar-img[src*=".gif"] {
+  content-visibility: hidden;
 }
 
 /* Reduced motion: collapse animations/transitions for users who ask for it */

@@ -158,7 +158,9 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
         </span>
       )}
       <StaffPill badges={author.badges} />
-      <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formattedTimestamp}</span>
+      {settings.showTimestamps && (
+        <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formattedTimestamp}</span>
+      )}
     </div>
   );
 });

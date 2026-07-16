@@ -55,6 +55,17 @@ class VoiceService {
   private speakingInterval: NodeJS.Timeout | null = null;
   private speakingState: Map<string, boolean> = new Map();
 
+  // User-configurable audio constraints (updated from settings before join)
+  private audioConstraints: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+
+  setAudioConstraints(constraints: Partial<MediaTrackConstraints>) {
+    this.audioConstraints = { ...this.audioConstraints, ...constraints };
+  }
+
   // Noise suppression chain
   private noiseSuppressionOn = false;
   private noiseCtx: AudioContext | null = null;
@@ -114,7 +125,7 @@ class VoiceService {
     // Get mic (and optionally camera)
     try {
       this.localStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: this.audioConstraints,
         video: withVideo ? { width: 1280, height: 720 } : false,
       });
       this.isVideoOn = withVideo;
@@ -705,11 +716,7 @@ class VoiceService {
       // We need the original track back — re-acquire it from getUserMedia
       // since we can't easily reverse the Web Audio processing
       navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+        audio: this.audioConstraints,
         video: false,
       }).then((origStream) => {
         const origTrack = origStream.getAudioTracks()[0];
