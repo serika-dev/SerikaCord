@@ -418,12 +418,16 @@ async function sendBotResponse(
     };
 
     try {
-      const { publishToChannel } = await import('@/lib/api/channels');
-      publishToChannel(channelId, {
-        type: 'ephemeral',
-        userId: invokerId,
-        message: messageResponse,
-      });
+      // DM channels have no serverId and their clients listen on the DM SSE
+      // stream (publishToDm), not the channel stream — route accordingly so a
+      // bot's ephemeral reply actually renders inside a DM.
+      if (serverId) {
+        const { publishToChannel } = await import('@/lib/api/channels');
+        publishToChannel(channelId, { type: 'ephemeral', userId: invokerId, message: messageResponse });
+      } else {
+        const { publishToDm } = await import('@/lib/api/dms');
+        publishToDm(channelId, { type: 'ephemeral', userId: invokerId, message: messageResponse });
+      }
     } catch {}
     return;
   }
@@ -454,8 +458,15 @@ async function sendBotResponse(
   };
 
   try {
-    const { publishToChannel } = await import('@/lib/api/channels');
-    publishToChannel(channelId, { type: 'message', message: messageResponse });
+    // Route the persisted bot reply to the stream its client actually listens
+    // on: channel stream for servers, DM stream for DMs (no serverId).
+    if (serverId) {
+      const { publishToChannel } = await import('@/lib/api/channels');
+      publishToChannel(channelId, { type: 'message', message: messageResponse });
+    } else {
+      const { publishToDm } = await import('@/lib/api/dms');
+      publishToDm(channelId, { type: 'message', message: messageResponse });
+    }
   } catch {}
   try {
     const { emitMessageCreate } = await import('@/lib/services/gatewayEvents');

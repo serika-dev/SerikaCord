@@ -223,7 +223,7 @@ function MessageGroupInner<M extends ChatMessage>({
           <SwipeableRow actions={buildSwipeActions(message)} className="hover:z-40">
             <div
               id={`message-${message.id}`}
-              className={cn("flex gap-4 relative group/message hover:bg-[var(--app-surface-alt)]/80 rounded transition-colors -mx-1 px-1 hover:z-50", message.pending && "opacity-60")}
+              className={cn("flex gap-4 relative group/message hover:bg-[var(--app-surface-alt)]/80 rounded transition-colors -mx-1 px-1 hover:z-50", message.pending && "opacity-60", message.ephemeral && "chat-ephemeral")}
               onContextMenu={(e) => onContextMenu(e, message)}
             >
               <div className="w-10 flex-shrink-0">

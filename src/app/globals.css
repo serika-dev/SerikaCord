@@ -365,6 +365,17 @@ textarea::selection,
   padding-inline: var(--chat-gutter);
 }
 
+/* Ephemeral ("only you can see this") messages — a persistent blue translucent
+   container (not just a hover state) so it reads as a private, distinct block
+   in both DMs and server channels. */
+.chat-ephemeral {
+  background: color-mix(in srgb, #5865f2 12%, transparent);
+  box-shadow: inset 2px 0 0 0 color-mix(in srgb, #5865f2 60%, transparent);
+}
+.chat-ephemeral:hover {
+  background: color-mix(in srgb, #5865f2 18%, transparent) !important;
+}
+
 .chat-message-body {
   min-width: 0;
   max-width: 100%;

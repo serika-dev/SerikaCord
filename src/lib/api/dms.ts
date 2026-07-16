@@ -147,7 +147,7 @@ export function registerRawDmSSEConnection(
 }
 
 // Publish a DM event: local + cross-instance fan-out over Redis.
-function publishToDm(channelId: string, data: object) {
+export function publishToDm(channelId: string, data: object) {
   deliverToLocalDm(channelId, data);
   const pub = getPublisher();
   if (pub) {
