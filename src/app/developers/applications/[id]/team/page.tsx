@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { cdnImage } from "@/lib/utils";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Users, Plus, Crown, Shield, User, Trash2 } from "lucide-react";
@@ -175,7 +176,7 @@ export default function TeamPage() {
               >
                 <div className="size-10 rounded-full bg-gradient-to-br from-[#8B5CF6] to-[#6366f1] flex items-center justify-center shrink-0">
                   {member.avatar ? (
-                    <img src={member.avatar} alt="" className="size-10 rounded-full object-cover" />
+                    <img src={cdnImage(member.avatar)} alt="" className="size-10 rounded-full object-cover" />
                   ) : (
                     <span className="text-sm font-bold text-white">
                       {member.username[0]?.toUpperCase()}

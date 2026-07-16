@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { cdnImage } from "@/lib/utils";
 import { useRouter, useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -327,7 +328,7 @@ export default function InvitePage() {
                 >
                   {invite.server.icon ? (
                     <Image
-                      src={invite.server.icon}
+                      src={cdnImage(invite.server.icon)}
                       alt={invite.server.name}
                       width={80}
                       height={80}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { cdnImage } from "@/lib/utils";
 import { Plus, Users, Trash2, Crown, Shield, User,  Search } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
@@ -196,7 +197,7 @@ export default function TeamsPage() {
               >
                 <div className="size-12 rounded-xl bg-gradient-to-br from-[#5865F2] to-[#8B5CF6] flex items-center justify-center shrink-0 overflow-hidden">
                   {team.icon ? (
-                    <img src={team.icon} alt="" className="size-12 rounded-xl object-cover" />
+                    <img src={cdnImage(team.icon)} alt="" className="size-12 rounded-xl object-cover" />
                   ) : (
                     <Users className="size-6 text-white" />
                   )}

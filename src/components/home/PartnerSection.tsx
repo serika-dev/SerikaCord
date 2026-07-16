@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cdnImage } from "@/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
 import { Users } from "lucide-react";
@@ -19,7 +20,7 @@ function ServerAvatar({ name, icon }: { name: string; icon: string | null }) {
   if (icon) {
     return (
       <Image
-        src={icon}
+        src={cdnImage(icon)}
         alt={name}
         width={56}
         height={56}

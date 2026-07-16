@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Plus, Search, Settings, Trash2, Bot,  Code, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 
@@ -185,9 +185,9 @@ export default function ApplicationsPage() {
                   <div className="flex items-start gap-4 mb-4">
                     <div className="size-12 rounded-2xl bg-gradient-to-tr from-[#8B5CF6]/10 to-[#6366f1]/10 border border-white/[0.08] flex items-center justify-center shrink-0 overflow-hidden shadow-md">
                       {app.icon ? (
-                        <img src={app.icon} alt="" className="size-full object-cover" />
+                        <img src={cdnImage(app.icon)} alt="" className="size-full object-cover" />
                       ) : app.botAvatar ? (
-                        <img src={app.botAvatar} alt="" className="size-full object-cover" />
+                        <img src={cdnImage(app.botAvatar)} alt="" className="size-full object-cover" />
                       ) : (
                         <img 
                           src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name)}`} 

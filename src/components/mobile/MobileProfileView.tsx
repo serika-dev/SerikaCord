@@ -29,7 +29,7 @@ import {
   Crown,
   Link as LinkIcon,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 
@@ -150,7 +150,7 @@ export function MobileProfileView() {
             <div className="relative px-6 -mt-14">
               <div className="relative inline-block">
                 <Avatar className="w-28 h-28 border-4 border-[var(--bg-app)] shadow-2xl">
-                  <AvatarImage src={user?.avatar} />
+                  <AvatarImage src={cdnImage(user?.avatar)} />
                   <AvatarFallback className="bg-[#8B5CF6] text-white text-4xl font-bold">
                     {displayName.charAt(0).toUpperCase()}
                   </AvatarFallback>

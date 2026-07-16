@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { cdnImage } from "@/lib/utils";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Plus, Trash2, Upload, Smile } from "lucide-react";
@@ -162,7 +163,7 @@ export default function EmojisPage() {
               className="group relative rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 flex flex-col items-center gap-2"
             >
               {emoji.image ? (
-                <img src={emoji.image} alt={emoji.name} className="size-12 object-contain" />
+                <img src={cdnImage(emoji.image)} alt={emoji.name} className="size-12 object-contain" />
               ) : (
                 <div className="size-12 bg-[#1a1a1a] rounded flex items-center justify-center">
                   <Smile className="size-6 text-[#444]" />

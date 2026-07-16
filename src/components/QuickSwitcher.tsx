@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useServer } from "@/contexts/ServerContext";
 import { onHotkey } from "@/lib/keybinds";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { Hash, Server as ServerIcon, AtSign, Volume2, Megaphone } from "lucide-react";
 import { useGT } from "gt-next";
 
@@ -160,7 +160,7 @@ export function QuickSwitcher() {
               >
                 <span className="flex items-center justify-center w-8 h-8 shrink-0 rounded-lg bg-[var(--app-surface-alt)] text-[var(--app-muted)] overflow-hidden">
                   {item.avatar ? (
-                    <img src={item.avatar} alt="" className="w-full h-full object-cover" />
+                    <img src={cdnImage(item.avatar)} alt="" className="w-full h-full object-cover" />
                   ) : item.kind === "server" ? (
                     <ServerIcon className="w-4 h-4" />
                   ) : item.kind === "dm" ? (

@@ -15,7 +15,7 @@ import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useAuth } from "@/contexts/AuthContext";
@@ -260,7 +260,7 @@ export function FullProfileDialog({
               <div className="absolute -top-11 left-4">
                 <div className="relative">
                   <Avatar className="w-[88px] h-[88px] border-[5px] border-[#0c0c10] shadow-lg">
-                    <AvatarImage src={fullUser.avatar || undefined} />
+                    <AvatarImage src={cdnImage(fullUser.avatar || undefined)} />
                     <AvatarFallback className="bg-[#8B5CF6] text-white text-3xl">
                       {displayName.charAt(0).toUpperCase()}
                     </AvatarFallback>
@@ -461,7 +461,7 @@ export function FullProfileDialog({
                             >
                               {conn.avatar ? (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img src={conn.avatar} alt={label} className="w-6 h-6 rounded-full object-cover shrink-0" />
+                                <img src={cdnImage(conn.avatar)} alt={label} className="w-6 h-6 rounded-full object-cover shrink-0" />
                               ) : null}
                               <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
                               <Icon size={22} className="shrink-0" style={{ color }} />
@@ -513,7 +513,7 @@ export function FullProfileDialog({
                     mutualFriends.map((f: any) => (
                       <div key={f.id || f._id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
                         <Avatar className="w-8 h-8">
-                          <AvatarImage src={f.avatar || undefined} />
+                          <AvatarImage src={cdnImage(f.avatar || undefined)} />
                           <AvatarFallback className="bg-[#8B5CF6] text-white text-sm">
                             {(f.displayName || f.username || "?").charAt(0).toUpperCase()}
                           </AvatarFallback>
@@ -539,7 +539,7 @@ export function FullProfileDialog({
                       <div key={s.id || s._id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/[0.04] transition-colors">
                         {s.icon ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={s.icon} alt={s.name} className="w-8 h-8 rounded-full object-cover" />
+                          <img src={cdnImage(s.icon)} alt={s.name} className="w-8 h-8 rounded-full object-cover" />
                         ) : (
                           <div className="w-8 h-8 rounded-full bg-[#8B5CF6] flex items-center justify-center text-white text-sm font-bold">
                             {(s.name || "?").charAt(0).toUpperCase()}

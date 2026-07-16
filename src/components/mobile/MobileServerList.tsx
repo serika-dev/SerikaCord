@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Plus, Compass } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 
 interface MobileServerListProps {
   onServerSelect?: (server: any) => void;
@@ -99,7 +99,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
                 >
                   {server.icon ? (
                     <Avatar className="w-[52px] h-[52px] rounded-none">
-                      <AvatarImage src={server.icon} className="object-cover" />
+                      <AvatarImage src={cdnImage(server.icon)} className="object-cover" />
                       <AvatarFallback className="rounded-none bg-[var(--app-accent)] text-white text-xl font-semibold">
                         {server.name.charAt(0).toUpperCase()}
                       </AvatarFallback>

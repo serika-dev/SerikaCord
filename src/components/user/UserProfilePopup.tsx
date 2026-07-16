@@ -28,7 +28,7 @@ import {
   Check,
   Clock,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getProfileBannerStyle, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
@@ -157,7 +157,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
         <div className="absolute -top-8 left-3">
           <div className="relative">
             <Avatar className={cn("border-[5px] border-[#111111]", isMobile ? "w-24 h-24" : "w-[72px] h-[72px]")}>
-              <AvatarImage src={user.avatar} />
+              <AvatarImage src={cdnImage(user.avatar)} />
               <AvatarFallback className="bg-[var(--accent-color)] text-white text-xl">
                 {user.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>

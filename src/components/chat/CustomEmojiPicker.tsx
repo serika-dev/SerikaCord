@@ -8,7 +8,7 @@ import {
   Plane, Lightbulb, Heart, Flag, ImageIcon, Sticker, X, Plus, Copy, StarOff
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { EMOJI_CATEGORIES, EMOJI_TO_NAME, type EmojiCategory } from "@/lib/constants/emojis";
 import { GifPicker } from "@/components/chat/GifPicker";
 import { useGT } from "gt-next";
@@ -125,7 +125,7 @@ const EmojiButton = memo(function EmojiButton({
       className="w-10 h-10 flex items-center justify-center hover:bg-[#2a2a40] rounded-lg transition-colors"
     >
       <img
-        src={getEmojiUrl(emoji)}
+        src={cdnImage(getEmojiUrl(emoji))}
         alt={emoji}
         className="w-7 h-7"
         loading="lazy"
@@ -203,7 +203,7 @@ const CustomEmojiButton = memo(function CustomEmojiButton({
       title={`:${emoji.name}:${emoji.serverName ? ` from ${emoji.serverName}` : ''}`}
     >
       <img
-        src={emoji.url}
+        src={cdnImage(emoji.url)}
         alt={emoji.name}
         className="w-7 h-7 object-contain"
         loading="lazy"
@@ -761,7 +761,7 @@ export function CustomEmojiPicker({
                     title={group.server}
                   >
                     {group.serverIcon ? (
-                      <img src={group.serverIcon} alt={group.server} className="w-5 h-5 rounded-full object-cover" />
+                      <img src={cdnImage(group.serverIcon)} alt={group.server} className="w-5 h-5 rounded-full object-cover" />
                     ) : (
                       <span className="text-[10px] font-bold">{group.server.charAt(0).toUpperCase()}</span>
                     )}
@@ -798,7 +798,7 @@ export function CustomEmojiPicker({
                             title={sticker.name}
                           >
                             <img
-                              src={sticker.imageUrl}
+                              src={cdnImage(sticker.imageUrl)}
                               alt={sticker.name}
                               className="w-full h-14 object-contain group-hover:scale-105 transition-transform"
                               loading="lazy"
@@ -887,7 +887,7 @@ export function CustomEmojiPicker({
                   >
                     {group.serverIcon ? (
                       <img
-                        src={group.serverIcon}
+                        src={cdnImage(group.serverIcon)}
                         alt={group.server}
                         className="w-5 h-5 rounded-full object-cover"
                       />
@@ -1014,7 +1014,7 @@ export function CustomEmojiPicker({
                           title={`Jump to ${group.server}`}
                         >
                           <img
-                            src={group.serverIcon}
+                            src={cdnImage(group.serverIcon)}
                             alt={group.server}
                             className="w-4 h-4 rounded-full object-cover"
                           />

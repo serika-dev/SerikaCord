@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { cdnImage } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { ArrowRight } from "lucide-react";
 import { T, useGT } from "gt-next";
@@ -23,7 +24,7 @@ export function HomeNavActions() {
       <Link href="/channels/me" className="flex items-center gap-2 group">
         {user.avatar ? (
           <img
-            src={user.avatar}
+            src={cdnImage(user.avatar)}
             alt={user.username}
             className="w-8 h-8 rounded-full ring-2 ring-white/10 group-hover:ring-white/30 transition-all"
           />

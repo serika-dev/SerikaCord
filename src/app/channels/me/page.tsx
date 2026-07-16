@@ -26,7 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { SwipeableRow } from "@/components/ui/swipe-actions";
 import { T, useGT } from "gt-next";
@@ -509,7 +509,7 @@ export default function DirectMessagesPage() {
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar className="w-10 h-10 shrink-0">
-                              <AvatarImage src={request.avatar} />
+                              <AvatarImage src={cdnImage(request.avatar)} />
                               <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                                 {(request.displayName || request.username).charAt(0).toUpperCase()}
                               </AvatarFallback>
@@ -572,7 +572,7 @@ export default function DirectMessagesPage() {
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar className="w-10 h-10 shrink-0">
-                              <AvatarImage src={request.avatar} />
+                              <AvatarImage src={cdnImage(request.avatar)} />
                               <AvatarFallback className="bg-[var(--bg-sidebar-elevated)] text-[var(--text-primary)]">
                                 {(request.displayName || request.username).charAt(0).toUpperCase()}
                               </AvatarFallback>
@@ -635,7 +635,7 @@ export default function DirectMessagesPage() {
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <Avatar className="w-10 h-10 shrink-0">
-                              <AvatarImage src={blockedUser.avatar} />
+                              <AvatarImage src={cdnImage(blockedUser.avatar)} />
                               <AvatarFallback className="bg-[var(--bg-sidebar-elevated)] text-[var(--text-primary)]">
                                 {(blockedUser.displayName || blockedUser.username).charAt(0).toUpperCase()}
                               </AvatarFallback>
@@ -727,7 +727,7 @@ export default function DirectMessagesPage() {
                               >
                                 <div className="relative shrink-0">
                                   <Avatar className="w-10 h-10">
-                                    <AvatarImage src={friend.avatar} />
+                                    <AvatarImage src={cdnImage(friend.avatar)} />
                                     <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                                       {(friend.displayName || friend.username).charAt(0).toUpperCase()}
                                     </AvatarFallback>
@@ -956,7 +956,7 @@ function ActiveFriendCard({ entry, onMessage }: { entry: ActiveFriend; onMessage
         >
           <div className="relative shrink-0">
             <Avatar className="w-11 h-11">
-              <AvatarImage src={friend.avatar} />
+              <AvatarImage src={cdnImage(friend.avatar)} />
               <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                 {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, Monitor, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Maximize2, Music, X, Sparkles, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { usePolling } from "@/hooks/usePolling";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGT } from "gt-next";
@@ -272,7 +272,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                 {participants.map((p) => (
                   <div key={p.userId} className="flex flex-col items-center gap-1 w-16">
                     <Avatar className="w-12 h-12">
-                      {p.avatar && <AvatarImage src={p.avatar} alt={p.username} />}
+                      {p.avatar && <AvatarImage src={cdnImage(p.avatar)} alt={p.username} />}
                       <AvatarFallback className="bg-[#8B5CF6]/20 text-[#8B5CF6]">
                         {(p.displayName || p.username || "?").charAt(0).toUpperCase()}
                       </AvatarFallback>
@@ -386,7 +386,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                         >
                           <div className="relative">
                             <Avatar className={cn("w-12 h-12", isSpeaking && "ring-2 ring-green-500 ring-offset-2 ring-offset-[#131a28]")}>
-                              {p.avatar && <AvatarImage src={p.avatar} alt={p.username} />}
+                              {p.avatar && <AvatarImage src={cdnImage(p.avatar)} alt={p.username} />}
                               <AvatarFallback className="bg-[#8B5CF6]/20 text-[#8B5CF6]">
                                 {(p.displayName || p.username || "?").charAt(0).toUpperCase()}
                               </AvatarFallback>

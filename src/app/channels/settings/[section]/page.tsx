@@ -11,7 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import Link from "next/link";
 import { getConnectionIcon } from "@/components/user/ConnectionIcon";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
@@ -554,7 +554,7 @@ export default function MobileSettingsSectionPage() {
           <div className="space-y-4">
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 flex items-center gap-4">
               <Avatar className="w-16 h-16">
-                <AvatarImage src={user?.avatar} />
+                <AvatarImage src={cdnImage(user?.avatar)} />
                 <AvatarFallback className="bg-[var(--app-accent)] text-white text-xl font-bold">
                   {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
                 </AvatarFallback>
@@ -647,7 +647,7 @@ export default function MobileSettingsSectionPage() {
                 <div className="flex items-center gap-4">
                   <div className="relative">
                     <Avatar className="w-20 h-20 border-2 border-[var(--border-subtle)]">
-                      <AvatarImage src={user?.avatar} />
+                      <AvatarImage src={cdnImage(user?.avatar)} />
                       <AvatarFallback className="bg-[var(--app-accent)] text-white text-2xl font-bold">
                         {(displayName || user?.username || "U").charAt(0).toUpperCase()}
                       </AvatarFallback>
@@ -721,7 +721,7 @@ export default function MobileSettingsSectionPage() {
                     className="relative w-full h-24 rounded-lg overflow-hidden bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group flex items-center justify-center"
                   >
                     {user?.banner ? (
-                      <img src={user.banner} alt="Banner" className="w-full h-full object-cover" />
+                      <img src={cdnImage(user.banner)} alt="Banner" className="w-full h-full object-cover" />
                     ) : (
                       <div className="flex flex-col items-center justify-center text-[var(--text-muted)] gap-1">
                         <Image className="w-6 h-6" />
@@ -1089,7 +1089,7 @@ export default function MobileSettingsSectionPage() {
                 )}
                 <div className="relative flex items-center gap-2 px-2.5 py-2.5">
                   <Avatar className="w-8 h-8 shrink-0">
-                    <AvatarImage src={user?.avatar} />
+                    <AvatarImage src={cdnImage(user?.avatar)} />
                     <AvatarFallback className="bg-[var(--app-accent)] text-white text-xs font-bold">
                       {(displayName || user?.username || "U").charAt(0).toUpperCase()}
                     </AvatarFallback>

@@ -24,7 +24,7 @@ import {
   ChevronLeft, 
   Megaphone,
 } from "lucide-react";
-import { cn, getTimeoutRemaining } from "@/lib/utils";
+import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
@@ -1730,7 +1730,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
                   <div className="flex items-center gap-2 mb-1">
                     {item.author?.avatar && (
                       <Avatar className="w-5 h-5">
-                        <AvatarImage src={item.author.avatar} alt="" />
+                        <AvatarImage src={cdnImage(item.author.avatar)} alt="" />
                         <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-[10px]">
                           {item.author.displayName?.charAt(0).toUpperCase() || "?"}
                         </AvatarFallback>

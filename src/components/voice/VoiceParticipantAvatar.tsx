@@ -2,7 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MicOff } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import type { VoiceParticipant } from "@/lib/services/voiceService";
 
 interface VoiceParticipantAvatarProps {
@@ -40,7 +40,7 @@ export function VoiceParticipantAvatar({
         )}
       >
         <Avatar className={cn(SIZES[size])}>
-          <AvatarImage src={participant.avatar} alt="" />
+          <AvatarImage src={cdnImage(participant.avatar)} alt="" />
           <AvatarFallback className="bg-gradient-to-br from-[#8B5CF6] to-[#6366F1] text-white font-semibold">
             {name.charAt(0).toUpperCase()}
           </AvatarFallback>

@@ -20,7 +20,7 @@ import {
     Plus,
     MessageSquare,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 
 interface DrawerItem {
@@ -174,7 +174,7 @@ export function MobileDrawer({
                         <div className="flex items-center gap-4 p-4 bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)]">
                             <div className="relative">
                                 <Avatar className="w-14 h-14">
-                                    <AvatarImage src={user?.avatar} />
+                                    <AvatarImage src={cdnImage(user?.avatar)} />
                                     <AvatarFallback className="bg-[var(--app-accent)] text-white text-xl font-bold">
                                         {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
                                     </AvatarFallback>

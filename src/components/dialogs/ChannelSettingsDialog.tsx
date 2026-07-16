@@ -25,7 +25,7 @@ import { parsePermissionBitfield, stringifyPermissionBitfield } from "@/lib/role
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 
 interface ServerRole {
   id: string;
@@ -1240,7 +1240,7 @@ export function ChannelSettingsDialog({
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="w-10 h-10 rounded-full bg-[var(--bg-sidebar)] flex items-center justify-center border border-[var(--border-subtle)] shrink-0">
                             {w.avatar ? (
-                              <img src={w.avatar} alt={w.name} className="w-full h-full rounded-full object-cover" />
+                              <img src={cdnImage(w.avatar)} alt={w.name} className="w-full h-full rounded-full object-cover" />
                             ) : (
                               <Radio className="w-5 h-5 text-[var(--text-secondary)]" />
                             )}

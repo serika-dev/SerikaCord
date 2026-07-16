@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { X, Plus, Check, ChevronLeft, LogOut } from "lucide-react";
 import { useGT } from "gt-next";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import {
   type SavedAccountToken,
   parseSavedAccountsCookie,
@@ -184,7 +184,7 @@ export function SwitchAccountsDialog({
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-[#1e1f22] border border-[#5865F2]/30">
                   <div className="relative">
                     <Avatar className="w-10 h-10">
-                      <AvatarImage src={user.avatar} />
+                      <AvatarImage src={cdnImage(user.avatar)} />
                       <AvatarFallback className="bg-[#5865F2] text-white text-sm">
                         {user.displayName?.charAt(0).toUpperCase() || "?"}
                       </AvatarFallback>
@@ -220,7 +220,7 @@ export function SwitchAccountsDialog({
                       className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[#1a1a1a] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Avatar className="w-10 h-10">
-                        <AvatarImage src={account.avatar} />
+                        <AvatarImage src={cdnImage(account.avatar)} />
                         <AvatarFallback className="bg-[#5865F2] text-white text-sm">
                           {account.displayName?.charAt(0).toUpperCase() || account.username.charAt(0).toUpperCase()}
                         </AvatarFallback>
@@ -277,7 +277,7 @@ export function SwitchAccountsDialog({
               {selectedAccount && (
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-[#1e1f22]">
                   <Avatar className="w-12 h-12">
-                    <AvatarImage src={selectedAccount.avatar} />
+                    <AvatarImage src={cdnImage(selectedAccount.avatar)} />
                     <AvatarFallback className="bg-[#5865F2] text-white">
                       {selectedAccount.displayName?.charAt(0).toUpperCase() || selectedAccount.username.charAt(0).toUpperCase()}
                     </AvatarFallback>

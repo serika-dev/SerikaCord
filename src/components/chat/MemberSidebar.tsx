@@ -12,7 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn, getTimeoutRemaining } from "@/lib/utils";
+import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
@@ -270,7 +270,7 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
         )}
         <div className="relative flex-shrink-0">
           <Avatar className="w-8 h-8">
-            <AvatarImage src={member.avatar || undefined} alt={member.displayName || member.username} />
+            <AvatarImage src={cdnImage(member.avatar || undefined)} alt={member.displayName || member.username} />
             <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
               {(member.displayName || member.username || "?").charAt(0).toUpperCase()}
             </AvatarFallback>

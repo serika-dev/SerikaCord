@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
+import { cdnImage } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Shield, Check, Server, Info, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -283,7 +284,7 @@ function AuthorizeForm() {
           <div className="flex items-center space-y-0 space-x-5">
             <div className="w-16 h-16 bg-gradient-to-tr from-[#8B5CF6]/10 to-[#EC4899]/10 rounded-2xl border border-white/[0.08] flex items-center justify-center overflow-hidden flex-shrink-0 shadow-[0_0_15px_rgba(139,92,246,0.15)]">
               {appData?.application.icon ? (
-                <img src={appData.application.icon} alt={appData.application.name} className="w-full h-full object-cover" />
+                <img src={cdnImage(appData.application.icon)} alt={appData.application.name} className="w-full h-full object-cover" />
               ) : (
                 <img 
                   src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(appData?.application.name || 'bot')}`}

@@ -40,7 +40,7 @@ import {
   BellOff,
   AlertTriangle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -694,7 +694,7 @@ export function ChannelSidebar({
                   className="flex items-center gap-1.5 px-1.5 py-0.5 rounded group/vp"
                 >
                   <Avatar className="w-5 h-5 shrink-0">
-                    <AvatarImage src={p.avatar} />
+                    <AvatarImage src={cdnImage(p.avatar)} />
                     <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-[9px]">
                       {(p.displayName || p.username).charAt(0).toUpperCase()}
                     </AvatarFallback>
@@ -1036,7 +1036,7 @@ export function ChannelSidebar({
                     >
                       <div className="relative shrink-0">
                         <Avatar className="w-8 h-8">
-                          <AvatarImage src={recipient.avatar} />
+                          <AvatarImage src={cdnImage(recipient.avatar)} />
                           <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-xs">
                             {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                           </AvatarFallback>
@@ -1491,7 +1491,7 @@ export function UserPanel({ user }: UserPanelProps) {
         >
           <div className="relative shrink-0">
             <Avatar className="w-8 h-8">
-              <AvatarImage src={user?.avatar} alt={user?.displayName} />
+              <AvatarImage src={cdnImage(user?.avatar)} alt={user?.displayName} />
               <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm">
                 {user?.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>

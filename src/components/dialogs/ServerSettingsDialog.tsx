@@ -49,7 +49,7 @@ import {
   ClipboardList,
   Pencil,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
 import { hasPermissionBit, setPermissionBit } from "@/lib/roles/bitfield";
 import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
@@ -1652,7 +1652,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="flex flex-col items-center gap-2">
           <div className="relative group">
             <Avatar className="w-24 h-24 rounded-2xl">
-              <AvatarImage src={serverIcon || undefined} />
+              <AvatarImage src={cdnImage(serverIcon || undefined)} />
               <AvatarFallback className="bg-[#8B5CF6] text-white text-3xl rounded-2xl">
                 {(draftString("name") || currentServer?.name || "?").charAt(0).toUpperCase()}
               </AvatarFallback>
@@ -1676,7 +1676,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="flex-1">
           <div className="relative group aspect-[2/1] max-h-40 rounded-lg overflow-hidden bg-gradient-to-r from-[#8B5CF6] to-[#6366F1]">
             {serverBanner && (
-              <img src={serverBanner} alt="Banner" className="w-full h-full object-cover" />
+              <img src={cdnImage(serverBanner)} alt="Banner" className="w-full h-full object-cover" />
             )}
             <button
               onClick={() => bannerInputRef.current?.click()}
@@ -2248,7 +2248,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
               </div>
               <Avatar className="w-8 h-8">
-                <AvatarImage src={invite.createdBy?.avatar} />
+                <AvatarImage src={cdnImage(invite.createdBy?.avatar)} />
                 <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
                   {invite.createdBy?.username?.charAt(0) || "?"}
                 </AvatarFallback>
@@ -2291,7 +2291,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               className="flex items-center gap-4 p-4 rounded-lg bg-[#111111] border border-[#222222]"
             >
               <Avatar className="w-10 h-10">
-                <AvatarImage src={ban.avatar} />
+                <AvatarImage src={cdnImage(ban.avatar)} />
                 <AvatarFallback className="bg-[#8B5CF6] text-white">
                   {ban.username.charAt(0)}
                 </AvatarFallback>
@@ -2350,7 +2350,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 className="flex items-center gap-3 p-3 rounded-lg hover:bg-[#111111] transition-colors border border-transparent hover:border-[#222222]"
               >
                 <Avatar className="w-10 h-10">
-                  <AvatarImage src={member.avatar || undefined} />
+                  <AvatarImage src={cdnImage(member.avatar || undefined)} />
                   <AvatarFallback className="bg-[#8B5CF6] text-white">
                     {(member.displayName || member.username || '?').charAt(0)}
                   </AvatarFallback>
@@ -2540,7 +2540,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               title={`:${emoji.name}:`}
             >
               <img
-                src={emoji.imageUrl}
+                src={cdnImage(emoji.imageUrl)}
                 alt={`:${emoji.name}:`}
                 className="w-8 h-8 object-contain"
               />
@@ -2677,7 +2677,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               title={sticker.name}
             >
               <img
-                src={sticker.imageUrl}
+                src={cdnImage(sticker.imageUrl)}
                 alt={sticker.name}
                 className="w-full aspect-square object-contain rounded"
               />
@@ -2977,7 +2977,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Avatar className="w-10 h-10">
-                      <AvatarImage src={app.user.avatar} />
+                      <AvatarImage src={cdnImage(app.user.avatar)} />
                       <AvatarFallback className="bg-[#8B5CF6] text-white">
                         {(app.user.displayName || app.user.username || "?").charAt(0)}
                       </AvatarFallback>
@@ -3148,7 +3148,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Avatar className="w-7 h-7">
-                    <AvatarImage src={log.admin?.avatar} />
+                    <AvatarImage src={cdnImage(log.admin?.avatar)} />
                     <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
                       {(log.admin?.username || "?").charAt(0)}
                     </AvatarFallback>

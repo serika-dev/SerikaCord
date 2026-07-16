@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Bug, Trash2, ChevronDown, ChevronRight, Loader2, Filter, Video, Image as ImageIcon, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 
@@ -407,7 +407,7 @@ export function AdminBugReportsPanel() {
                   {report.reporter && (
                     <div className="flex items-center gap-2 p-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)]">
                       {report.reporter.avatar && (
-                        <img src={report.reporter.avatar} alt="" className="w-8 h-8 rounded-full" />
+                        <img src={cdnImage(report.reporter.avatar)} alt="" className="w-8 h-8 rounded-full" />
                       )}
                       <div>
                         <p className="text-sm text-[var(--text-primary)]">{report.reporter.displayName || report.reporter.username}</p>

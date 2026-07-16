@@ -69,7 +69,7 @@ import {
 } from "lucide-react";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badges";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
@@ -1690,7 +1690,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           <div className="p-4 border-b border-[var(--border-subtle)] flex-shrink-0">
             <div className="flex items-center gap-3">
               <Avatar className="w-10 h-10">
-                <AvatarImage src={user?.avatar} />
+                <AvatarImage src={cdnImage(user?.avatar)} />
                 <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
                   {user?.displayName?.charAt(0).toUpperCase() || "?"}
                 </AvatarFallback>
@@ -1882,7 +1882,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   className="relative w-[72px] h-[72px] rounded-full bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                 >
                                   {user?.avatar ? (
-                                    <img src={user.avatar} alt={gt("Avatar")} className="w-full h-full object-cover" />
+                                    <img src={cdnImage(user.avatar)} alt={gt("Avatar")} className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                       <Camera className="w-5 h-5" />
@@ -1910,7 +1910,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   className="relative w-full h-[72px] rounded-lg bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                 >
                                   {user?.banner ? (
-                                    <img src={user.banner} alt={gt("Banner")} className="w-full h-full object-cover" />
+                                    <img src={cdnImage(user.banner)} alt={gt("Banner")} className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                       <Image className="w-5 h-5" />
@@ -2209,7 +2209,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     <div className="absolute inset-0" style={{ background: getNameplateBackground({ nameplate })!, opacity: 0.55, WebkitMaskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)', maskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)' }} />
                                   )}
                                   <div className="relative flex items-center gap-2 px-2 py-2">
-                                    <img src={user?.avatar || undefined} alt="" className="w-8 h-8 rounded-full object-cover bg-[var(--bg-sidebar-elevated)] shrink-0" />
+                                    <img src={cdnImage(user?.avatar || undefined)} alt="" className="w-8 h-8 rounded-full object-cover bg-[var(--bg-sidebar-elevated)] shrink-0" />
                                     <span
                                       className={cn("text-sm font-bold text-[var(--text-primary)] truncate", getDisplayNameStyleClasses(displayNameStyle))}
                                       style={getDisplayNameStyleInline(displayNameStyle)}
@@ -2470,7 +2470,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                       className="relative w-16 h-16 rounded-full bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                     >
                                       {serverAvatar || user?.avatar ? (
-                                        <img src={serverAvatar || user?.avatar} alt={gt("Avatar")} className="w-full h-full object-cover" />
+                                        <img src={cdnImage(serverAvatar || user?.avatar)} alt={gt("Avatar")} className="w-full h-full object-cover" />
                                       ) : (
                                         <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                           <Camera className="w-5 h-5" />
@@ -2515,7 +2515,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     className="relative w-full h-[72px] rounded-lg bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
                                   >
                                     {serverBanner || user?.banner ? (
-                                      <img src={serverBanner || user?.banner} alt={gt("Banner")} className="w-full h-full object-cover" />
+                                      <img src={cdnImage(serverBanner || user?.banner)} alt={gt("Banner")} className="w-full h-full object-cover" />
                                     ) : (
                                       <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
                                         <Image className="w-5 h-5" />
@@ -3526,7 +3526,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 )}
                               >
                                 <Avatar className="w-9 h-9 flex-shrink-0">
-                                  <AvatarImage src={u.avatar} />
+                                  <AvatarImage src={cdnImage(u.avatar)} />
                                   <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
                                     {u.displayName?.charAt(0) || u.username.charAt(0)}
                                   </AvatarFallback>
@@ -3557,7 +3557,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               {/* User header */}
                               <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-subtle)]">
                                 <Avatar className="w-12 h-12">
-                                  <AvatarImage src={selectedUser.avatar} />
+                                  <AvatarImage src={cdnImage(selectedUser.avatar)} />
                                   <AvatarFallback className="bg-[#8B5CF6] text-white">
                                     {selectedUser.displayName?.charAt(0) || selectedUser.username.charAt(0)}
                                   </AvatarFallback>
@@ -3779,7 +3779,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 )}
                               >
                                 <Avatar className="w-9 h-9 flex-shrink-0 rounded-lg">
-                                  <AvatarImage src={s.icon} />
+                                  <AvatarImage src={cdnImage(s.icon)} />
                                   <AvatarFallback className="bg-[#8B5CF6] text-white text-xs rounded-lg">
                                     {s.name.charAt(0)}
                                   </AvatarFallback>
@@ -3810,7 +3810,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               {/* Server header */}
                               <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-subtle)]">
                                 <Avatar className="w-12 h-12 rounded-xl">
-                                  <AvatarImage src={selectedServer.icon || undefined} />
+                                  <AvatarImage src={cdnImage(selectedServer.icon || undefined)} />
                                   <AvatarFallback className="bg-[#8B5CF6] text-white rounded-xl">
                                     {selectedServer.name.charAt(0)}
                                   </AvatarFallback>
@@ -4381,7 +4381,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </div>
                                   {/* Admin avatar + name */}
                                   <Avatar className="w-6 h-6 flex-shrink-0">
-                                    <AvatarImage src={log.admin?.avatar} />
+                                    <AvatarImage src={cdnImage(log.admin?.avatar)} />
                                     <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
                                       {log.admin?.displayName?.charAt(0) || log.admin?.username?.charAt(0) || "?"}
                                     </AvatarFallback>

@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Users, MessageCircle,  ArrowRight, Hash, Volume2, Menu, X, ChevronDown, Reply } from "lucide-react";
 import { ServerBadge } from "@/components/ui/badges";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { useGT } from "gt-next";
@@ -427,7 +427,7 @@ export default function WidgetPage() {
         <div className="absolute inset-0 bg-gradient-to-t from-[var(--app-surface)] via-[var(--app-surface)]/30 to-transparent" />
         <div className="absolute inset-x-3 bottom-2 flex items-center gap-2 min-w-0">
           <Avatar className="w-9 h-9 border-2 border-[var(--app-surface)] shrink-0">
-            <AvatarImage src={widget.icon} />
+            <AvatarImage src={cdnImage(widget.icon)} />
             <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
               {widget.name.charAt(0)}
             </AvatarFallback>
@@ -572,7 +572,7 @@ export default function WidgetPage() {
                       )}
                       <div className="flex gap-3">
                         <Avatar className="w-9 h-9 shrink-0 mt-0.5">
-                          <AvatarImage src={author.avatar} />
+                          <AvatarImage src={cdnImage(author.avatar)} />
                           <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
                             {(author.displayName || author.username).charAt(0)}
                           </AvatarFallback>
@@ -599,7 +599,7 @@ export default function WidgetPage() {
                                 {msg.sticker && (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
-                                    src={msg.sticker.imageUrl}
+                                    src={cdnImage(msg.sticker.imageUrl)}
                                     alt={msg.sticker.name}
                                     title={msg.sticker.name}
                                     className="max-w-[140px] max-h-[140px] object-contain mt-1"

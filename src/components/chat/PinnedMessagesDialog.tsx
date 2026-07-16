@@ -1,6 +1,7 @@
 "use client";
 
 import { Pin } from "lucide-react";
+import { cdnImage } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Dialog,
@@ -75,7 +76,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
               >
                 <div className="flex items-center gap-2 mb-1">
                   <Avatar className="w-6 h-6">
-                    <AvatarImage src={message.author?.avatar} />
+                    <AvatarImage src={cdnImage(message.author?.avatar)} />
                     <AvatarFallback className="bg-[var(--accent-color)] text-white text-xs">
                       {(message.author?.displayName || message.author?.username || "?")
                         .charAt(0)

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { cdnImage } from "@/lib/utils";
 import { ArrowLeft, User, Mail, Shield } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -35,7 +36,7 @@ export default function AccountSettingsPage() {
                         <div className="px-5 pb-5 relative">
                             <div className="absolute -top-10 left-5">
                                 <Avatar className="w-20 h-20 border-[6px] border-[var(--bg-card)]">
-                                    <AvatarImage src={user?.avatar} />
+                                    <AvatarImage src={cdnImage(user?.avatar)} />
                                     <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)] text-2xl font-bold">
                                         {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
                                     </AvatarFallback>

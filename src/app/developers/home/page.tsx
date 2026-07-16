@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { cdnImage } from "@/lib/utils";
 import Link from "next/link";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -93,7 +94,7 @@ export default function DeveloperHomePage() {
                   <div className="flex items-center gap-3 mb-3">
                     <div className="size-10 rounded-lg bg-gradient-to-br from-[#8B5CF6] to-[#6366f1] flex items-center justify-center shrink-0 overflow-hidden">
                       {app.icon ? (
-                        <img src={app.icon} alt="" className="size-10 rounded-lg object-cover" />
+                        <img src={cdnImage(app.icon)} alt="" className="size-10 rounded-lg object-cover" />
                       ) : (
                         <Bot className="size-5 text-white" />
                       )}

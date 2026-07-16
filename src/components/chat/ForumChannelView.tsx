@@ -39,7 +39,7 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { Loader } from "@/components/ui/Loader";
 
 interface ForumTag {
@@ -244,7 +244,7 @@ export function ForumChannelView({
         <div className="p-3.5">
           <div className="flex items-start gap-3">
             <Avatar className="w-10 h-10 shrink-0">
-              <AvatarImage src={thread.owner?.avatar} />
+              <AvatarImage src={cdnImage(thread.owner?.avatar)} />
               <AvatarFallback className="bg-[var(--app-accent)] text-white text-xs">
                 {(thread.owner?.displayName || thread.owner?.username || "?").charAt(0).toUpperCase()}
               </AvatarFallback>

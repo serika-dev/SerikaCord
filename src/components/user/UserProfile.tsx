@@ -33,7 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
@@ -226,7 +226,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
               "border-[6px] border-[#232428]",
               expanded ? "w-[128px] h-[128px]" : "w-[92px] h-[92px]"
             )}>
-              <AvatarImage src={user.avatar} />
+              <AvatarImage src={cdnImage(user.avatar)} />
               <AvatarFallback className="bg-[#5865F2] text-white text-2xl">
                 {user.displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
@@ -483,7 +483,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                           {user.mutualServers.map((server) => (
                             <div key={server.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#1e1f22] transition-colors cursor-pointer">
                               <Avatar className="w-10 h-10">
-                                <AvatarImage src={server.icon} />
+                                <AvatarImage src={cdnImage(server.icon)} />
                                 <AvatarFallback className="bg-[#5865F2] text-white text-sm">
                                   {server.name.charAt(0)}
                                 </AvatarFallback>
@@ -505,7 +505,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                           {user.mutualFriends.map((friend) => (
                             <div key={friend.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-[#1e1f22] transition-colors cursor-pointer">
                               <Avatar className="w-10 h-10">
-                                <AvatarImage src={friend.avatar} />
+                                <AvatarImage src={cdnImage(friend.avatar)} />
                                 <AvatarFallback className="bg-[#5865F2] text-white text-sm">
                                   {friend.username.charAt(0)}
                                 </AvatarFallback>

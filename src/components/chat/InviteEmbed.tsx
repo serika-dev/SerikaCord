@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { useChatGt } from "./ChatGtContext";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { ServerBadge } from "@/components/ui/badges";
 import { Loader } from "@/components/ui/Loader";
 
@@ -167,7 +167,7 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
             {data.server.icon ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={data.server.icon}
+                src={cdnImage(data.server.icon)}
                 alt=""
                 className="w-full h-full object-cover"
                 loading="lazy"

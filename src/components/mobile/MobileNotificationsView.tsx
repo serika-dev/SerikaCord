@@ -14,7 +14,7 @@ import {
   Check,
   X,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 
 interface Notification {
@@ -218,7 +218,7 @@ export function MobileNotificationsView() {
                 >
                   <div className="relative flex-shrink-0 mt-0.5">
                     <Avatar className="w-12 h-12 border border-[var(--border-subtle)]">
-                      <AvatarImage src={notification.avatar} />
+                      <AvatarImage src={cdnImage(notification.avatar)} />
                       <AvatarFallback className="bg-[var(--app-accent)] text-white font-bold">
                         {notification.title.charAt(0).toUpperCase()}
                       </AvatarFallback>

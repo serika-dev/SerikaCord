@@ -20,7 +20,7 @@ import {
   Plus, Compass, MessageSquare, Check, BellOff, Bell, Copy, LogOut,
   FolderPlus, FolderMinus, Folder as FolderIcon, Pencil, Users, UserPlus,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { useMentions } from "@/hooks/useMentions";
 import { useServerMutes } from "@/hooks/useServerMutes";
@@ -366,7 +366,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
             >
               {server.icon ? (
                 <Avatar className={cn("rounded-none", inFolder ? "w-10 h-10" : "w-12 h-12")}>
-                  <AvatarImage src={server.icon} alt={server.name} draggable={false} />
+                  <AvatarImage src={cdnImage(server.icon)} alt={server.name} draggable={false} />
                   <AvatarFallback className="rounded-none bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                     {server.name.charAt(0).toUpperCase()}
                   </AvatarFallback>
@@ -521,7 +521,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                   <div className="grid grid-cols-2 gap-0.5 p-1.5 w-full h-full">
                     {folderServers.slice(0, 4).map((s) => (
                       s.icon ? (
-                        <img key={s.id} src={s.icon} alt="" draggable={false} className="w-full h-full object-cover rounded-[4px]" />
+                        <img key={s.id} src={cdnImage(s.icon)} alt="" draggable={false} className="w-full h-full object-cover rounded-[4px]" />
                       ) : (
                         <span key={s.id} className="flex items-center justify-center rounded-[4px] bg-[var(--bg-sidebar-elevated)] text-[9px] font-bold text-[var(--text-primary)]">
                           {s.name.charAt(0).toUpperCase()}
@@ -661,7 +661,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                       className="relative flex items-center justify-center w-12 h-12 rounded-[24px] transition-[border-radius] duration-200 hover:rounded-[16px] group overflow-hidden"
                     >
                       <Avatar className="w-12 h-12">
-                        <AvatarImage src={recipient.avatar} alt={recipient.displayName || recipient.username} />
+                        <AvatarImage src={cdnImage(recipient.avatar)} alt={recipient.displayName || recipient.username} />
                         <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                           {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                         </AvatarFallback>

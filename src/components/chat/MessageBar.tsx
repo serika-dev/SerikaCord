@@ -38,7 +38,7 @@ import {
   Megaphone,
   Bot,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
 import {
   Popover,
@@ -698,7 +698,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50 sticky top-0 z-10">
                         {group.kind === "app" ? (
                           group.icon ? (
-                            <img src={group.icon} alt="" className="w-4 h-4 rounded-sm object-cover shrink-0" />
+                            <img src={cdnImage(group.icon)} alt="" className="w-4 h-4 rounded-sm object-cover shrink-0" />
                           ) : (
                             <Bot className="w-3.5 h-3.5 text-[#a78bfa] shrink-0" />
                           )
@@ -713,7 +713,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                         const isApp = suggestion.kind === "app-command";
                         const cmdIcon = isApp
                           ? (suggestion.appIcon
-                              ? <img src={suggestion.appIcon} alt="" className="w-full h-full rounded-md object-cover" />
+                              ? <img src={cdnImage(suggestion.appIcon)} alt="" className="w-full h-full rounded-md object-cover" />
                               : <Bot className="w-3.5 h-3.5" />)
                           : (COMMAND_ICONS[suggestion.id as keyof typeof COMMAND_ICONS] || <Hash className="w-3.5 h-3.5" />);
                         return (
@@ -1031,7 +1031,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       <span className="flex items-center gap-2 min-w-0 text-sm">
                         {suggestion.kind === "emoji" ? (
                           <>
-                            <img src={suggestion.imageUrl} alt="" className="w-5 h-5 object-contain shrink-0" loading="lazy" />
+                            <img src={cdnImage(suggestion.imageUrl)} alt="" className="w-5 h-5 object-contain shrink-0" loading="lazy" />
                             <span className="truncate">:{suggestion.label}:</span>
                           </>
                         ) : suggestion.kind === "unicode-emoji" ? (

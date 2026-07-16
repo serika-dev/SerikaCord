@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { cdnImage } from "@/lib/utils";
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
 import {
@@ -242,7 +243,7 @@ export function ImageCropper({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 ref={imgRef}
-                src={imageUrl}
+                src={cdnImage(imageUrl)}
                 alt={gt("Crop preview")}
                 onLoad={onImageLoad}
                 style={{

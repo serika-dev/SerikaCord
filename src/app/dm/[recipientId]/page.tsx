@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
@@ -362,7 +362,7 @@ export default function DMConversationPage() {
       ) : (
         <>
           <Avatar className="w-20 h-20">
-            <AvatarImage src={recipient?.avatar} />
+            <AvatarImage src={cdnImage(recipient?.avatar)} />
             <AvatarFallback className="bg-[var(--accent-color)] text-white text-2xl">
               {(recipientName || "?").charAt(0).toUpperCase()}
             </AvatarFallback>
@@ -393,7 +393,7 @@ export default function DMConversationPage() {
 
             <div className="relative flex-shrink-0">
               <Avatar className="w-8 h-8">
-                <AvatarImage src={recipient?.avatar} />
+                <AvatarImage src={cdnImage(recipient?.avatar)} />
                 <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
                   {(recipientName || "?").charAt(0).toUpperCase()}
                 </AvatarFallback>

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 
 interface Message {
@@ -295,21 +295,21 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                   {message.type === "group" && message.avatars ? (
                     <div className="w-16 h-16 rounded-2xl bg-[var(--bg-card)] relative overflow-hidden ring-2 ring-transparent group-focus:ring-[var(--app-accent)] transition-all">
                       <Avatar className="w-9 h-9 absolute top-1 left-1 border-2 border-[var(--bg-app)]">
-                        <AvatarImage src={message.avatars[0]} />
+                        <AvatarImage src={cdnImage(message.avatars[0])} />
                         <AvatarFallback className="bg-[var(--app-accent)]">
                           {message.name.charAt(0)}
                         </AvatarFallback>
                       </Avatar>
                       {message.avatars[1] && (
                         <Avatar className="w-9 h-9 absolute bottom-1 right-1 border-2 border-[var(--bg-app)]">
-                          <AvatarImage src={message.avatars[1]} />
+                          <AvatarImage src={cdnImage(message.avatars[1])} />
                           <AvatarFallback className="bg-[#6366F1]">+</AvatarFallback>
                         </Avatar>
                       )}
                     </div>
                   ) : (
                     <Avatar className="w-16 h-16 rounded-2xl ring-2 ring-transparent group-focus:ring-[var(--app-accent)] transition-all">
-                      <AvatarImage src={message.avatar} />
+                      <AvatarImage src={cdnImage(message.avatar)} />
                       <AvatarFallback className="bg-gradient-to-br from-[var(--app-accent)] to-[var(--app-accent)] text-white text-xl font-semibold">
                         {message.name.charAt(0).toUpperCase()}
                       </AvatarFallback>
@@ -397,21 +397,21 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     {message.type === "group" && message.avatars ? (
                       <div className="w-12 h-12 rounded-full bg-[var(--bg-card)] relative">
                         <Avatar className="w-7 h-7 absolute top-0 left-0 ring-2 ring-[var(--bg-app)]">
-                          <AvatarImage src={message.avatars[0]} />
+                          <AvatarImage src={cdnImage(message.avatars[0])} />
                           <AvatarFallback className="bg-[var(--app-accent)] text-[10px]">
                             {message.name.charAt(0)}
                           </AvatarFallback>
                         </Avatar>
                         {message.avatars[1] && (
                           <Avatar className="w-7 h-7 absolute bottom-0 right-0 ring-2 ring-[var(--bg-app)]">
-                            <AvatarImage src={message.avatars[1]} />
+                            <AvatarImage src={cdnImage(message.avatars[1])} />
                             <AvatarFallback className="bg-[#6366F1] text-[10px]">+</AvatarFallback>
                           </Avatar>
                         )}
                       </div>
                     ) : (
                       <Avatar className="w-12 h-12">
-                        <AvatarImage src={message.avatar} />
+                        <AvatarImage src={cdnImage(message.avatar)} />
                         <AvatarFallback className="bg-gradient-to-br from-[var(--app-accent)] to-[var(--app-accent)] text-white text-base font-semibold">
                           {message.name.charAt(0).toUpperCase()}
                         </AvatarFallback>

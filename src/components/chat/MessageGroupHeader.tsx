@@ -9,7 +9,7 @@ import { SystemPill } from "@/components/chat/SystemPill";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useServerMembers } from "@/contexts/ServerContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
-import { cn, getTimeoutRemaining } from "@/lib/utils";
+import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
 import { useChatGt } from "./ChatGtContext";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
@@ -24,7 +24,7 @@ export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: Group
   const initial = (author.displayName || author.username || "?").charAt(0).toUpperCase();
   const avatar = (
     <Avatar className="w-10 h-10 mt-0.5">
-      <AvatarImage src={author.avatar} loading="lazy" alt="" />
+      <AvatarImage src={cdnImage(author.avatar)} loading="lazy" alt="" />
       <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">{initial}</AvatarFallback>
     </Avatar>
   );

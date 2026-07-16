@@ -20,7 +20,7 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { getBadgesByPriority } from "@/lib/constants/badges";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -353,7 +353,7 @@ export function ProfileCard({
         <div className="absolute -top-11 left-4">
           <div className="relative">
             <Avatar className="w-[88px] h-[88px] border-[5px] border-[#0c0c10] shadow-lg">
-              <AvatarImage src={user.avatar || undefined} />
+              <AvatarImage src={cdnImage(user.avatar || undefined)} />
               <AvatarFallback className="bg-[#8B5CF6] text-white text-3xl">
                 {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
@@ -503,7 +503,7 @@ export function ProfileCard({
                   >
                     {conn.avatar ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={conn.avatar} alt={label} className="w-5 h-5 rounded-full object-cover shrink-0" />
+                      <img src={cdnImage(conn.avatar)} alt={label} className="w-5 h-5 rounded-full object-cover shrink-0" />
                     ) : (
                       <Icon size={20} className="shrink-0" style={{ color }} />
                     )}

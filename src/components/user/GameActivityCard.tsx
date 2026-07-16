@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cdnImage } from "@/lib/utils";
 import { Gamepad2, Code2, Music, Layers, Terminal, Bot, Wind } from "lucide-react";
 import type { GameActivity } from "@/hooks/useMoeActivity";
 import { useGT } from "gt-next";
@@ -71,14 +72,14 @@ export function GameActivityCard({ game }: { game: GameActivity }) {
           <div className="relative shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={game.largeImageUrl}
+              src={cdnImage(game.largeImageUrl)}
               alt={game.largeImageText ?? game.name}
               className="w-14 h-14 rounded-xl object-cover shadow-md"
             />
             {game.smallImageUrl && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={game.smallImageUrl}
+                src={cdnImage(game.smallImageUrl)}
                 alt={game.smallImageText ?? ""}
                 className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[var(--bg-card)] object-cover"
               />

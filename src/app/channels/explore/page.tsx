@@ -35,7 +35,7 @@ import {
   Plane,
   Briefcase,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { toast } from "sonner";
@@ -197,7 +197,7 @@ function ServerCard({
       {/* === BANNER === */}
       <div className={cn("relative overflow-hidden w-full", featured ? "h-32" : "h-24")}>
         {server.banner ? (
-          <img src={server.banner} alt="" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-700" />
+          <img src={cdnImage(server.banner)} alt="" className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-700" />
         ) : (
           <div
             className="w-full h-full group-hover:scale-[1.03] transition-transform duration-700"
@@ -226,7 +226,7 @@ function ServerCard({
             featured ? "w-[68px] h-[68px]" : "w-14 h-14"
           )}
         >
-          <AvatarImage src={server.icon} />
+          <AvatarImage src={cdnImage(server.icon)} />
           <AvatarFallback
             className="text-white text-lg font-bold"
             style={{ backgroundColor: gradient.from }}

@@ -11,7 +11,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import { Share2, Copy, Check,  User, Hash, ChevronLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 
@@ -315,7 +315,7 @@ export function ShareInviteButton({
                         className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] text-left transition-colors"
                       >
                         <Avatar className="w-7 h-7">
-                          <AvatarImage src={server.icon} />
+                          <AvatarImage src={cdnImage(server.icon)} />
                           <AvatarFallback className="bg-[var(--accent-color)] text-white text-xs">
                             {server.name.charAt(0)}
                           </AvatarFallback>
@@ -346,7 +346,7 @@ export function ShareInviteButton({
                     className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] text-left transition-colors"
                   >
                     <Avatar className="w-7 h-7">
-                      <AvatarImage src={friend.avatar} />
+                      <AvatarImage src={cdnImage(friend.avatar)} />
                       <AvatarFallback className="bg-[var(--accent-color)] text-white text-xs">
                         {(friend.displayName || friend.username).charAt(0)}
                       </AvatarFallback>

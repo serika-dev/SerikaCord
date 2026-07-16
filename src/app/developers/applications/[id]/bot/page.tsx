@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { cdnImage } from "@/lib/utils";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
 import { Copy, Check, RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon, Upload, KeyRound, Settings, Zap } from "lucide-react";
@@ -338,7 +339,7 @@ export default function BotPage() {
                 className="group relative block w-full h-28 bg-gradient-to-br from-[#8B5CF6]/30 to-[#6366f1]/30 overflow-hidden"
                 aria-label={gt("Upload banner")}
               >
-                {botBanner && <img src={botBanner} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+                {botBanner && <img src={cdnImage(botBanner)} alt="" className="absolute inset-0 w-full h-full object-cover" />}
                 <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors opacity-0 group-hover:opacity-100 text-white text-xs font-medium gap-1.5">
                   {uploadingBanner ? <Loader size={24} className="size-4" /> : <Upload className="size-4" />}
                   {gt("Change banner")}
@@ -358,7 +359,7 @@ export default function BotPage() {
                 aria-label={gt("Upload avatar")}
               >
                 {botAvatar
-                  ? <img src={botAvatar} alt="" className="w-full h-full object-cover" />
+                  ? <img src={cdnImage(botAvatar)} alt="" className="w-full h-full object-cover" />
                   : <span className="flex items-center justify-center w-full h-full"><BotIcon className="size-6 text-[#8B5CF6]" /></span>}
                 <span className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/50 transition-colors opacity-0 group-hover:opacity-100 text-white">
                   {uploadingAvatar ? <Loader size={24} className="size-4" /> : <Upload className="size-4" />}

@@ -5,7 +5,7 @@ import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Home, MessageSquare, Bell, User } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 
 interface NavItem {
@@ -127,7 +127,7 @@ export function BottomNavigation({
                       isActive ? "ring-[var(--app-accent)]" : "ring-transparent"
                     )}
                   >
-                    <AvatarImage src={user.avatar || undefined} alt="" />
+                    <AvatarImage src={cdnImage(user.avatar || undefined)} alt="" />
                     <AvatarFallback className="bg-[var(--app-accent)] text-white text-[10px]">
                       {(user.displayName || user.username || "?").charAt(0).toUpperCase()}
                     </AvatarFallback>

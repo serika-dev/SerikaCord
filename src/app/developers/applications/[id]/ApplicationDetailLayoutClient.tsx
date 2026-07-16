@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import {
   Info,
   Bot,
@@ -65,9 +65,9 @@ export default function ApplicationDetailLayoutClient({
             <div className="flex items-center gap-3">
               <div className="size-10 rounded-xl bg-gradient-to-br from-[#8B5CF6]/20 to-[#6366f1]/20 border border-white/[0.08] flex items-center justify-center shrink-0 overflow-hidden shadow-[0_0_10px_rgba(139,92,246,0.1)]">
                 {app?.icon ? (
-                  <img src={app.icon} alt="" className="size-10 rounded-xl object-cover" />
+                  <img src={cdnImage(app.icon)} alt="" className="size-10 rounded-xl object-cover" />
                 ) : app?.botAvatar ? (
-                  <img src={app.botAvatar} alt="" className="size-10 rounded-xl object-cover" />
+                  <img src={cdnImage(app.botAvatar)} alt="" className="size-10 rounded-xl object-cover" />
                 ) : (
                   <img 
                     src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app?.name || 'bot')}`}

@@ -4,7 +4,7 @@ import { useEffect, useRef, useMemo, memo, useState, useCallback } from "react";
 import twemoji from "@twemoji/api";
 import { twemojiOnError } from "@/lib/twemoji-helpers";
 import { useChatGt } from "./ChatGtContext";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
@@ -389,7 +389,7 @@ export const MessageContent = memo(function MessageContent({
     return (
       <div className={className}>
         <img
-          src={sticker.imageUrl}
+          src={cdnImage(sticker.imageUrl)}
           alt={sticker.name}
           title={sticker.name}
           className="max-w-[160px] max-h-[160px] w-auto h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity rounded-lg"
@@ -439,7 +439,7 @@ export const MessageContent = memo(function MessageContent({
           return (
             <img
               key={`emoji-${index}-${part.emoji.id}`}
-              src={part.emoji.url || part.emoji.imageUrl}
+              src={cdnImage(part.emoji.url || part.emoji.imageUrl)}
               alt={`:${part.emoji.name}:`}
               title={`:${part.emoji.name}:`}
               className="custom-emoji"
@@ -589,7 +589,7 @@ export const MessageContent = memo(function MessageContent({
           {/* Emoji preview header */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-subtle)]">
             <img
-              src={emojiCtxMenu.emoji.url || emojiCtxMenu.emoji.imageUrl}
+              src={cdnImage(emojiCtxMenu.emoji.url || emojiCtxMenu.emoji.imageUrl)}
               alt={emojiCtxMenu.isCustom ? `:${emojiCtxMenu.emoji.name}:` : emojiCtxMenu.emoji.id}
               className="w-6 h-6 object-contain"
             />

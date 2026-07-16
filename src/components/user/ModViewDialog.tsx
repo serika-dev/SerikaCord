@@ -15,7 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getTimeoutRemaining } from "@/lib/utils";
+import { getTimeoutRemaining, cdnImage } from "@/lib/utils";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useGT } from "gt-next";
@@ -185,7 +185,7 @@ export function ModViewDialog({ user, serverId, open, onOpenChange }: ModViewDia
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{gt("Mod View")}</p>
             <div className="flex items-center gap-2 min-w-0">
               <Avatar className="w-6 h-6">
-                <AvatarImage src={user.avatar || undefined} alt={displayName} />
+                <AvatarImage src={cdnImage(user.avatar || undefined)} alt={displayName} />
                 <AvatarFallback className="bg-[#8B5CF6] text-white text-[10px]">{displayName.charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
               <span className="font-semibold text-[var(--text-primary)] truncate">{displayName}</span>

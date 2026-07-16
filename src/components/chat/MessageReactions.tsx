@@ -2,7 +2,7 @@
 
 import { Plus } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { reactionEmojiIdentifier, type MessageReaction } from "@/lib/chat/types";
@@ -69,7 +69,7 @@ export function MessageReactions({
                 )}
               >
                 {reaction.emoji.url ? (
-                  <img src={reaction.emoji.url} alt={reaction.emoji.name} className="w-4 h-4 object-contain" />
+                  <img src={cdnImage(reaction.emoji.url)} alt={reaction.emoji.name} className="w-4 h-4 object-contain" />
                 ) : (
                   <span className="leading-none">{reaction.emoji.name}</span>
                 )}
@@ -87,7 +87,7 @@ export function MessageReactions({
                   return (
                     <div key={userId} className="flex items-center gap-1.5">
                       <Avatar className="w-4 h-4">
-                        <AvatarImage src={avatar} loading="lazy" alt="" />
+                        <AvatarImage src={cdnImage(avatar)} loading="lazy" alt="" />
                         <AvatarFallback className="text-[8px] bg-[var(--app-accent)] text-[var(--text-on-accent)]">{initial}</AvatarFallback>
                       </Avatar>
                       <span className="text-xs truncate">{name}</span>
