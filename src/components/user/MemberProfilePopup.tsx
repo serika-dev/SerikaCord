@@ -11,6 +11,7 @@ import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
 import { ModViewDialog } from "@/components/user/ModViewDialog";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useServerMembersOptional } from "@/contexts/ServerContext";
 
 interface MemberProfilePopupProps {
   children: React.ReactNode;
@@ -113,6 +114,15 @@ function MemberProfilePopupBody({
 }: MemberProfilePopupProps & { initialOpen: boolean }) {
   const { user: currentUser } = useAuth();
   const isMobile = useIsMobile();
+  const serverMembers = useServerMembersOptional();
+  // Push role changes made from the card straight into the sidebar so it
+  // regroups instantly (the 30s poll is too slow), and — because the sidebar
+  // now keeps rows mounted across regroups — the card stays open.
+  const handleRolesUpdated = serverId
+    ? (roles: Array<{ id: string; name: string; color?: string; hoist?: boolean; position?: number; isDefault?: boolean }>) => {
+        serverMembers?.applyMemberRoles(member.id, roles);
+      }
+    : undefined;
   const [open, setOpen] = useState(!initialOpen ? false : !isMobile);
   const [fullProfileOpen, setFullProfileOpen] = useState(initialOpen && isMobile);
   const [modViewOpen, setModViewOpen] = useState(false);
@@ -231,6 +241,7 @@ function MemberProfilePopupBody({
             setFullProfileOpen(true);
           }}
           onOpenModView={serverId ? () => { setOpen(false); setModViewOpen(true); } : undefined}
+          onRolesUpdated={handleRolesUpdated}
         />
       </PopoverContent>
     </Popover>

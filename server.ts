@@ -145,8 +145,20 @@ async function main() {
       const pathname = url.pathname;
 
       // ─── Domain redirect ────────────────────────────────────
+      // serika.cc is the short-link domain → send everything to prod
+      // (FRONTEND_URL / serika.chat).
       if (frontendUrl && redirectHosts.has(req.headers.get('host')?.split(':')[0] || '')) {
-        const target = new URL(req.url, frontendUrl);
+        // Single-segment paths (e.g. /serika, /abc123) are invite codes — send
+        // them to /invite/CODE so serika.cc/serika → serika.chat/invite/serika.
+        const segments = pathname.split('/').filter(Boolean);
+        const targetPath =
+          segments.length === 1 && segments[0] !== 'api'
+            ? `/invite/${segments[0]}`
+            : pathname;
+        // Rebase onto FRONTEND_URL by taking only path+query — passing the
+        // absolute req.url as the first arg to `new URL` would ignore the base
+        // and redirect serika.cc → serika.cc (an infinite reload loop).
+        const target = new URL(`${targetPath}${url.search}`, frontendUrl);
         return Response.redirect(target.href, 301);
       }
 

@@ -16,6 +16,9 @@ export interface ThemeSettings {
   animatedAvatars: boolean;
   reducedMotion: boolean;
   saturation: number;
+  highContrast: boolean;
+  dyslexicFont: boolean;
+  messageSpacing: "compact" | "cozy";
 }
 
 const defaultSettings: ThemeSettings = {
@@ -31,6 +34,9 @@ const defaultSettings: ThemeSettings = {
   animatedAvatars: true,
   reducedMotion: false,
   saturation: 100,
+  highContrast: false,
+  dyslexicFont: false,
+  messageSpacing: "cozy",
 };
 
 function coerceTheme(theme: unknown): ThemeSettings["theme"] {
@@ -72,6 +78,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       enableAnimations: typeof appearance.enableAnimations === "boolean" ? appearance.enableAnimations : prev.enableAnimations,
       saturation: typeof appearance.saturation === "number" ? appearance.saturation : prev.saturation,
       reducedMotion: typeof accessibility.reducedMotion === "boolean" ? accessibility.reducedMotion : prev.reducedMotion,
+      highContrast: typeof accessibility.highContrast === "boolean" ? accessibility.highContrast : prev.highContrast,
+      dyslexicFont: typeof accessibility.dyslexicFont === "boolean" ? accessibility.dyslexicFont : prev.dyslexicFont,
+      messageSpacing: accessibility.messageSpacing === "compact" || accessibility.messageSpacing === "cozy" ? accessibility.messageSpacing : prev.messageSpacing,
       animatedEmojis:
         typeof textImages.gifAutoplay === "boolean"
           ? textImages.gifAutoplay
@@ -214,6 +223,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } else {
       root.classList.remove("no-animated-emojis");
     }
+
+    // High contrast
+    root.classList.toggle("high-contrast", settings.highContrast);
+
+    // Dyslexic font
+    root.classList.toggle("dyslexic-font", settings.dyslexicFont);
+
+    // Message spacing
+    root.classList.remove("message-spacing-compact", "message-spacing-cozy");
+    root.classList.add(`message-spacing-${settings.messageSpacing}`);
+
+    // Saturation filter (only apply class when not default 100 to avoid unnecessary filter)
+    root.classList.toggle("saturation-filter", settings.saturation !== 100);
 
   }, [settings, isLoaded]);
 

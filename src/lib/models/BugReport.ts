@@ -2,11 +2,13 @@ import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
 import { normalizeId } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
+export type BugReportKind = 'bug' | 'feedback';
 export type BugReportPriority = 'low' | 'medium' | 'high' | 'critical';
 export type BugReportStatus = 'open' | 'acknowledged' | 'resolved' | 'wont_fix';
 export type BugReportCategory =
   | 'crash' | 'visual' | 'functionality' | 'performance' | 'security'
-  | 'audio' | 'network' | 'ui_ux' | 'other';
+  | 'audio' | 'network' | 'ui_ux' | 'other'
+  | 'feature_request' | 'improvement' | 'praise' | 'general';
 
 export type IBugReport = typeof schema.bugReports.$inferSelect;
 
@@ -25,6 +27,7 @@ export const BugReport = {
       switch (key) {
         case 'id': conditions.push(eq(schema.bugReports.id, normalizeId(value as string))); break;
         case 'reporterId': conditions.push(eq(schema.bugReports.reporterId, normalizeId(value as string))); break;
+        case 'kind': conditions.push(eq(schema.bugReports.kind, value as BugReportKind)); break;
         case 'status': conditions.push(eq(schema.bugReports.status, value as BugReportStatus)); break;
         case 'priority': conditions.push(eq(schema.bugReports.priority, value as BugReportPriority)); break;
         case 'category': conditions.push(eq(schema.bugReports.category, value as BugReportCategory)); break;
@@ -47,6 +50,7 @@ export const BugReport = {
       switch (key) {
         case 'id': conditions.push(eq(schema.bugReports.id, normalizeId(value as string))); break;
         case 'reporterId': conditions.push(eq(schema.bugReports.reporterId, normalizeId(value as string))); break;
+        case 'kind': conditions.push(eq(schema.bugReports.kind, value as BugReportKind)); break;
         case 'status': conditions.push(eq(schema.bugReports.status, value as BugReportStatus)); break;
         case 'priority': conditions.push(eq(schema.bugReports.priority, value as BugReportPriority)); break;
         case 'category': conditions.push(eq(schema.bugReports.category, value as BugReportCategory)); break;

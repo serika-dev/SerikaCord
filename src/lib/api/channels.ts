@@ -20,6 +20,7 @@ const PERM_MANAGE_MESSAGES = 1n << 13n;
 const PERM_VIEW_CHANNEL = 1n << 10n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
 const PERM_PIN_MESSAGES = 1n << 51n;
+const PERM_SEND_MESSAGES = 1n << 11n;
 
 /**
  * Whether a user can moderate messages in a server — i.e. delete other people's
@@ -177,6 +178,70 @@ async function canViewChannel(
   if ((effectiveAllow & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return true;
   // Default: allow if @everyone doesn't deny it
   if ((baseDeny & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return false;
+  return true;
+}
+
+/**
+ * Whether a user can send messages in a channel based on permissionOverwrites.
+ * Uses the same overwrite resolution logic as canViewChannel but checks the
+ * SEND_MESSAGES bit instead of VIEW_CHANNEL.
+ */
+async function canSendInChannel(
+  channel: { permissionOverwrites?: any[]; serverId?: string | null },
+  userId: string,
+  membership: { roles?: string[] | null } | null,
+  serverOwnerId?: string | null,
+): Promise<boolean> {
+  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
+
+  // Check if user has Administrator or Manage Channels via roles (bypasses overwrites)
+  if (membership?.roles?.length && channel.serverId) {
+    const rolePerms = await getRolePermissions(membership.roles, channel.serverId);
+    for (const [, perms] of rolePerms) {
+      if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
+      if ((perms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS) return true;
+    }
+  }
+
+  const overwrites = channel.permissionOverwrites || [];
+  if (!overwrites || overwrites.length === 0) return true;
+
+  // Find @everyone overwrite (type 'role', id matches serverId)
+  const everyoneOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === channel.serverId);
+  let baseAllow = 0n;
+  let baseDeny = 0n;
+  if (everyoneOverwrite) {
+    baseAllow = BigInt(everyoneOverwrite.allow || '0');
+    baseDeny = BigInt(everyoneOverwrite.deny || '0');
+  }
+
+  let effectiveAllow = baseAllow;
+  let effectiveDeny = baseDeny;
+
+  // Apply role-specific overwrites
+  if (membership?.roles?.length) {
+    for (const roleId of membership.roles) {
+      const roleOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === roleId);
+      if (roleOverwrite) {
+        effectiveAllow |= BigInt(roleOverwrite.allow || '0');
+        effectiveDeny |= BigInt(roleOverwrite.deny || '0');
+      }
+    }
+  }
+
+  // Apply member-specific overwrites (highest priority)
+  const memberOverwrite = overwrites.find((o: any) => o.type === 'member' && o.id === userId);
+  if (memberOverwrite) {
+    effectiveAllow |= BigInt(memberOverwrite.allow || '0');
+    effectiveDeny |= BigInt(memberOverwrite.deny || '0');
+  }
+
+  // If explicitly denied SEND_MESSAGES, block
+  if ((effectiveDeny & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return false;
+  // If explicitly allowed SEND_MESSAGES, permit
+  if ((effectiveAllow & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return true;
+  // Default: allow if @everyone doesn't deny it
+  if ((baseDeny & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return false;
   return true;
 }
 
@@ -1614,6 +1679,21 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
         set.status = 403;
         return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
+      }
+    }
+
+    // Enforce SEND_MESSAGES permission overwrites on server channels
+    if (channel.serverId) {
+      const serverOwnerId = await (async () => {
+        const cached = await cache.get<string>(`server:owner:${channel.serverId}`);
+        if (cached) return cached;
+        const srv = await Server.findById(channel.serverId);
+        return srv?.ownerId ?? null;
+      })();
+      const canSend = await canSendInChannel(channel, user.id, membership as any, serverOwnerId);
+      if (!canSend) {
+        set.status = 403;
+        return { error: 'You do not have permission to send messages in this channel' };
       }
     }
 

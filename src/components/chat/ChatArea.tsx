@@ -23,6 +23,7 @@ import {
   HelpCircle,
   ChevronLeft, 
   Megaphone,
+  Shield,
 } from "lucide-react";
 import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
@@ -45,6 +46,7 @@ import {
 import { showNotification } from "@/lib/services/notificationService";
 import { useMentions, type MentionData } from "@/hooks/useMentions";
 import { useChatSession } from "@/hooks/useChatSession";
+import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { usePermissions } from "@/hooks/usePermissions";
 import { playTts } from "@/lib/chat/tts";
 import { useSlashCommands } from "@/hooks/useSlashCommands";
@@ -72,6 +74,7 @@ import { onHotkey } from "@/lib/keybinds";
 import { EMOJI_NAMES } from "@/lib/constants/emojis";
 import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { canSendInChannel as canSendInChannelClient } from "@/lib/roles/channelPermissions";
 
 type Message = ChatMessage;
 
@@ -88,6 +91,7 @@ interface MentionRole {
   color?: string;
   mentionable?: boolean;
   isDefault?: boolean;
+  permissions?: string;
 }
 
 interface MentionSuggestion {
@@ -368,12 +372,36 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return (self?.roles || []).map((r) => r.id);
   }, [members, user?.id]);
 
+  // Compute the user's role permission bitfields from the fetched role data,
+  // used for channel-level overwrite checks (e.g. SEND_MESSAGES).
+  const currentUserRolePerms = useMemo<bigint[]>(() => {
+    return currentUserRoleIds
+      .map((rid) => mentionRoles.find((r) => r.id === rid))
+      .filter((r): r is MentionRole => !!r && typeof r.permissions === "string")
+      .map((r) => BigInt(r.permissions!));
+  }, [currentUserRoleIds, mentionRoles]);
+
+  // Check if the user can send messages in the current channel based on
+  // permission overwrites. Admin/owner bypass all overwrites.
+  const canSendInCurrentChannel = useMemo(() => {
+    return canSendInChannelClient(
+      currentChannel as any,
+      currentUserRoleIds,
+      currentUserRolePerms,
+      perms.isOwner,
+      perms.isAdmin,
+    );
+  }, [currentChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin]);
+
   // Server-only: if the signed-in user is timed out, block the composer.
-  const selfTimeout = useMemo(() => {
-    if (!currentServer) return { active: false, label: "" };
+  const selfTimeoutUntil = useMemo(() => {
+    if (!currentServer) return null;
     const self = (members as Array<{ id: string; communicationDisabledUntil?: string | null }>).find((m) => m.id === user?.id);
-    return getTimeoutRemaining(self?.communicationDisabledUntil);
+    return self?.communicationDisabledUntil ?? null;
   }, [members, user?.id, currentServer]);
+  // Ticks every second so the countdown label updates live and the composer
+  // re-enables the moment the timeout expires.
+  const selfTimeout = useTimeoutRemaining(selfTimeoutUntil);
 
   const emojiLookup = useMemo(
     () => [...serverEmojis, ...allServerEmojis],
@@ -1632,24 +1660,35 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
       <TypingIndicator text={chat.typingStatusText} />
 
-      {currentChannel?.type === "announcement" && (
+      {currentChannel?.type === "announcement" && canSendInCurrentChannel === false && (
         <div className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center gap-2.5 text-xs text-blue-400">
           <Megaphone className="w-4 h-4 shrink-0" />
           <span><T>This is an</T> <strong><T>announcement channel</T></strong>. <T>Only admins can post here.</T></span>
         </div>
       )}
 
+      {currentChannel?.type !== "announcement" && canSendInCurrentChannel === false && currentChannel?.type !== "voice" && currentChannel?.type !== "stage" && (
+        <div className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-400">
+          <Shield className="w-4 h-4 shrink-0" />
+          <span><T>You do not have permission to send messages in this channel.</T></span>
+        </div>
+      )}
+
       <MessageBar
         ref={messageBarRef}
-        disabled={selfTimeout.active}
+        disabled={selfTimeout.active || !canSendInCurrentChannel}
         placeholder={
           selfTimeout.active
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
+            : !canSendInCurrentChannel
+            ? gt("You don't have permission to send messages here")
             : `${gt("Message")} #${currentChannel?.name ?? ""}`
         }
         ariaLabel={
           selfTimeout.active
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
+            : !canSendInCurrentChannel
+            ? gt("You don't have permission to send messages here")
             : `${gt("Message")} #${currentChannel?.name ?? ""}`
         }
         onSend={() => void handleSend()}

@@ -2936,14 +2936,23 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageRoles(server, user.id))) {
-      set.status = 403;
-      return { error: 'You do not have permission to manage this server' };
+    const isManager = server.ownerId === user.id || (await canManageRoles(server, user.id));
+
+    // Non-managers must be a member to view vanity info (needed for InviteDialog)
+    if (!isManager) {
+      const membership = await ServerMember.findOne({
+        serverId: params.serverId,
+        userId: user.id,
+      });
+      if (!membership) {
+        set.status = 403;
+        return { error: 'You are not a member of this server' };
+      }
     }
 
     return {
       code: server.vanityUrlCode ?? null,
-      uses: server.vanityUrlUses ?? 0,
+      uses: isManager ? (server.vanityUrlUses ?? 0) : 0,
       isPartnered: Boolean(server.isPartnered),
       lockToVanity: Boolean((server.settings as any)?.invites?.lockToVanity),
     };

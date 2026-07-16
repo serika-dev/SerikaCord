@@ -25,6 +25,7 @@ interface InviteDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channelId?: string;
+  serverId?: string | null;
 }
 
 const EXPIRE_OPTIONS = [
@@ -47,8 +48,13 @@ const MAX_USES_OPTIONS = [
   { value: 100, label: "100 uses" },
 ];
 
-export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProps) {
-  const { currentServer, channels } = useServer();
+export function InviteDialog({ open, onOpenChange, channelId, serverId }: InviteDialogProps) {
+  const { currentServer, channels: contextChannels, servers } = useServer();
+  // When serverId is provided (e.g. right-click on a different server in the rail),
+  // use that server instead of the currentServer from context.
+  const activeServer = serverId
+    ? servers.find((s) => s.id === serverId) || currentServer
+    : currentServer;
   const gt = useGT();
   const [inviteCode, setInviteCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -58,10 +64,31 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   const [maxUses, setMaxUses] = useState(0); // Unlimited
   const [selectedChannel, setSelectedChannel] = useState(channelId || "");
   const [vanityInfo, setVanityInfo] = useState<{ code: string | null; lockToVanity: boolean } | null>(null);
+  const [localChannels, setLocalChannels] = useState<typeof contextChannels>([]);
+
+  // When serverId targets a different server, fetch its channels locally
+  // so we don't clobber the context channel list.
+  const channels = serverId && serverId !== currentServer?.id ? localChannels : contextChannels;
+
+  useEffect(() => {
+    if (!open || !serverId || serverId === currentServer?.id) return;
+    let active = true;
+    fetch(`/api/servers/${serverId}/channels`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && Array.isArray(data?.channels)) {
+          setLocalChannels(data.channels);
+          const firstText = data.channels.find((c: any) => c.type === "text");
+          if (firstText) setSelectedChannel(firstText.id);
+        }
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [open, serverId, currentServer?.id]);
 
   // Generate invite on open
   useEffect(() => {
-    if (open && currentServer) {
+    if (open && activeServer) {
       // Fetch vanity info first; only create a real invite when the server
       // isn't locked to its custom (vanity) link.
       (async () => {
@@ -71,12 +98,12 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         }
       })();
     }
-  }, [open, currentServer]);
+  }, [open, activeServer]);
 
   const fetchVanityInfo = async (): Promise<boolean> => {
-    if (!currentServer) return false;
+    if (!activeServer) return false;
     try {
-      const res = await fetch(`/api/servers/${currentServer.id}/vanity-url`);
+      const res = await fetch(`/api/servers/${activeServer.id}/vanity-url`);
       if (res.ok) {
         const data = await res.json();
         const code = data.code ?? null;
@@ -101,10 +128,10 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   }, [channels, selectedChannel]);
 
   const generateInvite = async () => {
-    if (!currentServer) return;
+    if (!activeServer) return;
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/servers/${currentServer.id}/invites`, {
+      const response = await fetch(`/api/servers/${activeServer.id}/invites`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -119,8 +146,13 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         setInviteCode(data.invite?.code || data.code || "");
       } else {
         const data = await response.json().catch(() => null);
-        setInviteCode("");
-        toast.error(data?.error || gt("Failed to create invite link"));
+        const errMsg = data?.error || "";
+        if (errMsg.toLowerCase().includes("custom invite link")) {
+          await fetchVanityInfo();
+        } else {
+          setInviteCode("");
+          toast.error(errMsg || gt("Failed to create invite link"));
+        }
       }
     } catch (error) {
       console.error("Failed to create invite:", error);
@@ -144,7 +176,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
     if (navigator.share) {
       try {
         await navigator.share({
-          title: gt("Join {server} on SerikaCord", { server: currentServer?.name || "" }),
+          title: gt("Join {server} on SerikaCord", { server: activeServer?.name || "" }),
           text: gt("Come chat with us on SerikaCord!"),
           url: inviteUrl,
         });
@@ -182,7 +214,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
     }
   }, [open]);
 
-  if (!open || !currentServer) return null;
+  if (!open || !activeServer) return null;
 
   const isLockedToVanity = vanityInfo?.lockToVanity && vanityInfo?.code;
   const effectiveCode = isLockedToVanity ? vanityInfo!.code : inviteCode;
@@ -202,7 +234,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`Invite friends to ${currentServer.name}`}
+        aria-label={`Invite friends to ${activeServer.name}`}
         tabIndex={-1}
         className="relative w-full max-w-md mx-4 bg-[#111111] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none"
       >
@@ -210,13 +242,13 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         <div className="flex items-center justify-between p-4 border-b border-[#222222]">
           <div className="flex items-center gap-3">
             <Avatar className="w-10 h-10">
-              <AvatarImage src={(currentServer as { icon?: string }).icon} />
+              <AvatarImage src={(activeServer as { icon?: string }).icon} />
               <AvatarFallback className="bg-[#8B5CF6] text-white">
-                {currentServer.name.charAt(0)}
+                {activeServer.name.charAt(0)}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="text-white font-semibold">{gt("Invite friends to")} {currentServer.name}</h2>
+              <h2 className="text-white font-semibold">{gt("Invite friends to")} {activeServer.name}</h2>
               <p className="text-xs text-[#888888]"><T>Share this link to invite others</T></p>
             </div>
           </div>

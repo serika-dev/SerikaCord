@@ -92,6 +92,12 @@ const ServerContext = createContext<ServerContextType | undefined>(undefined);
 interface ServerMembersContextType {
   members: any[];
   isMembersLoading: boolean;
+  /**
+   * Optimistically patch a member's roles in the sidebar without waiting for
+   * the 30s poll. `roles` must be full role objects (id/name/color/hoist/
+   * position) so hoist-grouping and name colour recompute correctly.
+   */
+  applyMemberRoles: (userId: string, roles: any[]) => void;
 }
 
 const ServerMembersContext = createContext<ServerMembersContextType | undefined>(undefined);
@@ -315,7 +321,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         setMembers(prev => {
           if (!isSwitch && prev.length === rawMembers.length) {
             // Lightweight signature comparison instead of full JSON.stringify
-            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${m.communicationDisabledUntil || ""}|${JSON.stringify(m.customization?.nameplate || "")}`;
+            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${m.communicationDisabledUntil || ""}|${JSON.stringify(m.customization?.nameplate || "")}|${(m.roles || []).map((r: any) => r.id).join(",")}`;
             const prevSig = prev.map(sig).join("\n");
             const newSig = rawMembers.map(sig).join("\n");
             if (prevSig === newSig) return prev;
@@ -333,6 +339,26 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsMembersLoading(false);
     }
+  }, []);
+
+  const applyMemberRoles = useCallback((userId: string, roles: any[]) => {
+    setMembers((prev) => {
+      let changed = false;
+      const next = prev.map((m) => {
+        if (m.id !== userId && m.membershipId !== userId) return m;
+        changed = true;
+        const byPos = [...roles].sort((a, b) => (b.position ?? 0) - (a.position ?? 0));
+        const highestHoisted = byPos.find((r) => r.hoist) || null;
+        const highest = byPos.find((r) => !r.isDefault) || byPos[0] || null;
+        return {
+          ...m,
+          roles,
+          highestRole: highest ?? m.highestRole ?? null,
+          highestHoistedRole: highestHoisted,
+        };
+      });
+      return changed ? next : prev;
+    });
   }, []);
 
   const createServer = useCallback(async (name: string, icon?: File): Promise<Server> => {
@@ -581,8 +607,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   );
 
   const membersValue = useMemo<ServerMembersContextType>(
-    () => ({ members, isMembersLoading }),
-    [members, isMembersLoading]
+    () => ({ members, isMembersLoading, applyMemberRoles }),
+    [members, isMembersLoading, applyMemberRoles]
   );
 
   return (
@@ -608,4 +634,10 @@ export function useServerMembers() {
     throw new Error("useServerMembers must be used within a ServerProvider");
   }
   return context;
+}
+
+/** Like useServerMembers but returns undefined instead of throwing when used
+ *  outside a ServerProvider (e.g. ProfileCard rendered in a DM). */
+export function useServerMembersOptional() {
+  return useContext(ServerMembersContext);
 }

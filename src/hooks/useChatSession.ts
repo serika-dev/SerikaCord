@@ -246,6 +246,41 @@ export function useChatSession<M extends ChatMessage>({
   // Track in-flight / resolved authors who loaded as "Unknown" so we don't spam fetch
   const fetchedUnknownAuthorsRef = useRef<Set<string>>(new Set());
 
+  // Synchronously swap to the new context's view the moment apiBase changes,
+  // BEFORE paint. Without this, `messages` still holds the previous channel's
+  // list until fetchMessages runs in a passive effect a frame later, so the new
+  // channel visibly flashes the old channel's messages (the "buggy switching").
+  // We paint the SWR cache instantly (no spinner) or clear to the loading state
+  // on a cold open. fetchMessages then revalidates in the background.
+  const [renderedContext, setRenderedContext] = useState<string | null>(apiBase);
+  if (apiBase !== renderedContext) {
+    setRenderedContext(apiBase);
+    activeFetchContextRef.current = apiBase;
+    fetchedUnknownAuthorsRef.current.clear();
+    setPinnedMessages([]);
+    setIsLoadingMore(false);
+    if (apiBase) {
+      const cached = readCache<M>(apiBase);
+      if (cached && cached.length > 0) {
+        setMessages(cached);
+        // Optimistic about older history — loadOlderMessages self-corrects the
+        // first time the server returns a short page. MessageList only auto-
+        // paginates once the user actually scrolls into scrollable room, so this
+        // no longer triggers a spurious fetch on open.
+        setHasMoreOlder(paginated);
+        setIsLoading(false);
+      } else {
+        setMessages([]);
+        setHasMoreOlder(false);
+        setIsLoading(true);
+      }
+    } else {
+      setMessages([]);
+      setHasMoreOlder(false);
+      setIsLoading(false);
+    }
+  }
+
   const latestRef = useRef({ normalizeContent, onIncomingMessage, onOtherEvent, onShouldScrollToBottom });
   useEffect(() => {
     latestRef.current = { normalizeContent, onIncomingMessage, onOtherEvent, onShouldScrollToBottom };
@@ -612,7 +647,17 @@ export function useChatSession<M extends ChatMessage>({
       }
 
       if (data.type === "delete") {
-        setMessages((prev) => prev.filter((m) => m.id !== data.messageId));
+        setMessages((prev) => {
+          const next = prev.filter((m) => m.id !== data.messageId);
+          // Write through to the persisted (localStorage) tail cache too.
+          // The generic messages->cache sync effect only persists=false, so
+          // without this a deleted message repaints from localStorage on the
+          // next full reload until the fresh fetch lands.
+          if (next.length !== prev.length && apiBase && activeFetchContextRef.current === apiBase) {
+            writeCache(apiBase, next, true);
+          }
+          return next;
+        });
         return;
       }
 

@@ -58,6 +58,7 @@ export interface IUserSettings {
     fontSize: number;
     compactMode: boolean;
     showRoleColors: boolean;
+    showTimestamps: boolean;
     enableAnimations: boolean;
     saturation: number;
   };

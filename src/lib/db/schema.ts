@@ -46,11 +46,16 @@ const connectionProviderEnum = pgEnum('connection_provider', [
   'discord', 'twitch', 'youtube', 'github', 'spotify', 'website',
   'lastfm', 'steam', 'xbox', 'psn', 'roblox', 'twitter', 'instagram', 'battlenet', 'serika',
 ]);
+// A report can be either a bug report or a piece of feedback / feature request.
+const bugReportKindEnum = pgEnum('bug_report_kind', ['bug', 'feedback']);
 const bugReportPriorityEnum = pgEnum('bug_report_priority', ['low', 'medium', 'high', 'critical']);
 const bugReportStatusEnum = pgEnum('bug_report_status', ['open', 'acknowledged', 'resolved', 'wont_fix']);
 const bugReportCategoryEnum = pgEnum('bug_report_category', [
+  // Bug categories
   'crash', 'visual', 'functionality', 'performance', 'security',
   'audio', 'network', 'ui_ux', 'other',
+  // Feedback categories
+  'feature_request', 'improvement', 'praise', 'general',
 ]);
 
 // ─── Tables ───────────────────────────────────────────────
@@ -689,6 +694,7 @@ export const channelWebhooks = pgTable('channel_webhooks', {
 export const bugReports = pgTable('bug_reports', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   reporterId: uuid('reporter_id').notNull(),
+  kind: bugReportKindEnum('kind').default('bug'),
   title: text('title').notNull(),
   description: text('description').notNull(),
   category: bugReportCategoryEnum('category').default('other'),
@@ -709,6 +715,7 @@ export const bugReports = pgTable('bug_reports', {
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
   reporterIdx: index('bug_reports_reporter_id_idx').on(t.reporterId),
+  kindIdx: index('bug_reports_kind_idx').on(t.kind),
   statusIdx: index('bug_reports_status_idx').on(t.status),
   priorityIdx: index('bug_reports_priority_idx').on(t.priority),
   categoryIdx: index('bug_reports_category_idx').on(t.category),
@@ -716,8 +723,27 @@ export const bugReports = pgTable('bug_reports', {
   priorityCreatedIdx: index('bug_reports_priority_created_at_idx').on(t.priority, t.createdAt),
 }));
 
+// Per-user, per-channel read markers. One row per (user, channel). Drives
+// cross-device unread/mention state for both DMs and server channels — the
+// authoritative source the localStorage cache is reconciled against.
+export const channelReadStates = pgTable('channel_read_states', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  lastReadMessageId: uuid('last_read_message_id'),
+  // createdAt of the last read message (or ack time) — used for unread/mention
+  // counting without a clock-skew-sensitive "now" comparison.
+  lastReadAt: timestamp('last_read_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  userChannelUnique: uniqueIndex('channel_read_states_user_channel_unique').on(t.userId, t.channelId),
+  userIdx: index('channel_read_states_user_id_idx').on(t.userId),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
+export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;
+export type ChannelReadStateInsert = typeof channelReadStates.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type UserInsert = typeof users.$inferInsert;
 export type ServerRow = typeof servers.$inferSelect;

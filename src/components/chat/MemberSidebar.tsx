@@ -12,7 +12,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
+import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
@@ -137,6 +138,25 @@ export function MemberSidebar() {
     });
   }, [members]);
 
+  // Flatten groups + members into a single sibling list rendered under ONE
+  // parent. Because every MemberItem stays a keyed child of the same parent, a
+  // member moving between hoist groups (e.g. after a role change) is a *reorder*
+  // — React moves the DOM node instead of unmounting it — so any open profile
+  // popover anchored to that row stays open and simply follows the member.
+  const flatItems = useMemo(() => {
+    type FlatItem =
+      | { kind: "header"; key: string; label: string; count: number }
+      | { kind: "member"; key: string; member: Member };
+    const items: FlatItem[] = [];
+    for (const group of groupedOnlineMembers) {
+      items.push({ kind: "header", key: `h-${group.key}`, label: group.label, count: group.members.length });
+      for (const member of group.members) {
+        items.push({ kind: "member", key: member.id || member.membershipId, member });
+      }
+    }
+    return items;
+  }, [groupedOnlineMembers]);
+
   const offlineMembers = useMemo(
     () => sortMembersByName(members.filter((member) => member.status === "offline")),
     [members]
@@ -147,7 +167,7 @@ export function MemberSidebar() {
   return (
     <div className="w-full md:w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden" style={{ touchAction: "pan-y" }}>
       <ScrollArea className="h-full member-scroll-area">
-        <div className="py-4 space-y-4">
+        <div className="py-4">
           {isLoading ? (
             <div className="space-y-4">
               {[0, 1].map((group) => (
@@ -167,26 +187,33 @@ export function MemberSidebar() {
             </div>
           ) : (
             <>
-              {groupedOnlineMembers.map((group) => (
-                <div key={group.key} className="space-y-1">
-                  <p className="px-4 text-[11px] font-semibold uppercase tracking-wide text-[#7d7d7d]">
-                    {group.label} — {group.members.length}
+              {/* Single flat parent so hoist-group changes reorder rather than
+                  remount rows (keeps open profile popovers alive). */}
+              {flatItems.map((item, idx) =>
+                item.kind === "header" ? (
+                  <p
+                    key={item.key}
+                    className={cn(
+                      "px-4 text-[11px] font-semibold uppercase tracking-wide text-[#7d7d7d]",
+                      idx > 0 && "mt-4"
+                    )}
+                  >
+                    {item.label} — {item.count}
                   </p>
-                  {group.members.map((member) => (
-                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} canModerate={canModerate} />
-                  ))}
-                </div>
-              ))}
+                ) : (
+                  <MemberItem key={item.key} member={item.member} serverId={currentServer.id} canModerate={canModerate} />
+                )
+              )}
 
               {offlineMembers.length > 0 && (
-                <div className="space-y-1">
-                  <p className="px-4 text-[11px] font-semibold uppercase tracking-wide text-[#7d7d7d]">
+                <>
+                  <p className={cn("px-4 text-[11px] font-semibold uppercase tracking-wide text-[#7d7d7d]", flatItems.length > 0 && "mt-4")}>
                     {gt("Offline")} — {offlineMembers.length}
                   </p>
                   {offlineMembers.map((member) => (
                     <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} canModerate={canModerate} />
                   ))}
-                </div>
+                </>
               )}
 
               {members.length === 0 && (
@@ -246,12 +273,12 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
   const extraGameCount = gameActivities.length > 1 ? gameActivities.length - 1 : 0;
   const subtitle = (!isOffline && member.customStatus) || null;
   const nameplateBg = getNameplateBackground(member.customization);
-  const timeout = getTimeoutRemaining(member.communicationDisabledUntil);
+  const timeout = useTimeoutRemaining(member.communicationDisabledUntil);
 
   return (
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">
       <div
-        className="relative"
+        className="relative mt-1"
         onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true); }}
       >
       <button

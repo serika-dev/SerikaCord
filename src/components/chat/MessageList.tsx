@@ -115,11 +115,21 @@ function MessageListInner<M extends ChatMessage>(
   const gt = useGT();
   const locale = useLocale();
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
+  // True while the list should stay glued to the bottom. Set on channel switch
+  // / force-scroll and cleared the moment the user scrolls up. Drives the
+  // ResizeObserver re-anchor below so late-loading media can't strand the list
+  // mid-view (which also used to spuriously trigger top-pagination).
+  const stickToBottomRef = useRef(true);
   const prevScrollHeightRef = useRef(0);
   const pendingScrollRestoreRef = useRef(false);
   const forceScrollRef = useRef(false);
+  // Gates top-pagination: stays false until the list has settled at the bottom
+  // for the current context, so opening a channel never auto-loads older
+  // history before the user has actually scrolled up.
+  const readyForPaginationRef = useRef(false);
   const scrollRafRef = useRef<number | null>(null);
   const animateInRef = useRef(true);
   const [animateIn, setAnimateIn] = useState(true);
@@ -149,7 +159,9 @@ function MessageListInner<M extends ChatMessage>(
     prevMessageCountRef.current = 0;
     prevGroupCountRef.current = 0;
     isAtBottomRef.current = true;
+    stickToBottomRef.current = true;
     forceScrollRef.current = true;
+    readyForPaginationRef.current = false;
     animateInRef.current = true;
     wasLoadingRef.current = true;
     Promise.resolve().then(() => {
@@ -256,6 +268,9 @@ function MessageListInner<M extends ChatMessage>(
       // Instant scroll for initial load or force-scroll; smooth otherwise.
       if (prevCount === 0 || shouldForce) {
         viewport.scrollTop = viewport.scrollHeight;
+        // The list is now pinned to the bottom for this context; allow the user
+        // to scroll up to trigger older-history pagination from here on.
+        readyForPaginationRef.current = true;
       } else {
         // Defer smooth scroll to after paint so the browser animates properly.
         requestAnimationFrame(() => {
@@ -283,6 +298,29 @@ function MessageListInner<M extends ChatMessage>(
     }
   }, [messageCount, animateIn, isLoading]);
 
+  // Keep the list glued to the bottom while content height changes *after* the
+  // initial paint — images, embeds, custom emojis and web fonts all resolve
+  // asynchronously and grow the scroll height under us. Without this, the
+  // initial scroll-to-bottom lands mid-list once that media loads, and the
+  // resulting near-top scrollTop spuriously fires top-pagination.
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (!stickToBottomRef.current) return;
+      const viewport = viewportRef.current;
+      if (!viewport) return;
+      if (pendingScrollRestoreRef.current) return; // top-pagination owns scroll
+      viewport.scrollTop = viewport.scrollHeight;
+      if (!isAtBottomRef.current) {
+        isAtBottomRef.current = true;
+        latestRef.current.onAtBottomChange?.(true);
+      }
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, []);
+
   // Detect if new groups were appended at the bottom (vs prepended at top).
   // Used to apply slide-in animation to newly arrived messages.
   const isBottomAppend = useRef(false);
@@ -302,6 +340,9 @@ function MessageListInner<M extends ChatMessage>(
       if (!viewport) return;
       const { scrollTop, scrollHeight, clientHeight } = viewport;
       const atBottom = scrollHeight - scrollTop - clientHeight < 80;
+      // A user-initiated scroll away from the bottom releases the sticky pin;
+      // reaching the bottom again re-engages it.
+      stickToBottomRef.current = atBottom;
       if (atBottom !== isAtBottomRef.current) {
         isAtBottomRef.current = atBottom;
         latestRef.current.onAtBottomChange?.(atBottom);
@@ -311,7 +352,18 @@ function MessageListInner<M extends ChatMessage>(
         setNewMessageStartId(null);
       }
 
-      if (scrollTop < 500 && hasMoreOlder && !isLoadingMore) {
+      // Only paginate once the list has settled at the bottom for this context
+      // (readyForPaginationRef) and there is real scroll room — this prevents a
+      // freshly-opened or short channel from auto-loading older history before
+      // the user has actually scrolled up.
+      if (
+        scrollTop < 500 &&
+        hasMoreOlder &&
+        !isLoadingMore &&
+        readyForPaginationRef.current &&
+        !stickToBottomRef.current &&
+        scrollHeight - clientHeight > 200
+      ) {
         prevScrollHeightRef.current = viewport.scrollHeight;
         pendingScrollRestoreRef.current = true;
         void latestRef.current.loadOlderMessages();
@@ -362,7 +414,7 @@ function MessageListInner<M extends ChatMessage>(
         onScroll={handleScroll}
         className="chat-scroller h-full overflow-y-auto overflow-x-hidden scrollbar-thin overscroll-contain"
       >
-        <div className="flex flex-col min-h-full">
+        <div ref={contentRef} className="flex flex-col min-h-full">
           <div className="flex-1" />
           <div className={cn("flex flex-col py-4 w-full max-w-full", showContentFade && "msg-list-fade-in")}>
             {/* History start header */}

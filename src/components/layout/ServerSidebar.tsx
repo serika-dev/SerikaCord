@@ -31,7 +31,7 @@ import { ServerBadge } from "@/components/ui/badges";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
-  onInvitePeople?: () => void;
+  onInvitePeople?: (serverId?: string) => void;
 }
 
 type Server = ReturnType<typeof useServer>["servers"][number];
@@ -469,7 +469,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
               </>
             )}
             {onInvitePeople && (
-              <DropdownMenuItem onClick={() => { setCurrentServer(server); onInvitePeople(); }}>
+              <DropdownMenuItem onClick={() => onInvitePeople(server.id)}>
                 <UserPlus className="w-4 h-4" />
                 {gt("Invite People")}
               </DropdownMenuItem>

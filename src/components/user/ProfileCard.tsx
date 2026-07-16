@@ -132,6 +132,9 @@ interface ProfileCardProps {
   /** When provided and the viewer can moderate, shows an "Open in Mod View"
    *  button that calls this instead of opening a dialog internally. */
   onOpenModView?: () => void;
+  /** Called after a successful role change with the member's full next role
+   *  objects, so the member sidebar can update optimistically. */
+  onRolesUpdated?: (roles: Array<{ id: string; name: string; color?: string; hoist?: boolean; position?: number; isDefault?: boolean }>) => void;
 }
 
 /**
@@ -151,6 +154,7 @@ export function ProfileCard({
   hideConnections = false,
   noRoundedCorners = false,
   onOpenModView,
+  onRolesUpdated,
 }: ProfileCardProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
@@ -161,7 +165,7 @@ export function ProfileCard({
   const [copied, setCopied] = useState(false);
   const [friendRequestSent, setFriendRequestSent] = useState(user.friendRequestSent ?? false);
   const [memberRoles, setMemberRoles] = useState(user.roles || []);
-  const [serverRoles, setServerRoles] = useState<Array<{ id: string; name: string; color?: string; isDefault?: boolean }>>([]);
+  const [serverRoles, setServerRoles] = useState<Array<{ id: string; name: string; color?: string; isDefault?: boolean; hoist?: boolean; position?: number }>>([]);
   const [fullProfileOpen, setFullProfileOpen] = useState(false);
   const [canManageRoles, setCanManageRoles] = useState(false);
   const [canModerate, setCanModerate] = useState(false);
@@ -187,11 +191,13 @@ export function ProfileCard({
         if (!active) return;
         if (serverRes.ok) {
           const serverData = await serverRes.json();
-          const roles = (serverData.server?.roles || []).map((r: { id?: string; name: string; color?: string; isDefault?: boolean }) => ({
+          const roles = (serverData.server?.roles || []).map((r: { id?: string; name: string; color?: string; isDefault?: boolean; hoist?: boolean; position?: number }) => ({
             id: r.id || "",
             name: r.name,
             color: r.color,
             isDefault: r.isDefault,
+            hoist: r.hoist,
+            position: r.position,
           }));
           setServerRoles(roles);
         }
@@ -264,7 +270,9 @@ export function ProfileCard({
         body: JSON.stringify({ roleIds: nextRoleIds }),
       });
       if (!res.ok) throw new Error("Failed to update roles");
-      setMemberRoles(serverRoles.filter((r) => nextRoleIds.includes(r.id) || r.isDefault));
+      const nextRoles = serverRoles.filter((r) => nextRoleIds.includes(r.id) || r.isDefault);
+      setMemberRoles(nextRoles);
+      onRolesUpdated?.(nextRoles);
       toast.success(gt("Roles updated"));
     } catch {
       toast.error(gt("Failed to update roles"));
