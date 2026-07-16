@@ -359,50 +359,29 @@ export function BugReportPanel() {
 
   return (
     <div className="max-w-3xl">
-      {/* Hero header */}
-      <div className="mb-7 rounded-2xl overflow-hidden border border-[var(--border-subtle)] bg-gradient-to-br from-[var(--app-accent)]/12 via-[var(--bg-app)] to-[var(--bg-app)]">
-        <div className="p-6 flex flex-col gap-5">
-          <div className="flex items-start gap-4">
-            <div className="shrink-0 w-14 h-14 rounded-2xl bg-[var(--app-accent)]/15 border border-[var(--app-accent)]/30 flex items-center justify-center">
-              <MessageSquareHeart className="w-7 h-7 text-[var(--app-accent)]" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-xl font-bold text-[var(--text-primary)] leading-tight">{gt("Feedback & Bug Reports")}</h2>
-              <p className="text-sm text-[var(--text-secondary)] mt-1 leading-relaxed">
-                {gt("Share an idea, tell us what you love, or report something broken — every message helps make SerikaCord better.")}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button
-              onClick={() => openForm("feedback")}
-              className="flex-1 px-5 py-3 rounded-xl bg-[var(--app-accent)] hover:brightness-110 active:scale-[0.98] text-white text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-[var(--app-accent)]/20"
-            >
-              <Sparkles className="w-4 h-4" />
-              {gt("Share Feedback")}
-            </button>
-            <button
-              onClick={() => openForm("bug")}
-              className="flex-1 px-5 py-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:border-[var(--app-accent)]/50 hover:text-[var(--text-primary)] text-[var(--text-secondary)] active:scale-[0.98] text-sm font-semibold transition-all flex items-center justify-center gap-2"
-            >
-              <Bug className="w-4 h-4" />
-              {gt("Report a Bug")}
-            </button>
-          </div>
+      {/* Header */}
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Feedback & Bug Reports")}</h2>
+          <p className="text-sm text-[var(--text-secondary)] mt-1">
+            {gt("Share an idea or report something broken.")}
+          </p>
         </div>
-        {/* Stat strip */}
-        <div className="grid grid-cols-4 border-t border-[var(--border-subtle)] divide-x divide-[var(--border-subtle)]">
-          {[
-            { label: gt("Total"), value: stats.total, cls: "text-[var(--text-primary)]" },
-            { label: gt("Feedback"), value: stats.feedback, cls: "text-[var(--app-accent)]" },
-            { label: gt("Bugs"), value: stats.bugs, cls: "text-orange-300" },
-            { label: gt("Resolved"), value: stats.resolved, cls: "text-blue-300" },
-          ].map((s, i) => (
-            <div key={i} className="px-3 py-3.5 text-center">
-              <p className={cn("text-2xl font-bold tabular-nums leading-none", s.cls)}>{s.value}</p>
-              <p className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] mt-1.5">{s.label}</p>
-            </div>
-          ))}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => openForm("feedback")}
+            className="px-4 py-2 rounded-lg bg-[var(--app-accent)] hover:brightness-110 active:scale-[0.98] text-white text-sm font-semibold transition-all flex items-center gap-2"
+          >
+            <Sparkles className="w-4 h-4" />
+            {gt("Share Feedback")}
+          </button>
+          <button
+            onClick={() => openForm("bug")}
+            className="px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:border-[var(--app-accent)]/50 hover:text-[var(--text-primary)] text-[var(--text-secondary)] active:scale-[0.98] text-sm font-semibold transition-all flex items-center gap-2"
+          >
+            <Bug className="w-4 h-4" />
+            {gt("Report Bug")}
+          </button>
         </div>
       </div>
 
@@ -440,30 +419,6 @@ export function BugReportPanel() {
 
             {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Kind switcher */}
-              <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                <button
-                  type="button"
-                  onClick={() => switchKind("feedback")}
-                  className={cn(
-                    "flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all",
-                    !isBug ? "bg-[var(--app-accent)] text-white shadow-md shadow-[var(--app-accent)]/20" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  )}
-                >
-                  <Sparkles className="w-4 h-4" /> {gt("Feedback")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => switchKind("bug")}
-                  className={cn(
-                    "flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all",
-                    isBug ? "bg-orange-500 text-white shadow-md shadow-orange-500/20" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  )}
-                >
-                  <Bug className="w-4 h-4" /> {gt("Bug Report")}
-                </button>
-              </div>
-
               {/* Category chips */}
               <div>
                 <label className={cn(labelCls, "mb-2.5 flex items-center gap-1.5")}>
@@ -692,50 +647,35 @@ export function BugReportPanel() {
 
       {/* List controls */}
       {reports.length > 0 && (
-        <div className="flex flex-col gap-2.5 mb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-              {KIND_TABS.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setKindFilter(t.key)}
-                  className={cn(
-                    "px-3.5 py-2 rounded-lg text-sm font-medium transition-all",
-                    kindFilter === t.key
-                      ? "bg-[var(--app-accent)] text-white"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={gt("Search your reports...")}
-                className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--app-accent)] transition-colors"
-              />
-            </div>
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={gt("Search your reports...")}
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--app-accent)] transition-colors"
+            />
           </div>
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] w-fit">
-            {FILTER_TABS.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setFilter(t.key)}
-                className={cn(
-                  "px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5",
-                  filter === t.key
-                    ? "bg-[var(--app-accent)] text-white"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                )}
-              >
-                {t.label}
-                <span className={cn("text-[11px] px-1.5 rounded-full tabular-nums", filter === t.key ? "bg-white/20" : "bg-[var(--bg-card)]")}>{t.count}</span>
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            <select
+              value={kindFilter}
+              onChange={(e) => setKindFilter(e.target.value as any)}
+              className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors cursor-pointer"
+            >
+              {KIND_TABS.map((t) => (
+                <option key={t.key} value={t.key}>{t.label}</option>
+              ))}
+            </select>
+            <select
+              value={filter}
+              onChange={(e) => setFilter(e.target.value as any)}
+              className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors cursor-pointer"
+            >
+              {FILTER_TABS.map((t) => (
+                <option key={t.key} value={t.key}>{t.label}</option>
+              ))}
+            </select>
           </div>
         </div>
       )}
@@ -759,165 +699,120 @@ export function BugReportPanel() {
             {gt("No reports match your filters.")}
           </div>
         ) : (
-          visibleReports.map((report) => {
-            const pri = PRIORITY_META[report.priority] ?? PRIORITY_META.low;
-            const st = STATUS_META[report.status] ?? STATUS_META.open;
-            const StatusIcon = st.icon;
-            const CatIcon = CATEGORY_ICONS[report.category] ?? HelpCircle;
-            const expanded = expandedId === report.id;
-            const reportIsBug = report.kind === "bug";
-            return (
-              <div
-                key={report.id}
-                className={cn(
-                  "relative rounded-2xl bg-[var(--bg-app)] border overflow-hidden transition-colors",
-                  expanded ? "border-[var(--app-accent)]/40" : "border-[var(--border-subtle)] hover:border-[var(--border-subtle)]/80"
-                )}
-              >
-                {/* accent stripe — priority for bugs, accent for feedback */}
-                <div className={cn("absolute left-0 top-0 bottom-0 w-1", reportIsBug ? pri.stripe : "bg-[var(--app-accent)]")} />
-
-                <button
-                  onClick={() => setExpandedId(expanded ? null : report.id)}
-                  className="w-full text-left flex items-center gap-3.5 p-4 pl-5 hover:bg-[var(--bg-hover)]/40 transition-colors"
+          <div className="space-y-1">
+            {visibleReports.map((report) => {
+              const st = STATUS_META[report.status] ?? STATUS_META.open;
+              const StatusIcon = st.icon;
+              const expanded = expandedId === report.id;
+              const reportIsBug = report.kind === "bug";
+              
+              return (
+                <div
+                  key={report.id}
+                  className="border-b border-[var(--border-subtle)] last:border-0"
                 >
-                  <div className={cn(
-                    "shrink-0 w-11 h-11 rounded-xl border flex items-center justify-center",
-                    reportIsBug ? "bg-orange-500/10 border-orange-500/20" : "bg-[var(--app-accent)]/10 border-[var(--app-accent)]/20"
-                  )}>
-                    <CatIcon className={cn("w-5 h-5", reportIsBug ? "text-orange-300" : "text-[var(--app-accent)]")} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-semibold text-[15px] text-[var(--text-primary)] truncate">{report.title}</p>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      <span className={cn(
-                        "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-semibold",
-                        reportIsBug ? "bg-orange-500/10 text-orange-300" : "bg-[var(--app-accent)]/10 text-[var(--app-accent)]"
-                      )}>
-                        {reportIsBug ? <Bug className="w-3 h-3" /> : <Sparkles className="w-3 h-3" />}
-                        {reportIsBug ? gt("Bug") : gt("Feedback")}
-                      </span>
-                      <span className="text-[11px] text-[var(--text-muted)]">
-                        {categoryLabelMap[CATEGORY_LABELS[report.category]] ?? CATEGORY_LABELS[report.category] ?? report.category}
-                      </span>
-                      <span className={cn("inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium", st.bg, st.text)}>
-                        <StatusIcon className="w-3 h-3" />
-                        {report.status.replace("_", " ")}
-                      </span>
-                      {reportIsBug && (
-                        <span className={cn("inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full font-medium capitalize", pri.bg, pri.text)}>
-                          <span className={cn("w-1.5 h-1.5 rounded-full", pri.dot)} />
-                          {pri.label}
-                        </span>
-                      )}
-                      <span className="text-[11px] text-[var(--text-muted)]">
-                        {new Date(report.createdAt).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronDown className={cn("shrink-0 w-4 h-4 text-[var(--text-muted)] transition-transform", expanded && "rotate-180")} />
-                </button>
-
-                {expanded && (
-                  <div className="border-t border-[var(--border-subtle)] p-5 pl-5 space-y-5 animate-in fade-in duration-150">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Description")}</p>
-                      <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">{report.description}</p>
-                    </div>
-
-                    {report.stepsToReproduce && (
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Steps to Reproduce")}</p>
-                        <pre className="text-sm text-[var(--text-primary)] whitespace-pre-wrap font-mono bg-[var(--bg-card)] rounded-lg p-3 border border-[var(--border-subtle)]">{report.stepsToReproduce}</pre>
-                      </div>
-                    )}
-
-                    {(report.expectedBehavior || report.actualBehavior) && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {report.expectedBehavior && (
-                          <div className="rounded-lg bg-green-500/5 border border-green-500/20 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-green-300 mb-1.5">{gt("Expected")}</p>
-                            <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.expectedBehavior}</p>
-                          </div>
-                        )}
-                        {report.actualBehavior && (
-                          <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-red-300 mb-1.5">{gt("Actual")}</p>
-                            <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.actualBehavior}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {report.attachments && report.attachments.length > 0 && (
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Attachments")}</p>
-                        <div className="flex flex-wrap gap-2.5">
-                          {report.attachments.map((att, i) => (
-                            <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="relative group block rounded-xl overflow-hidden border border-[var(--border-subtle)]">
-                              {att.type === "image" ? (
-                                <img src={att.url} alt={att.name} className="w-28 h-28 object-cover" />
-                              ) : (
-                                <div className="w-28 h-28 flex items-center justify-center bg-[var(--bg-card)]">
-                                  <Video className="w-8 h-8 text-[var(--text-secondary)]" />
-                                </div>
-                              )}
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                <ArrowUpRight className="w-5 h-5 text-white" />
-                              </div>
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {(report.browserInfo || report.osInfo || report.appVersion) && (
-                      <div className="flex flex-wrap gap-2">
-                        {report.browserInfo && (
-                          <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
-                            <Monitor className="w-3 h-3 text-[var(--text-muted)]" /> {report.browserInfo}
-                          </span>
-                        )}
-                        {report.osInfo && (
-                          <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
-                            <Cpu className="w-3 h-3 text-[var(--text-muted)]" /> {report.osInfo}
-                          </span>
-                        )}
-                        {report.appVersion && (
-                          <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
-                            <Tag className="w-3 h-3 text-[var(--text-muted)]" /> v{report.appVersion}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {report.adminNotes && (
-                      <div className="p-3.5 rounded-lg bg-[var(--app-accent)]/8 border border-[var(--app-accent)]/25">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--app-accent)] mb-1.5 flex items-center gap-1">
-                          <MessageCircle className="w-3 h-3" /> {gt("Response from the team")}
+                  <button
+                    onClick={() => setExpandedId(expanded ? null : report.id)}
+                    className="w-full text-left py-3 px-2 flex items-center gap-4 hover:bg-[var(--bg-hover)]/30 rounded-lg transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-4">
+                        <p className="font-medium text-[15px] text-[var(--text-primary)] truncate">
+                          {reportIsBug ? <Bug className="w-3.5 h-3.5 inline-block mr-1.5 text-orange-400" /> : <Sparkles className="w-3.5 h-3.5 inline-block mr-1.5 text-[var(--app-accent)]" />}
+                          {report.title}
                         </p>
-                        <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">{report.adminNotes}</p>
+                        <span className="text-[11px] text-[var(--text-muted)] shrink-0">{new Date(report.createdAt).toLocaleDateString()}</span>
                       </div>
-                    )}
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-[var(--text-muted)]">
+                        <span className="flex items-center gap-1.5 capitalize">
+                          <StatusIcon className="w-3.5 h-3.5" />
+                          {report.status.replace("_", " ")}
+                        </span>
+                        <span>•</span>
+                        <span>{categoryLabelMap[CATEGORY_LABELS[report.category]] ?? CATEGORY_LABELS[report.category] ?? report.category}</span>
+                      </div>
+                    </div>
+                  </button>
 
-                    {(report.status === "open" || report.status === "acknowledged") && (
-                      <div className="pt-1 flex justify-end">
-                        <button
-                          onClick={() => handleDelete(report.id)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium text-red-400 hover:bg-red-500/10 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          {gt("Delete")}
-                        </button>
+                  {expanded && (
+                    <div className="px-2 pb-4 pt-1 space-y-4 animate-in fade-in duration-150">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Description")}</p>
+                        <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap leading-relaxed">{report.description}</p>
                       </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })
+
+                      {report.stepsToReproduce && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Steps to Reproduce")}</p>
+                          <pre className="text-sm text-[var(--text-primary)] whitespace-pre-wrap font-mono bg-[var(--bg-card)] rounded-lg p-3 border border-[var(--border-subtle)]">{report.stepsToReproduce}</pre>
+                        </div>
+                      )}
+
+                      {(report.expectedBehavior || report.actualBehavior) && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {report.expectedBehavior && (
+                            <div className="rounded-lg bg-green-500/5 border border-green-500/20 p-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-green-300 mb-1.5">{gt("Expected")}</p>
+                              <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.expectedBehavior}</p>
+                            </div>
+                          )}
+                          {report.actualBehavior && (
+                            <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-3">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-red-300 mb-1.5">{gt("Actual")}</p>
+                              <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap">{report.actualBehavior}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {report.attachments && report.attachments.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Attachments")}</p>
+                          <div className="flex flex-wrap gap-2.5">
+                            {report.attachments.map((att, i) => (
+                              <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="relative group block rounded-xl overflow-hidden border border-[var(--border-subtle)]">
+                                {att.type === "image" ? (
+                                  <img src={att.url} alt={att.name} className="w-20 h-20 object-cover" />
+                                ) : (
+                                  <div className="w-20 h-20 flex items-center justify-center bg-[var(--bg-card)]">
+                                    <Video className="w-6 h-6 text-[var(--text-secondary)]" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                  <ArrowUpRight className="w-4 h-4 text-white" />
+                                </div>
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {report.adminNotes && (
+                        <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--app-accent)] mb-1.5 flex items-center gap-1">
+                            <MessageCircle className="w-3 h-3" /> {gt("Admin Response")}
+                          </p>
+                          <p className="text-sm text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">{report.adminNotes}</p>
+                        </div>
+                      )}
+
+                      {(report.status === "open" || report.status === "acknowledged") && (
+                        <div className="pt-1 flex justify-end">
+                          <button
+                            onClick={() => handleDelete(report.id)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            {gt("Delete")}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
