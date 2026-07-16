@@ -20,6 +20,42 @@ This is required because pushes to `serika-dev/SerikaCord` will be rejected. All
 
 ---
 
+## Changelog
+
+The full project changelog lives in `CHANGELOG.md` at the repository root. It covers all releases from v0.0.1 to the current version, organized by release tag and categorized by type (Security, Features, Bug Fixes, Performance, etc.).
+
+### When to update the changelog
+
+- **After pushing a new release** — Add a new `## vX.Y.Z — YYYY-MM-DD` section at the top (below the header, above the previous release) with a summary of changes, then commit and push.
+- **After significant unreleased changes** — Update the `## Unreleased` section with new entries grouped by category.
+
+### Format
+
+Each release section should include:
+- **Tag and commit hash** (e.g. `**Tag:** v1.1.0 · **Commit:** fa0c0ce`)
+- **Release notes** — Brief summary of what's in the release
+- **Categorized changes** — Bullet points grouped by type (Security, Features, Bug Fixes, Performance, Documentation, etc.)
+- **Commit hashes** in backticks for traceability (e.g. `fa0c0ce`)
+
+### Releasing a new version
+
+1. Bump version in all config files:
+   - `package.json`
+   - `desktop-tauri/package.json`
+   - `desktop-tauri/src-tauri/tauri.conf.json`
+   - `desktop-tauri/src-tauri/Cargo.toml`
+   - `desktop-tauri/src-tauri/Cargo.lock` (the `serikacord-desktop` package entry)
+   - `desktop/package.json`
+   - `mobile/android/app/build.gradle` (`versionName` + increment `versionCode`)
+   - Any UI files displaying the version (e.g. `MobileDrawer.tsx`, `MobileProfileView.tsx`)
+2. Update `CHANGELOG.md` with the new release section.
+3. Commit: `release: vX.Y.Z — <brief description>`
+4. Push to `postgres` branch.
+5. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`
+6. The tag push triggers the GitHub Actions `Release Build` workflow which builds Tauri desktop (Windows/macOS/Linux) and Android APK, then creates a GitHub Release with all artifacts.
+
+---
+
 ## Translation String Implementation Guide
 
 ## Overview
