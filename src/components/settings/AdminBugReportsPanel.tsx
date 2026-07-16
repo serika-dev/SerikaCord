@@ -24,6 +24,7 @@ interface ReporterInfo {
 interface BugReport {
   id: string;
   reporterId: string;
+  kind?: "bug" | "feedback";
   title: string;
   description: string;
   category: string;
@@ -354,6 +355,12 @@ export function AdminBugReportsPanel() {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-[var(--text-primary)] truncate">{report.title}</p>
+                      <span className={cn(
+                        "text-[10px] px-1.5 py-0.5 rounded-full uppercase font-semibold",
+                        report.kind === "feedback" ? "bg-[var(--app-accent)]/15 text-[var(--app-accent)]" : "bg-orange-500/15 text-orange-300"
+                      )}>
+                        {report.kind === "feedback" ? gt("Feedback") : gt("Bug")}
+                      </span>
                       <span className={cn("text-[10px] px-1.5 py-0.5 rounded-full uppercase font-semibold border", PRIORITY_COLORS[report.priority])}>
                         {report.priority}
                       </span>

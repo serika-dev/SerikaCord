@@ -66,6 +66,7 @@ import {
   RefreshCw,
   Bug,
   ShieldAlert,
+  MessageSquareHeart,
 } from "lucide-react";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
@@ -1599,7 +1600,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
           { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
           { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
-          { id: "bug-reports" as SettingsTab, label: gt("Bug Reports"), icon: Bug },
+          { id: "bug-reports" as SettingsTab, label: gt("Feedback & Bugs"), icon: MessageSquareHeart },
         ],
       },
       {

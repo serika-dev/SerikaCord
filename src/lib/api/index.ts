@@ -2471,7 +2471,9 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { title, description, category, stepsToReproduce, expectedBehavior, actualBehavior, attachments, browserInfo, osInfo, appVersion } = body as any;
+    const { kind, title, description, category, stepsToReproduce, expectedBehavior, actualBehavior, attachments, browserInfo, osInfo, appVersion } = body as any;
+
+    const reportKind = kind === 'feedback' ? 'feedback' : 'bug';
 
     if (!title?.trim() || !description?.trim()) {
       set.status = 400;
@@ -2498,14 +2500,16 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
 
     const report = await BugReport.create({
       reporterId: user.id,
+      kind: reportKind,
       title: title.trim(),
       description: description.trim(),
-      category: category || 'other',
+      category: category || (reportKind === 'feedback' ? 'general' : 'other'),
       priority: 'low',
       status: 'open',
-      stepsToReproduce: stepsToReproduce?.trim() || null,
-      expectedBehavior: expectedBehavior?.trim() || null,
-      actualBehavior: actualBehavior?.trim() || null,
+      // Repro/expected/actual are bug-only concepts; feedback ignores them.
+      stepsToReproduce: reportKind === 'bug' ? (stepsToReproduce?.trim() || null) : null,
+      expectedBehavior: reportKind === 'bug' ? (expectedBehavior?.trim() || null) : null,
+      actualBehavior: reportKind === 'bug' ? (actualBehavior?.trim() || null) : null,
       attachments: attachments || [],
       browserInfo: browserInfo || null,
       osInfo: osInfo || null,
@@ -2515,6 +2519,7 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
     return { report };
   }, {
     body: t.Object({
+      kind: t.Optional(t.String()),
       title: t.String(),
       description: t.String(),
       category: t.Optional(t.String()),

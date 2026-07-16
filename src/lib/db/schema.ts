@@ -46,11 +46,16 @@ const connectionProviderEnum = pgEnum('connection_provider', [
   'discord', 'twitch', 'youtube', 'github', 'spotify', 'website',
   'lastfm', 'steam', 'xbox', 'psn', 'roblox', 'twitter', 'instagram', 'battlenet', 'serika',
 ]);
+// A report can be either a bug report or a piece of feedback / feature request.
+const bugReportKindEnum = pgEnum('bug_report_kind', ['bug', 'feedback']);
 const bugReportPriorityEnum = pgEnum('bug_report_priority', ['low', 'medium', 'high', 'critical']);
 const bugReportStatusEnum = pgEnum('bug_report_status', ['open', 'acknowledged', 'resolved', 'wont_fix']);
 const bugReportCategoryEnum = pgEnum('bug_report_category', [
+  // Bug categories
   'crash', 'visual', 'functionality', 'performance', 'security',
   'audio', 'network', 'ui_ux', 'other',
+  // Feedback categories
+  'feature_request', 'improvement', 'praise', 'general',
 ]);
 
 // ─── Tables ───────────────────────────────────────────────
@@ -689,6 +694,7 @@ export const channelWebhooks = pgTable('channel_webhooks', {
 export const bugReports = pgTable('bug_reports', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   reporterId: uuid('reporter_id').notNull(),
+  kind: bugReportKindEnum('kind').default('bug'),
   title: text('title').notNull(),
   description: text('description').notNull(),
   category: bugReportCategoryEnum('category').default('other'),
@@ -709,6 +715,7 @@ export const bugReports = pgTable('bug_reports', {
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
   reporterIdx: index('bug_reports_reporter_id_idx').on(t.reporterId),
+  kindIdx: index('bug_reports_kind_idx').on(t.kind),
   statusIdx: index('bug_reports_status_idx').on(t.status),
   priorityIdx: index('bug_reports_priority_idx').on(t.priority),
   categoryIdx: index('bug_reports_category_idx').on(t.category),
