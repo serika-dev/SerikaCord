@@ -168,6 +168,7 @@ export default function DMConversationPage() {
                     avatar: user.avatar,
                   }
                 : null,
+              channelId: dmChannelId ?? undefined,
               createdAt: new Date().toISOString(),
               ephemeral: true,
               type: "default",
