@@ -68,7 +68,7 @@ export const rateLimiters_config = {
   admin: { points: 60, duration: 60 }, // 60 admin requests per minute
 
   // Bug reports
-  bugReport: { points: 5, duration: 3600 }, // 5 bug reports per hour
+  bugReport: { points: 5, duration: 600 }, // 5 bug reports / feedback every 10 minutes
 } as const;
 
 export async function checkRateLimit(
