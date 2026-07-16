@@ -57,13 +57,38 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   const [maxAge, setMaxAge] = useState(604800); // 7 days
   const [maxUses, setMaxUses] = useState(0); // Unlimited
   const [selectedChannel, setSelectedChannel] = useState(channelId || "");
+  const [vanityInfo, setVanityInfo] = useState<{ code: string | null; lockToVanity: boolean } | null>(null);
 
   // Generate invite on open
   useEffect(() => {
     if (open && currentServer) {
-      generateInvite();
+      // Fetch vanity info first; only create a real invite when the server
+      // isn't locked to its custom (vanity) link.
+      (async () => {
+        const locked = await fetchVanityInfo();
+        if (!locked) {
+          generateInvite();
+        }
+      })();
     }
   }, [open, currentServer]);
+
+  const fetchVanityInfo = async (): Promise<boolean> => {
+    if (!currentServer) return false;
+    try {
+      const res = await fetch(`/api/servers/${currentServer.id}/vanity-url`);
+      if (res.ok) {
+        const data = await res.json();
+        const code = data.code ?? null;
+        const lockToVanity = Boolean(data.lockToVanity);
+        setVanityInfo({ code, lockToVanity });
+        return lockToVanity && Boolean(code);
+      }
+    } catch {
+      // ignore — vanity info is optional
+    }
+    return false;
+  };
 
   // Set initial channel
   useEffect(() => {
@@ -107,7 +132,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   };
 
   const handleCopy = async () => {
-    const inviteUrl = `https://serika.cc/${inviteCode}`;
+    const inviteUrl = `https://serika.cc/${effectiveCode}`;
     await navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     toast.success(gt("Invite link copied!"));
@@ -115,7 +140,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
   };
 
   const handleShare = async () => {
-    const inviteUrl = `https://serika.cc/${inviteCode}`;
+    const inviteUrl = `https://serika.cc/${effectiveCode}`;
     if (navigator.share) {
       try {
         await navigator.share({
@@ -159,7 +184,9 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
 
   if (!open || !currentServer) return null;
 
-  const inviteUrl = `serika.cc/${inviteCode}`;
+  const isLockedToVanity = vanityInfo?.lockToVanity && vanityInfo?.code;
+  const effectiveCode = isLockedToVanity ? vanityInfo!.code : inviteCode;
+  const inviteUrl = `serika.cc/${effectiveCode}`;
   const textChannels = channels.filter(c => c.type === "text");
 
   return (
@@ -204,6 +231,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
         {/* Content */}
         <div className="p-4 space-y-4">
           {/* Channel Selector */}
+          {!isLockedToVanity && (
           <div>
             <label className="block text-xs font-semibold uppercase text-[#888888] mb-2">
               {gt("INVITE TO CHANNEL")}
@@ -223,6 +251,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#888888] pointer-events-none" />
             </div>
           </div>
+          )}
 
           {/* Invite Link */}
           <div>
@@ -232,7 +261,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Input
-                  value={isLoading ? gt("Generating...") : inviteCode ? inviteUrl : gt("Could not create invite")}
+                  value={isLoading ? gt("Generating...") : effectiveCode ? inviteUrl : gt("Could not create invite")}
                   readOnly
                   className="bg-[#0a0a0a] border-[#222222] text-white pr-10 font-mono text-sm"
                 />
@@ -242,7 +271,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               </div>
               <button
                 onClick={handleCopy}
-                disabled={isLoading || !inviteCode}
+                disabled={isLoading || !effectiveCode}
                 className={cn(
                   "px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2",
                   copied
@@ -277,6 +306,7 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
           )}
 
           {/* Settings Toggle */}
+          {!isLockedToVanity && (
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="flex items-center gap-2 text-sm text-[#888888] hover:text-white transition-colors"
@@ -288,9 +318,10 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
               showSettings && "rotate-180"
             )} />
           </button>
+          )}
 
           {/* Settings Panel */}
-          {showSettings && (
+          {showSettings && !isLockedToVanity && (
             <div className="space-y-4 p-4 rounded-lg bg-[#0a0a0a] border border-[#222222]">
               {/* Expire After */}
               <div>
@@ -345,10 +376,16 @@ export function InviteDialog({ open, onOpenChange, channelId }: InviteDialogProp
 
         {/* Footer */}
         <div className="p-4 border-t border-[#222222] bg-[#0a0a0a] rounded-b-lg">
-          <p className="text-xs text-[#666666] text-center">
-            {gt("Your invite link expires in")} {EXPIRE_OPTIONS.find(o => o.value === maxAge)?.label || gt("7 days")}.
-            {maxUses > 0 && ` ${gt("Limited to")} ${maxUses} ${gt("uses")}.`}
-          </p>
+          {isLockedToVanity ? (
+            <p className="text-xs text-[#666666] text-center">
+              <T>This server only allows invites through its custom invite link.</T>
+            </p>
+          ) : (
+            <p className="text-xs text-[#666666] text-center">
+              {gt("Your invite link expires in")} {EXPIRE_OPTIONS.find(o => o.value === maxAge)?.label || gt("7 days")}.
+              {maxUses > 0 && ` ${gt("Limited to")} ${maxUses} ${gt("uses")}.`}
+            </p>
+          )}
         </div>
       </div>
     </div>

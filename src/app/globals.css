@@ -348,37 +348,15 @@ textarea::selection,
   background-clip: padding-box;
 }
 
-/* Slim, auto-hiding scrollbar for the narrow vertical server rail. The thumb
-   stays invisible until the rail is hovered, then fades in as a rounded pill so
-   it never crowds the 72px column or overlaps the server icons. */
+/* Fully invisible scrollbar for the narrow vertical server rail. The rail
+   remains scrollable but never shows a visible scrollbar track or thumb,
+   preventing layout shifts when hovering. */
 .server-rail-scroll {
   scrollbar-width: none;
-  scrollbar-color: transparent transparent;
-}
-.server-rail-scroll:hover {
-  scrollbar-width: thin;
-  scrollbar-color: var(--app-border, rgba(255, 255, 255, 0.18)) transparent;
+  -ms-overflow-style: none;
 }
 .server-rail-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.server-rail-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.server-rail-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 9999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background 0.2s ease;
-}
-.server-rail-scroll:hover::-webkit-scrollbar-thumb {
-  background: var(--app-border, rgba(255, 255, 255, 0.22));
-  background-clip: padding-box;
-}
-.server-rail-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--app-muted, rgba(255, 255, 255, 0.4));
-  background-clip: padding-box;
+  display: none;
 }
 
 .chat-message-row {
@@ -451,6 +429,16 @@ textarea::selection,
   vertical-align: -0.4em;
   margin: 0 0.1em;
   object-fit: contain;
+}
+
+/* Flash highlight when jumping to a message (pinned / search / link) */
+@keyframes message-jump-flash {
+  0% { background-color: color-mix(in srgb, var(--app-accent, #8B5CF6) 35%, transparent); }
+  100% { background-color: transparent; }
+}
+.message-jump-highlight {
+  animation: message-jump-flash 1.6s ease-out;
+  border-radius: 0.375rem;
 }
 
 /* Mobile safe area utilities */
@@ -640,8 +628,8 @@ textarea::selection,
 
 /* Render optimization: skip layout/paint for off-screen message groups */
 .msg-group-cv {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 88px;
+  /* content-visibility: auto; */
+  /* contain-intrinsic-size: auto 88px; */
   /* content-visibility forces paint containment, which clips anything drawn
      outside the box — including the hover toolbar floated above the first row
      (-top-3). Reserve headroom + a matching negative margin so the toolbar

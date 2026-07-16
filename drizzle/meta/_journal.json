@@ -8,6 +8,13 @@
       "when": 1783466435065,
       "tag": "0000_round_flatman",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784142188938,
+      "tag": "0001_secret_sway",
+      "breakpoints": true
     }
   ]
 }

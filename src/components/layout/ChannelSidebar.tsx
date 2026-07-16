@@ -181,13 +181,23 @@ export function ChannelSidebar({
 
   const closeContextMenu = () => setContextMenu(null);
 
-  // Close context menu when clicking outside
+  // Close context menu when clicking outside or pressing Escape
   useEffect(() => {
+    if (!contextMenu) return;
     const handleClick = () => closeContextMenu();
-    if (contextMenu) {
-      window.addEventListener('click', handleClick);
-      return () => window.removeEventListener('click', handleClick);
-    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        closeContextMenu();
+      }
+    };
+    window.addEventListener('click', handleClick);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('click', handleClick);
+      window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
+    };
   }, [contextMenu]);
 
   const handleEditChannel = () => {
@@ -903,12 +913,70 @@ export function ChannelSidebar({
     }
   }, [currentServer, fetchDMChannels]);
 
+  // Keep the DM list live while it's shown (no server selected): re-fetch on tab
+  // focus/visibility as a resilient fallback for the SSE stream below.
+  usePolling(fetchDMChannels, 20000, !currentServer);
+
+  // Real-time DM list updates: when a new DM/message arrives the server pushes a
+  // `dm:list:update` over this stream, so a new conversation or reordered
+  // conversation shows up instantly without waiting for the poll. Mirrors the
+  // mobile MessagesView subscription. Only connected while the DM list is shown.
+  useEffect(() => {
+    if (currentServer) return;
+    let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    let closed = false;
+
+    const connect = () => {
+      if (closed) return;
+      source = new EventSource("/api/dms/stream");
+      source.onopen = () => {
+        attempts = 0;
+      };
+      source.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "dm:list:update") void fetchDMChannels();
+        } catch {
+          /* ignore malformed events */
+        }
+      };
+      source.onerror = () => {
+        source?.close();
+        if (closed) return;
+        const backoff = Math.min(1000 * 2 ** attempts, 30000);
+        attempts += 1;
+        reconnectTimer = setTimeout(connect, backoff);
+      };
+    };
+    connect();
+
+    return () => {
+      closed = true;
+      source?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, [currentServer, fetchDMChannels]);
+
   const statusColors: Record<string, string> = {
     online: "#23A559",
     idle: "#F0B232",
     dnd: "#EF4444",
     offline: "#555555",
   };
+
+  // While navigating DM→server the ServerContext hasn't loaded `currentServer`
+  // yet. Without this guard the DM list flashes for a frame. If the URL points
+  // at a real server, show a channel-sidebar skeleton instead of that flash.
+  if (!currentServer) {
+    const serverMatch = pathname?.match(/^\/channels\/([^/]+)/);
+    const specialRoutes = ["explore", "settings", "me", "notifications", "profile", "messages"];
+    const expectingServer = Boolean(serverMatch && !specialRoutes.includes(serverMatch[1]));
+    if (expectingServer) {
+      return <ChannelSidebarSkeleton />;
+    }
+  }
 
   if (!currentServer) {
     return (
@@ -1289,19 +1357,21 @@ export function ChannelSidebar({
             </button>
           )}
           {(canManageChannels || canInvite) && <div className="h-px bg-[var(--border-subtle)] my-1" />}
-          <button
-            onClick={handleCopyChannelLink}
-            className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
-          >
-            <LinkIcon className="w-4 h-4" />
-            {gt("Copy Link")}
-          </button>
+          {contextMenu?.channel?.type !== "category" && (
+            <button
+              onClick={handleCopyChannelLink}
+              className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
+            >
+              <LinkIcon className="w-4 h-4" />
+              {gt("Copy Link")}
+            </button>
+          )}
           <button
             onClick={handleCopyChannelId}
             className="w-full px-3 py-1.5 flex items-center gap-2 text-sm text-[var(--text-primary)] hover:bg-[var(--app-accent)] hover:text-[var(--text-on-accent)] transition-colors"
           >
             <Copy className="w-4 h-4" />
-            {gt("Copy Channel ID")}
+            {contextMenu?.channel?.type === "category" ? gt("Copy Category ID") : gt("Copy Channel ID")}
           </button>
           <div className="h-px bg-[var(--border-subtle)] my-1" />
           <button
@@ -1348,7 +1418,7 @@ export function ChannelSidebar({
   );
 }
 
-interface UserPanelProps {
+export interface UserPanelProps {
   user: {
     id?: string;
     username?: string;
@@ -1369,7 +1439,7 @@ interface UserPanelProps {
   } | null;
 }
 
-function UserPanel({ user }: UserPanelProps) {
+export function UserPanel({ user }: UserPanelProps) {
   const gt = useGT();
   const [isMuted, setIsMuted] = useState(voiceService.muted);
   const [isDeafened, setIsDeafened] = useState(voiceService.deafened);
@@ -1471,6 +1541,36 @@ function UserPanel({ user }: UserPanelProps) {
         >
           <Settings className="w-5 h-5" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder shown while the target server's channel list is still loading,
+ *  so switching from a DM into a server doesn't flash the DM list. */
+function ChannelSidebarSkeleton() {
+  return (
+    <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
+      {/* Server header bar */}
+      <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)] shrink-0">
+        <div className="h-4 w-32 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+      </div>
+      {/* Channel rows */}
+      <div className="flex-1 px-2 pt-4 space-y-4 overflow-hidden">
+        {[0, 1, 2].map((group) => (
+          <div key={group} className="space-y-1.5">
+            <div className="h-3 w-20 mx-2 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+            {Array.from({ length: 3 + group }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2 px-2 py-1.5">
+                <div className="w-4 h-4 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+                <div
+                  className="h-3 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse"
+                  style={{ width: `${50 + ((i * 17 + group * 11) % 40)}%` }}
+                />
+              </div>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );

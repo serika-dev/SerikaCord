@@ -3,6 +3,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition, useMemo } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
+import { notifyServersChanged } from "@/lib/notifyServersChanged";
 
 interface Server {
   id: string;
@@ -314,7 +315,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         setMembers(prev => {
           if (!isSwitch && prev.length === rawMembers.length) {
             // Lightweight signature comparison instead of full JSON.stringify
-            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${JSON.stringify(m.customization?.nameplate || "")}`;
+            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${m.communicationDisabledUntil || ""}|${JSON.stringify(m.customization?.nameplate || "")}`;
             const prevSig = prev.map(sig).join("\n");
             const newSig = rawMembers.map(sig).join("\n");
             if (prevSig === newSig) return prev;
@@ -388,6 +389,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     }
 
     await fetchServers();
+    notifyServersChanged();
   }, [fetchServers]);
 
   const leaveServer = useCallback(async (serverId: string) => {
@@ -406,6 +408,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       setCurrentServer(null);
       setCurrentChannel(null);
     }
+    notifyServersChanged();
   }, [currentServer, setCurrentServer]);
 
   const deleteChannel = useCallback(async (channelId: string) => {
@@ -515,6 +518,33 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     !!currentServer,
     currentServer?.id
   );
+
+  // Keep the server rail live: refetch the joined-servers list on tab
+  // focus/visibility and on a slow interval. This makes a server joined via an
+  // invite/vanity link (which client-navigates without remounting this
+  // provider) or in another tab appear in the sidebar without a manual reload.
+  usePolling(fetchServers, 25000);
+
+  // Cross-tab / cross-route signal: any join flow can broadcast so every open
+  // client refreshes its server list immediately instead of waiting for the poll.
+  useEffect(() => {
+    const refresh = () => void fetchServers();
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== "undefined") {
+      bc = new BroadcastChannel("sc:servers");
+      bc.onmessage = (e) => {
+        if (e.data === "changed") refresh();
+      };
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "sc:servers-changed") refresh();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      bc?.close();
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [fetchServers]);
 
   // Memoize the context value so consumers only re-render when a field they
   // actually depend on changes — not on every provider render (e.g. the 30s

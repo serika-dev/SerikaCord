@@ -48,7 +48,7 @@ export default async function BotsOverviewDoc() {
       <CardGrid>
         <Card href="/developers/docs/topics/gateway" title={gt("Gateway (WebSocket)")} icon={<Cable className="size-4" />}>
           {gt("A persistent connection that streams events like")} <InlineCode>MESSAGE_CREATE</InlineCode> {gt("and")}{" "}
-          <InlineCode>GUILD_MEMBER_ADD</InlineCode> {gt("as they happen. This is how libraries like discord.js run.")}
+          <InlineCode>GUILD_MEMBER_ADD</InlineCode> {gt("as they happen. This is how libraries like serika.js run.")}
         </Card>
         <Card href="/developers/docs/bots/interactions" title={gt("Interactions (HTTP)")} icon={<KeyRound className="size-4" />}>
           {gt("A signed HTTP POST we send to your Interactions Endpoint URL whenever a user invokes a command. No persistent connection required.")}

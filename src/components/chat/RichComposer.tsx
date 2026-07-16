@@ -387,16 +387,24 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       emitChange();
     }, [emitChange]);
 
+    const lastKeyPreventedRef = useRef(false);
+
     const handleKeyDownInternal = useCallback((e: React.KeyboardEvent) => {
       // Block rich-formatting shortcuts (bold/italic/underline)
       if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) {
         e.preventDefault();
+        lastKeyPreventedRef.current = true;
         return;
       }
       onKeyDown?.(e);
+      lastKeyPreventedRef.current = e.defaultPrevented;
     }, [onKeyDown]);
 
     const reportCaret = useCallback(() => {
+      if (lastKeyPreventedRef.current) {
+        lastKeyPreventedRef.current = false;
+        return;
+      }
       onCaretMove?.(serialize(), getCaret());
     }, [onCaretMove, serialize, getCaret]);
 

@@ -26,7 +26,7 @@ export default async function IntroDoc() {
       description={gt("Build bots, apps, and integrations on SerikaCord — a 1:1-compatible mirror of the Discord API. If you can build a Discord bot, you can build a SerikaCord bot.")}
     >
       <Callout type="info" title={gt("Discord API Compatibility")}>
-        {gt("SerikaCord speaks the same REST routes, gateway opcodes, OAuth2 flows, and data structures as Discord. Existing")} <InlineCode>discord.js</InlineCode> / <InlineCode>discord.py</InlineCode> {gt("bots run with a one-line base-URL change.")}
+        {gt("SerikaCord speaks the same REST routes, gateway opcodes, OAuth2 flows, and data structures as Discord. The official")} <InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively, or existing")} <InlineCode>discord.js</InlineCode> / <InlineCode>discord.py</InlineCode> {gt("bots run with a one-line base-URL change.")}
       </Callout>
 
       <H2 id="start-here">{gt("Start here")}</H2>
@@ -38,7 +38,7 @@ export default async function IntroDoc() {
           {gt("What a bot is on SerikaCord, how it authenticates, and how it receives events.")}
         </Card>
         <Card href="/developers/docs/quick-start" title={gt("Quick Start")} icon={<TerminalSquare className="size-4" />}>
-          {gt("Drop-in code for discord.js, discord.py, and raw HTTP.")}
+          {gt("Drop-in code for serika.js, discord.py, and raw HTTP.")}
         </Card>
         <Card href="/developers/docs/reference" title={gt("API Reference")} icon={<Cable className="size-4" />}>
           {gt("Every REST endpoint, versioned like Discord under")} <InlineCode>/v10</InlineCode>.
@@ -92,9 +92,13 @@ OAuth2   https://api.serika.chat/api/oauth2/authorize`}</CodeBlock>
       <P>
         {gt("SerikaCord is a self-hosted, Discord-compatible chat platform. It implements the Discord v10 bot API — REST routes, Gateway WebSocket protocol, OAuth2 flows, and data structures — so that any bot built for Discord can be pointed at SerikaCord by changing two URLs:")}
       </P>
-      <CodeBlock lang="javascript">{`// discord.js — the only two lines that change
-client.rest.setBaseURL("https://api.serika.chat/api/v10");
-client.options.ws.url = "wss://api.serika.chat/api/v10/gateway";`}</CodeBlock>
+      <CodeBlock lang="javascript">{`// serika.js — zero config needed, baseURL is built in
+import { SerikaClient, Intents } from "@serikadev/serika.js";
+
+const client = new SerikaClient({ token: process.env.BOT_TOKEN! });
+const gw = await client.connectGateway({
+  intents: Intents.GUILDS | Intents.GUILD_MESSAGES,
+});`}</CodeBlock>
       <P>
         {gt("The server runs a single-process architecture: a Next.js web app and the bot Gateway share the same port. The REST API is served by an")}{" "}<InlineCode>Elysia</InlineCode> {gt("router under")}{" "}
         <InlineCode>/api/v10/*</InlineCode>, {gt("and the Gateway WebSocket is upgraded at")}{" "}

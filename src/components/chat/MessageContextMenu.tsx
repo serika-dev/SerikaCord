@@ -1,7 +1,8 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
-import { Copy, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
+import { useLayoutEffect, useRef, useState, useEffect } from "react";
+import { Copy, Link2, Pencil, Pin, Reply, Smile, Trash2, Hash } from "lucide-react";
+import { toast } from "sonner";
 import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import type { MessageContextMenuState } from "@/hooks/useMessageActions";
@@ -20,6 +21,8 @@ interface MessageContextMenuProps<M extends ChatMessage> {
   onPinToggle: (message: M) => void;
   onEdit: (message: M) => void;
   onDelete: (message: M) => void;
+  /** Instant delete without a confirm prompt (Shift+Delete). */
+  onDeleteNow?: (message: M) => void;
 }
 
 const itemClass =
@@ -38,6 +41,7 @@ export function MessageContextMenu<M extends ChatMessage>({
   onPinToggle,
   onEdit,
   onDelete,
+  onDeleteNow,
 }: MessageContextMenuProps<M>) {
   const gt = useGT();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -80,6 +84,20 @@ export function MessageContextMenu<M extends ChatMessage>({
     setPos({ left, top });
   }, [menu]);
 
+  // Close on Escape
+  useEffect(() => {
+    if (!menu) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
+  }, [menu, onClose]);
+
   if (!menu) return null;
 
   const { message } = menu;
@@ -108,6 +126,25 @@ export function MessageContextMenu<M extends ChatMessage>({
       <button onClick={run(() => onCopy(message.content))} className={itemClass}>
         <Copy className="w-4 h-4" /> {gt("Copy Text")}
       </button>
+      <button
+        onClick={run(() => {
+          const url = `${window.location.origin}${window.location.pathname}?jump=${message.id}`;
+          navigator.clipboard?.writeText(url);
+          toast.success(gt("Link copied"));
+        })}
+        className={itemClass}
+      >
+        <Link2 className="w-4 h-4" /> {gt("Copy Message Link")}
+      </button>
+      <button
+        onClick={run(() => {
+          navigator.clipboard?.writeText(message.id);
+          toast.success(gt("Message ID copied"));
+        })}
+        className={itemClass}
+      >
+        <Hash className="w-4 h-4" /> {gt("Copy Message ID")}
+      </button>
       {canPin && (
         <>
           <div className="h-px bg-[var(--border-subtle)] my-1" />
@@ -126,7 +163,15 @@ export function MessageContextMenu<M extends ChatMessage>({
       )}
       {canDelete && (
         <button
-          onClick={run(() => onDelete(message))}
+          onClick={(e) => {
+            if ((e.shiftKey || e.ctrlKey) && onDeleteNow) {
+              onDeleteNow(message);
+            } else {
+              onDelete(message);
+            }
+            onClose();
+          }}
+          title={gt("Shift+Click to delete instantly")}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors text-left"
         >
           <Trash2 className="w-4 h-4" /> {gt("Delete Message")}

@@ -208,6 +208,25 @@ function sanitizeMessageContent(content: string): string {
   return decodeHtmlEntities(sanitized);
 }
 
+// Normalize message text for duplicate-spam detection. Lowercases, strips
+// diacritics, collapses runs of the same character, and removes everything
+// that isn't a letter or digit. This makes trivial variations — extra
+// whitespace, punctuation, a tacked-on character, or repeated letters —
+// collapse to the same fingerprint so "hi", "hi!", "hii" and "hi ." all match.
+function normalizeForSpamCheck(content: string): string {
+  return content
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(.)\1+/g, '$1')
+    .trim();
+}
+
+// How many identical (post-normalization) messages in a row before a send is
+// blocked as spam. A user may send the same thing 4 times; the 5th is rejected.
+const DUPLICATE_SPAM_THRESHOLD = 4;
+
 async function extractMentionsFromContent(
   content: string,
   serverId?: string | null
@@ -1215,7 +1234,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     } else if (around) {
       const aroundMsg = await Message.findById(around);
       if (aroundMsg) {
-        msgFilter.createdAtBefore = aroundMsg.createdAt;
+        // createdAtBefore is exclusive; bump the cursor by 1ms so the jumped-to
+        // message itself is included in the returned window.
+        msgFilter.createdAtBefore = new Date(new Date(aroundMsg.createdAt as string | number | Date).getTime() + 1);
         msgFilter._limit = limit;
       }
     }
@@ -1454,7 +1475,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     const rawQuery = (query.q || '').trim();
-    if (rawQuery.length < 2) {
+    // Structured filters (from:/has:/before:/after:), parsed on the client.
+    const fromFilter = (query.from || '').trim().toLowerCase();
+    const hasFilter = (query.has || '').trim().toLowerCase(); // link | file | image | embed | video
+    const beforeDate = query.before ? new Date(query.before) : null;
+    const afterDate = query.after ? new Date(query.after) : null;
+    const hasAnyFilter = Boolean(fromFilter || hasFilter || beforeDate || afterDate);
+    // Require either a real text query or at least one filter.
+    if (rawQuery.length < 2 && !hasAnyFilter) {
       return { messages: [] };
     }
 
@@ -1487,13 +1515,43 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
     const lowered = rawQuery.toLowerCase();
+    const linkRegex = /https?:\/\//i;
+    const imageExtRegex = /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i;
+    const videoExtRegex = /\.(mp4|webm|mov|mkv|avi)(\?|$)/i;
     const results: Array<Record<string, unknown>> = [];
 
     for (const msg of sortedCandidates as any[]) {
-      const decrypted = await decryptFromStorage(msg.content || '');
-      if (!decrypted.toLowerCase().includes(lowered)) continue;
-
       const authorData = msg.authorId ? authorMap.get(msg.authorId) : null;
+
+      // from: match author id, username, or display name
+      if (fromFilter) {
+        const idMatch = String(msg.authorId || '').toLowerCase() === fromFilter;
+        const nameMatch = authorData &&
+          ((authorData.username || '').toLowerCase().includes(fromFilter) ||
+           (authorData.displayName || '').toLowerCase().includes(fromFilter));
+        if (!idMatch && !nameMatch) continue;
+      }
+
+      // before/after: filter by created date
+      if (beforeDate && !(new Date(msg.createdAt) < beforeDate)) continue;
+      if (afterDate && !(new Date(msg.createdAt) > afterDate)) continue;
+
+      const decrypted = await decryptFromStorage(msg.content || '');
+      if (rawQuery.length >= 2 && !decrypted.toLowerCase().includes(lowered)) continue;
+
+      // has: link / file / image / video / embed
+      if (hasFilter) {
+        const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
+        const embeds = Array.isArray(msg.embeds) ? msg.embeds : [];
+        const attachmentUrls = attachments.map((a: any) => String(a?.url || a?.filename || a)).join(' ');
+        let ok = false;
+        if (hasFilter === 'link') ok = linkRegex.test(decrypted);
+        else if (hasFilter === 'embed') ok = embeds.length > 0;
+        else if (hasFilter === 'file') ok = attachments.length > 0;
+        else if (hasFilter === 'image') ok = imageExtRegex.test(attachmentUrls) || imageExtRegex.test(decrypted);
+        else if (hasFilter === 'video') ok = videoExtRegex.test(attachmentUrls) || videoExtRegex.test(decrypted);
+        if (!ok) continue;
+      }
 
       results.push({
         id: msg.id,
@@ -1522,9 +1580,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       channelId: t.String(),
     }),
     query: t.Object({
-      q: t.String({ minLength: 1 }),
+      q: t.Optional(t.String()),
       limit: t.Optional(t.String()),
       searchLimit: t.Optional(t.String()),
+      from: t.Optional(t.String()),
+      has: t.Optional(t.String()),
+      before: t.Optional(t.String()),
+      after: t.Optional(t.String()),
     }),
   })
   // Send message
@@ -1688,6 +1750,31 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     let sanitizedContent = content ? sanitizeMessageContent(content) : '';
     if (sanitizedContent) {
       sanitizedContent = normalizeEmojiFormat(sanitizedContent);
+    }
+
+    // Duplicate-spam guard: block sending the same text many times in a row.
+    // Only applies to plain text sends (attachments/stickers are exempt) and is
+    // fingerprint-based so trivial variations don't sidestep it.
+    const spamFingerprint = normalizeForSpamCheck(sanitizedContent);
+    if (spamFingerprint && attachments.length === 0 && !stickerData) {
+      const recent = await Message.find({
+        channelId: params.channelId,
+        authorId: user.id,
+        isDeleted: false,
+        _limit: DUPLICATE_SPAM_THRESHOLD,
+      });
+      if (recent.length >= DUPLICATE_SPAM_THRESHOLD) {
+        const recentContents = await Promise.all(
+          recent.map((m: any) => (m.content ? decryptFromStorage(m.content) : Promise.resolve('')))
+        );
+        const allDuplicate = recentContents.every(
+          (c) => normalizeForSpamCheck(c) === spamFingerprint
+        );
+        if (allDuplicate) {
+          set.status = 429;
+          return { error: 'Please stop sending the same message repeatedly.' };
+        }
+      }
     }
 
     // Parse custom emojis, resolve mentions, and encrypt — all independent of

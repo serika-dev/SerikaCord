@@ -216,6 +216,10 @@ See [`packages-api/serika.js`](packages-api/serika.js) for the official SDK, or 
 - **Desktop:** The Tauri-based desktop client is in `desktop-tauri/`. See its [README](desktop-tauri/README.md) for build instructions.
 - **Mobile:** The Capacitor-based Android app is in `mobile/`. See its [README](mobile/README.md) for setup.
 
+## Translations
+
+Wanna help translate SerikaCord into your language? Head over to [translate.serika.dev](https://translate.serika.dev) to contribute!
+
 ## Contributing
 
 Contributions are welcome! Please read the [Security Policy](SECURITY.md) before reporting vulnerabilities.

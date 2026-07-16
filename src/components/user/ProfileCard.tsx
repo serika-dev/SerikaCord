@@ -14,10 +14,10 @@ import {
   Copy,
   Check,
   CalendarDays,
-  Crown,
   Plus,
   X,
   Clock,
+  ShieldAlert,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,8 @@ export interface ProfileCardUser {
   id: string;
   username: string;
   displayName?: string;
+  /** Per-server nickname; takes precedence over displayName when in a server */
+  nickname?: string | null;
   avatar?: string | null;
   banner?: string | null;
   bio?: string | null;
@@ -56,6 +58,7 @@ export interface ProfileCardUser {
   createdAt?: string | null;
   isPremium?: boolean;
   isOwner?: boolean;
+  isSystem?: boolean;
   isFriend?: boolean;
   friendRequestSent?: boolean;
   isBot?: boolean;
@@ -126,6 +129,9 @@ interface ProfileCardProps {
   hideConnections?: boolean;
   /** Remove rounded corners (e.g. for DM sidebar full-height view) */
   noRoundedCorners?: boolean;
+  /** When provided and the viewer can moderate, shows an "Open in Mod View"
+   *  button that calls this instead of opening a dialog internally. */
+  onOpenModView?: () => void;
 }
 
 /**
@@ -144,6 +150,7 @@ export function ProfileCard({
   hideMessageButton = false,
   hideConnections = false,
   noRoundedCorners = false,
+  onOpenModView,
 }: ProfileCardProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
@@ -157,6 +164,8 @@ export function ProfileCard({
   const [serverRoles, setServerRoles] = useState<Array<{ id: string; name: string; color?: string; isDefault?: boolean }>>([]);
   const [fullProfileOpen, setFullProfileOpen] = useState(false);
   const [canManageRoles, setCanManageRoles] = useState(false);
+  const [canModerate, setCanModerate] = useState(false);
+  const [isAdminOfServer, setIsAdminOfServer] = useState(false);
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
   const [isUpdatingRoles, setIsUpdatingRoles] = useState(false);
 
@@ -190,6 +199,16 @@ export function ProfileCard({
           const permData = await permRes.json();
           const can = permData.isOwner || hasPermissionBit(permData.permissions, MANAGE_ROLES_BIT);
           setCanManageRoles(can);
+          // Moderation entry: owner, admin, or any of kick/ban/timeout/manage-roles.
+          const MOD_BITS = [1n << 3n, 1n << 1n, 1n << 2n, 1n << 40n, MANAGE_ROLES_BIT];
+          setCanModerate(
+            Boolean(permData.isOwner) ||
+              MOD_BITS.some((bit) => hasPermissionBit(permData.permissions, bit))
+          );
+          setIsAdminOfServer(
+            Boolean(permData.isOwner) ||
+              hasPermissionBit(permData.permissions, 1n << 3n)
+          );
         }
       } catch {
         // ignore
@@ -200,9 +219,25 @@ export function ProfileCard({
   }, [serverId, MANAGE_ROLES_BIT]);
 
   const status = user.status ?? "offline";
-  const displayName = user.displayName || user.username;
+  const displayName = user.nickname || user.displayName || user.username;
   const userActivity = useUserActivity(user.id);
   const moeActivity = userActivity?.activity ?? null;
+
+  // Right-click context menu for role chips (copy ID / colour hex).
+  const [roleCtx, setRoleCtx] = useState<{ x: number; y: number; role: { id: string; name: string; color?: string } } | null>(null);
+  useEffect(() => {
+    if (!roleCtx) return;
+    const close = () => setRoleCtx(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    window.addEventListener("click", close);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [roleCtx]);
 
   const handleCopyUsername = async () => {
     try {
@@ -299,6 +334,18 @@ export function ProfileCard({
           <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] via-[#7C3AED] to-[#4F46E5]" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c10]/70 via-transparent to-transparent" />
+
+        {/* Mod view button in the top right of the banner */}
+        {!isSelf && user.id && serverId && isAdminOfServer && onOpenModView && (
+          <button
+            onClick={onOpenModView}
+            aria-label={gt("Open in Mod View")}
+            title={gt("Open in Mod View")}
+            className="absolute top-3.5 right-3.5 z-20 p-2 rounded-lg bg-black/40 hover:bg-black/60 active:scale-[0.95] text-white backdrop-blur-md border border-white/[0.06] transition-all"
+          >
+            <ShieldAlert className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="relative flex-1 flex flex-col min-h-0 px-4 pb-4">
@@ -365,27 +412,15 @@ export function ProfileCard({
             >
               {displayName}
             </h3>
-            {user.isBot && (
+            {user.isBot && !user.isSystem && (
               <span className={cn(
                 "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",
-                user.isVerified 
-                  ? "bg-[#5865F2] text-white" 
+                user.isVerified
+                  ? "bg-[#5865F2] text-white"
                   : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
               )}>
                 {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
                 {gt("Bot")}
-              </span>
-            )}
-            {showOwnerCrown && user.isOwner && (
-              <span title={gt("Server Owner")} className="shrink-0 text-[#F59E0B]">
-                <Crown className="w-4 h-4" />
-              </span>
-            )}
-            {user.isPremium && (
-              <span title={gt("Premium")} className="shrink-0">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2L14.5 8.5L21 9.5L16.5 14L17.5 21L12 17.5L6.5 21L7.5 14L3 9.5L9.5 8.5L12 2Z" fill="#F59E0B" stroke="#F59E0B" strokeWidth="1" strokeLinejoin="round"/>
-                </svg>
               </span>
             )}
           </div>
@@ -498,8 +533,13 @@ export function ProfileCard({
                   {memberRoles.map((role) => (
                     <span
                       key={role.id}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setRoleCtx({ x: e.clientX, y: e.clientY, role });
+                      }}
                       className={cn(
-                        "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-white/[0.06]",
+                        "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border border-white/[0.06] cursor-context-menu",
                         canManageRoles && !serverRoles.find((r) => r.id === role.id)?.isDefault && "group pr-1"
                       )}
                       style={{
@@ -540,7 +580,7 @@ export function ProfileCard({
                       </PopoverTrigger>
                       <PopoverContent
                         align="start"
-                        className="w-52 p-1 bg-[#1e1f22] border-[#2b2d31] text-white shadow-xl"
+                        className="w-52 max-h-64 overflow-y-auto p-1 bg-[#1e1f22] border-[#2b2d31] text-white shadow-xl"
                       >
                         {(() => {
                           const assignable = serverRoles.filter(
@@ -624,6 +664,43 @@ export function ProfileCard({
           serverId={serverId}
           showOwnerCrown={showOwnerCrown}
         />
+      )}
+
+      {roleCtx && (
+        <div
+          className="fixed z-[100] min-w-[180px] py-1 rounded-lg bg-[#1e1f22] border border-[#2b2d31] shadow-xl text-sm"
+          style={{ top: roleCtx.y, left: roleCtx.x }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[#dbdee1] hover:bg-[#2b2d31] transition-colors"
+            onClick={() => {
+              navigator.clipboard?.writeText(roleCtx.role.id);
+              toast.success(gt("Role ID copied"));
+              setRoleCtx(null);
+            }}
+          >
+            <Copy className="w-3.5 h-3.5 shrink-0" />
+            {gt("Copy Role ID")}
+          </button>
+          <button
+            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[#dbdee1] hover:bg-[#2b2d31] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={!roleCtx.role.color}
+            onClick={() => {
+              if (!roleCtx.role.color) return;
+              navigator.clipboard?.writeText(roleCtx.role.color);
+              toast.success(gt("Colour copied"));
+              setRoleCtx(null);
+            }}
+          >
+            <span
+              className="w-3.5 h-3.5 rounded-full shrink-0 border border-white/20"
+              style={{ backgroundColor: roleCtx.role.color || "transparent" }}
+            />
+            {roleCtx.role.color ? gt("Copy Colour ({hex})", { hex: roleCtx.role.color }) : gt("No colour")}
+          </button>
+        </div>
       )}
     </div>
   );

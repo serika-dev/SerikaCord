@@ -163,6 +163,14 @@ export interface IGifFavorite {
   addedAt: number;
 }
 
+export interface IEmojiFavorite {
+  emoji: string;
+  name?: string;
+  customEmojiId?: string | null;
+  url?: string | null;
+  addedAt: number;
+}
+
 export interface IPendingFriendRequests {
   incoming: string[];
   outgoing: string[];

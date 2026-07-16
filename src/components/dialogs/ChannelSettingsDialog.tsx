@@ -23,6 +23,9 @@ import { toast } from "sonner";
 import { CHANNEL_PERMISSIONS } from "@/lib/constants/channels";
 import { parsePermissionBitfield, stringifyPermissionBitfield } from "@/lib/roles/bitfield";
 import { useGT } from "gt-next";
+import { Loader } from "@/components/ui/Loader";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { cn } from "@/lib/utils";
 
 interface ServerRole {
   id: string;
@@ -198,6 +201,22 @@ export function ChannelSettingsDialog({
     const current = JSON.stringify(overwrites);
     setHasPermChanges(original !== current);
   }, [overwrites, channel]);
+
+  // Handle escape key.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const nested = document.querySelector(
+        '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]'
+      );
+      if (nested) return; // let the nested overlay handle Escape first
+      e.preventDefault();
+      onOpenChange(false);
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
+  }, [open, onOpenChange]);
 
   const getRoleName = useCallback((roleId: string) => {
     const role = roles.find(r => r.id === roleId);
@@ -520,18 +539,10 @@ export function ChannelSettingsDialog({
         className="!max-w-none !w-screen !h-screen !rounded-none p-0 bg-[var(--bg-app)] border-none overflow-hidden flex !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed"
         onPointerDownOutside={(e) => e.preventDefault()}
       >
-        {/* ESC close hint button in top right */}
-        <div className="absolute top-[60px] right-[60px] lg:right-auto lg:left-[1020px] z-50 flex flex-col items-center gap-1.5 cursor-pointer select-none group" onClick={() => onOpenChange(false)}>
-          <div className="w-9 h-9 rounded-full border-2 border-[var(--text-muted)] group-hover:border-[var(--text-primary)] flex items-center justify-center text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-all">
-            <X className="w-5 h-5" />
-          </div>
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors">ESC</span>
-        </div>
-
         {/* Sidebar Navigation */}
-        <div className="w-[240px] shrink-0 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] flex flex-col justify-between py-6">
+        <div className="w-56 lg:w-64 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] flex flex-col justify-between py-6 shrink-0 h-full overflow-hidden">
           <div className="space-y-4">
-            <div className="px-4">
+            <div className="px-4 mb-4 flex-shrink-0">
               <h2 className="text-[10px] font-bold uppercase text-[var(--text-muted)] tracking-widest mb-1.5">
                 {isVoice ? gt("Voice") : isCategory ? gt("Category") : channel.type === "announcement" ? gt("Announcement") : gt("Text")} {gt("Channel")}
               </h2>
@@ -546,11 +557,12 @@ export function ChannelSettingsDialog({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2.5 transition-colors ${
+                  className={cn(
+                    "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors mb-0.5",
                     activeTab === tab.id
-                      ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                      : "text-[var(--text-muted)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-secondary)]"
-                  }`}
+                      ? "bg-[var(--bg-active)] text-[var(--text-primary)] font-semibold"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  )}
                 >
                   <tab.icon className="w-4 h-4" />
                   {tab.label}
@@ -562,11 +574,12 @@ export function ChannelSettingsDialog({
           <div className="px-2">
             <button
               onClick={() => setActiveTab("delete")}
-              className={`w-full px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2.5 transition-colors ${
+              className={cn(
+                "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors",
                 activeTab === "delete"
-                  ? "bg-red-500/20 text-red-400"
+                  ? "bg-red-500/20 text-red-400 font-semibold"
                   : "text-red-400 hover:bg-red-500/10 hover:text-red-300"
-              }`}
+              )}
             >
               <Trash2 className="w-4 h-4" />
               {gt("Delete Channel")}
@@ -575,25 +588,33 @@ export function ChannelSettingsDialog({
         </div>
 
         {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg-card)]">
-          {/* Header */}
-          <div className="flex items-center gap-4 px-10 py-5 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-lg font-bold text-[var(--text-primary)] capitalize">
-                {activeTab === "delete" ? gt("Delete Channel") : activeTab === "overview" ? gt("Channel Overview") : activeTab.charAt(0).toUpperCase() + activeTab.slice(1)}
-              </h1>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5 flex items-center gap-1.5">
-                {channel.type === "announcement" ? <Megaphone className="w-3 h-3 text-blue-400" /> : isVoice ? <Volume2 className="w-3 h-3" /> : <Hash className="w-3 h-3" />}
-                {channel.name}
-                {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">{gt("ANNOUNCEMENTS")}</span>}
-              </p>
-            </div>
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg-card)] relative">
+          {/* Close Button */}
+          <button
+            onClick={() => onOpenChange(false)}
+            className="absolute top-10 right-10 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[#3f4147] rounded-full transition-colors z-50 bg-[var(--bg-card)]"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          {/* ESC hint */}
+          <div className="absolute top-[44px] right-24 text-xs text-[#72767d] z-50 pointer-events-none">
+            ESC
           </div>
 
           {/* Content Area */}
-          <div className="flex-1 overflow-y-auto px-10 py-8 space-y-8">
+          <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex bg-[var(--bg-card)]">
+            <div className="py-10 px-10 mx-auto pb-24 max-w-[740px] w-full space-y-8">
             {activeTab === "overview" && (
-              <div className="max-w-[680px]">
+              <div className="max-w-[680px] space-y-6">
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Channel Overview")}</h2>
+                  <p className="text-sm text-[var(--text-muted)] flex items-center gap-1.5">
+                    {channel.type === "announcement" ? <Megaphone className="w-3.5 h-3.5 text-blue-400" /> : isVoice ? <Volume2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : isCategory ? <Folder className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <Hash className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+                    {channel.name}
+                    {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">{gt("ANNOUNCEMENTS")}</span>}
+                  </p>
+                </div>
                 {/* General section */}
                 <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-6 space-y-6">
                   {/* Channel Name */}
@@ -794,7 +815,8 @@ export function ChannelSettingsDialog({
                       />
                     </div>
 
-                    {/* Announcement toggle */}
+                    {/* Announcement toggle — only meaningful for text channels */}
+                    {(channel.type === "text" || channel.type === "announcement") && (
                     <div className="p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="space-y-1">
@@ -821,6 +843,7 @@ export function ChannelSettingsDialog({
                         </div>
                       )}
                     </div>
+                    )}
 
                     {/* Forum settings */}
                     {channel.type === "forum" && (
@@ -946,6 +969,10 @@ export function ChannelSettingsDialog({
 
             {activeTab === "permissions" && (
               <div className="max-w-[720px] space-y-6">
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Channel Permissions")}</h2>
+                  <p className="text-sm text-[var(--text-muted)]">{gt("Configure who can view and interact with this channel.")}</p>
+                </div>
                 {/* Category Sync Notice */}
                 {channel.parentId && (
                   <div className="flex items-center justify-between p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 leading-normal">
@@ -1174,6 +1201,10 @@ export function ChannelSettingsDialog({
 
             {activeTab === "integrations" && (
               <div className="max-w-[720px] space-y-6">
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Integrations")}</h2>
+                  <p className="text-sm text-[var(--text-muted)]">{gt("Manage webhooks and applications integrated with this channel.")}</p>
+                </div>
                 <div className="flex items-center justify-between p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <div className="space-y-1">
                     <span className="text-sm font-semibold text-[var(--text-primary)]">
@@ -1240,6 +1271,10 @@ export function ChannelSettingsDialog({
 
             {activeTab === "invites" && (
               <div className="max-w-[720px] space-y-6">
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Invites")}</h2>
+                  <p className="text-sm text-[var(--text-muted)]">{gt("Manage active invite links for this channel.")}</p>
+                </div>
                 <div className="p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <span className="text-sm font-semibold text-[var(--text-primary)] block mb-1">
                     {gt("Channel-Specific Invites")}
@@ -1294,6 +1329,10 @@ export function ChannelSettingsDialog({
 
             {activeTab === "delete" && (
               <div className="max-w-[520px] space-y-6">
+                <div className="mb-6">
+                  <h2 className="text-xl font-bold text-red-500 mb-1">{gt("Delete Channel")}</h2>
+                  <p className="text-sm text-[var(--text-muted)]">{gt("Permanently remove this channel and all its content.")}</p>
+                </div>
                 <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/20">
                   <h3 className="text-base font-semibold text-red-400 mb-2">
                     {gt("Delete #{name}", { name: channel.name })}
@@ -1326,18 +1365,14 @@ export function ChannelSettingsDialog({
                 </Button>
               </div>
             )}
-          </div>
+            </div>
+          </ScrollArea>
 
           {/* Unsaved Changes Bar */}
           {(hasChanges && activeTab === "overview") && (
-            <div className="shrink-0 px-8 py-3.5 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] flex items-center justify-between gap-4 animate-in slide-in-from-bottom-2 duration-200">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
-                <span className="text-sm text-[var(--text-secondary)] truncate">
-                  {gt("You have unsaved changes")}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom z-50">
+              <span className="text-white text-sm font-medium">{gt("Careful — you have unsaved changes!")}</span>
+              <div className="flex gap-2">
                 <button
                   onClick={() => {
                     if (channel) {
@@ -1349,30 +1384,26 @@ export function ChannelSettingsDialog({
                       setSlowmode(channel.rateLimitPerUser || 0);
                     }
                   }}
-                  className="px-3.5 py-2 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
+                  className="px-4 py-1.5 text-sm text-white hover:underline transition-all"
                 >
                   {gt("Reset")}
                 </button>
-                <Button
+                <button
                   onClick={handleSave}
                   disabled={isSaving || !name.trim()}
-                  className="bg-[var(--app-accent)] hover:opacity-90 disabled:opacity-40 text-[var(--text-on-accent)] text-sm px-5 h-9 font-semibold"
+                  className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
-                  {isSaving ? gt("Saving…") : gt("Save Changes")}
-                </Button>
+                  {isSaving && <Loader size={16} />}
+                  {gt("Save Changes")}
+                </button>
               </div>
             </div>
           )}
 
           {hasPermChanges && activeTab === "permissions" && (
-            <div className="shrink-0 px-8 py-3.5 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] flex items-center justify-between gap-4 animate-in slide-in-from-bottom-2 duration-200">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0 animate-pulse" />
-                <span className="text-sm text-[var(--text-secondary)] truncate">
-                  {gt("You have unsaved permission changes")}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom z-50">
+              <span className="text-white text-sm font-medium">{gt("Careful — you have unsaved permission changes!")}</span>
+              <div className="flex gap-2">
                 <button
                   onClick={() => {
                     if (channel) {
@@ -1384,17 +1415,18 @@ export function ChannelSettingsDialog({
                       })));
                     }
                   }}
-                  className="px-3.5 py-2 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
+                  className="px-4 py-1.5 text-sm text-white hover:underline transition-all"
                 >
                   {gt("Reset")}
                 </button>
-                <Button
+                <button
                   onClick={handleSavePermissions}
                   disabled={isSaving}
-                  className="bg-[var(--app-accent)] hover:opacity-90 disabled:opacity-40 text-[var(--text-on-accent)] text-sm px-5 h-9 font-semibold"
+                  className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
-                  {isSaving ? gt("Saving…") : gt("Save Changes")}
-                </Button>
+                  {isSaving && <Loader size={16} />}
+                  {gt("Save Changes")}
+                </button>
               </div>
             </div>
           )}

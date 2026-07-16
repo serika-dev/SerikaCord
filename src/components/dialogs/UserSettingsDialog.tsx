@@ -64,6 +64,8 @@ import {
   Calendar,
   Bot,
   RefreshCw,
+  Bug,
+  ShieldAlert,
 } from "lucide-react";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
@@ -71,8 +73,11 @@ import { cn } from "@/lib/utils";
 import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badges";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
+import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
+import { BugReportPanel } from "@/components/settings/BugReportPanel";
+import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
@@ -110,7 +115,9 @@ type SettingsTab =
   | "admin-tts-sounds"
   | "admin-tts-voices"
   | "admin-translations"
-  | "admin-stats";
+  | "admin-stats"
+  | "bug-reports"
+  | "admin-bug-reports";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -881,15 +888,22 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     initialServerBanner,
   ]);
 
-  // Handle escape key
+  // Handle escape key. Capture phase so it fires even if a child stops
+  // propagation, but yield to any nested dialog/menu/popover so Escape closes
+  // that first (e.g. an open picker inside settings) before closing settings.
   useEffect(() => {
+    if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && open) {
-        onOpenChange(false);
-      }
+      if (e.key !== "Escape") return;
+      const nested = document.querySelector(
+        '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]'
+      );
+      if (nested) return; // let the nested overlay handle Escape first
+      e.preventDefault();
+      onOpenChange(false);
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
   }, [open, onOpenChange]);
 
   const handleSave = async () => {
@@ -1585,6 +1599,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
           { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
           { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
+          { id: "bug-reports" as SettingsTab, label: gt("Bug Reports"), icon: Bug },
         ],
       },
       {
@@ -1633,6 +1648,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           { id: "admin-tts-sounds" as SettingsTab, label: gt("TTS Sounds"), icon: Volume2 },
           { id: "admin-tts-voices" as SettingsTab, label: gt("TTS Voices"), icon: Mic2 },
           { id: "admin-translations" as SettingsTab, label: gt("Translations"), icon: Languages },
+          { id: "admin-bug-reports" as SettingsTab, label: gt("Bug Reports"), icon: ShieldAlert },
         ],
       });
     }
@@ -3325,18 +3341,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       )}
 
                       {activeTab === "keybinds" && (
-                        <>
-                          <label className="block text-sm text-[var(--text-secondary)]">{gt("Preset")}</label>
-                          <select
-                            value={userSettings.keybinds?.preset || "default"}
-                            onChange={(e) => saveSettingsPatch({ keybinds: { ...(userSettings.keybinds || {}), preset: e.target.value } }, "keybinds")}
-                            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
-                          >
-                            <option value="default">{gt("Default")}</option>
-                            <option value="gaming">{gt("Gaming")}</option>
-                            <option value="vim">{gt("Vim-style")}</option>
-                          </select>
-                        </>
+                        <KeybindSettingsPanel />
                       )}
 
                       {activeTab === "language" && (
@@ -4605,6 +4610,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Translations */}
               {activeTab === "admin-translations" && isStaff && (
                 <AdminTranslationsPanel />
+              )}
+
+              {/* Bug Reports - User */}
+              {activeTab === "bug-reports" && (
+                <BugReportPanel />
+              )}
+
+              {/* Admin Panel - Bug Reports */}
+              {activeTab === "admin-bug-reports" && isStaff && (
+                <AdminBugReportsPanel />
               )}
             </div>
           </ScrollArea>

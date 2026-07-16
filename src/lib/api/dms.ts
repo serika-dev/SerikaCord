@@ -39,6 +39,23 @@ function sanitizeMessageContent(content: string): string {
   return decodeHtmlEntities(sanitized);
 }
 
+// Normalize message text for duplicate-spam detection. Mirrors the channel
+// send guard: trivial variations (whitespace, punctuation, an extra character,
+// repeated letters) collapse to the same fingerprint.
+function normalizeForSpamCheck(content: string): string {
+  return content
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(.)\1+/g, '$1')
+    .trim();
+}
+
+// How many identical (post-normalization) messages in a row before a send is
+// blocked as spam.
+const DUPLICATE_SPAM_THRESHOLD = 4;
+
 function getPublicPresenceStatus(user: { status?: string | null; presenceLastHeartbeatAt?: Date | string | number | null; isSystem?: boolean | null }) {
   return resolveEffectiveStatus({
     status: user.status,
@@ -392,6 +409,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const limit = Math.min(parseInt(query.limit as string) || 50, 100);
     const before = query.before as string | undefined;
     const after = query.after as string | undefined;
+    const around = query.around as string | undefined;
 
     // Build cursor-based DB query
     const msgFilter: Record<string, unknown> = {
@@ -411,6 +429,13 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       const afterMsg = await Message.findById(after);
       if (afterMsg) {
         msgFilter.createdAtAfter = afterMsg.createdAt;
+      }
+    } else if (around) {
+      // Load a window ending at (and including) the target message so the client
+      // can scroll to a pinned/searched message that isn't in the live tail.
+      const aroundMsg = await Message.findById(around);
+      if (aroundMsg) {
+        msgFilter.createdAtBefore = new Date(new Date(aroundMsg.createdAt as string | number | Date).getTime() + 1);
       }
     }
 
@@ -617,6 +642,30 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       encryptForStorage(sanitizedContent),
     ]);
     const userServerIds = userServerMemberships.map((m: any) => m.serverId);
+
+    // Duplicate-spam guard: block sending the same text many times in a row.
+    // Only applies to plain text sends (attachments/stickers are exempt).
+    const spamFingerprint = normalizeForSpamCheck(sanitizedContent);
+    if (spamFingerprint && (!attachments || attachments.length === 0) && !stickerData) {
+      const recent = await Message.find({
+        channelId: channel.id,
+        authorId: user.id,
+        isDeleted: false,
+        _limit: DUPLICATE_SPAM_THRESHOLD,
+      });
+      if (recent.length >= DUPLICATE_SPAM_THRESHOLD) {
+        const recentContents = await Promise.all(
+          recent.map((m: any) => (m.content ? decryptFromStorage(m.content) : Promise.resolve('')))
+        );
+        const allDuplicate = recentContents.every(
+          (c) => normalizeForSpamCheck(c) === spamFingerprint
+        );
+        if (allDuplicate) {
+          set.status = 429;
+          return { error: 'Please stop sending the same message repeatedly.' };
+        }
+      }
+    }
 
     // Bot (application) slash command in a DM with a bot: dispatch the interaction
     // to that bot and DON'T persist the raw "/command" text. The bot's response

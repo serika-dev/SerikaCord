@@ -22,6 +22,7 @@ import { useGT } from "gt-next";
 
 interface InviteInfo {
   code: string;
+  isMember?: boolean;
   server: {
     id: string;
     name: string;
@@ -38,6 +39,7 @@ interface InviteInfo {
 
 import { isReservedSlug } from "@/lib/constants/reserved";
 import { Loader } from "@/components/ui/Loader";
+import { notifyServersChanged } from "@/lib/notifyServersChanged";
 
 export default function InvitePage() {
   const router = useRouter();
@@ -99,7 +101,21 @@ export default function InvitePage() {
     checkAuth();
   }, [fetchInvite, checkAuth]);
 
+  const navigateTo = useCallback((target: string) => {
+    if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
+      window.location.href = `https://serika.chat${target}`;
+    } else {
+      router.push(target);
+    }
+  }, [router]);
+
   const handleJoin = async () => {
+    // Already a member — just open the server instead of pretending to join.
+    if (invite?.isMember) {
+      navigateTo(invite.server.id ? `/channels/${invite.server.id}` : "/channels/me");
+      return;
+    }
+
     if (!isAuthenticated) {
       const loginUrl = `/login?redirect=/${inviteCode}`;
       if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
@@ -125,24 +141,19 @@ export default function InvitePage() {
 
       if (!res.ok) {
         if (res.status === 400 && data.error?.includes("Already a member")) {
-          const target = invite?.server.id ? `/channels/${invite.server.id}` : "/channels/me";
-          if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
-            window.location.href = `https://serika.chat${target}`;
-          } else {
-            router.push(target);
-          }
+          navigateTo(invite?.server.id ? `/channels/${invite.server.id}` : "/channels/me");
           return;
         }
         setError(data.error || gt("Failed to join server."));
         return;
       }
 
+      // Tell any already-open app tab/route to refresh its server rail so the
+      // newly joined server shows up instantly (esp. same-host client nav).
+      notifyServersChanged();
+
       const target = data.server?.id ? `/channels/${data.server.id}` : "/channels/me";
-      if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
-        window.location.href = `https://serika.chat${target}`;
-      } else {
-        router.push(target);
-      }
+      navigateTo(target);
     } catch {
       setError(gt("Something went wrong. Please try again."));
     } finally {
@@ -338,7 +349,7 @@ export default function InvitePage() {
                   className="mt-4"
                 >
                   <p className="text-xs font-semibold uppercase tracking-wider text-[var(--accent-color)] mb-1">
-                    {gt("You've been invited to join")}
+                    {invite.isMember ? gt("You're already a member of") : gt("You've been invited to join")}
                   </p>
                   <div className="flex items-center gap-2">
                     {invite.server.isPartnered && <ServerBadge type="partnered" size="md" iconOnly />}
@@ -419,13 +430,18 @@ export default function InvitePage() {
                   <motion.button
                     whileTap={{ scale: 0.98 }}
                     onClick={handleJoin}
-                    disabled={isJoining || isExpired}
+                    disabled={isJoining || (isExpired && !invite.isMember)}
                     className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all text-sm"
                   >
                     {isJoining ? (
                       <>
                         <Loader size={16} />
                         {gt("Joining...")}
+                      </>
+                    ) : invite.isMember ? (
+                      <>
+                        {gt("Open Server")}
+                        <ArrowRight className="w-4 h-4" />
                       </>
                     ) : isExpired ? (
                       gt("Invite Expired")

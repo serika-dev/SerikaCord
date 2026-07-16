@@ -357,6 +357,20 @@ export function AudioTrimmerDialog({
     return () => window.removeEventListener("mouseup", handler);
   }, [dragging]);
 
+  // Handle escape key
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpenChange(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
+  }, [open, onOpenChange]);
+
   if (!open) return null;
 
   const selPercent = duration > 0 ? (selectionLength / maxDuration) * 100 : 0;

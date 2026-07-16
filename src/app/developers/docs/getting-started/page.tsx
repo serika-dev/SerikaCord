@@ -5,13 +5,13 @@ import { getGT } from "gt-next/server";
 export const metadata = buildMetadata({
   title: "Getting Started with the SerikaCord API",
   description:
-    "Create your first SerikaCord bot in minutes. Set up an application, enable a bot user, get your token, and send your first message with discord.js or any Discord-compatible library.",
+    "Create your first SerikaCord bot in minutes. Set up an application, enable a bot user, get your token, and send your first message with serika.js or any Discord-compatible library.",
   path: "/developers/docs/getting-started",
   keywords: [
     "SerikaCord bot tutorial",
     "create bot",
     "bot token",
-    "discord.js SerikaCord",
+    "serika.js SerikaCord",
     "API getting started",
   ],
 });
@@ -21,10 +21,10 @@ export default async function GettingStartedDoc() {
   return (
     <DocPage
       title={gt("Getting Started")}
-      description={gt("From zero to a running bot that replies in a channel. This walkthrough uses discord.js, but any Discord-compatible library works the same way.")}
+      description={gt("From zero to a running bot that replies in a channel. This walkthrough uses serika.js, the official SerikaCord SDK. Any Discord-compatible library also works with a base-URL change.")}
     >
       <Callout type="info" title={gt("What you'll need")}>
-        {gt("A SerikaCord account, Node.js 18+ (or Python 3.9+), and about five minutes. No prior Discord bot experience is required, but if you have built a Discord bot before, the process is identical — only the base URL changes.")}
+        {gt("A SerikaCord account, Node.js 18+, and about five minutes. No prior Discord bot experience is required, but if you have built a Discord bot before, the process is identical — only the base URL changes.")}
       </Callout>
 
       <H2 id="overview">{gt("How SerikaCord bots work")}</H2>
@@ -106,35 +106,34 @@ export default async function GettingStartedDoc() {
 
         <Step n={5} title={gt("Write the bot")}>
           <P>
-            {gt("Point any Discord library at SerikaCord by overriding the REST and gateway URLs. For")}{" "}
-            <InlineCode>discord.js</InlineCode> v14+:
+            {gt("Install")}{" "}<InlineCode>@serikadev/serika.js</InlineCode>{gt(", the official SerikaCord SDK. It handles REST, Gateway, heartbeats, and retries automatically:")}
           </P>
-          <CodeBlock lang="javascript">{`import { Client, GatewayIntentBits } from "discord.js";
+          <CodeBlock lang="bash">npm install @serikadev/serika.js</CodeBlock>
+          <CodeBlock lang="javascript">{`import { SerikaClient, Intents } from "@serikadev/serika.js";
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
+const client = new SerikaClient({
+  token: process.env.BOT_TOKEN!,
+  baseURL: "https://api.serika.chat",
 });
 
-// Point discord.js at SerikaCord instead of Discord
-client.rest.setBaseURL("https://api.serika.chat/api/v10");
-client.options.ws.url = "wss://api.serika.chat/api/v10/gateway";
-
-client.once("ready", () => console.log(\`Logged in as \${client.user.tag}\`));
-
-client.on("messageCreate", (msg) => {
-  if (msg.author.bot) return;
-  if (msg.content === "!ping") msg.reply("Pong! 🏓");
+// Gateway: listen for events
+const gw = await client.connectGateway({
+  intents: Intents.GUILDS | Intents.GUILD_MESSAGES | Intents.MESSAGE_CONTENT,
 });
 
-client.login(process.env.BOT_TOKEN);`}</CodeBlock>
+gw.onReady(() => console.log("Bot is ready!"));
+
+gw.onDispatch((event, data) => {
+  if (event === "MESSAGE_CREATE") {
+    const msg = data;
+    if (msg.author.bot) return;
+    if (msg.content === "!ping") {
+      client.bot.createMessage(msg.channel_id, { content: "Pong! 🏓" });
+    }
+  }
+});`}</CodeBlock>
           <P>
-            {gt("The two lines that make it a SerikaCord bot instead of a Discord bot are")}{" "}
-            <InlineCode>client.rest.setBaseURL(...)</InlineCode> {gt("and")}{" "}
-            <InlineCode>client.options.ws.url = ...</InlineCode>. {gt("Everything else — intents, events, the message API — is identical to Discord.")}
+            {gt("serika.js handles the base URL, Gateway connection, heartbeats, and rate limits automatically. You can also use any Discord-compatible library (like")}{" "}<InlineCode>discord.js</InlineCode> {gt("or")}{" "}<InlineCode>discord.py</InlineCode>{gt(") by overriding their base URLs — see the")}{" "}<Link2 href="/developers/docs/quick-start">{gt("Quick Start")}</Link2> {gt("page for examples.")}
           </P>
         </Step>
 
@@ -143,7 +142,7 @@ client.login(process.env.BOT_TOKEN);`}</CodeBlock>
 export BOT_TOKEN="your_token_here"
 node bot.js`}</CodeBlock>
           <P>
-            {gt("You should see")}{" "}<InlineCode>Logged in as YourBotName#0</InlineCode>. {gt("Type")}{" "}
+            {gt("You should see")}{" "}<InlineCode>Bot is ready!</InlineCode>. {gt("Type")}{" "}
             <InlineCode>!ping</InlineCode> {gt("in a channel your bot can see. It should reply")}{" "}
             <InlineCode>Pong! 🏓</InlineCode>.
           </P>
@@ -155,9 +154,9 @@ node bot.js`}</CodeBlock>
         </Step>
       </Steps>
 
-      <H2 id="python">{gt("Prefer Python?")}</H2>
+      <H2 id="python">{gt("Prefer Python or another library?")}</H2>
       <P>
-        {gt("Using")}{" "}<InlineCode>discord.py</InlineCode> {gt("with SerikaCord is equally straightforward:")}
+        {gt("SerikaCord is API-compatible with Discord, so")}{" "}<InlineCode>discord.py</InlineCode> {gt("works with a base-URL override:")}
       </P>
       <CodeBlock lang="python">{`import os, discord
 

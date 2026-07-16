@@ -156,7 +156,7 @@ export default async function ReferenceDoc() {
 
       <H2 id="discord-compat">{gt("Discord Compatibility")}</H2>
       <Callout type="info" title={gt("Discord API Compatibility")}>
-        {gt("SerikaCord implements the Discord v10 bot API. Existing")}{" "}<InlineCode>discord.js</InlineCode> /{" "}
+        {gt("SerikaCord implements the Discord v10 bot API. The official")}{" "}<InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively, or existing")}{" "}<InlineCode>discord.js</InlineCode> /{" "}
         <InlineCode>discord.py</InlineCode> {gt("bots run with a one-line base-URL change. Response shapes for users, channels, messages, guilds, roles, members, and invites are formatted to match Discord's JSON structure exactly.")}
       </Callout>
       <P>

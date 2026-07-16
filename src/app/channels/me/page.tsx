@@ -747,7 +747,7 @@ export default function DirectMessagesPage() {
                                     )}
                                   </div>
                                   <p className="text-xs text-[var(--text-muted)] truncate">
-                                    {friend.customStatus || statusLabel(friend.status, gt)}
+                                    {friend.status !== "offline" && friend.customStatus ? friend.customStatus : statusLabel(friend.status, gt)}
                                   </p>
                                 </div>
                               </button>
@@ -974,7 +974,7 @@ function ActiveFriendCard({ entry, onMessage }: { entry: ActiveFriend; onMessage
               {friend.isPremium && <Crown className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />}
             </div>
             <p className="text-xs text-[var(--text-muted)] truncate">
-              {friend.customStatus || statusLabels[friend.status]}
+              {friend.status !== "offline" && friend.customStatus ? friend.customStatus : statusLabels[friend.status]}
             </p>
           </div>
         </button>

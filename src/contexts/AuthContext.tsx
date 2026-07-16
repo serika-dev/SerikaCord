@@ -49,6 +49,7 @@ interface User {
     [key: string]: any;
   };
   gifFavorites?: Array<{ url: string; title?: string; source?: string; addedAt: number }>;
+  emojiFavorites?: Array<{ emoji: string; name?: string; customEmojiId?: string | null; url?: string | null; addedAt: number }>;
 }
 
 interface AuthContextType {

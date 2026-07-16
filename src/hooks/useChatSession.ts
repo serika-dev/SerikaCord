@@ -230,6 +230,10 @@ export function useChatSession<M extends ChatMessage>({
   const [messages, setMessages] = useState<M[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  // Synchronous re-entrancy guard: `isSending` state updates only after a
+  // render, so rapid Enter presses (especially while attachments upload) could
+  // otherwise fire sendMessage multiple times before the flag flips.
+  const sendingRef = useRef(false);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState<M[]>([]);
@@ -422,6 +426,36 @@ export function useChatSession<M extends ChatMessage>({
     }
     return false;
   }, [apiBase, isLoadingMore, hasMoreOlder, messages]);
+
+  // Ensure a message is loaded so the UI can scroll to it. If it's already in
+  // the window, no-op. Otherwise load a window centered on it via the `around`
+  // cursor (used by pinned-message and search-result jumps). Returns whether
+  // the target should now be present in the DOM after the next render.
+  const jumpToMessage = useCallback(async (messageId: string): Promise<boolean> => {
+    if (!apiBase || !messageId) return false;
+    if (messages.some((m) => m.id === messageId)) return true;
+    try {
+      const response = await fetch(`${apiBase}/messages?around=${messageId}&limit=${PAGE_SIZE}`);
+      if (!response.ok) return false;
+      const data = await response.json();
+      const raw = Array.isArray(data) ? data : data.messages || [];
+      if (raw.length === 0) return false;
+      const seen = new Set<string>();
+      const window: M[] = [];
+      for (const item of raw) {
+        const normalized = normalizeIncomingMessage<M>(item);
+        if (seen.has(normalized.id)) continue;
+        seen.add(normalized.id);
+        window.push(normalized);
+      }
+      setMessages(window);
+      setHasMoreOlder(true);
+      return window.some((m) => m.id === messageId);
+    } catch (error) {
+      console.error("Failed to jump to message:", error);
+      return false;
+    }
+  }, [apiBase, messages]);
 
   useEffect(() => {
     if (apiBase && user) {
@@ -627,6 +661,10 @@ export function useChatSession<M extends ChatMessage>({
         return;
       }
 
+      // Drop duplicate sends triggered before the previous one settled.
+      if (sendingRef.current) return;
+      sendingRef.current = true;
+
       const replyReference = actions.replyToMessage;
       if (!isOverrideSend) {
         composer?.clear();
@@ -731,6 +769,7 @@ export function useChatSession<M extends ChatMessage>({
         restoreDraft();
         toast.error(gt("Failed to send message. Check your connection."));
       } finally {
+        sendingRef.current = false;
         setIsSending(false);
         actions.setReplyToMessage(null);
       }
@@ -796,6 +835,7 @@ export function useChatSession<M extends ChatMessage>({
     isLoadingMore,
     fetchMessages,
     loadOlderMessages,
+    jumpToMessage,
     pinnedMessages,
     isLoadingPins,
     fetchPinnedMessages,

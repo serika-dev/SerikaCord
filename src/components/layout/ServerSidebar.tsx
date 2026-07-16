@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Plus, Compass, MessageSquare, Check, BellOff, Bell, Copy, LogOut,
-  FolderPlus, FolderMinus, Folder as FolderIcon, Pencil, Users,
+  FolderPlus, FolderMinus, Folder as FolderIcon, Pencil, Users, UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -31,6 +31,7 @@ import { ServerBadge } from "@/components/ui/badges";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
+  onInvitePeople?: () => void;
 }
 
 type Server = ReturnType<typeof useServer>["servers"][number];
@@ -70,7 +71,7 @@ function saveDmSeen(map: Record<string, string>) {
   }
 }
 
-export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
+export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarProps) {
   const gt = useGT();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
@@ -357,7 +358,7 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
               whileTap={{ scale: 0.88 }}
               transition={{ type: "spring", stiffness: 500, damping: 30 }}
               className={cn(
-                "relative flex items-center justify-center bg-[var(--bg-sidebar-elevated)] transition-[border-radius] duration-200 group overflow-hidden",
+                "relative flex items-center justify-center bg-[var(--bg-sidebar-elevated)] transition-[border-radius] duration-200 group overflow-hidden transform-gpu [backface-visibility:hidden]",
                 inFolder ? "w-10 h-10 rounded-[12px] hover:rounded-[10px]" : "w-12 h-12 rounded-[24px] hover:rounded-[16px]",
                 isActive && (inFolder ? "rounded-[10px]" : "rounded-[16px]"),
                 muted && "opacity-60"
@@ -378,8 +379,11 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
               {!inFolder && (
                 <div
                   className={cn(
-                    "absolute left-0 w-1 bg-[var(--text-primary)] rounded-r-full transition-all duration-200",
-                    isActive ? "h-10" : "h-0 group-hover:h-5"
+                    // Animate a fixed-height bar with a GPU transform (scaleY)
+                    // instead of animating `height`, which caused per-frame
+                    // reflow and a visible stutter on hover.
+                    "absolute left-0 w-1 h-10 bg-[var(--text-primary)] rounded-r-full origin-center transition-transform duration-200 will-change-transform",
+                    isActive ? "scale-y-100" : "scale-y-0 group-hover:scale-y-50"
                   )}
                 />
               )}
@@ -463,6 +467,12 @@ export function ServerSidebar({ onCreateServer }: ServerSidebarProps) {
                   </DropdownMenuSub>
                 )}
               </>
+            )}
+            {onInvitePeople && (
+              <DropdownMenuItem onClick={() => { setCurrentServer(server); onInvitePeople(); }}>
+                <UserPlus className="w-4 h-4" />
+                {gt("Invite People")}
+              </DropdownMenuItem>
             )}
             <DropdownMenuItem onClick={() => handleCopyServerId(server.id)}>
               <Copy className="w-4 h-4" />

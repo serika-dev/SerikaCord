@@ -5,7 +5,6 @@ import { Pencil, Pin, Reply, Smile, Trash2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";
@@ -267,6 +266,7 @@ function MessageGroupInner<M extends ChatMessage>({
                             >
                               <span
                                 onClick={(e) => e.stopPropagation()}
+                                onContextMenu={(e) => e.stopPropagation()}
                                 className="font-medium text-[var(--app-accent)] hover:underline cursor-pointer inline"
                               >
                                 {message.referencedMessage.author.displayName ||
@@ -276,7 +276,18 @@ function MessageGroupInner<M extends ChatMessage>({
                           ) : (
                             gt("message")
                           )}
-                          : {message.referencedMessage.content ? decodeHtmlEntities(message.referencedMessage.content) : gt("(attachment)")}
+                          {": "}
+                          {message.referencedMessage.content ? (
+                            <MessageContent
+                              inline
+                              content={message.referencedMessage.content}
+                              serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                              serverId={serverId}
+                              className="inline"
+                            />
+                          ) : (
+                            gt("(attachment)")
+                          )}
                         </span>
                       </div>
                     )}

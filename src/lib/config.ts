@@ -76,8 +76,9 @@ export const config = {
   B2_ENDPOINT: process.env.B2_ENDPOINT || 's3.eu-central-003.backblazeb2.com',
   B2_REGION: 'eu-central-003',
   
-  // CDN
-  CDN_URL: process.env.CDN_URL || `https://${process.env.B2_BUCKET_NAME}.s3.eu-central-003.backblazeb2.com`,
+  // CDN — Backblaze B2 bucket fronted by Cloudflare/CDN at cdn.serika.chat.
+  // The CDN maps to the bucket root, so keys are appended directly (no /file/<bucket> prefix).
+  CDN_URL: process.env.CDN_URL || 'https://cdn.serika.chat',
   
   // Security
   RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || '100'),

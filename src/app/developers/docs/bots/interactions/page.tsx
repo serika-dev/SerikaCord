@@ -258,7 +258,7 @@ curl -X POST \\
 }`}</CodeBlock>
 
       <Callout type="info" title={gt("Prefer the gateway?")}>
-        {gt("If you use a full library like discord.js, you generally don't need an HTTP endpoint — interactions arrive on your socket. The HTTP path exists for serverless and lightweight bots. Learn to register commands in")}{" "}<Link2 href="/developers/docs/bots/slash-commands">{gt("Slash Commands")}</Link2>.
+        {gt("If you use a full library like serika.js, you generally don't need an HTTP endpoint — interactions arrive on your socket. The HTTP path exists for serverless and lightweight bots. Learn to register commands in")}{" "}<Link2 href="/developers/docs/bots/slash-commands">{gt("Slash Commands")}</Link2>.
       </Callout>
     </DocPage>
   );

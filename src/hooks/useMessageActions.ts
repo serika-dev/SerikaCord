@@ -124,11 +124,11 @@ export function useMessageActions<M extends ChatMessage>({
     [submitEdit, cancelEditing]
   );
 
-  // Optimistic delete: remove immediately, restore on failure.
-  const confirmDelete = useCallback(async () => {
-    if (!apiBase || !deleteConfirmMessage) return;
+  // Optimistic delete of a specific message: remove immediately, restore on failure.
+  const deleteMessageNow = useCallback(async (message: M) => {
+    if (!apiBase || !message) return;
 
-    const messageId = deleteConfirmMessage.id;
+    const messageId = message.id;
     let previousMessages: M[] = [];
     setMessages((prev) => {
       previousMessages = prev;
@@ -147,7 +147,12 @@ export function useMessageActions<M extends ChatMessage>({
       setMessages(previousMessages);
       toast.error(gt("Failed to delete message. Check your connection."));
     }
-  }, [apiBase, deleteConfirmMessage, setMessages]);
+  }, [apiBase, setMessages]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleteConfirmMessage) return;
+    await deleteMessageNow(deleteConfirmMessage);
+  }, [deleteConfirmMessage, deleteMessageNow]);
 
   const copyMessage = useCallback((content: string) => {
     navigator.clipboard.writeText(content);
@@ -253,6 +258,7 @@ export function useMessageActions<M extends ChatMessage>({
       deleteConfirmMessage,
       setDeleteConfirmMessage,
       confirmDelete,
+      deleteMessageNow,
       contextMenu,
       setContextMenu,
       openContextMenu,
@@ -278,6 +284,7 @@ export function useMessageActions<M extends ChatMessage>({
       deleteConfirmMessage,
       setDeleteConfirmMessage,
       confirmDelete,
+      deleteMessageNow,
       contextMenu,
       setContextMenu,
       openContextMenu,

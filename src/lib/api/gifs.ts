@@ -284,4 +284,77 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
     body: t.Object({
       url: t.String(),
     }),
+  })
+  // ── Emoji favorites ──────────────────────────────────────────────
+  .get('/emoji-favorites', async ({ headers, cookie, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const dbUser = await User.findById((user as any).id || (user as any)._id);
+    return { favorites: dbUser?.emojiFavorites || [] };
+  })
+  .post('/emoji-favorites', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const { emoji, name, customEmojiId, url } = body as { emoji: string; name?: string; customEmojiId?: string; url?: string };
+    if (!emoji || typeof emoji !== 'string') {
+      set.status = 400;
+      return { error: 'Emoji is required' };
+    }
+    const userId = (user as any).id || (user as any)._id;
+    const dbUser = await User.findById(userId);
+    if (!dbUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    const favorites = (dbUser.emojiFavorites as any[]) || [];
+    const key = customEmojiId || emoji;
+    if (!favorites.some((f: any) => (f.customEmojiId || f.emoji) === key)) {
+      favorites.push({ emoji, name: name || '', customEmojiId: customEmojiId || null, url: url || null, addedAt: Date.now() });
+      const updated = favorites.slice(-200);
+      await User.updateById(userId, { emojiFavorites: updated });
+      await invalidateUserCache(userId);
+      return { favorites: updated };
+    }
+    return { favorites: dbUser.emojiFavorites };
+  }, {
+    body: t.Object({
+      emoji: t.String(),
+      name: t.Optional(t.String()),
+      customEmojiId: t.Optional(t.String()),
+      url: t.Optional(t.String()),
+    }),
+  })
+  .delete('/emoji-favorites', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const { emoji, customEmojiId } = body as { emoji?: string; customEmojiId?: string };
+    const userId = (user as any).id || (user as any)._id;
+    const dbUser = await User.findById(userId);
+    if (!dbUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    const key = customEmojiId || emoji;
+    if (!key) {
+      set.status = 400;
+      return { error: 'Emoji or customEmojiId is required' };
+    }
+    const updated = ((dbUser.emojiFavorites as any[]) || []).filter((f: any) => (f.customEmojiId || f.emoji) !== key);
+    await User.updateById(userId, { emojiFavorites: updated });
+    await invalidateUserCache(userId);
+    return { favorites: updated };
+  }, {
+    body: t.Object({
+      emoji: t.Optional(t.String()),
+      customEmojiId: t.Optional(t.String()),
+    }),
   });

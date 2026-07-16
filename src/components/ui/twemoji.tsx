@@ -30,6 +30,16 @@ function isOnlyEmoji(text: string): boolean {
   return emojiRegex.test(stripped) && stripped.length <= 12;
 }
 
+// Escape HTML special characters to prevent XSS in dangerouslySetInnerHTML
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // Parse content and replace custom emojis with img tags
 function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[]): string {
   if (!content || typeof content !== 'string') return content;
@@ -42,15 +52,34 @@ function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[]): s
     }
   }
   
-  return content.replace(CUSTOM_EMOJI_REGEX, (match, animated, name, id) => {
-    // Check if we have pre-parsed data
+  // Split by the regex so we can escape non-emoji segments
+  let lastIndex = 0;
+  const parts: string[] = [];
+  const regex = new RegExp(CUSTOM_EMOJI_REGEX.source, 'g');
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(content)) !== null) {
+    // Escape the text before this match
+    if (match.index > lastIndex) {
+      parts.push(escapeHtml(content.slice(lastIndex, match.index)));
+    }
+    const [, , name, id] = match;
     const emojiData = emojiMap.get(id);
     if (emojiData) {
-      return `<img src="${emojiData.url}" alt=":${emojiData.name}:" title=":${emojiData.name}:" class="custom-emoji inline-block align-middle" draggable="false" />`;
+      // Escape the URL and name to prevent attribute injection
+      parts.push(`<img src="${escapeHtml(emojiData.url)}" alt=":${escapeHtml(emojiData.name)}:" title=":${escapeHtml(emojiData.name)}:" class="custom-emoji inline-block align-middle" draggable="false" />`);
+    } else {
+      parts.push(escapeHtml(`:${name}:`));
     }
-    // Fallback: return original text as placeholder
-    return `:${name}:`;
-  });
+    lastIndex = regex.lastIndex;
+  }
+
+  // Escape remaining text
+  if (lastIndex < content.length) {
+    parts.push(escapeHtml(content.slice(lastIndex)));
+  }
+
+  return parts.join('');
 }
 
 export function Twemoji({ children, className, size = "normal", customEmojis }: TwemojiProps) {

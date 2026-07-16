@@ -12,7 +12,7 @@ import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, Crown } from "lucide-react";
+import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,8 @@ interface FullProfileDialogProps {
   isFriend?: boolean;
   serverId?: string;
   showOwnerCrown?: boolean;
+  /** When provided and the viewer can moderate, shows a Mod View button. */
+  onOpenModView?: () => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -56,6 +58,7 @@ export function FullProfileDialog({
   isFriend = false,
   serverId,
   showOwnerCrown = false,
+  onOpenModView,
 }: FullProfileDialogProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
@@ -69,9 +72,31 @@ export function FullProfileDialog({
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
+  const [canModerate, setCanModerate] = useState(false);
+  const [isAdminOfServer, setIsAdminOfServer] = useState(false);
+
+  // Gate the Mod View entry on the viewer actually having moderation perms.
+  useEffect(() => {
+    if (!open || !serverId || !onOpenModView || isSelf || !user.id) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/servers/${serverId}/members/@me/permissions`);
+        if (!res.ok || !active) return;
+        const p = await res.json();
+        const bits = [1n << 3n, 1n << 1n, 1n << 2n, 1n << 40n, 1n << 28n];
+        const perms = BigInt(p.permissions ?? "0");
+        setCanModerate(Boolean(p.isOwner) || bits.some((b) => (perms & b) === b));
+        setIsAdminOfServer(Boolean(p.isOwner) || (perms & (1n << 3n)) === (1n << 3n));
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { active = false; };
+  }, [open, serverId, onOpenModView, isSelf, user.id]);
 
   const status = fullUser.status ?? "offline";
-  const displayName = fullUser.displayName || fullUser.username;
+  const displayName = fullUser.nickname || fullUser.displayName || fullUser.username;
   // Only poll live activity / tick the clock while the dialog is open — many of
   // these dialogs are mounted at once (one per avatar/username/mention), so
   // ungated polling saturates the network and main thread. See useUserActivity.
@@ -216,6 +241,18 @@ export function FullProfileDialog({
                 <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] via-[#7C3AED] to-[#4F46E5]" />
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c10]/70 via-transparent to-transparent" />
+
+              {/* Mod view button in the top right of the banner */}
+              {!isSelf && user.id && serverId && isAdminOfServer && onOpenModView && (
+                <button
+                  onClick={onOpenModView}
+                  aria-label={gt("Open in Mod View")}
+                  title={gt("Open in Mod View")}
+                  className="absolute top-3.5 right-3.5 z-20 p-2 rounded-lg bg-black/40 hover:bg-black/60 active:scale-[0.95] text-white backdrop-blur-md border border-white/[0.06] transition-all"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             <div className="relative px-4 pb-4">
@@ -280,11 +317,6 @@ export function FullProfileDialog({
                   >
                     {displayName}
                   </h3>
-                  {showOwnerCrown && fullUser.isOwner && (
-                    <span title={gt("Server Owner")} className="shrink-0 text-[#F59E0B]">
-                      <Crown className="w-4 h-4" />
-                    </span>
-                  )}
                 </div>
                 <button
                   onClick={handleCopyUsername}

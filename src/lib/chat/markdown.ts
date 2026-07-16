@@ -32,7 +32,23 @@ function parseInline(text: string): MarkdownNode[] {
       { regex: STRIKE_RE, type: "strikethrough", build: (m) => ({ type: "strikethrough", content: m[1], key: `s-${key++}` } as MarkdownNode) },
       { regex: SPOILER_RE, type: "spoiler", build: (m) => ({ type: "spoiler", content: m[1], key: `sp-${key++}` } as MarkdownNode) },
       { regex: ITALIC_RE, type: "italic", build: (m) => ({ type: "italic", content: m[1], key: `i-${key++}` } as MarkdownNode) },
-      { regex: LINK_RE, type: "link", build: (m) => ({ type: "link", content: m[1], href: m[2], key: `l-${key++}` } as MarkdownNode) },
+      { regex: LINK_RE, type: "link", build: (m) => {
+        const href = m[2];
+        if (/serika\.cc/i.test(href)) {
+          return { type: "text", content: m[1], key: `l-${key++}` } as MarkdownNode;
+        }
+        // Security: only allow safe URL schemes to prevent javascript: XSS
+        const trimmedHref = href.trim().toLowerCase();
+        const isSafeScheme = /^https?:\/\//i.test(trimmedHref) ||
+          /^mailto:/i.test(trimmedHref) ||
+          /^\/[^/]/i.test(trimmedHref) ||   // relative paths
+          /^#/.test(trimmedHref);              // anchor links
+        if (!isSafeScheme) {
+          // Dangerous scheme (javascript:, data:, vbscript:, etc.) — render as plain text
+          return { type: "text", content: `[${m[1]}](${href})`, key: `l-${key++}` } as MarkdownNode;
+        }
+        return { type: "link", content: m[1], href, key: `l-${key++}` } as MarkdownNode;
+      } },
       { regex: TIMESTAMP_RE, type: "timestamp", build: (m) => ({ type: "timestamp", content: m[1], format: m[2] || "f", options: m[3], key: `ts-${key++}` } as MarkdownNode) },
       { regex: CHANNEL_MENTION_RE, type: "channel_mention", build: (m) => ({ type: "channel_mention", content: m[1], key: `ch-${key++}` } as MarkdownNode) },
     ];

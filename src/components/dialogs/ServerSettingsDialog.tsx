@@ -295,10 +295,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [isReorderingRoles, setIsReorderingRoles] = useState(false);
   const [invites, setInvites] = useState<Invite[]>([]);
   // Vanity URL (partnered servers)
-  const [vanityInfo, setVanityInfo] = useState<{ code: string | null; uses: number; isPartnered: boolean } | null>(null);
+  const [vanityInfo, setVanityInfo] = useState<{ code: string | null; uses: number; isPartnered: boolean; lockToVanity: boolean } | null>(null);
   const [vanityDraft, setVanityDraft] = useState("");
   const [isSavingVanity, setIsSavingVanity] = useState(false);
   const [vanityError, setVanityError] = useState<string | null>(null);
+  const [isTogglingLock, setIsTogglingLock] = useState(false);
   const [bans, setBans] = useState<BannedUser[]>([]);
   const [members, setMembers] = useState<ServerMember[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
@@ -551,6 +552,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 code: data.code ?? null,
                 uses: data.uses ?? 0,
                 isPartnered: Boolean(data.isPartnered),
+                lockToVanity: Boolean(data.lockToVanity),
               });
               setVanityDraft(data.code ?? "");
               setVanityError(null);
@@ -2077,6 +2079,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         code: data.code ?? null,
         uses: data.uses ?? 0,
         isPartnered: prev?.isPartnered ?? true,
+        lockToVanity: data.lockToVanity ?? prev?.lockToVanity ?? false,
       }));
       setVanityDraft(data.code ?? "");
       toast.success(data.code ? gt("Custom invite link updated!") : gt("Custom invite link removed"));
@@ -2084,6 +2087,30 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       setVanityError(gt("Something went wrong. Please try again."));
     } finally {
       setIsSavingVanity(false);
+    }
+  };
+
+  const handleToggleLockVanity = async () => {
+    if (!currentServer || !vanityInfo) return;
+    const next = !vanityInfo.lockToVanity;
+    setIsTogglingLock(true);
+    try {
+      const res = await fetch(`/api/servers/${currentServer.id}/vanity-url/lock`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || gt("Failed to update invite lock"));
+        return;
+      }
+      setVanityInfo((prev) => prev ? { ...prev, lockToVanity: next } : prev);
+      toast.success(next ? gt("Server invites locked to custom link") : gt("Server invites unlocked"));
+    } catch {
+      toast.error(gt("Something went wrong. Please try again."));
+    } finally {
+      setIsTogglingLock(false);
     }
   };
 
@@ -2145,6 +2172,20 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <p className="text-xs text-[#666666]">
             <T>3-32 characters. Lowercase letters, numbers, and hyphens only. Leave empty and save to remove.</T>
           </p>
+        )}
+        {vanityInfo.code && (
+          <div className="flex items-center justify-between pt-3 border-t border-[#222222]">
+            <div>
+              <span className="text-sm text-white"><T>Lock to Custom Invite</T></span>
+              <p className="text-xs text-[#666666] mt-0.5"><T>Only allow joins through this custom invite link. Hides all other invite links.</T></p>
+            </div>
+            <ToggleSwitch
+              checked={vanityInfo.lockToVanity}
+              onCheckedChange={handleToggleLockVanity}
+              disabled={isTogglingLock}
+              aria-label="Lock invites to custom link"
+            />
+          </div>
         )}
       </div>
     );

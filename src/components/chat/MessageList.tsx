@@ -31,6 +31,10 @@ export interface MessageListHandle {
   scrollToMessage: (messageId: string) => void;
   isAtBottom: () => boolean;
   forceScrollToBottom: () => void;
+  /** Scroll roughly one viewport up (dir -1) or down (dir 1). */
+  scrollByViewport: (dir: 1 | -1) => void;
+  /** Scroll to the very top (loading older messages happens automatically). */
+  scrollToTop: () => void;
 }
 
 interface MentionUser {
@@ -137,7 +141,10 @@ function MessageListInner<M extends ChatMessage>(
 
   // Reset scroll state when channel/DM changes so the list scrolls to bottom
   // even if the message count happens to be identical to the previous context.
-  useEffect(() => {
+  // Must be a layout effect so the force-scroll flag is set BEFORE the
+  // auto-scroll layout effect below runs on the same commit — otherwise an
+  // instant cached paint lands mid-list.
+  useLayoutEffect(() => {
     if (resetKey === undefined) return;
     prevMessageCountRef.current = 0;
     prevGroupCountRef.current = 0;
@@ -189,6 +196,16 @@ function MessageListInner<M extends ChatMessage>(
     forceScrollRef.current = true;
   }, []);
 
+  const scrollByViewport = useCallback((dir: 1 | -1) => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.scrollBy({ top: dir * viewport.clientHeight * 0.9, behavior: "smooth" });
+  }, []);
+
+  const scrollToTop = useCallback(() => {
+    viewportRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -196,8 +213,10 @@ function MessageListInner<M extends ChatMessage>(
       scrollToMessage,
       isAtBottom: () => isAtBottomRef.current,
       forceScrollToBottom,
+      scrollByViewport,
+      scrollToTop,
     }),
-    [scrollToBottom, scrollToMessage, forceScrollToBottom]
+    [scrollToBottom, scrollToMessage, forceScrollToBottom, scrollByViewport, scrollToTop]
   );
 
   // Scroll restoration after loading older messages — runs synchronously
@@ -220,12 +239,15 @@ function MessageListInner<M extends ChatMessage>(
   // useLayoutEffect ensures instant scroll (no flash) on initial load and
   // force-scroll; RAF-deferred smooth scroll for subsequent new messages.
   useLayoutEffect(() => {
+    if (isLoading) return;
     if (pendingScrollRestoreRef.current) return; // handled above
     const prevCount = prevMessageCountRef.current;
     prevMessageCountRef.current = messageCount;
-    if (messageCount <= prevCount) return;
 
     const shouldForce = forceScrollRef.current;
+    // A pending force-scroll (e.g. from a channel switch) must always resolve to
+    // the bottom, even when the new context has the same or fewer messages.
+    if (messageCount <= prevCount && !shouldForce) return;
     forceScrollRef.current = false;
 
     if (shouldForce || isAtBottomRef.current) {
@@ -259,7 +281,7 @@ function MessageListInner<M extends ChatMessage>(
     if (animateIn) {
       Promise.resolve().then(() => setAnimateIn(false));
     }
-  }, [messageCount, animateIn]);
+  }, [messageCount, animateIn, isLoading]);
 
   // Detect if new groups were appended at the bottom (vs prepended at top).
   // Used to apply slide-in animation to newly arrived messages.

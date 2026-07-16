@@ -1,7 +1,10 @@
 "use client";
 
-import { useState, useCallback, useMemo, useRef } from "react";
-import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, UserCircle, X } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, Clock, UserPlus, UserPlus2, ShieldAlert, Phone, Video } from "lucide-react";
+import { hasPermissionBit } from "@/lib/roles/bitfield";
+import { InviteDialog } from "@/components/dialogs/InviteDialog";
+import { ModViewDialog } from "@/components/user/ModViewDialog";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserActivity } from "@/hooks/useMoeActivity";
@@ -9,7 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
@@ -43,6 +46,7 @@ interface Member {
   isSystem?: boolean;
   isVerified?: boolean;
   joinedAt?: string | null;
+  communicationDisabledUntil?: string | null;
   roles: MemberRole[];
   highestRole?: MemberRole | null;
   highestHoistedRole?: MemberRole | null;
@@ -85,6 +89,25 @@ export function MemberSidebar() {
   const gt = useGT();
   const { currentServer } = useServer();
   const { members, isMembersLoading: isLoading } = useServerMembers();
+  const [canModerate, setCanModerate] = useState(false);
+
+  useEffect(() => {
+    if (!currentServer) { setCanModerate(false); return; }
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/servers/${currentServer.id}/members/@me/permissions`);
+        if (!res.ok || !active) return;
+        const data = await res.json();
+        // owner, admin, or any of kick/ban/timeout/manage-roles.
+        const MOD_BITS = [1n << 3n, 1n << 1n, 1n << 2n, 1n << 40n, 1n << 28n];
+        setCanModerate(
+          Boolean(data.isOwner) || MOD_BITS.some((bit) => hasPermissionBit(data.permissions, bit))
+        );
+      } catch { /* ignore */ }
+    })();
+    return () => { active = false; };
+  }, [currentServer]);
 
   const groupedOnlineMembers = useMemo(() => {
     const onlineMembers = sortMembersByName(members.filter((member) => member.status !== "offline"));
@@ -97,7 +120,7 @@ export function MemberSidebar() {
       if (!groups.has(key)) {
         groups.set(key, {
           key,
-          label: hoistedRole?.name || gt("No Role"),
+          label: hoistedRole?.name || gt("Online"),
           color: hoistedRole?.color,
           position: hoistedRole?.position ?? -1,
           members: [],
@@ -126,8 +149,21 @@ export function MemberSidebar() {
       <ScrollArea className="h-full member-scroll-area">
         <div className="py-4 space-y-4">
           {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-6 h-6 border-2 border-[#8B5CF6] border-t-transparent rounded-full animate-spin" />
+            <div className="space-y-4">
+              {[0, 1].map((group) => (
+                <div key={group} className="space-y-1">
+                  <div className="mx-4 h-3 w-16 rounded bg-[var(--app-surface)] animate-pulse" />
+                  {Array.from({ length: 4 - group }).map((_, i) => (
+                    <div key={i} className="mx-2 px-2 py-1.5 flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-[var(--app-surface)] animate-pulse shrink-0" />
+                      <div
+                        className="h-3 rounded bg-[var(--app-surface)] animate-pulse"
+                        style={{ width: `${45 + ((i * 19 + group * 13) % 40)}%` }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ))}
             </div>
           ) : (
             <>
@@ -137,7 +173,7 @@ export function MemberSidebar() {
                     {group.label} — {group.members.length}
                   </p>
                   {group.members.map((member) => (
-                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} />
+                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} canModerate={canModerate} />
                   ))}
                 </div>
               ))}
@@ -148,7 +184,7 @@ export function MemberSidebar() {
                     {gt("Offline")} — {offlineMembers.length}
                   </p>
                   {offlineMembers.map((member) => (
-                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} />
+                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} canModerate={canModerate} />
                   ))}
                 </div>
               )}
@@ -169,13 +205,36 @@ export function MemberSidebar() {
 interface MemberItemProps {
   member: Member;
   serverId?: string;
+  canModerate?: boolean;
 }
 
-function MemberItem({ member, serverId }: MemberItemProps) {
+function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
   const gt = useGT();
   const router = useRouter();
   const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [modViewOpen, setModViewOpen] = useState(false);
+  const isSelf = user?.id === member.id;
+
+  const handleAddFriend = async () => {
+    setMenuOpen(false);
+    try {
+      const res = await fetch(`/api/friends/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: member.username }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(gt("Friend request sent to {name}", { name: member.displayName || member.username }));
+      } else {
+        toast.error(data?.error || gt("Failed to send friend request"));
+      }
+    } catch {
+      toast.error(gt("Failed to send friend request"));
+    }
+  };
   const isOffline = member.status === "offline";
   const roleColor = member.highestRole?.color;
   // Only poll live activity for members who are actually around.
@@ -187,6 +246,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
   const extraGameCount = gameActivities.length > 1 ? gameActivities.length - 1 : 0;
   const subtitle = (!isOffline && member.customStatus) || null;
   const nameplateBg = getNameplateBackground(member.customization);
+  const timeout = getTimeoutRemaining(member.communicationDisabledUntil);
 
   return (
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">
@@ -196,7 +256,7 @@ function MemberItem({ member, serverId }: MemberItemProps) {
       >
       <button
         className={cn(
-          "relative overflow-hidden w-full px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] transition-all group",
+          "relative overflow-hidden px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] transition-colors group",
           isOffline && "opacity-50"
         )}
         style={{ width: "calc(100% - 16px)", touchAction: "pan-y" }}
@@ -235,6 +295,14 @@ function MemberItem({ member, serverId }: MemberItemProps) {
                 <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
+                )}
+                {timeout.active && (
+                  <span
+                    title={gt("Timed out — {time} remaining", { time: timeout.label })}
+                    className="inline-flex flex-shrink-0 text-[#EF4444]"
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                  </span>
                 )}
                 {member.isSystem && (
                   <span className="inline-flex items-center px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">
@@ -297,31 +365,73 @@ function MemberItem({ member, serverId }: MemberItemProps) {
           <span className="absolute inset-0 pointer-events-none" aria-hidden />
         </DropdownMenuTrigger>
         <DropdownMenuContent side="left" align="start" className="w-52">
-          <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}`); }}>
-            <MessageSquare className="w-4 h-4" />
-            {gt("Send Message")}
-          </DropdownMenuItem>
+          {!isSelf && (
+            <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}`); }}>
+              <MessageSquare className="w-4 h-4" />
+              {gt("Send Message")}
+            </DropdownMenuItem>
+          )}
+          {!isSelf && !member.isBot && !member.isSystem && (
+            <DropdownMenuItem onClick={handleAddFriend}>
+              <UserPlus className="w-4 h-4" />
+              {gt("Add Friend")}
+            </DropdownMenuItem>
+          )}
+          {!isSelf && !member.isBot && !member.isSystem && (
+            <>
+              <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}?call=voice`); }}>
+                <Phone className="w-4 h-4" />
+                {gt("Call")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}?call=video`); }}>
+                <Video className="w-4 h-4" />
+                {gt("Video Call")}
+              </DropdownMenuItem>
+            </>
+          )}
+          {serverId && !member.isSystem && (
+            <DropdownMenuItem onClick={() => { setMenuOpen(false); setInviteOpen(true); }}>
+              <UserPlus2 className="w-4 h-4" />
+              {gt("Invite to Server")}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.username); toast.success(gt("Username copied")); }}>
             <Copy className="w-4 h-4" />
             {gt("Copy Username")}
           </DropdownMenuItem>
-          {user?.badges?.some((b: string) => ["admin", "serikacord_developer"].includes(b)) && (
+          <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.id); toast.success(gt("User ID copied")); }}>
+            <Copy className="w-4 h-4" />
+            {gt("Copy User ID")}
+          </DropdownMenuItem>
+          {serverId && user?.badges?.some((b: string) => ["admin", "serikacord_developer"].includes(b)) && (
+            <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.membershipId); toast.success(gt("Membership ID copied")); }}>
+              <Copy className="w-4 h-4" />
+              {gt("Copy Membership ID")}
+            </DropdownMenuItem>
+          )}
+          {serverId && canModerate && !isSelf && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.id); toast.success(gt("User ID copied")); }}>
-                <Copy className="w-4 h-4" />
-                {gt("Copy User ID")}
+              <DropdownMenuItem onClick={() => { setMenuOpen(false); setModViewOpen(true); }}>
+                <ShieldAlert className="w-4 h-4" />
+                {gt("Open Mod View")}
               </DropdownMenuItem>
-              {serverId && (
-                <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.membershipId); toast.success(gt("Membership ID copied")); }}>
-                  <Copy className="w-4 h-4" />
-                  {gt("Copy Membership ID")}
-                </DropdownMenuItem>
-              )}
             </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {serverId && (
+        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
+      )}
+      {serverId && (
+        <ModViewDialog
+          user={{ id: member.id, username: member.username, displayName: member.displayName, avatar: member.avatar }}
+          serverId={serverId}
+          open={modViewOpen}
+          onOpenChange={setModViewOpen}
+        />
+      )}
       </div>
     </MemberProfilePopup>
   );
