@@ -12,7 +12,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
+import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
@@ -246,7 +247,7 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
   const extraGameCount = gameActivities.length > 1 ? gameActivities.length - 1 : 0;
   const subtitle = (!isOffline && member.customStatus) || null;
   const nameplateBg = getNameplateBackground(member.customization);
-  const timeout = getTimeoutRemaining(member.communicationDisabledUntil);
+  const timeout = useTimeoutRemaining(member.communicationDisabledUntil);
 
   return (
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">

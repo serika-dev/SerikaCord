@@ -15,7 +15,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getTimeoutRemaining, cdnImage } from "@/lib/utils";
+import { cdnImage } from "@/lib/utils";
+import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useGT } from "gt-next";
@@ -105,7 +106,7 @@ export function ModViewDialog({ user, serverId, open, onOpenChange }: ModViewDia
     if (open) void load();
   }, [open, load]);
 
-  const timeout = getTimeoutRemaining(member.communicationDisabledUntil);
+  const timeout = useTimeoutRemaining(member.communicationDisabledUntil);
 
   const applyTimeout = async (durationMs: number) => {
     setBusy(durationMs > 0 ? "timeout" : "clear");

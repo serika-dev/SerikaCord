@@ -75,42 +75,43 @@ export const DM_TYPES = {
   },
 } as const;
 
-// Channel permissions - using regular numbers for compatibility
+// Channel permissions - bit positions match PERMISSION_BITS in bits.ts.
+// Using 2**n (not 1<<n) to avoid signed 32-bit overflow for bits >= 31.
 export const CHANNEL_PERMISSIONS = {
   // General
-  VIEW_CHANNEL: { flag: 1 << 0, name: 'View Channel' },
-  MANAGE_CHANNELS: { flag: 1 << 4, name: 'Manage Channels' },
-  MANAGE_PERMISSIONS: { flag: 1 << 28, name: 'Manage Permissions' },
+  VIEW_CHANNEL: { flag: 2 ** 10, name: 'View Channel' },
+  MANAGE_CHANNELS: { flag: 2 ** 4, name: 'Manage Channels' },
+  MANAGE_PERMISSIONS: { flag: 2 ** 28, name: 'Manage Permissions' },
   
   // Text
-  SEND_MESSAGES: { flag: 1 << 11, name: 'Send Messages' },
-  SEND_MESSAGES_IN_THREADS: { flag: 1 << 12, name: 'Send Messages in Threads' },
-  CREATE_PUBLIC_THREADS: { flag: 1 << 13, name: 'Create Public Threads' },
-  CREATE_PRIVATE_THREADS: { flag: 1 << 14, name: 'Create Private Threads' },
-  EMBED_LINKS: { flag: 1 << 15, name: 'Embed Links' },
-  ATTACH_FILES: { flag: 1 << 16, name: 'Attach Files' },
-  ADD_REACTIONS: { flag: 1 << 6, name: 'Add Reactions' },
-  USE_EXTERNAL_EMOJI: { flag: 1 << 18, name: 'Use External Emoji' },
-  USE_EXTERNAL_STICKERS: { flag: 1 << 19, name: 'Use External Stickers' },
-  MENTION_EVERYONE: { flag: 1 << 17, name: 'Mention @everyone' },
-  MANAGE_MESSAGES: { flag: 1 << 20, name: 'Manage Messages' },
-  MANAGE_THREADS: { flag: 1 << 21, name: 'Manage Threads' },
-  READ_MESSAGE_HISTORY: { flag: 1 << 22, name: 'Read Message History' },
-  USE_APPLICATION_COMMANDS: { flag: 1 << 23, name: 'Use Application Commands' },
+  SEND_MESSAGES: { flag: 2 ** 11, name: 'Send Messages' },
+  SEND_MESSAGES_IN_THREADS: { flag: 2 ** 38, name: 'Send Messages in Threads' },
+  CREATE_PUBLIC_THREADS: { flag: 2 ** 35, name: 'Create Public Threads' },
+  CREATE_PRIVATE_THREADS: { flag: 2 ** 36, name: 'Create Private Threads' },
+  EMBED_LINKS: { flag: 2 ** 14, name: 'Embed Links' },
+  ATTACH_FILES: { flag: 2 ** 15, name: 'Attach Files' },
+  ADD_REACTIONS: { flag: 2 ** 6, name: 'Add Reactions' },
+  USE_EXTERNAL_EMOJI: { flag: 2 ** 18, name: 'Use External Emoji' },
+  USE_EXTERNAL_STICKERS: { flag: 2 ** 37, name: 'Use External Stickers' },
+  MENTION_EVERYONE: { flag: 2 ** 17, name: 'Mention @everyone' },
+  MANAGE_MESSAGES: { flag: 2 ** 13, name: 'Manage Messages' },
+  MANAGE_THREADS: { flag: 2 ** 34, name: 'Manage Threads' },
+  READ_MESSAGE_HISTORY: { flag: 2 ** 16, name: 'Read Message History' },
+  USE_APPLICATION_COMMANDS: { flag: 2 ** 31, name: 'Use Application Commands' },
   
   // Voice
-  CONNECT: { flag: 1 << 24, name: 'Connect' },
-  SPEAK: { flag: 1 << 25, name: 'Speak' },
-  STREAM: { flag: 1 << 9, name: 'Video' },
-  USE_SOUNDBOARD: { flag: 1 << 26, name: 'Use Soundboard' },
-  USE_VOICE_ACTIVITY: { flag: 1 << 27, name: 'Use Voice Activity' },
-  PRIORITY_SPEAKER: { flag: 1 << 8, name: 'Priority Speaker' },
-  MUTE_MEMBERS: { flag: 1 << 29, name: 'Mute Members' },
-  DEAFEN_MEMBERS: { flag: 1 << 30, name: 'Deafen Members' },
-  MOVE_MEMBERS: { flag: 1 << 31, name: 'Move Members' },
+  CONNECT: { flag: 2 ** 20, name: 'Connect' },
+  SPEAK: { flag: 2 ** 21, name: 'Speak' },
+  STREAM: { flag: 2 ** 9, name: 'Video' },
+  USE_SOUNDBOARD: { flag: 2 ** 44, name: 'Use Soundboard' },
+  USE_VOICE_ACTIVITY: { flag: 2 ** 25, name: 'Use Voice Activity' },
+  PRIORITY_SPEAKER: { flag: 2 ** 8, name: 'Priority Speaker' },
+  MUTE_MEMBERS: { flag: 2 ** 22, name: 'Mute Members' },
+  DEAFEN_MEMBERS: { flag: 2 ** 23, name: 'Deafen Members' },
+  MOVE_MEMBERS: { flag: 2 ** 24, name: 'Move Members' },
   
   // Stage
-  REQUEST_TO_SPEAK: { flag: 1 << 7, name: 'Request to Speak' },
+  REQUEST_TO_SPEAK: { flag: 2 ** 32, name: 'Request to Speak' },
 } as const;
 
 // Default permission overrides for channel types

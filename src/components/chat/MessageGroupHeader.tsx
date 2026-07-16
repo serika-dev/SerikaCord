@@ -9,7 +9,8 @@ import { SystemPill } from "@/components/chat/SystemPill";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useServerMembers } from "@/contexts/ServerContext";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
-import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
+import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { useChatGt } from "./ChatGtContext";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
@@ -69,11 +70,10 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
   // Server-only: surface a red clock next to timed-out members. In DMs the
   // members list is empty so this is a no-op.
   const { members } = useServerMembers();
-  const authorTimeout = serverId
-    ? getTimeoutRemaining(
-        (members as Array<{ id: string; communicationDisabledUntil?: string | null }>).find((m) => m.id === author.id)?.communicationDisabledUntil
-      )
-    : { active: false, label: "" };
+  const authorTimeoutUntil = serverId
+    ? (members as Array<{ id: string; communicationDisabledUntil?: string | null }>).find((m) => m.id === author.id)?.communicationDisabledUntil
+    : null;
+  const authorTimeout = useTimeoutRemaining(authorTimeoutUntil);
   const name = author.displayName || author.username || gt("Unknown");
   const styleClasses = getDisplayNameStyleClasses(author.customization?.displayNameStyle);
   const styleInline = getDisplayNameStyleInline(author.customization?.displayNameStyle);

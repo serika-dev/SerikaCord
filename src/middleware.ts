@@ -11,13 +11,6 @@ export function middleware(request: NextRequest) {
   const host = request.nextUrl.hostname.toLowerCase();
 
   if (SHORT_LINK_HOSTS.has(host)) {
-    // /serika is the invite acceptance page — it must stay on serika.cc and
-    // navigates to prod (serika.chat) itself once the invite is accepted.
-    const pathname = request.nextUrl.pathname;
-    if (pathname === '/serika' || pathname.startsWith('/serika/')) {
-      return NextResponse.next();
-    }
-
     const url = request.nextUrl.clone();
     url.hostname = APP_HOST;
     url.protocol = 'https:';
