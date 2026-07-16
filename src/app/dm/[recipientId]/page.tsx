@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
+import { useUnread } from "@/contexts/UnreadContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
@@ -108,6 +109,30 @@ export default function DMConversationPage() {
       }
     },
   });
+
+  const { setActiveChannel, markChannelRead } = useUnread();
+  // The DM's channel id isn't in the route (which uses recipientId), so derive
+  // it from loaded messages. Wire it into the unread engine so DM read state
+  // persists to the DB and syncs across devices.
+  const dmChannelId = useMemo(
+    () => chat.messages.find((m) => m.channelId)?.channelId ?? null,
+    [chat.messages]
+  );
+  const newestMessageId = chat.messages.length
+    ? chat.messages[chat.messages.length - 1]?.id
+    : null;
+  useEffect(() => {
+    if (!dmChannelId) return;
+    setActiveChannel(dmChannelId);
+    return () => setActiveChannel(null);
+  }, [dmChannelId, setActiveChannel]);
+  // Keep the read marker current as new messages arrive while the DM is open,
+  // so another device opening the same DM sees it as read.
+  useEffect(() => {
+    if (dmChannelId && newestMessageId && document.visibilityState === "visible") {
+      markChannelRead(dmChannelId);
+    }
+  }, [dmChannelId, newestMessageId, markChannelRead]);
 
   const { executeCommand } = useSlashCommands({});
 

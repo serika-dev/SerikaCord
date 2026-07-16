@@ -721,6 +721,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
       // Filter by mention conditions in JS (can't do OR easily in Drizzle)
       const filteredMessages = mentionedMessages
         .filter(msg => {
+          // Your own messages are never a mention *of you* — otherwise sending
+          // an @everyone/@here or a role you hold pings yourself.
+          if (compareIds(msg.authorId, user.id)) return false;
           const mentionedUsers = (msg as any).mentionedUserIds || [];
           const mentionEveryone = (msg as any).mentionEveryone || false;
           const mentionedRoles = (msg as any).mentionedRoleIds || [];
@@ -771,6 +774,74 @@ const userRoutes = new Elysia({ prefix: '/users' })
       console.error('Failed to fetch mentions:', error);
       return { servers: [], mentions: [] };
     }
+  })
+  // Cross-device read markers. GET seeds the unread engine on startup so unread
+  // glow, mention counts and DM badges are consistent on every device; POST acks
+  // a channel up to a message (server resolves the latest message if omitted).
+  .get('/@me/read-states', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    try {
+      const { ChannelReadState } = await import('@/lib/models/ChannelReadState');
+      const rows = await ChannelReadState.findByUser(user.id);
+      return {
+        readStates: rows.map((r) => ({
+          channelId: r.channelId,
+          lastReadMessageId: r.lastReadMessageId,
+          lastReadAt: r.lastReadAt instanceof Date ? r.lastReadAt.toISOString() : r.lastReadAt,
+        })),
+      };
+    } catch (error) {
+      console.error('Failed to fetch read states:', error);
+      return { readStates: [] };
+    }
+  })
+  .post('/@me/read-states', async ({ headers, cookie, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    try {
+      const { channelId, messageId } = body as { channelId: string; messageId?: string };
+      if (!channelId) {
+        set.status = 400;
+        return { error: 'channelId is required' };
+      }
+      const { ChannelReadState } = await import('@/lib/models/ChannelReadState');
+
+      // Resolve the marker: an explicit messageId (preferred) or the channel's
+      // current latest message. Fall back to "now" for an empty channel.
+      let readMessageId: string | null = messageId ?? null;
+      let readAt = new Date();
+      const target = messageId
+        ? await Message.findById(messageId)
+        : (await Message.find({ channelId, isDeleted: false, _limit: 1 }))[0]; // default order is newest-first
+      if (target) {
+        readMessageId = target.id;
+        readAt = target.createdAt instanceof Date ? target.createdAt : new Date(target.createdAt as any);
+      }
+
+      const row = await ChannelReadState.ack(user.id, channelId, readMessageId, readAt);
+      return {
+        ok: true,
+        channelId,
+        lastReadMessageId: row?.lastReadMessageId ?? readMessageId,
+        lastReadAt: (row?.lastReadAt instanceof Date ? row.lastReadAt.toISOString() : row?.lastReadAt) ?? readAt.toISOString(),
+      };
+    } catch (error) {
+      console.error('Failed to ack read state:', error);
+      set.status = 500;
+      return { error: 'Failed to update read state' };
+    }
+  }, {
+    body: t.Object({
+      channelId: t.String(),
+      messageId: t.Optional(t.String()),
+    }),
   })
   // App-wide unread/activity stream. Emits a lightweight `channel_activity`
   // event whenever a message lands in any channel this user can see, so the

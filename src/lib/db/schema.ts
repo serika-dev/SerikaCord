@@ -723,8 +723,27 @@ export const bugReports = pgTable('bug_reports', {
   priorityCreatedIdx: index('bug_reports_priority_created_at_idx').on(t.priority, t.createdAt),
 }));
 
+// Per-user, per-channel read markers. One row per (user, channel). Drives
+// cross-device unread/mention state for both DMs and server channels — the
+// authoritative source the localStorage cache is reconciled against.
+export const channelReadStates = pgTable('channel_read_states', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  lastReadMessageId: uuid('last_read_message_id'),
+  // createdAt of the last read message (or ack time) — used for unread/mention
+  // counting without a clock-skew-sensitive "now" comparison.
+  lastReadAt: timestamp('last_read_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  userChannelUnique: uniqueIndex('channel_read_states_user_channel_unique').on(t.userId, t.channelId),
+  userIdx: index('channel_read_states_user_id_idx').on(t.userId),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
+export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;
+export type ChannelReadStateInsert = typeof channelReadStates.$inferInsert;
 export type UserRow = typeof users.$inferSelect;
 export type UserInsert = typeof users.$inferInsert;
 export type ServerRow = typeof servers.$inferSelect;
