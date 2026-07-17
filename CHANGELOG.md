@@ -1,6 +1,30 @@
 # SerikaCord — Full Changelog
 
-**294 commits** · Jan 22 – Jul 16, 2026 · v0.0.1 → v1.1.0.
+**294 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.1.1.
+
+---
+
+## v1.1.1 — 2026-07-17
+
+**Tag:** `v1.1.1` · **Commit:** `9cb76fa` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Greatly improved desktop game detection (Linux/Proton/Wine), a persistent recent-activity history surfaced on the full profile, and soundboard volume moved to a personal Voice & Video preference.
+
+### Features — Desktop game detection
+- **Steam-first resolution** — Reads the `SteamAppId`/`SteamGameId`/`STEAM_COMPAT_APP_ID` env var and the reaper `AppId=` argv, then resolves the real title from local `appmanifest_*.acf` files. Fixes mangled Proton/Wine titles for every Steam game with no per-game table.
+- **Robust process inspection** — Uses the real exe path / argv0 instead of the 15-byte-truncated Linux `comm` name; discovers Steam libraries across native, Flatpak, and Snap layouts (cached, auto-refreshed).
+- **Noise filtering** — Wine/Steam plumbing (`services.exe`, `winedevice`, `reaper`, `steamwebhelper`, anticheat, …) is never mistaken for a game; a game's child processes collapse into one activity.
+
+### Features — Recent activity
+- **`activity_history` store** — New table/model logging games & apps with cumulative playtime and session counts (migration `drizzle/manual_activity_history.sql`).
+- **Full profile "Recently Played"** — Persistent history rendered on the profile Activity tab, privacy-gated by "show activity".
+- **Opt-out** — "Store recent activity" toggle + "Clear activity history" button in Data & Privacy (`privacy.storeActivityHistory`).
+
+### Changes
+- **Soundboard volume moved** — Now a personal `voiceVideo.soundboardVolume` preference in User Settings → Voice & Video (removed from Server Settings); local playback multiplies server × personal volume.
+- **Version bumps** — All platforms to 1.1.1; Android `versionName` → 1.1.1, `versionCode` → 10.
 
 ---
 

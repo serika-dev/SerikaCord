@@ -249,6 +249,8 @@ export function CustomEmojiPicker({
   // Keep typing responsive: filtering runs against the deferred value so
   // keystrokes never block on re-filtering thousands of emojis.
   const deferredSearch = useDeferredValue(search);
+  const [stickerSearch, setStickerSearch] = useState("");
+  const deferredStickerSearch = useDeferredValue(stickerSearch);
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const [recentEntries, setRecentEntries] = useState<RecentEmojiEntry[]>([]);
 
@@ -447,6 +449,17 @@ export function CustomEmojiPicker({
     return dbEmojiFavs.filter(entry => entry.name.toLowerCase().includes(query));
   }, [deferredSearch, favoriteEmojis, emojiFavs, favReady]);
 
+  // Filter stickers by search query (name, tags, description)
+  const filteredStickers = useMemo(() => {
+    if (!deferredStickerSearch.trim()) return stickers;
+    const query = deferredStickerSearch.toLowerCase();
+    return stickers.filter(s =>
+      s.name.toLowerCase().includes(query) ||
+      s.description?.toLowerCase().includes(query) ||
+      s.tags?.some(t => t.toLowerCase().includes(query))
+    );
+  }, [stickers, deferredStickerSearch]);
+
   // Group stickers by server for sidebar sections
   const groupedStickers = useMemo(() => {
     const groups: Array<{ server: string; serverId?: string; serverIcon?: string; stickers: StickerItem[] }> = [];
@@ -456,7 +469,7 @@ export function CustomEmojiPicker({
     for (const e of availableServerEmojis) {
       if (e.serverId && e.serverIcon) iconByServerId.set(e.serverId, e.serverIcon);
     }
-    for (const sticker of stickers) {
+    for (const sticker of filteredStickers) {
       const server = sticker.serverName || (sticker.serverId ? "Server" : "Stickers");
       let index = indexByServer.get(server);
       if (index === undefined) {
@@ -472,7 +485,7 @@ export function CustomEmojiPicker({
       groups[index].stickers.push(sticker);
     }
     return groups;
-  }, [stickers, availableServerEmojis]);
+  }, [filteredStickers, availableServerEmojis]);
 
   // Sticker sidebar scroll handling
   const setStickerSectionRef = useCallback((id: string) => (el: HTMLDivElement | null) => {
@@ -740,7 +753,30 @@ export function CustomEmojiPicker({
           />
         </div>
       ) : activeTab === "stickers" ? (
-        <div className="flex-none h-[440px] max-h-[60dvh] min-h-0 flex">
+        <div className="flex-none h-[440px] max-h-[60dvh] min-h-0 flex flex-col">
+          {/* Sticker Search Bar */}
+          {stickers.length > 0 && (
+            <div className="p-3 border-b border-[#2a2a40]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8888aa]" />
+                <Input
+                  value={stickerSearch}
+                  onChange={(e) => setStickerSearch(e.target.value)}
+                  placeholder={gt("Search stickers...")}
+                  className="pl-10 pr-10 bg-[#0f0f1a] border-[#2a2a40] text-white placeholder:text-[#8888aa] h-9 rounded-lg focus-visible:ring-1 focus-visible:ring-[#8B5CF6]"
+                />
+                {stickerSearch && (
+                  <button
+                    onClick={() => setStickerSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8888aa] hover:text-white"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="flex flex-1 min-h-0">
           {/* Sticker Category Sidebar */}
           {groupedStickers.length > 0 && (
             <div ref={stickerSidebarRef} className="w-12 bg-[#0f0f1a] flex flex-col items-center py-2 gap-1 border-r border-[#2a2a40] overflow-y-auto scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent">
@@ -781,7 +817,7 @@ export function CustomEmojiPicker({
                 </div>
               </div>
             ) : groupedStickers.length > 0 ? (
-              <div className="p-3 space-y-4">
+              <div className="p-3 space-y-4" key={deferredStickerSearch}>
                 {groupedStickers.map((group) => {
                   const sectionId = `sticker-${group.serverId || group.server}`;
                   return (
@@ -814,10 +850,13 @@ export function CustomEmojiPicker({
               <div className="h-full flex flex-col items-center justify-center text-center p-3">
                 <Sticker className="w-8 h-8 text-[#8888aa] mb-3" />
                 <p className="text-[#8888aa] text-sm">
-                  {serverId || availableServerStickers.length > 0 ? gt("No stickers uploaded yet") : gt("Open a server channel to use stickers")}
+                  {stickerSearch
+                    ? gt("No stickers found for \"{search}\"", { search: stickerSearch })
+                    : (serverId || availableServerStickers.length > 0 ? gt("No stickers uploaded yet") : gt("Open a server channel to use stickers"))}
                 </p>
               </div>
             )}
+          </div>
           </div>
         </div>
       ) : (

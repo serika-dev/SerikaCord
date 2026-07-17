@@ -234,16 +234,24 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       banReason: reason || 'No reason provided',
     });
 
+    // Notify the user, then immediately kill all of their sessions so they're
+    // signed out on every device on their next request. Order matters: DM first
+    // (while their session still resolves for delivery), then revoke.
+    const { notifySuspension } = await import('@/lib/services/systemNotify');
+    const { revokeAllUserSessions } = await import('@/lib/services/auth');
+    await notifySuspension(targetUser.id, reason).catch(() => {});
+    const revoked = await revokeAllUserSessions(targetUser.id).catch(() => 0);
+
     await logAdminAction(
       user.id,
       'ban_user',
       'user',
       targetUser.id,
-      { username: targetUser.username },
+      { username: targetUser.username, sessionsRevoked: revoked },
       reason
     );
 
-    return { success: true, message: 'User banned' };
+    return { success: true, message: 'User banned', sessionsRevoked: revoked };
   }, {
     params: t.Object({
       userId: t.String(),
@@ -271,6 +279,12 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       isBanned: false,
       banReason: null,
     });
+    // Clear the cached (banned) user record so they can authenticate again.
+    const { cache } = await import('@/lib/db');
+    await cache.del(`user:${targetUser.id}`).catch(() => {});
+
+    const { notifyUnsuspension } = await import('@/lib/services/systemNotify');
+    await notifyUnsuspension(targetUser.id).catch(() => {});
 
     await logAdminAction(
       user.id,
@@ -343,6 +357,16 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     const manualBadges = badges.filter((b) => (MANUAL_BADGES as readonly string[]).includes(b));
     await User.updateById(targetUser.id, { badges: manualBadges, ...staffUpdate });
     const finalBadges = await recalculateUserBadges(targetUser.id);
+
+    // DM the user about any badge they just unlocked (skip system accounts).
+    const newlyAdded = (finalBadges || manualBadges).filter((b) => !oldBadges.includes(b));
+    if (newlyAdded.length > 0 && !targetUser.isSystem) {
+      const { BADGES } = await import('@/lib/constants/badges');
+      const { notifyBadgesUnlocked } = await import('@/lib/services/systemNotify');
+      const byId = new Map(Object.values(BADGES).map((b) => [b.id, b.name]));
+      const names = newlyAdded.map((b) => byId.get(b) || b);
+      void notifyBadgesUnlocked(targetUser.id, names).catch(() => {});
+    }
 
     await logAdminAction(
       user.id,
@@ -2126,12 +2150,25 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
 
-    const filter: Record<string, unknown> = { _limit: limitNum, _orderByPriority: true };
-    if (filterStatus && filterStatus !== 'all') filter.status = filterStatus;
+    // 'active' = the default working set: everything except resolved / won't-fix.
+    // Filtered in JS since the model only supports single-status equality, so we
+    // must fetch the full set (no tight _limit) for pagination to stay correct.
+    const isActiveFilter = filterStatus === 'active';
+    const filter: Record<string, unknown> = { _orderByPriority: true };
+    if (!isActiveFilter) filter._limit = limitNum;
+    if (filterStatus && filterStatus !== 'all' && !isActiveFilter) filter.status = filterStatus;
     if (priority && priority !== 'all') filter.priority = priority;
     if (category && category !== 'all') filter.category = category;
 
-    const allReports = await BugReport.find(filter);
+    let allReports = await BugReport.find(filter);
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    allReports = allReports.map((r) => {
+      if (!r.attachments || !Array.isArray(r.attachments)) return r;
+      return { ...r, attachments: r.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) };
+    });
+    if (isActiveFilter) {
+      allReports = allReports.filter((r) => r.status !== 'resolved' && r.status !== 'wont_fix');
+    }
     const total = allReports.length;
     const reports = allReports.slice(offset, offset + limitNum);
 
@@ -2170,10 +2207,15 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: 'Bug report not found' };
     }
 
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const normalizedReport = report.attachments && Array.isArray(report.attachments)
+      ? { ...report, attachments: report.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) }
+      : report;
+
     const reporter = await User.findById(report.reporterId);
 
     return {
-      ...report,
+      ...normalizedReport,
       reporter: reporter
         ? { id: reporter.id, username: reporter.username, displayName: reporter.displayName, avatar: reporter.avatar, email: reporter.email }
         : null,
@@ -2223,6 +2265,18 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     }
 
     const updated = await BugReport.updateById(params.id, updates);
+
+    // Notify the reporter when the status changes (bug report / feedback status).
+    if (updates.status && updates.status !== report.status && report.reporterId) {
+      const { notifyBugReportStatus } = await import('@/lib/services/systemNotify');
+      void notifyBugReportStatus({
+        reporterId: report.reporterId,
+        kind: report.kind || 'bug',
+        title: report.title,
+        newStatus: updates.status as string,
+        adminNote: (updates.adminNotes as string | undefined) ?? report.adminNotes,
+      }).catch(() => {});
+    }
 
     await logAdminAction(user.id, 'update_settings', 'platform', params.id, {
       action: 'bug_report_update',
@@ -2289,4 +2343,41 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     };
 
     return { stats };
+  })
+
+  // Normalize legacy Backblaze B2 URLs in bug report attachments to CDN format
+  .post('/bug-reports/normalize-attachments', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const allReports = await BugReport.find({});
+    let fixed = 0;
+
+    for (const report of allReports) {
+      const attachments = report.attachments as Array<{ url: string; type: string; name: string }> | null;
+      if (!attachments || attachments.length === 0) continue;
+
+      let changed = false;
+      const normalized = attachments.map((att) => {
+        if (!att.url || att.url.includes('cdn.serika.chat')) return att;
+        changed = true;
+        return { ...att, url: normalizeUrl(att.url) };
+      });
+
+      if (changed) {
+        await BugReport.updateById(report.id, { attachments: normalized } as any);
+        fixed++;
+      }
+    }
+
+    await logAdminAction(user.id, 'update_settings', 'platform', 'bug-reports', {
+      action: 'normalize_attachment_urls',
+      reportsFixed: fixed,
+    });
+
+    return { success: true, reportsFixed: fixed };
   });

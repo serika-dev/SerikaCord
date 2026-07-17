@@ -202,7 +202,10 @@ export async function createSession(
   };
 
   // Store session in Redis
-  await cache.set(`session:${sessionId}`, session, 90 * 24 * 60 * 60);
+  const sessionTtl = 90 * 24 * 60 * 60;
+  await cache.set(`session:${sessionId}`, session, sessionTtl);
+  // Index the session under the user so it can be revoked on suspension.
+  await cache.trackUserSession(userId, sessionId, sessionTtl);
 
   // Create JWT tokens
   const tokens = await createTokenPair(userId, sessionId);
@@ -216,14 +219,23 @@ export async function getSession(sessionId: string): Promise<Session | null> {
 }
 
 // Delete session (logout)
-export async function deleteSession(sessionId: string): Promise<void> {
+export async function deleteSession(sessionId: string, userId?: string): Promise<void> {
   await cache.del(`session:${sessionId}`);
+  if (userId) await cache.untrackUserSession(userId, sessionId);
 }
 
 // Delete all sessions for user
 export async function deleteAllUserSessions(userId: string): Promise<void> {
-  // Clear user cache
-  await cache.del(`user:${userId}`);
+  await revokeAllUserSessions(userId);
+}
+
+/**
+ * Immediately revoke every session for a user (e.g. on suspension/ban). Kills
+ * all Redis session records + the cached user, so the next authenticated
+ * request from any device fails auth and the client is signed out.
+ */
+export async function revokeAllUserSessions(userId: string): Promise<number> {
+  return cache.revokeUserSessions(userId);
 }
 
 // Convert MongoDB ObjectId (24 hex chars) to UUID format (36 chars with hyphens)

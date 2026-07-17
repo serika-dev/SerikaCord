@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { useUnread } from "@/contexts/UnreadContext";
 
 interface Message {
   id: string;
@@ -30,6 +31,7 @@ interface MobileMessagesViewProps {
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const router = useRouter();
   const gt = useGT();
+  const { isChannelUnread, registerChannels } = useUnread();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -93,7 +95,16 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
           }
         });
         
-        setMessages(Array.from(seenRecipients.values()));
+        const list = Array.from(seenRecipients.values());
+        setMessages(list);
+        // Feed the unread engine so DM rows light up cross-device.
+        registerChannels(
+          (data.channels || []).map((c: { id: string; updatedAt?: string | null }) => ({
+            id: c.id,
+            type: "dm" as const,
+            lastMessageAt: c.updatedAt ?? null,
+          }))
+        );
       }
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -102,7 +113,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       setIsRefreshing(false);
       setPullDistance(0);
     }
-  }, [formatTimestamp]);
+  }, [formatTimestamp, registerChannels]);
 
   useEffect(() => {
     fetchMessages();
@@ -383,7 +394,9 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             </div>
           ) : (
             <div className="space-y-0.5">
-              {regularMessages.map((message, index) => (
+              {regularMessages.map((message, index) => {
+                const unread = isChannelUnread(message.id);
+                return (
                 <button
                   key={`${message.recipientId}-${index}`}
                   onClick={() => handleMessageClick(message)}
@@ -426,29 +439,34 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                   
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[17px] font-semibold text-[var(--text-primary)] truncate leading-tight">
+                      <span className={cn(
+                        "text-[17px] truncate leading-tight text-[var(--text-primary)]",
+                        unread ? "font-bold" : "font-semibold"
+                      )}>
                         {message.name}
                       </span>
                       <span className={cn(
                         "text-xs flex-shrink-0",
-                        message.unreadCount && message.unreadCount > 0 ? "text-[var(--app-accent)] font-medium" : "text-[var(--text-muted)]"
+                        unread ? "text-[var(--app-accent)] font-medium" : "text-[var(--text-muted)]"
                       )}>
                         {message.timestamp}
                       </span>
                     </div>
-                    <p className="text-[15px] text-[var(--text-muted)] line-clamp-2 break-words leading-snug mt-0.5">
+                    <p className={cn(
+                      "text-[15px] line-clamp-2 break-words leading-snug mt-0.5",
+                      unread ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]"
+                    )}>
                       {message.lastMessage}
                     </p>
                   </div>
 
                   {/* Unread badge */}
-                  {message.unreadCount && message.unreadCount > 0 && (
-                    <span className="min-w-[22px] h-[22px] px-1.5 flex items-center justify-center bg-[#ED4245] text-white text-xs font-bold rounded-full shadow-lg">
-                      {message.unreadCount > 99 ? "99+" : message.unreadCount}
-                    </span>
+                  {unread && (
+                    <span className="w-2.5 h-2.5 flex-shrink-0 bg-[#ED4245] rounded-full shadow-lg" />
                   )}
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

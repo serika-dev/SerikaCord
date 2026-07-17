@@ -66,6 +66,17 @@ class VoiceService {
     this.audioConstraints = { ...this.audioConstraints, ...constraints };
   }
 
+  // Personal soundboard playback volume (0–200%), a local preference set from
+  // the user's Voice & Video settings. Combined with the server's configured
+  // volume when a sound plays.
+  private soundboardVolume = 100;
+
+  setSoundboardVolume(percent: number) {
+    if (Number.isFinite(percent)) {
+      this.soundboardVolume = Math.min(Math.max(percent, 0), 200);
+    }
+  }
+
   // Noise suppression chain
   private noiseSuppressionOn = false;
   private noiseCtx: AudioContext | null = null;
@@ -889,7 +900,10 @@ class VoiceService {
     if (this.isDeafened) return;
     try {
       const audio = new Audio(url);
-      audio.volume = Math.min(Math.max(volumePercent, 0) / 100, 1);
+      // Combine the server-configured volume with the user's personal
+      // soundboard volume (both 0–200%), then clamp to the 0–1 media range.
+      const combined = (Math.max(volumePercent, 0) / 100) * (this.soundboardVolume / 100);
+      audio.volume = Math.min(Math.max(combined, 0), 1);
       void audio.play().catch(() => { /* autoplay blocked; ignore */ });
     } catch {
       // Invalid URL or unsupported format — nothing to play

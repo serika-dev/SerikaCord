@@ -70,6 +70,7 @@ import {
 } from "lucide-react";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
+import { voiceService } from "@/lib/services/voiceService";
 import { cn, cdnImage } from "@/lib/utils";
 import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badges";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
@@ -701,6 +702,20 @@ function VoiceVideoTab({
               onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), outputVolume: Number(e.target.value) } }, "voice-video")}
               className="w-full accent-[var(--app-accent)]"
             />
+
+            <div className="flex items-center justify-between pt-2">
+              <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Soundboard Volume")}</label>
+              <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.soundboardVolume ?? 100}%</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              value={userSettings.voiceVideo?.soundboardVolume ?? 100}
+              onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), soundboardVolume: Number(e.target.value) } }, "voice-video")}
+              aria-label="Soundboard playback volume"
+              className="w-full accent-[var(--app-accent)]"
+            />
           </div>
         )}
       </div>
@@ -1114,6 +1129,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         setUserSettings((prev) => ({ ...(prev || {}), ...patch }));
         applyUserSettingsPatch(patch);
         if (patch.notifications) setUserNotificationSettings(patch.notifications);
+        if (typeof patch.voiceVideo?.soundboardVolume === "number") voiceService.setSoundboardVolume(patch.voiceVideo.soundboardVolume);
         toast.success(gt("Settings saved"));
       } else {
         const data = await response.json();
@@ -3586,6 +3602,29 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             <span className="text-white">{gt("Allow analytics")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowAnalytics)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowAnalytics: checked } }, "data-privacy")} />
                           </label>
+                          <div className="pt-2 mt-2 border-t border-[var(--border-subtle)]">
+                            <label className="flex items-center justify-between py-2">
+                              <div>
+                                <span className="text-white">{gt("Store recent activity")}</span>
+                                <p className="text-xs text-[var(--text-secondary)]">{gt("Keep a private history of games and apps the desktop app detects. Turn off to stop recording.")}</p>
+                              </div>
+                              <ToggleSwitch
+                                size="sm"
+                                checked={userSettings.privacy?.storeActivityHistory ?? true}
+                                onCheckedChange={(checked) => saveSettingsPatch({ privacy: { ...(userSettings.privacy || {}), storeActivityHistory: checked } }, "data-privacy")}
+                              />
+                            </label>
+                            <button
+                              onClick={async () => {
+                                try {
+                                  await fetch("/api/users/me/activity-history", { method: "DELETE", credentials: "include" });
+                                } catch { /* ignore */ }
+                              }}
+                              className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-white transition-colors"
+                            >
+                              {gt("Clear activity history")}
+                            </button>
+                          </div>
                         </>
                       )}
 

@@ -50,6 +50,39 @@ const STATUS_LABELS: Record<string, string> = {
 
 type TabId = "board" | "activity" | "friends" | "servers";
 
+interface ActivityHistoryEntry {
+  type: string;
+  name: string;
+  imageUrl: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  durationSeconds: number;
+  sessions: number;
+}
+
+/** "3h 20m", "45m", "30s" — compact human playtime. */
+function formatPlaytime(seconds: number): string {
+  if (!seconds || seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  return `${m}m`;
+}
+
+/** "just now", "3h ago", "2d ago". */
+function formatRelative(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const diff = Math.max(0, Date.now() - then);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
 export function FullProfileDialog({
   user,
   open,
@@ -71,6 +104,7 @@ export function FullProfileDialog({
   const [memberRoles, setMemberRoles] = useState(user.roles || []);
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
+  const [activityHistory, setActivityHistory] = useState<ActivityHistoryEntry[]>([]);
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
   const [canModerate, setCanModerate] = useState(false);
   const [isAdminOfServer, setIsAdminOfServer] = useState(false);
@@ -163,6 +197,19 @@ export function FullProfileDialog({
     };
     void fetchMutuals();
   }, [open, user.id, isSelf]);
+
+  // Persistent recent-activity history (games/apps), privacy-gated server-side.
+  useEffect(() => {
+    if (!open || !user.id) return;
+    let active = true;
+    fetch(`/api/users/${user.id}/activity-history?limit=12`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (active && data?.activities) setActivityHistory(data.activities);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [open, user.id]);
 
   const handleCopyUsername = async () => {
     try {
@@ -494,14 +541,46 @@ export function FullProfileDialog({
 
               {activeTab === "activity" && (
                 <div className="space-y-4">
+                  {/* Live activity */}
                   {moeActivity && <NowWatchingCard activity={moeActivity} />}
                   {userActivity?.music && <MusicActivityCard music={userActivity.music} />}
                   {userActivity?.activities?.map((game) => (
                     <GameActivityCard key={`${game.type}-${game.name}`} game={game} />
                   ))}
-                  {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && (
+
+                  {/* Persistent recent-activity history */}
+                  {activityHistory.length > 0 && (
+                    <div>
+                      <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Recently Played")}</h4>
+                      <div className="space-y-1.5">
+                        {activityHistory.map((entry) => (
+                          <div
+                            key={`${entry.type}-${entry.name}`}
+                            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.05]"
+                          >
+                            {entry.imageUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={entry.imageUrl} alt={entry.name} className="w-9 h-9 rounded-md object-cover shrink-0 bg-black/30" />
+                            ) : (
+                              <div className="w-9 h-9 rounded-md bg-[#8B5CF6]/20 flex items-center justify-center shrink-0">
+                                <span className="text-sm font-bold text-[#8B5CF6]">{(entry.name || "?").charAt(0).toUpperCase()}</span>
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-white truncate">{entry.name}</p>
+                              <p className="text-xs text-[#9a9aad] truncate">
+                                {formatPlaytime(entry.durationSeconds)} · {formatRelative(entry.lastSeenAt)}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && activityHistory.length === 0 && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-[#9a9aad] py-20">
-                      <p className="text-sm">{gt("No activity in the last 30 days.")}</p>
+                      <p className="text-sm">{gt("No activity to show.")}</p>
                     </div>
                   )}
                 </div>

@@ -170,6 +170,49 @@ export class CacheService {
     }
   }
 
+  // Session tracking — lets us revoke every session a user holds (e.g. on
+  // suspension) without scanning the whole keyspace. Sessions are keyed by a
+  // random id, so we keep a per-user index set of their live session ids.
+  async trackUserSession(userId: string, sessionId: string, ttl: number): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const key = `user:sessions:${userId}`;
+      await this.redis.sadd(key, sessionId);
+      // Keep the index alive at least as long as the longest session.
+      await this.redis.expire(key, ttl);
+    } catch (error) {
+      console.error('Cache trackUserSession error:', error);
+    }
+  }
+
+  async untrackUserSession(userId: string, sessionId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      await this.redis.srem(`user:sessions:${userId}`, sessionId);
+    } catch (error) {
+      console.error('Cache untrackUserSession error:', error);
+    }
+  }
+
+  /** Delete every session for a user + their cached record. Returns count killed. */
+  async revokeUserSessions(userId: string): Promise<number> {
+    if (!this.redis) return 0;
+    try {
+      const key = `user:sessions:${userId}`;
+      const sessionIds = await this.redis.smembers(key);
+      if (sessionIds.length > 0) {
+        await this.redis.del(...sessionIds.map((id) => `session:${id}`));
+      }
+      await this.redis.del(key);
+      // Force the next request to re-read the (now banned) user from the DB.
+      await this.redis.del(`user:${userId}`);
+      return sessionIds.length;
+    } catch (error) {
+      console.error('Cache revokeUserSessions error:', error);
+      return 0;
+    }
+  }
+
   // User presence
   async setUserOnline(userId: string, socketId: string): Promise<void> {
     if (!this.redis) return;

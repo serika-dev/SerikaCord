@@ -675,6 +675,31 @@ export const richPresence = pgTable('rich_presence', {
   userTypeNameUnique: uniqueIndex('rich_presence_user_id_type_name_unique').on(t.userId, t.type, t.name),
 }));
 
+// Persistent log of a user's recently-played games / used apps, populated from
+// rich-presence reports. Unlike `rich_presence` (which is ephemeral, TTL'd
+// live state) this survives across sessions so we can show a "recent activity"
+// list. Gated by the user's `privacy.storeActivityHistory` setting.
+export const activityHistory = pgTable('activity_history', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  type: text('type').default('game'),
+  name: text('name').notNull(),
+  imageUrl: text('image_url'),
+  firstSeenAt: timestamp('first_seen_at').defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at').defaultNow().notNull(),
+  /** Cumulative seconds observed active across all sessions. */
+  durationSeconds: integer('duration_seconds').default(0).notNull(),
+  /** Number of distinct sessions the activity was seen in. */
+  sessions: integer('sessions').default(1).notNull(),
+}, (t) => ({
+  userIdx: index('activity_history_user_id_idx').on(t.userId),
+  lastSeenIdx: index('activity_history_last_seen_at_idx').on(t.lastSeenAt),
+  userTypeNameUnique: uniqueIndex('activity_history_user_type_name_unique').on(t.userId, t.type, t.name),
+}));
+
+export type ActivityHistoryRow = typeof activityHistory.$inferSelect;
+export type ActivityHistoryInsert = typeof activityHistory.$inferInsert;
+
 export const channelWebhooks = pgTable('channel_webhooks', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   channelId: uuid('channel_id').notNull(),

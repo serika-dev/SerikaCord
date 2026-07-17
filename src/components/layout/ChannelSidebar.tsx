@@ -917,6 +917,20 @@ export function ChannelSidebar({
   // focus/visibility as a resilient fallback for the SSE stream below.
   usePolling(fetchDMChannels, 20000, !currentServer);
 
+  // Feed DM channels into the unread engine so DM rows get the same
+  // read/unread treatment as server channels (bold + pill). `updatedAt` bumps
+  // whenever a new message lands, which is exactly our "last activity" signal.
+  useEffect(() => {
+    if (dmChannels.length === 0) return;
+    registerChannels(
+      dmChannels.map((c) => ({
+        id: c.id,
+        type: "dm",
+        lastMessageAt: c.updatedAt ?? null,
+      }))
+    );
+  }, [dmChannels, registerChannels]);
+
   // Real-time DM list updates: when a new DM/message arrives the server pushes a
   // `dm:list:update` over this stream, so a new conversation or reordered
   // conversation shows up instantly without waiting for the poll. Mirrors the
@@ -1022,18 +1036,24 @@ export function ChannelSidebar({
                   const recipient = channel.recipients[0];
                   if (!recipient) return null;
                   const isActive = pathname === `/dm/${recipient.id}`;
+                  const unread = !isActive && isChannelUnread(channel.id);
 
                   return (
                     <Link
                       key={channel.id}
                       href={`/dm/${recipient.id}`}
                       className={cn(
-                        "group flex items-center gap-2 px-2 py-[5px] rounded-md transition-colors min-w-0",
+                        "group relative flex items-center gap-2 px-2 py-[5px] rounded-md transition-colors min-w-0",
                         isActive
                           ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]",
+                        !isActive && unread && "text-white"
                       )}
                     >
+                      {/* Unread pill: white bar on the far left, Discord-style. */}
+                      {unread && (
+                        <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-white" />
+                      )}
                       <div className="relative shrink-0">
                         <Avatar className="w-8 h-8">
                           <AvatarImage src={cdnImage(recipient.avatar)} />
@@ -1047,7 +1067,7 @@ export function ChannelSidebar({
                         />
                       </div>
                       <div className="relative flex-1 min-w-0 overflow-hidden flex items-center gap-1">
-                        <span className={cn("truncate text-sm", getDisplayNameStyleClasses(recipient.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient.customization?.displayNameStyle)}>
+                        <span className={cn("truncate text-sm", unread && "font-semibold", getDisplayNameStyleClasses(recipient.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient.customization?.displayNameStyle)}>
                           {recipient.displayName || recipient.username}
                         </span>
                         {recipient.isSystem && (

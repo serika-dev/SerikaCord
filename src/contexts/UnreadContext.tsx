@@ -95,6 +95,12 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   // channelId -> serverId (+ type) so we can aggregate per server and route toasts.
   const [channelMeta, setChannelMeta] = useState<Record<string, ChannelMeta>>({});
   const activeChannelRef = useRef<string | null>(null);
+  // Live mirror of lastActivity so markChannelRead can clamp the read marker to
+  // the newest known activity without taking lastActivity as a dependency.
+  const lastActivityRef = useRef(lastActivity);
+  useEffect(() => {
+    lastActivityRef.current = lastActivity;
+  }, [lastActivity]);
 
   const persistActivity = useCallback((next: Record<string, string>) => {
     saveMap(LS_ACTIVITY, next);
@@ -106,7 +112,15 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   const markChannelRead = useCallback(
     (channelId: string) => {
       if (!channelId) return;
-      const now = new Date().toISOString();
+      // Clamp the read marker to at least the newest known activity for this
+      // channel. Server-sent activity uses server time; a client clock running
+      // behind the server would otherwise leave the channel stuck "unread"
+      // right after you read it (read < activity). +1ms keeps it strictly ahead.
+      const activityTs = lastActivityRef.current[channelId];
+      const readMs = activityTs
+        ? Math.max(Date.now(), new Date(activityTs).getTime() + 1)
+        : Date.now();
+      const now = new Date(readMs).toISOString();
       // Keep the legacy useMentions read key in sync (server-rail badges).
       if (typeof localStorage !== "undefined") {
         try {

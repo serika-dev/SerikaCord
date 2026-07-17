@@ -7,6 +7,7 @@ import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { User, type IUser, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
 import { RichPresence } from '@/lib/models/RichPresence';
+import { ActivityHistory } from '@/lib/models/ActivityHistory';
 import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCount } from './servers';
 import { channelRoutes } from './channels';
@@ -67,6 +68,7 @@ function getDefaultUserSettings() {
       directMessages: 'everyone',
       friendRequests: 'everyone',
       showActivity: true,
+      storeActivityHistory: true,
       allowDataCollection: true,
     },
     accessibility: {
@@ -85,6 +87,7 @@ function getDefaultUserSettings() {
       pushToTalk: false,
       pushToTalkKey: 'V',
       streamPreview: true,
+      soundboardVolume: 100,
     },
     textImages: {
       inlineMedia: true,
@@ -1810,6 +1813,36 @@ const userRoutes = new Elysia({ prefix: '/users' })
       userId: t.String(),
     }),
   })
+  // Public recent-activity history for a user's profile. Respects the target
+  // user's "show activity" privacy setting (same gate as live activity).
+  .get('/:userId/activity-history', async ({ params, query, set }) => {
+    const targetUser = await User.findById(params.userId);
+    if (!targetUser) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    const showActivity = (targetUser.settings as any)?.privacy?.showActivity ?? true;
+    if (!showActivity) {
+      return { activities: [] };
+    }
+    const rawLimit = Number((query as Record<string, string | undefined>).limit);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 30) : 12;
+    const rows = await ActivityHistory.recent(targetUser.id, limit).catch(() => []);
+    return {
+      activities: rows.map((r) => ({
+        type: r.type,
+        name: r.name,
+        imageUrl: r.imageUrl ?? null,
+        firstSeenAt: r.firstSeenAt,
+        lastSeenAt: r.lastSeenAt,
+        durationSeconds: r.durationSeconds,
+        sessions: r.sessions,
+      })),
+    };
+  }, {
+    params: t.Object({ userId: t.String() }),
+    query: t.Object({ limit: t.Optional(t.String()) }),
+  })
   // Rich presence — reported by the SerikaCord desktop app
   .post('/me/rich-presence', async ({ headers, cookie, body, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -1874,6 +1907,23 @@ const userRoutes = new Elysia({ prefix: '/users' })
       await RichPresence.deleteById(p.id);
     }
 
+    // Persist to the recent-activity log unless the user disabled it. Games and
+    // apps are worth remembering; skip transient "other" noise. Fire-and-forget
+    // so history writes never slow down or fail the presence heartbeat.
+    const storeHistory = (authUser as any)?.settings?.privacy?.storeActivityHistory ?? true;
+    if (storeHistory) {
+      for (const item of incoming) {
+        const type = item.type || 'other';
+        // Remember games and recognised apps; skip unclassified "other" noise.
+        if (type === 'other') continue;
+        ActivityHistory.record(authUserId, {
+          type,
+          name: item.name,
+          imageUrl: item.largeImageUrl ?? null,
+        }).catch(() => {});
+      }
+    }
+
     return { ok: true };
   }, {
     body: t.Union([
@@ -1917,6 +1967,42 @@ const userRoutes = new Elysia({ prefix: '/users' })
     for (const p of allPresence) {
       await RichPresence.deleteById(p.id);
     }
+    return { ok: true };
+  })
+  // Recent activity log — games/apps the user has played, newest first.
+  .get('/me/activity-history', async ({ headers, cookie, query, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const authUserId = (authUser as any).id || (authUser as any)._id;
+    const rawLimit = Number((query as Record<string, string | undefined>).limit);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 50) : 20;
+    const rows = await ActivityHistory.recent(authUserId, limit);
+    return {
+      activities: rows.map((r) => ({
+        type: r.type,
+        name: r.name,
+        imageUrl: r.imageUrl ?? null,
+        firstSeenAt: r.firstSeenAt,
+        lastSeenAt: r.lastSeenAt,
+        durationSeconds: r.durationSeconds,
+        sessions: r.sessions,
+      })),
+    };
+  }, {
+    query: t.Object({ limit: t.Optional(t.String()) }),
+  })
+  // Clear the recent activity log.
+  .delete('/me/activity-history', async ({ headers, cookie, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const authUserId = (authUser as any).id || (authUser as any)._id;
+    await ActivityHistory.clear(authUserId);
     return { ok: true };
   });
 
@@ -2598,7 +2684,11 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       stepsToReproduce: t.Optional(t.String()),
       expectedBehavior: t.Optional(t.String()),
       actualBehavior: t.Optional(t.String()),
-      attachments: t.Optional(t.Any()),
+      attachments: t.Optional(t.Array(t.Object({
+        url: t.String(),
+        type: t.String(),
+        name: t.String(),
+      }))),
       browserInfo: t.Optional(t.String()),
       osInfo: t.Optional(t.String()),
       appVersion: t.Optional(t.String()),
@@ -2614,7 +2704,12 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
     }
 
     const reports = await BugReport.find({ reporterId: user.id });
-    return { reports };
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const normalizedReports = reports.map((r) => {
+      if (!r.attachments || !Array.isArray(r.attachments)) return r;
+      return { ...r, attachments: r.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) };
+    });
+    return { reports: normalizedReports };
   })
 
   // Get a single bug report (only if owned by user)
@@ -2636,7 +2731,11 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       return { error: 'You can only view your own bug reports' };
     }
 
-    return { report };
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const normalizedReport = report.attachments && Array.isArray(report.attachments)
+      ? { ...report, attachments: report.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) }
+      : report;
+    return { report: normalizedReport };
   }, {
     params: t.Object({
       id: t.String(),

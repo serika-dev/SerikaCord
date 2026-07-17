@@ -3279,11 +3279,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-bold text-white mb-1"><T>Soundboard</T></h2>
-        <p className="text-sm text-[#888888]"><T>Configure soundboard availability and playback volume</T></p>
+        <p className="text-sm text-[#888888]"><T>Configure soundboard availability</T></p>
       </div>
 
       <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between">
           <span className="text-white font-medium"><T>Enable Soundboard</T></span>
           <ToggleSwitch
             checked={draftBool("soundboard.enabled", true)}
@@ -3291,21 +3291,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             aria-label="Enable soundboard"
           />
         </div>
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-[#888888]"><T>Playback Volume</T></span>
-            <span className="text-sm text-white">{draftNumber("soundboard.volume", 100)}%</span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={200}
-            value={draftNumber("soundboard.volume", 100)}
-            onChange={(e) => settingsDraft.update("soundboard.volume", Number(e.target.value))}
-            aria-label="Soundboard playback volume"
-            className="w-full accent-[#8B5CF6]"
-          />
-        </div>
+        <p className="text-xs text-[#666666] mt-2"><T>Playback volume is now a personal preference in User Settings → Voice &amp; Video.</T></p>
       </div>
 
       {/* Sound list */}
