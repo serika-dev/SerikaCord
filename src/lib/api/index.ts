@@ -2598,7 +2598,11 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       stepsToReproduce: t.Optional(t.String()),
       expectedBehavior: t.Optional(t.String()),
       actualBehavior: t.Optional(t.String()),
-      attachments: t.Optional(t.Any()),
+      attachments: t.Optional(t.Array(t.Object({
+        url: t.String(),
+        type: t.String(),
+        name: t.String(),
+      }))),
       browserInfo: t.Optional(t.String()),
       osInfo: t.Optional(t.String()),
       appVersion: t.Optional(t.String()),

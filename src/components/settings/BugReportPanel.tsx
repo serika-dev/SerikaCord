@@ -304,7 +304,7 @@ export function BugReportPanel() {
           stepsToReproduce: isBug ? (stepsToReproduce.trim() || undefined) : undefined,
           expectedBehavior: isBug ? (expectedBehavior.trim() || undefined) : undefined,
           actualBehavior: isBug ? (actualBehavior.trim() || undefined) : undefined,
-          attachments,
+          attachments: attachments.filter((a) => a.url),
           browserInfo,
           osInfo,
           appVersion,
