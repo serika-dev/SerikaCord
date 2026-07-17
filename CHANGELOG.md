@@ -6,7 +6,7 @@
 
 ## v1.1.1 — 2026-07-17
 
-**Tag:** `v1.1.1` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+**Tag:** `v1.1.1` · **Commit:** `9cb76fa` · **Build:** GitHub Actions (Tauri desktop + Android APK)
 
 ### Release Notes
 
