@@ -87,6 +87,10 @@ export const users = pgTable('users', {
   customization: jsonb('customization').default({}),
   gifFavorites: jsonb('gif_favorites').default([]),
   emojiFavorites: jsonb('emoji_favorites').default([]),
+  // Ordered list of widgets the user has placed on their profile. Built-in
+  // game-library widgets carry no applicationId; app widgets reference one.
+  // See docs/social-sdk-design.md §1.4.
+  profileWidgets: jsonb('profile_widgets').default([]),
   isBot: boolean('is_bot').default(false),
   isSystem: boolean('is_system').default(false),
   isPremium: boolean('is_premium').default(false),
@@ -665,6 +669,13 @@ export const richPresence = pgTable('rich_presence', {
   largeImageText: text('large_image_text'),
   smallImageUrl: text('small_image_url'),
   smallImageText: text('small_image_text'),
+  // Serika RPC extensions (see docs/social-sdk-design.md §1.5). Nullable so the
+  // existing presence path keeps working unchanged.
+  applicationId: uuid('application_id'),
+  assets: jsonb('assets'),
+  buttons: jsonb('buttons'),
+  partyId: text('party_id'),
+  partySize: jsonb('party_size'),
   startedAt: timestamp('started_at'),
   endsAt: timestamp('ends_at'),
   expiresAt: timestamp('expires_at').notNull(),
@@ -699,6 +710,69 @@ export const activityHistory = pgTable('activity_history', {
 
 export type ActivityHistoryRow = typeof activityHistory.$inferSelect;
 export type ActivityHistoryInsert = typeof activityHistory.$inferInsert;
+
+// ─── Social SDK / Profile widgets (docs/social-sdk-design.md) ───────────────
+
+// Per-user game library backing the built-in profile widgets. Category limits
+// (favorite ≤1, liked ≤20, rotation ≤5, wishlist ≤20) are enforced in the
+// service layer, not the DB.
+export const userGames = pgTable('user_games', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  igdbId: integer('igdb_id'),
+  steamAppId: text('steam_app_id'),
+  name: text('name').notNull(),
+  coverUrl: text('cover_url'),
+  category: text('category').notNull(), // favorite | liked | rotation | wishlist
+  tags: jsonb('tags').default([]),
+  note: text('note'),
+  position: integer('position').default(0).notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  userIdx: index('user_games_user_id_idx').on(t.userId),
+  userCategoryIdx: index('user_games_user_id_category_idx').on(t.userId, t.category),
+  userCategoryIgdbUnique: uniqueIndex('user_games_user_category_igdb_unique').on(t.userId, t.category, t.igdbId),
+}));
+
+export type UserGameRow = typeof userGames.$inferSelect;
+export type UserGameInsert = typeof userGames.$inferInsert;
+
+// Application-authored widget definition (Discord "widget config"): the surface
+// designs + field bindings. One published config per application.
+export const widgetConfigs = pgTable('widget_configs', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: uuid('application_id').notNull(),
+  name: text('name').notNull(),
+  status: text('status').default('draft').notNull(), // draft | published
+  surfaces: jsonb('surfaces').default({}),
+  sampleData: jsonb('sample_data').default({}),
+  version: integer('version').default(1).notNull(),
+  publishedAt: timestamp('published_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  applicationUnique: uniqueIndex('widget_configs_application_id_unique').on(t.applicationId),
+}));
+
+export type WidgetConfigRow = typeof widgetConfigs.$inferSelect;
+export type WidgetConfigInsert = typeof widgetConfigs.$inferInsert;
+
+// Per-user dynamic values for a widget (Discord "User Data"). `data` stores the
+// { dynamic: [{ type, name, value }] } shape used by the widget renderer.
+export const widgetUserData = pgTable('widget_user_data', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: uuid('application_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  data: jsonb('data').default({}),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  appUserUnique: uniqueIndex('widget_user_data_application_user_unique').on(t.applicationId, t.userId),
+  userIdx: index('widget_user_data_user_id_idx').on(t.userId),
+}));
+
+export type WidgetUserDataRow = typeof widgetUserData.$inferSelect;
+export type WidgetUserDataInsert = typeof widgetUserData.$inferInsert;
 
 export const channelWebhooks = pgTable('channel_webhooks', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),

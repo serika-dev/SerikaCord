@@ -1,6 +1,29 @@
 # SerikaCord — Full Changelog
 
-**294 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.1.3.
+**295 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.2.0.
+
+---
+
+## v1.2.0 — 2026-07-17
+
+**Tag:** `v1.2.0` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Serika Social SDK — profile game widgets, a Discord-style widget editor, Serika RPC image assets, and a native `/api/v1` API for third-party apps.
+
+### Features
+- **Profile game widgets** — new per-user game library (`user_games`) backing four built-in profile widgets: Favorite game (max 1), Games I like (up to 20, 2×4 with Show more), Games in rotation (up to 5), and Want to play (up to 20). Add via IGDB search, edit tags/notes, reorder; rendered in the Full Profile "Board" tab.
+- **Widget system + editor** — application-authored widget configs (`widget_configs`) with a live in-portal editor (surfaces → fields → preview → sample data → Generate JSON → publish), a shared `WidgetRenderer` used by both the editor preview and the profile, an "Add Widget" modal, and per-user dynamic data (`widget_user_data`).
+- **Serika RPC + images** — rich presence gains structured `assets` (large/small image + text), `buttons`, `applicationId`, and party fields. The existing desktop presence path is unchanged and simply accepts the new optional fields.
+- **Native Social SDK API** — versioned `/api/v1` surface (identity, relationships, presences, rich-presence, game library, widget config + user-data) designed to wrap in a binary SDK later, with full docs under **Developers → Docs → Social SDK** and a per-app Social SDK tab.
+
+### Changes
+- **Developer portal** — new "Social SDK" and "Widget" tabs on applications; Social SDK promo on the Applications dashboard.
+- **Version bumps** — Desktop + root to 1.2.0; Android `versionName` → 1.2.0, `versionCode` → 13.
+
+### Database
+- Additive-only migration `drizzle/manual_social_sdk.sql`: new `user_games`, `widget_configs`, `widget_user_data` tables, `users.profile_widgets`, and nullable `rich_presence` columns (`application_id`, `assets`, `buttons`, `party_id`, `party_size`). No existing data modified.
 
 ---
 

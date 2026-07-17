@@ -10,6 +10,8 @@ import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/comp
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
+import { ProfileGameWidgets } from "@/components/user/ProfileGameWidgets";
+import { ProfileAppWidgets } from "@/components/user/ProfileAppWidgets";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
@@ -488,6 +490,12 @@ export function FullProfileDialog({
             <div className="flex-1 md:overflow-y-auto p-4">
               {activeTab === "board" && (
                 <div className="space-y-4">
+                  {/* Game library widgets (favorite / liked / rotation / wishlist) */}
+                  <ProfileGameWidgets userId={fullUser.id} isSelf={!!isSelf} />
+
+                  {/* Application widgets placed on the profile */}
+                  <ProfileAppWidgets userId={fullUser.id} isSelf={!!isSelf} />
+
                   {/* Connections */}
                   {fullUser.connections && fullUser.connections.length > 0 && (
                     <div>

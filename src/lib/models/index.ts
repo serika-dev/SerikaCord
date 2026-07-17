@@ -23,5 +23,8 @@ export { AppWebhook, type IAppWebhook } from './AppWebhook';
 export { AppEmoji, type IAppEmoji } from './AppEmoji';
 export { AppCommand, type IAppCommand } from './AppCommand';
 export { RichPresence, type IRichPresence } from './RichPresence';
+export { UserGame, USER_GAME_LIMITS, type IUserGame, type UserGameCategory } from './UserGame';
+export { WidgetConfig, type IWidgetConfig } from './WidgetConfig';
+export { WidgetUserData, type IWidgetUserData } from './WidgetUserData';
 export { ChannelWebhook, type IChannelWebhook } from './ChannelWebhook';
 export { BugReport, type IBugReport, type BugReportPriority, type BugReportStatus, type BugReportCategory } from './BugReport';

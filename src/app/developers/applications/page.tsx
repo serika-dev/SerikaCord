@@ -129,6 +129,21 @@ export default function ApplicationsPage() {
           </button>
         </div>
 
+        {/* Social SDK promo */}
+        <Link
+          href="/developers/docs/social-sdk/overview"
+          className="group flex items-center gap-4 mb-6 p-4 rounded-2xl border border-white/[0.06] bg-gradient-to-r from-[#8B5CF6]/[0.08] to-transparent hover:border-[#8B5CF6]/30 transition-all"
+        >
+          <div className="size-11 rounded-xl bg-gradient-to-br from-[#8B5CF6] to-[#6366f1] flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(139,92,246,0.25)]">
+            <Sparkles className="size-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-white">{gt("New · Serika Social SDK")}</p>
+            <p className="text-xs text-[#949ba4] mt-0.5">{gt("Relationships, live presence, Serika RPC image assets, and configurable profile widgets — over the native /api/v1 API.")}</p>
+          </div>
+          <span className="text-xs font-medium text-[#8B5CF6] opacity-0 group-hover:opacity-100 transition-opacity shrink-0">{gt("Learn more →")}</span>
+        </Link>
+
         {/* Search */}
         {apps.length > 0 && (
           <div className="relative mb-6">

@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
-import { Application, DeveloperTeam, AppWebhook, AppEmoji, User } from '@/lib/models';
+import { Application, DeveloperTeam, AppWebhook, AppEmoji, User, WidgetConfig } from '@/lib/models';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
 import { storage } from '@/lib/services/storage';
@@ -18,6 +18,30 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
     cookies.auth_token = authToken;
   }
   return authenticateRequest(authHeader, cookies);
+}
+
+/**
+ * Resolve the authed user and verify they own (or team-share) an application.
+ * Returns `{ error }` (already status-stamped) on failure, or `{ app, user }`.
+ */
+async function requireAppAccess(
+  headers: Record<string, string | undefined>,
+  cookie: Record<string, { value?: unknown }>,
+  appId: string,
+  set: { status?: number | string },
+): Promise<{ app: any; user: any } | { error: { error: string } }> {
+  const { user, error: authError } = await getAuth(headers, cookie);
+  if (!user) { set.status = 401; return { error: { error: authError || 'Unauthorized' } }; }
+  if (!appId) { set.status = 404; return { error: { error: 'Application not found' } }; }
+  const app = await Application.findById(appId);
+  if (!app) { set.status = 404; return { error: { error: 'Application not found' } }; }
+  let hasAccess = app.ownerId === user.id;
+  if (!hasAccess && app.teamId) {
+    const team = await DeveloperTeam.findById(app.teamId);
+    hasAccess = (team?.members as any[])?.some((m: any) => m.userId === user.id) ?? false;
+  }
+  if (!hasAccess) { set.status = 403; return { error: { error: 'You do not have access to this application' } }; }
+  return { app, user };
 }
 
 function generateToken(prefix: string): string {
@@ -1490,4 +1514,51 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     }
 
     return { success: true, botAdded };
+  })
+
+  // ─── Widget config (Social SDK widget editor backend) ──────────────────────
+  .get('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie, params.id, set);
+    if ('error' in access) return access.error;
+    const config = await WidgetConfig.findByApplication(params.id);
+    return { widget: config ?? null };
+  })
+  .put('/applications/:id/widget', async ({ headers, cookie, params, body, set }) => {
+    const access = await requireAppAccess(headers, cookie, params.id, set);
+    if ('error' in access) return access.error;
+    const b = body as { name?: string; surfaces?: unknown; sampleData?: unknown };
+    const saved = await WidgetConfig.upsert(params.id, {
+      ...(b.name !== undefined ? { name: b.name } : {}),
+      ...(b.surfaces !== undefined ? { surfaces: b.surfaces as object } : {}),
+      ...(b.sampleData !== undefined ? { sampleData: b.sampleData as object } : {}),
+    });
+    return { widget: saved };
+  }, {
+    body: t.Object({
+      name: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+      surfaces: t.Optional(t.Any()),
+      sampleData: t.Optional(t.Any()),
+    }),
+  })
+  .post('/applications/:id/widget/publish', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie, params.id, set);
+    if ('error' in access) return access.error;
+    const config = await WidgetConfig.findByApplication(params.id);
+    if (!config) { set.status = 404; return { error: 'No widget to publish' }; }
+    const saved = await WidgetConfig.updateByApplication(params.id, {
+      status: 'published', publishedAt: new Date(), version: (config.version ?? 1) + 1,
+    });
+    return { widget: saved };
+  })
+  .post('/applications/:id/widget/unpublish', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie, params.id, set);
+    if ('error' in access) return access.error;
+    const saved = await WidgetConfig.updateByApplication(params.id, { status: 'draft' });
+    return { widget: saved };
+  })
+  .delete('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie, params.id, set);
+    if ('error' in access) return access.error;
+    await WidgetConfig.deleteByApplication(params.id);
+    return { success: true };
   });

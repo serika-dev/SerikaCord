@@ -12,9 +12,11 @@ import {
   KeyRound,
   Users,
   Gift,
-  Activity, 
+  Activity,
   ArrowLeft,
   AlertTriangle,
+  LayoutGrid,
+  Share2,
 } from "lucide-react";
 import { useApplication } from "./useApplication";
 import { useGT } from "gt-next";
@@ -37,6 +39,8 @@ export default function ApplicationDetailLayoutClient({
     { label: gt("Installation"), href: "installation", icon: Download },
     { label: gt("OAuth2"), href: "oauth2", icon: KeyRound },
     { label: gt("Emoji"), href: "emojis", icon: Smile },
+    { label: gt("Social SDK"), href: "social-sdk", icon: Share2 },
+    { label: gt("Widget"), href: "widget", icon: LayoutGrid },
     { label: gt("Webhooks"), href: "webhooks", icon: Webhook },
     { label: gt("App Directory Page"), href: "directory", icon: Gift },
     { label: gt("Analytics"), href: "analytics", icon: Activity },

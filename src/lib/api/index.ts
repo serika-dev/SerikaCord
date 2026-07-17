@@ -20,6 +20,7 @@ import { voiceRoutes } from './voice';
 import { gifRoutes } from './gifs';
 import { developerRoutes, oauth2Routes } from './developers';
 import { botApiRoutes } from './botApi';
+import { socialSdkRoutes } from './social-sdk';
 import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { getMoeActivity } from '@/lib/services/moeActivity';
@@ -494,6 +495,23 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
   });
 
 // User routes
+// Shared TypeBox fields for Serika RPC presence extensions (assets/buttons/app).
+const rpcPresenceExtras = {
+  applicationId: t.Optional(t.String({ maxLength: 64 })),
+  assets: t.Optional(t.Object({
+    largeImage: t.Optional(t.String({ maxLength: 512 })),
+    largeText: t.Optional(t.String({ maxLength: 128 })),
+    smallImage: t.Optional(t.String({ maxLength: 512 })),
+    smallText: t.Optional(t.String({ maxLength: 128 })),
+  })),
+  buttons: t.Optional(t.Array(t.Object({
+    label: t.String({ maxLength: 32 }),
+    url: t.String({ maxLength: 512 }),
+  }), { maxItems: 2 })),
+  partyId: t.Optional(t.String({ maxLength: 128 })),
+  partySize: t.Optional(t.Array(t.Number(), { minItems: 2, maxItems: 2 })),
+};
+
 const userRoutes = new Elysia({ prefix: '/users' })
   .onBeforeHandle(rejectInvalidObjectIdParams)
   // Support both /me and /@me for compatibility
@@ -1795,6 +1813,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
       smallImageText: doc.smallImageText ?? null,
       startedAt: doc.startedAt ?? null,
       endsAt: doc.endsAt ?? null,
+      applicationId: doc.applicationId ?? null,
+      assets: doc.assets ?? null,
+      buttons: doc.buttons ?? null,
     }));
 
     const result = {
@@ -1867,6 +1888,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const name = item.name;
       activeKeys.add(`${type}:${name}`);
       
+      // Serika RPC extensions (assets/buttons/applicationId). Nullable and
+      // optional so legacy desktop reports keep working unchanged.
+      const rpcExtras = {
+        applicationId: item.applicationId ?? null,
+        assets: item.assets ?? null,
+        buttons: item.buttons ?? null,
+        partyId: item.partyId ?? null,
+        partySize: item.partySize ?? null,
+      };
+
       const existing = await RichPresence.findOne({ userId: authUserId, type, name });
       if (existing) {
         await RichPresence.updateById(existing.id, {
@@ -1879,6 +1910,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
           startedAt: item.startedAt ? new Date(item.startedAt) : null,
           endsAt: item.endsAt ? new Date(item.endsAt) : null,
           expiresAt,
+          ...rpcExtras,
         });
       } else {
         await RichPresence.create({
@@ -1894,6 +1926,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
           startedAt: item.startedAt ? new Date(item.startedAt) : null,
           endsAt: item.endsAt ? new Date(item.endsAt) : null,
           expiresAt,
+          ...rpcExtras,
         });
       }
     }
@@ -1938,6 +1971,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         smallImageText: t.Optional(t.String({ maxLength: 128 })),
         startedAt: t.Optional(t.String()),
         endsAt: t.Optional(t.String()),
+        ...rpcPresenceExtras,
       }),
       t.Object({
         activities: t.Array(t.Object({
@@ -1951,6 +1985,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
           smallImageText: t.Optional(t.String({ maxLength: 128 })),
           startedAt: t.Optional(t.String()),
           endsAt: t.Optional(t.String()),
+          ...rpcPresenceExtras,
         })),
       }),
     ]),
@@ -2103,6 +2138,9 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
           smallImageText: doc.smallImageText ?? null,
           startedAt: doc.startedAt ?? null,
           endsAt: doc.endsAt ?? null,
+          applicationId: doc.applicationId ?? null,
+          assets: doc.assets ?? null,
+          buttons: doc.buttons ?? null,
         }));
 
         let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
@@ -2936,6 +2974,152 @@ const igdbRoutes = new Elysia({ prefix: '/igdb' })
     }),
   });
 
+// Per-user game library backing the profile game widgets (favorite / liked /
+// rotation / wishlist). Session-authed; see docs/social-sdk-design.md §4.
+const gameLibraryRoutes = new Elysia({ prefix: '/users' })
+  .get('/:userId/games', async ({ headers, cookie, params, query, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const lib = await import('@/lib/services/gamesLibrary');
+    const targetId = params.userId === '@me' ? user.id : params.userId;
+    const category = (query as Record<string, string | undefined>).category;
+    if (category) {
+      if (!lib.isValidCategory(category)) { set.status = 400; return { error: 'Invalid category' }; }
+      return { games: await lib.getUserCategory(targetId, category) };
+    }
+    return { library: await lib.getUserLibrary(targetId) };
+  })
+  .post('/@me/games', async ({ headers, cookie, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const lib = await import('@/lib/services/gamesLibrary');
+    const b = body as { category: string; igdbId?: number; steamAppId?: string; name: string; coverUrl?: string; tags?: string[]; note?: string };
+    if (!lib.isValidCategory(b.category)) { set.status = 400; return { error: 'Invalid category' }; }
+    try {
+      return { game: await lib.addGame(user.id, b.category, b) };
+    } catch (e) {
+      const err = e as { status?: number; message?: string };
+      set.status = err.status || 400;
+      return { error: err.message || 'Failed to add game' };
+    }
+  }, {
+    body: t.Object({
+      category: t.String(),
+      igdbId: t.Optional(t.Number()),
+      steamAppId: t.Optional(t.String({ maxLength: 20 })),
+      name: t.String({ minLength: 1, maxLength: 256 }),
+      coverUrl: t.Optional(t.String({ maxLength: 1024 })),
+      tags: t.Optional(t.Array(t.String({ maxLength: 48 }), { maxItems: 12 })),
+      note: t.Optional(t.String({ maxLength: 512 })),
+    }),
+  })
+  .patch('/@me/games/:id', async ({ headers, cookie, params, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const lib = await import('@/lib/services/gamesLibrary');
+    try {
+      return { game: await lib.updateGame(user.id, params.id, body as { tags?: string[]; note?: string | null; coverUrl?: string | null }) };
+    } catch (e) {
+      const err = e as { status?: number; message?: string };
+      set.status = err.status || 400;
+      return { error: err.message || 'Failed to update game' };
+    }
+  }, {
+    body: t.Object({
+      tags: t.Optional(t.Array(t.String({ maxLength: 48 }), { maxItems: 12 })),
+      note: t.Optional(t.Union([t.String({ maxLength: 512 }), t.Null()])),
+      coverUrl: t.Optional(t.Union([t.String({ maxLength: 1024 }), t.Null()])),
+    }),
+  })
+  .delete('/@me/games/:id', async ({ headers, cookie, params, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const lib = await import('@/lib/services/gamesLibrary');
+    try {
+      await lib.removeGame(user.id, params.id);
+      return { success: true };
+    } catch (e) {
+      const err = e as { status?: number; message?: string };
+      set.status = err.status || 400;
+      return { error: err.message || 'Failed to remove game' };
+    }
+  })
+  .post('/@me/games/reorder', async ({ headers, cookie, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const lib = await import('@/lib/services/gamesLibrary');
+    const b = body as { category: string; orderedIds: string[] };
+    if (!lib.isValidCategory(b.category)) { set.status = 400; return { error: 'Invalid category' }; }
+    return { games: await lib.reorderCategory(user.id, b.category, b.orderedIds) };
+  }, {
+    body: t.Object({
+      category: t.String(),
+      orderedIds: t.Array(t.String(), { maxItems: 40 }),
+    }),
+  })
+
+  // ── Profile widget placements (users.profileWidgets) ──────────────────────
+  // Resolved list for rendering: built-ins pass through; app widgets are
+  // hydrated with their published config + this user's dynamic data.
+  .get('/:userId/profile-widgets', async ({ headers, cookie, params, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const targetId = params.userId === '@me' ? user.id : params.userId;
+    const target = targetId === user.id ? user : await User.findById(targetId);
+    if (!target) { set.status = 404; return { error: 'User not found' }; }
+    const placements: any[] = Array.isArray((target as any).profileWidgets) ? (target as any).profileWidgets : [];
+    const { WidgetConfig, WidgetUserData } = await import('@/lib/models');
+    const resolved = await Promise.all(placements.map(async (p) => {
+      if (p.type !== 'application' || !p.applicationId) return { ...p };
+      const config = await WidgetConfig.findByApplication(p.applicationId);
+      if (!config || config.status !== 'published') return null;
+      const data = await WidgetUserData.findOne({ applicationId: p.applicationId, userId: targetId });
+      return { ...p, config: { name: config.name, surfaces: config.surfaces }, data: data?.data ?? config.sampleData ?? null };
+    }));
+    return { widgets: resolved.filter(Boolean) };
+  })
+  .put('/@me/widgets', async ({ headers, cookie, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const widgets = ((body as any).widgets as any[]).map((w, i) => ({
+      id: w.id || `${w.type}:${w.applicationId || w.builtin || i}`,
+      type: w.type,
+      applicationId: w.applicationId ?? null,
+      builtin: w.builtin ?? null,
+      position: i,
+    }));
+    await User.updateById(user.id, { profileWidgets: widgets });
+    return { widgets };
+  }, {
+    body: t.Object({
+      widgets: t.Array(t.Object({
+        id: t.Optional(t.String()),
+        type: t.String(),
+        applicationId: t.Optional(t.Union([t.String(), t.Null()])),
+        builtin: t.Optional(t.Union([t.String(), t.Null()])),
+      }), { maxItems: 25 }),
+    }),
+  })
+
+  // Published app widgets available to add to a profile (for the Add Widget modal).
+  .get('/@me/available-widgets', async ({ headers, cookie, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const { db, schema } = await import('@/lib/db/postgres');
+    const { eq } = await import('drizzle-orm');
+    const rows = await db.select({
+      applicationId: schema.widgetConfigs.applicationId,
+      name: schema.widgetConfigs.name,
+      icon: schema.applications.icon,
+      appName: schema.applications.name,
+    })
+      .from(schema.widgetConfigs)
+      .leftJoin(schema.applications, eq(schema.applications.id, schema.widgetConfigs.applicationId))
+      .where(eq(schema.widgetConfigs.status, 'published'))
+      .limit(50);
+    return { widgets: rows };
+  });
+
 // Main API app
 export const api = new Elysia({ prefix: '/api' })
   .onError(({ code, error, set, request }) => {
@@ -3275,6 +3459,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(developerRoutes)
   .use(oauth2Routes)
   .use(igdbRoutes)
+  .use(gameLibraryRoutes)
+  .use(socialSdkRoutes)
   .use(botApiRoutes);
 
 // Initialize database connection

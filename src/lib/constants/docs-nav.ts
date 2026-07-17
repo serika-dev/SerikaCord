@@ -40,6 +40,16 @@ export const docNav: DocNavSection[] = [
     ],
   },
   {
+    title: "Social SDK",
+    items: [
+      { label: "Overview", slug: "social-sdk/overview" },
+      { label: "External Auth", slug: "social-sdk/external-auth" },
+      { label: "Relationships & Presence", slug: "social-sdk/relationships" },
+      { label: "Widgets", slug: "social-sdk/widgets" },
+      { label: "API Reference", slug: "social-sdk/api-reference" },
+    ],
+  },
+  {
     title: "Topics",
     items: [
       { label: "OAuth2", slug: "topics/oauth2" },
