@@ -2618,7 +2618,12 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
     }
 
     const reports = await BugReport.find({ reporterId: user.id });
-    return { reports };
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const normalizedReports = reports.map((r) => {
+      if (!r.attachments || !Array.isArray(r.attachments)) return r;
+      return { ...r, attachments: r.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) };
+    });
+    return { reports: normalizedReports };
   })
 
   // Get a single bug report (only if owned by user)
@@ -2640,7 +2645,11 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       return { error: 'You can only view your own bug reports' };
     }
 
-    return { report };
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const normalizedReport = report.attachments && Array.isArray(report.attachments)
+      ? { ...report, attachments: report.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) }
+      : report;
+    return { report: normalizedReport };
   }, {
     params: t.Object({
       id: t.String(),

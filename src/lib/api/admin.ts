@@ -2161,6 +2161,11 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     if (category && category !== 'all') filter.category = category;
 
     let allReports = await BugReport.find(filter);
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    allReports = allReports.map((r) => {
+      if (!r.attachments || !Array.isArray(r.attachments)) return r;
+      return { ...r, attachments: r.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) };
+    });
     if (isActiveFilter) {
       allReports = allReports.filter((r) => r.status !== 'resolved' && r.status !== 'wont_fix');
     }
@@ -2202,10 +2207,15 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: 'Bug report not found' };
     }
 
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const normalizedReport = report.attachments && Array.isArray(report.attachments)
+      ? { ...report, attachments: report.attachments.map((att: any) => att?.url ? { ...att, url: normalizeUrl(att.url) } : att) }
+      : report;
+
     const reporter = await User.findById(report.reporterId);
 
     return {
-      ...report,
+      ...normalizedReport,
       reporter: reporter
         ? { id: reporter.id, username: reporter.username, displayName: reporter.displayName, avatar: reporter.avatar, email: reporter.email }
         : null,
@@ -2333,4 +2343,41 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     };
 
     return { stats };
+  })
+
+  // Normalize legacy Backblaze B2 URLs in bug report attachments to CDN format
+  .post('/bug-reports/normalize-attachments', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { normalizeUrl } = await import('@/lib/services/storage');
+    const allReports = await BugReport.find({});
+    let fixed = 0;
+
+    for (const report of allReports) {
+      const attachments = report.attachments as Array<{ url: string; type: string; name: string }> | null;
+      if (!attachments || attachments.length === 0) continue;
+
+      let changed = false;
+      const normalized = attachments.map((att) => {
+        if (!att.url || att.url.includes('cdn.serika.chat')) return att;
+        changed = true;
+        return { ...att, url: normalizeUrl(att.url) };
+      });
+
+      if (changed) {
+        await BugReport.updateById(report.id, { attachments: normalized } as any);
+        fixed++;
+      }
+    }
+
+    await logAdminAction(user.id, 'update_settings', 'platform', 'bug-reports', {
+      action: 'normalize_attachment_urls',
+      reportsFixed: fixed,
+    });
+
+    return { success: true, reportsFixed: fixed };
   });

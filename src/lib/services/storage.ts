@@ -129,6 +129,18 @@ export function keyFromUrl(url: string): string {
   return key;
 }
 
+/**
+ * Normalize a stored media URL to the current CDN format.
+ * Legacy URLs (direct Backblaze B2 hosts) are rewritten to `https://cdn.serika.chat/<key>`.
+ * URLs already on the CDN are returned unchanged.
+ */
+export function normalizeUrl(url: string): string {
+  if (!url) return url;
+  if (url.includes(config.CDN_URL)) return url;
+  const key = keyFromUrl(url);
+  return `${config.CDN_URL}/${key}`;
+}
+
 // Calculate file hash for integrity
 async function calculateHash(data: Buffer | Uint8Array): Promise<string> {
   const buffer = data instanceof Buffer ? data : Buffer.from(data);
