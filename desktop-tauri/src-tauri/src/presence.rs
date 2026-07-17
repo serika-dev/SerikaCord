@@ -25,7 +25,7 @@ use std::{
 };
 
 use serde::Serialize;
-use sysinfo::System;
+use sysinfo::{ProcessRefreshKind, System};
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -364,6 +364,17 @@ fn detect(sys: &System, steam: &HashMap<String, String>) -> Vec<DetectedActivity
             results.push(game);
         }
     }
+
+    // Collapse duplicates that resolve to the same activity via different
+    // executables (e.g. Devin's `devin` and `devin-desktop`).
+    let mut seen_labels: HashSet<String> = HashSet::new();
+    results.retain(|a| seen_labels.insert(format!("{}|{}", a.kind, a.name)));
+
+    // Games take priority: they should lead the reported list so the web app
+    // (which treats activities[0] as the primary status) surfaces what the user
+    // is playing over an editor/IDE that happens to also be open. Stable sort
+    // keeps discovery order within each group.
+    results.sort_by_key(|a| if a.kind == "game" { 0 } else { 1 });
     results
 }
 
@@ -376,9 +387,11 @@ pub fn spawn_detection_loop(app: AppHandle) {
         let mut last: Vec<DetectedActivity> = Vec::new();
 
         loop {
-            // refresh_processes() populates cmd + environ on Linux, which the
-            // Steam/Proton AppId detection relies on.
-            sys.refresh_processes();
+            // IMPORTANT: the plain `refresh_processes()` does NOT load a
+            // process's cmdline or environment on its own, so the Steam/Proton
+            // AppId detection (which reads `SteamAppId`/`AppId=`) saw nothing.
+            // `ProcessRefreshKind::everything()` forces cmd + environ to be read.
+            sys.refresh_processes_specifics(ProcessRefreshKind::everything());
             let current = detect(&sys, steam.get());
 
             if current != last {
@@ -395,4 +408,31 @@ pub fn spawn_detection_loop(app: AppHandle) {
             thread::sleep(Duration::from_secs(15));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Live smoke test: runs the real detector against the current machine and
+    /// prints what it finds. Not an assertion (CI has no games running); run
+    /// locally with `cargo test -- --nocapture live_detection` to eyeball it.
+    #[test]
+    fn live_detection() {
+        let map = build_steam_app_map();
+        eprintln!("steam library entries: {}", map.len());
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(ProcessRefreshKind::everything());
+        let found = detect(&sys, &map);
+        eprintln!("detected {} activities:", found.len());
+        for a in &found {
+            eprintln!("  [{}] {} ({})", a.kind, a.name, a.exe);
+        }
+        // Any game present must sort ahead of every non-game entry.
+        let last_game = found.iter().rposition(|a| a.kind == "game");
+        let first_non_game = found.iter().position(|a| a.kind != "game");
+        if let (Some(lg), Some(fng)) = (last_game, first_non_game) {
+            assert!(lg < fng, "games must be ordered before non-games");
+        }
+    }
 }
