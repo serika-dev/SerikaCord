@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { Bug, Trash2, ChevronDown, ChevronRight, Loader2, Filter, Video, Image as ImageIcon, ShieldAlert } from "lucide-react";
+import { Bug, Trash2, ChevronDown, ChevronRight, Loader2, Filter, Image as ImageIcon, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -458,17 +458,21 @@ export function AdminBugReportsPanel() {
                     <div>
                       <p className="text-[10px] font-semibold uppercase text-[var(--text-muted)] mb-1">{gt("Attachments")}</p>
                       <div className="flex flex-wrap gap-2">
-                        {report.attachments.map((att, i) => (
-                          <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
-                            {att.type === "image" ? (
+                        {report.attachments.map((att, i) =>
+                          att.type === "image" ? (
+                            <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="block">
                               <img src={att.url} alt={att.name} className="w-24 h-24 object-cover rounded-md border border-[var(--border-subtle)]" />
-                            ) : (
-                              <div className="w-24 h-24 flex items-center justify-center bg-[var(--bg-card)] rounded-md border border-[var(--border-subtle)]">
-                                <Video className="w-8 h-8 text-[var(--text-secondary)]" />
-                              </div>
-                            )}
-                          </a>
-                        ))}
+                            </a>
+                          ) : (
+                            <video
+                              key={i}
+                              src={att.url}
+                              controls
+                              preload="metadata"
+                              className="w-40 h-24 object-cover rounded-md border border-[var(--border-subtle)] bg-black"
+                            />
+                          )
+                        )}
                       </div>
                     </div>
                   )}

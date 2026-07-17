@@ -766,20 +766,24 @@ export function BugReportPanel() {
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)] mb-1.5">{gt("Attachments")}</p>
                           <div className="flex flex-wrap gap-2.5">
-                            {report.attachments.map((att, i) => (
-                              <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="relative group block rounded-xl overflow-hidden border border-[var(--border-subtle)]">
-                                {att.type === "image" ? (
+                            {report.attachments.map((att, i) =>
+                              att.type === "image" ? (
+                                <a key={i} href={att.url} target="_blank" rel="noopener noreferrer" className="relative group block rounded-xl overflow-hidden border border-[var(--border-subtle)]">
                                   <img src={att.url} alt={att.name} className="w-20 h-20 object-cover" />
-                                ) : (
-                                  <div className="w-20 h-20 flex items-center justify-center bg-[var(--bg-card)]">
-                                    <Video className="w-6 h-6 text-[var(--text-secondary)]" />
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                    <ArrowUpRight className="w-4 h-4 text-white" />
                                   </div>
-                                )}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                  <ArrowUpRight className="w-4 h-4 text-white" />
-                                </div>
-                              </a>
-                            ))}
+                                </a>
+                              ) : (
+                                <video
+                                  key={i}
+                                  src={att.url}
+                                  controls
+                                  preload="metadata"
+                                  className="w-32 h-20 object-cover rounded-xl border border-[var(--border-subtle)] bg-black"
+                                />
+                              )
+                            )}
                           </div>
                         </div>
                       )}
