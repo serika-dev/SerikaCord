@@ -237,7 +237,7 @@ export function BugReportPanel() {
         if (res.ok) {
           const data = await res.json();
           setAttachments((prev) => [...prev, {
-            url: data.url,
+            url: data.attachment?.url ?? data.url,
             type: isImage ? "image" : "video",
             name: file.name,
           }]);
