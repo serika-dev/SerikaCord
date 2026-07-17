@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SerikaCord",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "identifier": "dev.serika.serikacord",
   "build": {
-    "frontendDist": "https://waifu.ws"
+    "frontendDist": "https://serika.chat"
   },
   "app": {
     "windows": [],

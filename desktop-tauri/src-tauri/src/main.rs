@@ -14,7 +14,7 @@ use tauri::{
 };
 use tauri_plugin_opener::OpenerExt;
 
-const APP_URL: &str = "https://waifu.ws";
+const APP_URL: &str = "https://serika.chat";
 const START_PATH: &str = "/channels/me";
 
 // Injected into the web app. Receives detected activities from Rust via

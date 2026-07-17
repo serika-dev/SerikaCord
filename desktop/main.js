@@ -3,7 +3,7 @@ const path = require('path');
 const { autoUpdater } = require('electron-updater');
 
 // App URL - change this to your domain
-const APP_URL = 'https://waifu.ws';
+const APP_URL = 'https://serika.chat';
 // Skip homepage and go directly to channels
 const APP_START_PATH = '/channels/me';
 const isDev = process.argv.includes('--dev');

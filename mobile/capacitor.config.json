@@ -3,7 +3,7 @@
   "appName": "SerikaCord",
   "webDir": "www",
   "server": {
-    "url": "https://waifu.ws/channels/me",
+    "url": "https://serika.chat/channels/me",
     "cleartext": false
   },
   "plugins": {

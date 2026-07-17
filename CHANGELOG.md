@@ -1,6 +1,20 @@
 # SerikaCord — Full Changelog
 
-**294 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.1.1.
+**294 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.1.2.
+
+---
+
+## v1.1.2 — 2026-07-17
+
+**Tag:** `v1.1.2` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Point all client apps at the primary domain `https://serika.chat`.
+
+### Changes
+- **App domain → `serika.chat`** — Updated the base/start URL in every client shell: Tauri desktop (`main.rs` `APP_URL`, `tauri.conf.json` `frontendDist`), Electron desktop (`main.js` `APP_URL`), and mobile (`capacitor.config.json` server URL, both root and Android assets copy). Previously `waifu.ws`.
+- **Version bumps** — All platforms to 1.1.2; Android `versionName` → 1.1.2, `versionCode` → 11.
 
 ---
 
