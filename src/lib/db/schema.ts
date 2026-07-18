@@ -466,6 +466,16 @@ export const discordUsers = pgTable('discord_users', {
   displayName: text('display_name').notNull(),
   avatar: text('avatar'),
   isBot: boolean('is_bot').default(false),
+  // Consent for Serika to process this Discord user's message data when it is
+  // relayed from a bridged guild. One of: 'pending' | 'granted' | 'denied'.
+  // Until this is 'granted' the bridge MUST NOT store or forward their messages.
+  consentStatus: text('consent_status').default('pending'),
+  consentUpdatedAt: timestamp('consent_updated_at'),
+  // Rate-limits the "please consent" DM the bridge bot sends.
+  lastConsentDmAt: timestamp('last_consent_dm_at'),
+  // Tracks the last time a weekly restriction timeout was applied in a guild
+  // that has enabled "restrict unconsented members".
+  lastTimeoutAt: timestamp('last_timeout_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

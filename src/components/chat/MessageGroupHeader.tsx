@@ -40,6 +40,7 @@ export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: Group
         displayName: author.displayName,
         avatar: author.avatar,
         badges: author.badges,
+        isDiscord: author.isDiscord,
       }}
       serverId={serverId}
       side="right"
@@ -97,6 +98,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
             badges: author.badges,
             isBot: author.isBot,
             isVerified: author.isVerified,
+            isDiscord: author.isDiscord,
           }}
           serverId={serverId}
           side="right"

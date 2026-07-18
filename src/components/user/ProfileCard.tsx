@@ -63,6 +63,8 @@ export interface ProfileCardUser {
   friendRequestSent?: boolean;
   isBot?: boolean;
   isVerified?: boolean;
+  /** Bridged Discord user (no real SerikaCord account) — hides friend actions. */
+  isDiscord?: boolean;
   connections?: Array<{
     provider: string;
     accountId: string;
@@ -389,7 +391,7 @@ export function ProfileCard({
                   {gt("Message")}
                 </button>
               )}
-              {!isFriend && (
+              {!isFriend && !user.isDiscord && (
                 friendRequestSent ? (
                   <button
                     disabled

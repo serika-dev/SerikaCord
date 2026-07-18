@@ -238,6 +238,9 @@ export default async function TermsPage() {
         <p>
           {gt("The Services may allow you to access or interact with third-party websites, applications, bots, and integrations that we do not own or control. Your use of such third-party services is governed by their terms and privacy policies, not these Terms. We are not responsible or liable for third-party services, and their availability through the Services does not constitute an endorsement.")}
         </p>
+        <p className="mt-3">
+          {gt("Discord bridge. Servers may bridge a Discord server to SerikaCord. When you use the bridge, you also agree to Discord's Terms of Service, Developer Terms of Service, and Developer Policy. The bridge is consent-based: messages sent by a Discord user are not processed or mirrored unless that user has agreed to data processing by Serika, and messages sent by a SerikaCord user are not forwarded to Discord unless that user has enabled \"Allow data processing by Discord\" in their settings. Consent may be withdrawn at any time, and we will delete the associated bridged data. Data obtained through Discord's APIs is used solely to operate the bridge, is not sold or shared with advertisers or data brokers, and is deleted when it is no longer necessary or upon request by the user or by Discord.")}
+        </p>
       </section>
 
       <section>

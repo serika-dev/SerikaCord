@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { cdnImage } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Shield, Check, Server, Info, AlertTriangle } from "lucide-react";
+import { Shield, Check, Server, Info, AlertTriangle, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -286,11 +286,7 @@ function AuthorizeForm() {
               {appData?.application.icon ? (
                 <img src={cdnImage(appData.application.icon)} alt={appData.application.name} className="w-full h-full object-cover" />
               ) : (
-                <img 
-                  src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(appData?.application.name || 'bot')}`}
-                  alt=""
-                  className="w-full h-full object-cover" 
-                />
+                <Bot className="size-8 text-[#8B5CF6]" />
               )}
             </div>
             <div>

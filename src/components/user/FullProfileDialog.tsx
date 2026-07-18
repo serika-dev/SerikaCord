@@ -336,7 +336,7 @@ export function FullProfileDialog({
                       <MessageSquare className="w-4 h-4" />
                       {gt("Message")}
                     </button>
-                    {!isFriend && (
+                    {!isFriend && !fullUser.isDiscord && (
                       friendRequestSent ? (
                         <button
                           disabled

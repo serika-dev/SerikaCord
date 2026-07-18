@@ -91,12 +91,7 @@ export function CodeBlock({ children, lang = "bash" }: { children: string; lang?
     <div className="my-4 rounded-xl border border-white/[0.08] overflow-hidden bg-[#0d0d0d]">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-white/[0.02]">
         <div className="flex items-center gap-2">
-          <div className="flex gap-1.5">
-            <span className="size-2.5 rounded-full bg-[#ff5f56]" />
-            <span className="size-2.5 rounded-full bg-[#ffbd2e]" />
-            <span className="size-2.5 rounded-full bg-[#27c93f]" />
-          </div>
-          <span className={`text-xs font-mono ${langColors[lang] || "text-[#666]"} uppercase tracking-wide ml-2`}>{lang}</span>
+          <span className={`text-xs font-mono ${langColors[lang] || "text-[#666]"} uppercase tracking-wide`}>{lang}</span>
         </div>
         <button
           onClick={handleCopy}

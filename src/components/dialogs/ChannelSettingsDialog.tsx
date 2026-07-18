@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Minus, Smile, Bold, Italic, Underline, Strikethrough, Eye, Lock, ChevronRight, ChevronDown, Link, Radio, Info, Search, MessageSquare, AlertCircle } from "lucide-react";
+import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Minus, Smile, Bold, Italic, Underline, Strikethrough, Eye, EyeOff, Copy, Lock, ChevronRight, ChevronDown, Link, Radio, Info, Search, MessageSquare, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { CHANNEL_PERMISSIONS } from "@/lib/constants/channels";
 import { parsePermissionBitfield, stringifyPermissionBitfield } from "@/lib/roles/bitfield";
@@ -45,6 +45,55 @@ interface ChannelSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channelId: string;
+}
+
+/**
+ * Masked, copyable webhook URL field. The full URL is a secret (it contains the
+ * token), so it's hidden by default with reveal + copy controls instead of a
+ * truncated one-liner the user can't select.
+ */
+function WebhookUrlField({ url, label }: { url: string; label: string }) {
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      toast.success(label);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Failed to copy");
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 mt-1 max-w-full">
+      <input
+        readOnly
+        value={url}
+        type={revealed ? "text" : "password"}
+        onFocus={(e) => e.currentTarget.select()}
+        className="min-w-0 flex-1 bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-md px-2 py-1 text-[11px] font-mono text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent,#8B5CF6)]"
+      />
+      <button
+        type="button"
+        onClick={() => setRevealed((v) => !v)}
+        className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar)] transition-colors shrink-0"
+        title={revealed ? "Hide" : "Reveal"}
+      >
+        {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+      </button>
+      <button
+        type="button"
+        onClick={copy}
+        className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar)] transition-colors shrink-0"
+        title="Copy URL"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+    </div>
+  );
 }
 
 export function ChannelSettingsDialog({
@@ -1271,33 +1320,34 @@ export function ChannelSettingsDialog({
                     {webhooks.map((w) => (
                       <div
                         key={w.id}
-                        className="flex items-center justify-between p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
+                        className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-full bg-[var(--bg-sidebar)] flex items-center justify-center border border-[var(--border-subtle)] shrink-0">
-                            {w.avatar ? (
-                              <img src={cdnImage(w.avatar)} alt={w.name} className="w-full h-full rounded-full object-cover" />
-                            ) : (
-                              <Radio className="w-5 h-5 text-[var(--text-secondary)]" />
-                            )}
-                          </div>
-                          <div className="min-w-0">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-full bg-[var(--bg-sidebar)] flex items-center justify-center border border-[var(--border-subtle)] shrink-0">
+                              {w.avatar ? (
+                                <img src={cdnImage(w.avatar)} alt={w.name} className="w-full h-full rounded-full object-cover" />
+                              ) : (
+                                <Radio className="w-5 h-5 text-[var(--text-secondary)]" />
+                              )}
+                            </div>
                             <span className="font-semibold text-sm text-[var(--text-primary)] block truncate">
                               {w.name}
                             </span>
-                            <span className="text-[10px] text-[var(--text-muted)] block truncate font-mono mt-0.5">
-                              URL: {w.url}
-                            </span>
                           </div>
+
+                          <button
+                            onClick={() => handleDeleteWebhook(w.id)}
+                            className="p-2 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
+                            title={gt("Delete Webhook")}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
 
-                        <button
-                          onClick={() => handleDeleteWebhook(w.id)}
-                          className="p-2 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
-                          title={gt("Delete Webhook")}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {w.url && (
+                          <WebhookUrlField url={w.url} label={gt("Webhook URL copied")} />
+                        )}
                       </div>
                     ))}
                   </div>

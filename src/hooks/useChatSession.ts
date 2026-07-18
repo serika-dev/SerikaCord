@@ -722,6 +722,8 @@ export function useChatSession<M extends ChatMessage>({
                   ...m,
                   content: data.content ?? m.content,
                   pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
+                  embeds: data.embeds !== undefined ? data.embeds : m.embeds,
+                  attachments: data.attachments !== undefined ? data.attachments : m.attachments,
                   edited: data.content !== undefined ? true : m.edited,
                   updatedAt: new Date().toISOString(),
                 }

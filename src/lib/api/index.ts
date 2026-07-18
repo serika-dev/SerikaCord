@@ -3175,6 +3175,43 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     return { widgets: rows };
   });
 
+// Discord bridge self-service data controls.
+const discordRoutes = new Elysia({ prefix: '/discord' })
+  // Erase the authenticated user's bridged Discord data (messages + profile),
+  // and turn off outbound sync. This is the web counterpart of the /forgetme
+  // Discord slash command. Satisfies the "delete on user request" obligation in
+  // Discord's Developer Terms of Service.
+  .post('/forget-me', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const fullUser = await User.findById(user.id);
+    const discordId = fullUser?.discordId;
+
+    let deletedMessages = 0;
+    if (discordId) {
+      try {
+        const { deleteBridgedUserData } = await import('@/lib/discord/consent');
+        const result = await deleteBridgedUserData(discordId, { forgetProfile: true });
+        deletedMessages = result.deletedMessages;
+      } catch (err) {
+        console.error('[Discord] forget-me failed:', err);
+        set.status = 500;
+        return { error: 'Failed to erase data' };
+      }
+    }
+
+    // Withdraw outbound consent so future Serika messages aren't forwarded either.
+    const settings = { ...(fullUser?.settings as any || {}) };
+    settings.dataPrivacy = { ...(settings.dataPrivacy || {}), discordBridgeOutbound: false };
+    await User.updateById(user.id, { settings });
+
+    return { success: true, deletedMessages, hadLinkedDiscord: Boolean(discordId) };
+  });
+
 // Main API app
 export const api = new Elysia({ prefix: '/api' })
   .onError(({ code, error, set, request }) => {
@@ -3516,6 +3553,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(igdbRoutes)
   .use(gameLibraryRoutes)
   .use(socialSdkRoutes)
+  .use(discordRoutes)
   .use(botApiRoutes);
 
 // Initialize database connection

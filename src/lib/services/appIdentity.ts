@@ -72,7 +72,7 @@ export async function ensureBotProvisioned(app: IApplication) {
       }
       lastSuffix = suffix;
     }
-    const defaultAvatar = app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name || username)}`;
+    const defaultAvatar = app.icon || null;
     const botUser = await User.create({
       username,
       displayName: app.name || username,
@@ -87,9 +87,8 @@ export async function ensureBotProvisioned(app: IApplication) {
   } else {
     // If the bot user exists, ensure its avatar is set (fallback to Dicebear if empty)
     const botUser = await User.findById(app.botId);
-    if (botUser && !botUser.avatar) {
-      const defaultAvatar = app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name || botUser.username)}`;
-      await User.updateById(botUser.id, { avatar: defaultAvatar });
+    if (botUser && !botUser.avatar && app.icon) {
+      await User.updateById(botUser.id, { avatar: app.icon });
     }
   }
 

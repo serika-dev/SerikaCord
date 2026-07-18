@@ -417,7 +417,19 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
 
     // Paste-to-attach (screenshots, copied images)
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
-      const files = Array.from(e.clipboardData?.files || []);
+      const dt = e.clipboardData;
+      if (!dt) return;
+      // `files` is empty on some webviews (e.g. WebKitGTK in the desktop app),
+      // where pasted images arrive as clipboard `items` of kind "file" instead.
+      const files: File[] = Array.from(dt.files || []);
+      if (files.length === 0 && dt.items) {
+        for (const item of Array.from(dt.items)) {
+          if (item.kind === "file") {
+            const f = item.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+      }
       if (files.length > 0) {
         e.preventDefault();
         addFiles(files);

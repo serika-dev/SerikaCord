@@ -1363,7 +1363,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       application: {
         id: app.id,
         name: app.name,
-        icon: app.icon || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name)}`,
+        icon: app.icon || null,
         description: app.description,
       },
       scopes,

@@ -264,6 +264,7 @@ function MessageGroupInner<M extends ChatMessage>({
                                 username: message.referencedMessage.author.username || "unknown",
                                 displayName: message.referencedMessage.author.displayName,
                                 avatar: message.referencedMessage.author.avatar,
+                                isDiscord: message.referencedMessage.author.isDiscord,
                               }}
                               serverId={serverId}
                               side="right"
