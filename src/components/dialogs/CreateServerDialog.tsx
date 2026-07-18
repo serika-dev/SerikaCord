@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Users, ArrowRight, Hash, ImagePlus } from "lucide-react";
+import { Upload, Users, ArrowRight, Hash, ImagePlus, Lock, Globe, Mail, Check, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
 
@@ -27,13 +27,17 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
   const router = useRouter();
   const { createServer, joinServer } = useServer();
   const gt = useGT();
-  const [mode, setMode] = useState<"select" | "create" | "join">("select");
+  const [mode, setMode] = useState<"select" | "create" | "join" | "onboard">("select");
   const [serverName, setServerName] = useState("My Server");
   const [inviteCode, setInviteCode] = useState("");
   const [serverIcon, setServerIcon] = useState<File | null>(null);
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [createdServerId, setCreatedServerId] = useState<string | null>(null);
+  const [onboardStep, setOnboardStep] = useState(0);
+  const [onboardDesc, setOnboardDesc] = useState("");
+  const [onboardJoinMode, setOnboardJoinMode] = useState<"invite_only" | "apply_to_join" | "discoverable">("invite_only");
 
   const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -53,10 +57,9 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
     try {
       const server = await createServer(serverName, serverIcon || undefined);
-      onOpenChange(false);
-      resetForm();
-      toast.success(gt("Server created!"));
-      router.push(`/channels/${server.id}`);
+      setCreatedServerId(server.id);
+      setMode("onboard");
+      setOnboardStep(0);
     } catch (err) {
       setError(err instanceof Error ? err.message : gt("Failed to create server"));
       toast.error(err instanceof Error ? err.message : gt("Failed to create server"));
@@ -91,6 +94,38 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
     setServerIcon(null);
     setIconPreview(null);
     setError("");
+    setCreatedServerId(null);
+    setOnboardStep(0);
+    setOnboardDesc("");
+    setOnboardJoinMode("invite_only");
+  };
+
+  const handleOnboardFinish = async () => {
+    if (!createdServerId) return;
+    setIsLoading(true);
+    try {
+      await fetch(`/api/servers/${createdServerId}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: {
+            access: { joinMode: onboardJoinMode },
+            discoveryDescription: onboardDesc,
+          },
+        }),
+      });
+      toast.success(gt("Server created!"));
+      onOpenChange(false);
+      router.push(`/channels/${createdServerId}`);
+      resetForm();
+    } catch {
+      toast.success(gt("Server created!"));
+      onOpenChange(false);
+      router.push(`/channels/${createdServerId}`);
+      resetForm();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -266,6 +301,104 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
               >
                 {isLoading ? gt("Joining...") : gt("Join Server")}
               </Button>
+            </div>
+          </>
+        )}
+
+        {mode === "onboard" && (
+          <>
+            <DialogHeader className="p-4 text-center">
+              <div className="flex justify-center mb-3">
+                <div className="w-14 h-14 rounded-full bg-[#8B5CF6]/20 flex items-center justify-center">
+                  <Rocket className="w-7 h-7 text-[#8B5CF6]" />
+                </div>
+              </div>
+              <DialogTitle className="text-2xl font-bold"><T>Set up your server</T></DialogTitle>
+              <DialogDescription className="text-[#888888]">
+                {onboardStep === 0
+                  ? gt("Tell people what your server is about.")
+                  : gt("Choose how people can join your server.")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="p-4 space-y-4">
+              {onboardStep === 0 && (
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase text-[#888888]">
+                      {gt("Server Description")}
+                    </Label>
+                    <textarea
+                      value={onboardDesc}
+                      onChange={(e) => setOnboardDesc(e.target.value)}
+                      placeholder={gt("A brief description of your server...")}
+                      rows={3}
+                      maxLength={500}
+                      className="w-full p-3 rounded-lg bg-[#111111] border border-[#222222] text-white placeholder:text-[#555555] focus:outline-none focus:border-[#8B5CF6] resize-none text-sm"
+                    />
+                    <p className="text-xs text-[#666666] text-right">{onboardDesc.length}/500</p>
+                  </div>
+                </>
+              )}
+
+              {onboardStep === 1 && (
+                <div className="space-y-3">
+                  {([
+                    { key: "invite_only", icon: Lock, title: gt("Invite Only"), desc: gt("People need an invite link to join") },
+                    { key: "apply_to_join", icon: Mail, title: gt("Apply to Join"), desc: gt("People must apply and be approved") },
+                    { key: "discoverable", icon: Globe, title: gt("Discoverable"), desc: gt("Anyone can find and join your server") },
+                  ] as const).map((opt) => {
+                    const Icon = opt.icon;
+                    const selected = onboardJoinMode === opt.key;
+                    return (
+                      <button
+                        key={opt.key}
+                        onClick={() => setOnboardJoinMode(opt.key)}
+                        className={`w-full p-3 rounded-lg border transition-colors flex items-center gap-3 text-left ${selected ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/50" : "bg-[#111111] border-[#222222] hover:border-[#333333]"}`}
+                      >
+                        <div className={`p-2 rounded-full ${selected ? "text-[#8B5CF6]" : "text-[#888888]"}`}>
+                          <Icon className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1">
+                          <span className={`font-medium text-sm block ${selected ? "text-white" : "text-[#aaa]"}`}>{opt.title}</span>
+                          <span className="text-xs text-[#888888]">{opt.desc}</span>
+                        </div>
+                        {selected && <Check className="w-4 h-4 text-[#8B5CF6]" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="p-4 bg-[#111111] border-t border-[#1a1a1a] flex justify-between">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (onboardStep === 0) {
+                    setMode("create");
+                  } else {
+                    setOnboardStep(0);
+                  }
+                }}
+                className="text-white hover:bg-transparent hover:underline"
+              >
+                {onboardStep === 0 ? gt("Back") : gt("Back")}
+              </Button>
+              {onboardStep === 0 ? (
+                <Button
+                  onClick={() => setOnboardStep(1)}
+                  className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
+                >
+                  {gt("Next")}
+                </Button>
+              ) : (
+                <Button
+                  onClick={handleOnboardFinish}
+                  disabled={isLoading}
+                  className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
+                >
+                  {isLoading ? gt("Finishing...") : gt("Finish Setup")}
+                </Button>
+              )}
             </div>
           </>
         )}

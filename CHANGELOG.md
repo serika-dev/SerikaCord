@@ -1,6 +1,65 @@
 # SerikaCord — Full Changelog
 
-**295 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.2.0.
+**295 commits** · Jan 22 – Jul 17, 2026 · v0.0.1 → v1.2.3.
+
+---
+
+## v1.2.3 — 2026-07-17
+
+**Tag:** `v1.2.3` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Server management enhancements: webhook creation, onboarding flow, app discovery, and discovery page state badges.
+
+### Features
+- **Channel webhook creation UI** — User-authenticated webhook CRUD endpoints (`/api/channels/:channelId/webhooks`) with permission checks (MANAGE_WEBHOOKS / server owner / creator). Channel settings dialog now has a proper webhook creation form with name input, loading state, and delete confirmation.
+- **Server onboarding flow** — After creating a server, users are guided through a 2-step onboarding: set a server description and choose a join mode (Invite Only / Apply to Join / Discoverable). Settings are saved via the server settings API.
+- **App Discovery tab** — New "App Discovery" tab in server settings for browsing public bots (`botPublic: true`). Includes search, app cards with icon/description/tags, and an "Add to server" button. New `/api/developers/discoverable-apps` endpoint.
+- **Discovery page state badges** — Server cards on the discovery page now show badges for "Invite Only" (lock icon) and "Apply" (mail icon) join modes.
+
+### Bug Fixes
+- **Widget editor dropdown styling** — Fixed white-on-white text in `<select>` dropdowns by adding `[color-scheme:dark]`.
+- **Widget auto-sample data** — Data fields configured in widget surfaces now auto-appear in the sample data section.
+- **App owner widget visibility** — App owners can now see their own draft (unpublished) widgets on their profile and in available-widgets without OAuth validation.
+
+### Changes
+- **AI-READ-THIS.md** — Added versioning rules: every push must bump the patch version.
+- **Version bumps** — All platforms to 1.2.3.
+
+---
+
+## v1.2.2 — 2026-07-17
+
+**Tag:** `v1.2.2` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Widget editor UX polish and app owner widget display fixes.
+
+### Bug Fixes
+- **Widget editor UX** — Improved empty state messages, added "Edit first field" quick-action button, and better sample data empty state guidance.
+- **Widget API 404 errors** — Fixed route mounting issues causing widget save/publish to return 404.
+
+### Changes
+- **Version bumps** — All platforms to 1.2.2.
+
+---
+
+## v1.2.1 — 2026-07-17
+
+**Tag:** `v1.2.1` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Widget system fixes and profile widget display improvements.
+
+### Bug Fixes
+- **Profile widget rendering** — Fixed profile widgets not displaying correctly for app owners without OAuth.
+- **Available widgets list** — Modified `/api/@me/available-widgets` to include app owner's draft widgets using OR condition.
+
+### Changes
+- **Version bumps** — All platforms to 1.2.1.
 
 ---
 

@@ -21,6 +21,7 @@ const PERM_VIEW_CHANNEL = 1n << 10n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
 const PERM_PIN_MESSAGES = 1n << 51n;
 const PERM_SEND_MESSAGES = 1n << 11n;
+const PERM_MANAGE_WEBHOOKS = 1n << 29n;
 
 /**
  * Whether a user can moderate messages in a server — i.e. delete other people's
@@ -2868,4 +2869,86 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     params: t.Object({
       channelId: t.String(),
     }),
+  })
+
+  // ─── Channel Webhooks (user-authenticated) ─────────────────────────────────
+  .get('/:channelId/webhooks', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const { hasAccess, channel } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
+    const { ChannelWebhook } = await import('@/lib/models');
+    const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
+    return webhooks.map((w: any) => ({
+      id: w.id,
+      type: 1,
+      guild_id: channel.serverId ?? null,
+      channel_id: params.channelId,
+      name: w.name,
+      avatar: w.avatar,
+      token: w.token,
+      url: w.url,
+      creator_id: w.creatorId ?? null,
+    }));
+  })
+  .post('/:channelId/webhooks', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
+    if (channel.serverId) {
+      const server = await Server.findById(channel.serverId);
+      const isOwner = server && compareIds(server.ownerId, user.id);
+      const canManage = await canManageMessagesInServer(channel.serverId, user.id, membership);
+      if (!isOwner && !canManage) { set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' }; }
+    }
+    const { name, avatar } = body as any;
+    if (!name || typeof name !== 'string') { set.status = 400; return { error: 'Name is required' }; }
+    const { ChannelWebhook } = await import('@/lib/models');
+    const token = randomUUID().replace(/-/g, '');
+    const webhook = await ChannelWebhook.create({
+      channelId: params.channelId,
+      serverId: channel.serverId ?? undefined,
+      name: name.trim(),
+      avatar: avatar ?? null,
+      token,
+      url: `${config.API_BASE_URL}/api/webhooks/${params.channelId}/${token}`,
+      creatorId: user.id,
+    });
+    return {
+      id: webhook.id,
+      type: 1,
+      guild_id: channel.serverId ?? null,
+      channel_id: params.channelId,
+      name: webhook.name,
+      avatar: webhook.avatar,
+      token: webhook.token,
+      url: webhook.url,
+      creator_id: user.id,
+    };
+  }, {
+    body: t.Object({
+      name: t.String({ minLength: 1, maxLength: 80 }),
+      avatar: t.Optional(t.Any()),
+    }),
+  })
+  .delete('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
+    const { ChannelWebhook } = await import('@/lib/models');
+    const webhook = await ChannelWebhook.findById(params.webhookId);
+    if (!webhook || webhook.channelId !== params.channelId) {
+      set.status = 404; return { error: 'Webhook not found' };
+    }
+    if (channel.serverId) {
+      const server = await Server.findById(channel.serverId);
+      const isOwner = server && compareIds(server.ownerId, user.id);
+      const canManage = await canManageMessagesInServer(channel.serverId, user.id, membership);
+      const isCreator = webhook.creatorId && compareIds(webhook.creatorId, user.id);
+      if (!isOwner && !canManage && !isCreator) { set.status = 403; return { error: 'You can only delete your own webhooks' }; }
+    }
+    await ChannelWebhook.deleteById(params.webhookId);
+    return { success: true };
   });

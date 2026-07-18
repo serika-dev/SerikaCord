@@ -1169,6 +1169,69 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   body: t.Object({ file: t.File() }),
 })
 
+  // ─── Widget config (Social SDK widget editor backend) ──────────────────────
+  .get('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+    if ('error' in access) return access.error;
+    const config = await WidgetConfig.findByApplication(params.id);
+    return { widget: config ?? null };
+  })
+  .put('/applications/:id/widget', async ({ headers, cookie, params, body, set }) => {
+    const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+    if ('error' in access) return access.error;
+    const b = body as { name?: string; surfaces?: unknown; sampleData?: unknown };
+    const saved = await WidgetConfig.upsert(params.id, {
+      ...(b.name !== undefined ? { name: b.name } : {}),
+      ...(b.surfaces !== undefined ? { surfaces: b.surfaces as object } : {}),
+      ...(b.sampleData !== undefined ? { sampleData: b.sampleData as object } : {}),
+    });
+    return { widget: saved };
+  }, {
+    body: t.Object({
+      name: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
+      surfaces: t.Optional(t.Any()),
+      sampleData: t.Optional(t.Any()),
+    }),
+  })
+  .post('/applications/:id/widget/publish', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+    if ('error' in access) return access.error;
+    const config = await WidgetConfig.findByApplication(params.id);
+    if (!config) { set.status = 404; return { error: 'No widget to publish' }; }
+    const saved = await WidgetConfig.updateByApplication(params.id, {
+      status: 'published', publishedAt: new Date(), version: (config.version ?? 1) + 1,
+    });
+    return { widget: saved };
+  })
+  .post('/applications/:id/widget/unpublish', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+    if ('error' in access) return access.error;
+    const saved = await WidgetConfig.updateByApplication(params.id, { status: 'draft' });
+    return { widget: saved };
+  })
+  .delete('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+    if ('error' in access) return access.error;
+    await WidgetConfig.deleteByApplication(params.id);
+    return { success: true };
+  })
+  // ─── 1:1 list alias (List Application Widget Configs) ──────────────────────
+  .get('/applications/:id/widget-configs', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+    if ('error' in access) return access.error;
+    const config = await WidgetConfig.findByApplication(params.id);
+    return { configs: config ? [{
+      application_id: config.applicationId,
+      config_id: config.id,
+      display_name: config.name,
+      surfaces: config.surfaces,
+      resolved_assets: config.resolvedAssets ?? [],
+      status: config.status,
+      published_at: config.publishedAt ?? null,
+      updated_at: config.updatedAt ?? null,
+    }] : [] };
+  });
+
 export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
   .post('/token', async ({ body, set }) => {
     const formData = body as any;
@@ -1516,67 +1579,26 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     return { success: true, botAdded };
   })
 
-  // ─── Widget config (Social SDK widget editor backend) ──────────────────────
-  .get('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
-    const access = await requireAppAccess(headers, cookie, params.id, set);
-    if ('error' in access) return access.error;
-    const config = await WidgetConfig.findByApplication(params.id);
-    return { widget: config ?? null };
-  })
-  .put('/applications/:id/widget', async ({ headers, cookie, params, body, set }) => {
-    const access = await requireAppAccess(headers, cookie, params.id, set);
-    if ('error' in access) return access.error;
-    const b = body as { name?: string; surfaces?: unknown; sampleData?: unknown };
-    const saved = await WidgetConfig.upsert(params.id, {
-      ...(b.name !== undefined ? { name: b.name } : {}),
-      ...(b.surfaces !== undefined ? { surfaces: b.surfaces as object } : {}),
-      ...(b.sampleData !== undefined ? { sampleData: b.sampleData as object } : {}),
-    });
-    return { widget: saved };
-  }, {
-    body: t.Object({
-      name: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
-      surfaces: t.Optional(t.Any()),
-      sampleData: t.Optional(t.Any()),
-    }),
-  })
-  .post('/applications/:id/widget/publish', async ({ headers, cookie, params, set }) => {
-    const access = await requireAppAccess(headers, cookie, params.id, set);
-    if ('error' in access) return access.error;
-    const config = await WidgetConfig.findByApplication(params.id);
-    if (!config) { set.status = 404; return { error: 'No widget to publish' }; }
-    const saved = await WidgetConfig.updateByApplication(params.id, {
-      status: 'published', publishedAt: new Date(), version: (config.version ?? 1) + 1,
-    });
-    return { widget: saved };
-  })
-  .post('/applications/:id/widget/unpublish', async ({ headers, cookie, params, set }) => {
-    const access = await requireAppAccess(headers, cookie, params.id, set);
-    if ('error' in access) return access.error;
-    const saved = await WidgetConfig.updateByApplication(params.id, { status: 'draft' });
-    return { widget: saved };
-  })
-  .delete('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
-    const access = await requireAppAccess(headers, cookie, params.id, set);
-    if ('error' in access) return access.error;
-    await WidgetConfig.deleteByApplication(params.id);
-    return { success: true };
-  })
-  // ─── 1:1 list alias (List Application Widget Configs) ──────────────────────
-  // SerikaCord keeps a single config per application; the list form returns it
-  // as an array to match the documented Discord shape.
-  .get('/applications/:id/widget-configs', async ({ headers, cookie, params, set }) => {
-    const access = await requireAppAccess(headers, cookie, params.id, set);
-    if ('error' in access) return access.error;
-    const config = await WidgetConfig.findByApplication(params.id);
-    return { configs: config ? [{
-      application_id: config.applicationId,
-      config_id: config.id,
-      display_name: config.name,
-      surfaces: config.surfaces,
-      resolved_assets: config.resolvedAssets ?? [],
-      status: config.status,
-      published_at: config.publishedAt ?? null,
-      updated_at: config.updatedAt ?? null,
-    }] : [] };
+  // ─── App Discovery (public bot listing) ────────────────────
+  .get('/discoverable-apps', async ({ query, set }) => {
+    const { db, schema } = await import('@/lib/db/postgres');
+    const { eq, and, ilike, or, sql } = await import('drizzle-orm');
+    const conditions = [eq(schema.applications.botPublic, true)];
+    if (query.search) {
+      conditions.push(ilike(schema.applications.name, `%${query.search}%`));
+    }
+    const rows = await db.select({
+      id: schema.applications.id,
+      name: schema.applications.name,
+      description: schema.applications.description,
+      icon: schema.applications.icon,
+      botId: schema.applications.botId,
+      tags: schema.applications.tags,
+      ownerId: schema.applications.ownerId,
+    })
+      .from(schema.applications)
+      .where(and(...conditions))
+      .limit(50);
+
+    return { apps: rows };
   });

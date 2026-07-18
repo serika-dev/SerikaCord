@@ -56,6 +56,22 @@ Each release section should include:
 
 ---
 
+## Versioning Rules
+
+### Every push MUST bump the patch version
+
+**Rule:** Every time you push changes to the repository, you MUST bump the patch version (e.g. `v1.2.2` → `v1.2.3`). This applies to all pushes, not just releases.
+
+**Steps before every push:**
+1. Bump the patch version in all config files listed in "Releasing a new version" above.
+2. Add a `## vX.Y.Z — YYYY-MM-DD` entry to `CHANGELOG.md` describing the changes.
+3. Commit with message `release: vX.Y.Z — <brief description>`.
+4. Push, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+
+**Minor/major version bumps** are reserved for significant feature additions or breaking changes, respectively. When in doubt, bump patch.
+
+---
+
 ## Translation String Implementation Guide
 
 ## Overview

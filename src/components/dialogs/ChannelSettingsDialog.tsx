@@ -95,6 +95,9 @@ export function ChannelSettingsDialog({
   const [webhooks, setWebhooks] = useState<any[]>([]);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
   const [isLoadingWebhooks, setIsLoadingWebhooks] = useState(false);
+  const [showWebhookForm, setShowWebhookForm] = useState(false);
+  const [newWebhookName, setNewWebhookName] = useState("");
+  const [creatingWebhook, setCreatingWebhook] = useState(false);
 
   // Populate form when channel data loads
   useEffect(() => {
@@ -316,7 +319,7 @@ export function ChannelSettingsDialog({
     if (!channel) return;
     setIsLoadingWebhooks(true);
     try {
-      const res = await fetch(`/api/v10/channels/${channel.id}/webhooks`);
+      const res = await fetch(`/api/channels/${channel.id}/webhooks`);
       const data = await res.json();
       if (Array.isArray(data)) {
         setWebhooks(data);
@@ -329,27 +332,34 @@ export function ChannelSettingsDialog({
   }, [channel]);
 
   const handleCreateWebhook = async () => {
-    if (!channel) return;
+    if (!channel || !newWebhookName.trim()) return;
+    setCreatingWebhook(true);
     try {
-      const res = await fetch(`/api/v10/channels/${channel.id}/webhooks`, {
+      const res = await fetch(`/api/channels/${channel.id}/webhooks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: gt("Spidey Bot") }),
+        body: JSON.stringify({ name: newWebhookName.trim() }),
       });
       if (res.ok) {
         toast.success(gt("Webhook created successfully"));
+        setNewWebhookName("");
+        setShowWebhookForm(false);
         fetchWebhooks();
       } else {
-        toast.error(gt("Failed to create webhook"));
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.error || gt("Failed to create webhook"));
       }
     } catch (err) {
       toast.error(gt("Failed to create webhook"));
+    } finally {
+      setCreatingWebhook(false);
     }
   };
 
   const handleDeleteWebhook = async (webhookId: string) => {
+    if (!channel) return;
     try {
-      const res = await fetch(`/api/v10/webhooks/${webhookId}`, {
+      const res = await fetch(`/api/channels/${channel.id}/webhooks/${webhookId}`, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -1215,13 +1225,39 @@ export function ChannelSettingsDialog({
                     </p>
                   </div>
                   <Button
-                    onClick={handleCreateWebhook}
+                    onClick={() => setShowWebhookForm(!showWebhookForm)}
                     className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
                   >
                     <Plus className="w-4 h-4 mr-1.5" />
                     {gt("New Webhook")}
                   </Button>
                 </div>
+
+                {showWebhookForm && (
+                  <div className="flex items-center gap-3 p-4 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+                    <Input
+                      value={newWebhookName}
+                      onChange={(e) => setNewWebhookName(e.target.value)}
+                      placeholder={gt("Webhook name")}
+                      className="flex-1"
+                      onKeyDown={(e) => { if (e.key === "Enter" && newWebhookName.trim()) handleCreateWebhook(); }}
+                    />
+                    <Button
+                      onClick={handleCreateWebhook}
+                      disabled={!newWebhookName.trim() || creatingWebhook}
+                      className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
+                    >
+                      {creatingWebhook ? <Loader size={16} className="size-4" /> : gt("Create")}
+                    </Button>
+                    <Button
+                      onClick={() => { setShowWebhookForm(false); setNewWebhookName(""); }}
+                      variant="ghost"
+                      className="text-sm px-3 h-9"
+                    >
+                      {gt("Cancel")}
+                    </Button>
+                  </div>
+                )}
 
                 {isLoadingWebhooks ? (
                   <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading webhooks...")}</div>

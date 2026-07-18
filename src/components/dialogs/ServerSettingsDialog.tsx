@@ -48,6 +48,8 @@ import {
   Globe,
   ClipboardList,
   Pencil,
+  Bot,
+  Sparkles,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
@@ -118,7 +120,8 @@ type SettingsTab =
   | "members"
   | "channels"
   | "access"
-  | "applications";
+  | "applications"
+  | "app_discovery";
 
 /** Tabs whose content is a multi-column / table layout and needs full width. */
 const WIDE_SETTINGS_TABS = new Set<SettingsTab>([
@@ -323,6 +326,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [pendingAppCount, setPendingAppCount] = useState(0);
   const [applications, setApplications] = useState<ServerApplication[]>([]);
   const [applicationFilter, setApplicationFilter] = useState<"all" | "pending" | "approved" | "rejected" | "interviewed">("all");
+  const [discoverableApps, setDiscoverableApps] = useState<any[]>([]);
+  const [appSearch, setAppSearch] = useState("");
 
   const [isSyncingDiscord, setIsSyncingDiscord] = useState(false);
   const [isTriggeringTwitch, setIsTriggeringTwitch] = useState(false);
@@ -605,6 +610,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             if (appsRes.ok) {
               const appsData = await appsRes.json();
               setApplications(appsData.applications || []);
+            }
+            break;
+          }
+          case "app_discovery": {
+            const discoverRes = await fetch(`/api/developers/discoverable-apps${appSearch ? `?search=${encodeURIComponent(appSearch)}` : ""}`);
+            if (discoverRes.ok) {
+              const discoverData = await discoverRes.json();
+              setDiscoverableApps(discoverData.apps || []);
             }
             break;
           }
@@ -1611,6 +1624,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       items: [
         { id: "members" as SettingsTab, label: gt("Members"), icon: Users },
         { id: "applications" as SettingsTab, label: gt("Applications"), icon: ClipboardList },
+        { id: "app_discovery" as SettingsTab, label: gt("App Discovery"), icon: Bot },
         { id: "invites" as SettingsTab, label: gt("Invites"), icon: Link2 },
         { id: "integrations" as SettingsTab, label: gt("Integrations"), icon: Folder },
       ],
@@ -3043,6 +3057,79 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     );
   };
 
+  const renderAppDiscovery = () => {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-xl font-bold text-white mb-1"><T>App Discovery</T></h2>
+          <p className="text-sm text-[#888888]"><T>Browse and add public bots to your server</T></p>
+        </div>
+
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
+          <Input
+            value={appSearch}
+            onChange={(e) => setAppSearch(e.target.value)}
+            placeholder={gt("Search bots and apps...")}
+            className="pl-10 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] focus-visible:ring-[#8B5CF6]"
+          />
+        </div>
+
+        {isLoading ? (
+          <div className="text-center py-10 text-sm text-[#888888]"><Loader size={20} className="mx-auto" /></div>
+        ) : discoverableApps.length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-[#222222] rounded-xl bg-[#111111]">
+            <Bot className="w-10 h-10 text-[#666666] mx-auto mb-3 opacity-50" />
+            <p className="text-sm text-[#888888]">
+              {appSearch ? gt("No bots found matching your search") : gt("No public bots available yet")}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {discoverableApps.map((app) => (
+              <div
+                key={app.id}
+                className="flex items-start gap-3 p-4 rounded-xl border border-[#222222] bg-[#111111] hover:border-[#333333] transition-colors"
+              >
+                <div className="w-12 h-12 rounded-xl bg-[#8B5CF6]/20 flex items-center justify-center shrink-0 overflow-hidden">
+                  {app.icon ? (
+                    <img src={cdnImage(app.icon)} alt={app.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Bot className="w-6 h-6 text-[#8B5CF6]" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-sm text-white truncate">{app.name}</span>
+                    {app.botId && <Sparkles className="w-3 h-3 text-[#8B5CF6] shrink-0" />}
+                  </div>
+                  <p className="text-xs text-[#888888] line-clamp-2 mt-0.5">
+                    {app.description || gt("No description")}
+                  </p>
+                  {app.tags && Array.isArray(app.tags) && app.tags.length > 0 && (
+                    <div className="flex gap-1 mt-2 flex-wrap">
+                      {app.tags.slice(0, 3).map((tag: string) => (
+                        <span key={tag} className="px-1.5 py-0.5 text-[10px] rounded bg-[#8B5CF6]/10 text-[#8B5CF6] font-medium">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <a
+                  href={`/api/developers/applications/${app.id}/add?server_id=${currentServer?.id}`}
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-xs font-semibold transition-colors"
+                >
+                  {gt("Add")}
+                </a>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderWidget = () => (
     <div className="space-y-6">
       <div>
@@ -3679,6 +3766,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         return renderAccess();
       case "applications":
         return renderApplications();
+      case "app_discovery":
+        return renderAppDiscovery();
       default:
         return renderOverview();
     }

@@ -3115,11 +3115,16 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     const target = targetId === user.id ? user : await User.findById(targetId);
     if (!target) { set.status = 404; return { error: 'User not found' }; }
     const placements: any[] = Array.isArray((target as any).profileWidgets) ? (target as any).profileWidgets : [];
-    const { WidgetConfig, WidgetUserData } = await import('@/lib/models');
+    const { WidgetConfig, WidgetUserData, Application } = await import('@/lib/models');
     const resolved = await Promise.all(placements.map(async (p) => {
       if (p.type !== 'application' || !p.applicationId) return { ...p };
       const config = await WidgetConfig.findByApplication(p.applicationId);
-      if (!config || config.status !== 'published') return null;
+      if (!config) return null;
+      // App owners can see their own widgets even in draft status
+      if (config.status !== 'published') {
+        const app = await Application.findById(p.applicationId);
+        if (!app || app.ownerId !== user.id) return null;
+      }
       const data = await WidgetUserData.findOne({ applicationId: p.applicationId, userId: targetId });
       return { ...p, config: { name: config.name, surfaces: config.surfaces }, data: data?.data ?? config.sampleData ?? null };
     }));
@@ -3153,7 +3158,7 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const { db, schema } = await import('@/lib/db/postgres');
-    const { eq } = await import('drizzle-orm');
+    const { eq, or } = await import('drizzle-orm');
     const rows = await db.select({
       applicationId: schema.widgetConfigs.applicationId,
       name: schema.widgetConfigs.name,
@@ -3162,7 +3167,10 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     })
       .from(schema.widgetConfigs)
       .leftJoin(schema.applications, eq(schema.applications.id, schema.widgetConfigs.applicationId))
-      .where(eq(schema.widgetConfigs.status, 'published'))
+      .where(or(
+        eq(schema.widgetConfigs.status, 'published'),
+        eq(schema.applications.ownerId, user.id),
+      ))
       .limit(50);
     return { widgets: rows };
   });

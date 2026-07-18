@@ -13,7 +13,7 @@ import {
   defaultLayoutForSurface,
   type WidgetSurfaceType,
 } from "@/lib/constants/widgets";
-import { ArrowLeft, Save, Rocket, EyeOff, Plus, Trash2, Code2, Check, Trash } from "lucide-react";
+import { ArrowLeft, Save, Rocket, EyeOff, Plus, Trash2, Code2, Check, Trash, Sparkles } from "lucide-react";
 
 interface SampleEntry { name: string; type: number; value: string; }
 
@@ -115,6 +115,26 @@ export default function WidgetEditorPage() {
       return { ...prev, [activeSurface]: { ...surface, components } };
     });
   };
+
+  // ── Auto-add data field keys to sample data ──────────────────────────────
+  useEffect(() => {
+    const dataKeys = new Set<string>();
+    for (const surf of WIDGET_SURFACES) {
+      const s = surfaces[surf.key];
+      if (!s?.components) continue;
+      for (const comp of Object.values(s.components)) {
+        for (const f of Object.values(comp.fields ?? {})) {
+          if (f.value_type === 'data' && f.value) dataKeys.add(f.value);
+        }
+      }
+    }
+    setSample((prev) => {
+      const existing = new Set(prev.map((s) => s.name));
+      const missing = [...dataKeys].filter((k) => !existing.has(k));
+      if (missing.length === 0) return prev;
+      return [...prev, ...missing.map((k) => ({ name: k, type: 1, value: '' }))];
+    });
+  }, [surfaces]);
 
   // ── Sample data → renderer data ─────────────────────────────────────────
   const rendererData = useMemo(() => ({
@@ -345,7 +365,20 @@ export default function WidgetEditorPage() {
               )}
             </div>
           ) : (
-            <p className="text-xs text-white/30">{tab === "content" ? gt("Select a field to edit") : gt("Switch to Content to configure fields")}</p>
+            <div className="space-y-3">
+              <p className="text-xs text-white/30">{tab === "content" ? gt("Select a field from the left to edit its value.") : gt("Switch to the Content tab to configure fields, then click one to edit here.")}</p>
+              {tab === "content" && layoutDef && layoutDef.components.length > 0 && (
+                <button
+                  onClick={() => {
+                    const firstComp = layoutDef.components[0];
+                    if (firstComp.fields.length > 0) setSelected({ comp: firstComp.key, field: firstComp.fields[0].key });
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-[#8B5CF6] hover:text-[#a78bfa] transition-colors"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> {gt("Edit first field")}
+                </button>
+              )}
+            </div>
           )}
         </aside>
       </div>
@@ -390,7 +423,7 @@ export default function WidgetEditorPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {sample.length === 0 && <p className="text-xs text-white/30">{gt("No sample data. Add fields matching your User Data keys.")}</p>}
+              {sample.length === 0 && <p className="text-xs text-white/30">{gt("No sample data yet. Fields set to \"User Data\" will auto-appear here, or add them manually.")}</p>}
               {sample.map((entry, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <input value={entry.name} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder={gt("Key")} className="w-48 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]" />

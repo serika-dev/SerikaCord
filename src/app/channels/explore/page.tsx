@@ -34,6 +34,8 @@ import {
   Pizza,
   Plane,
   Briefcase,
+  Lock,
+  Mail,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { T, useGT } from "gt-next";
@@ -214,6 +216,20 @@ function ServerCard({
           >
             <Sparkles className="w-2.5 h-2.5" />
             {gt("NEW")}
+          </div>
+        )}
+
+        {/* Join mode badge */}
+        {server.joinMode === "apply_to_join" && (
+          <div className="absolute top-2.5 left-2.5 px-2 py-1 text-[10px] font-bold rounded-full flex items-center gap-1 shadow-lg z-10 bg-amber-500/90 text-white">
+            <Mail className="w-2.5 h-2.5" />
+            {gt("Apply")}
+          </div>
+        )}
+        {server.joinMode === "invite_only" && (
+          <div className="absolute top-2.5 left-2.5 px-2 py-1 text-[10px] font-bold rounded-full flex items-center gap-1 shadow-lg z-10 bg-black/60 text-white/80 backdrop-blur-sm">
+            <Lock className="w-2.5 h-2.5" />
+            {gt("Invite Only")}
           </div>
         )}
       </div>
