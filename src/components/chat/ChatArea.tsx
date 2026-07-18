@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
+import { DiscordBridgeConsentDialog } from "@/components/chat/DiscordBridgeConsentDialog";
 import { DeleteMessageDialog } from "@/components/chat/DeleteMessageDialog";
 import { PinnedMessagesDialog } from "@/components/chat/PinnedMessagesDialog";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
@@ -165,6 +166,38 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const locale = useLocale();
   const perms = usePermissions(currentServer?.id);
   const canModerateMessages = perms.isOwner || perms.can("MANAGE_MESSAGES");
+
+  // Discord bridge consent: know whether the active channel mirrors to Discord
+  // so we can prompt the sender for data-processing consent on their first send.
+  const [bridgeConsentOpen, setBridgeConsentOpen] = useState(false);
+  const bridgeStatusRef = useRef<Map<string, boolean>>(new Map());
+  const [currentChannelBridged, setCurrentChannelBridged] = useState(false);
+
+  useEffect(() => {
+    const chId = currentChannel?.id;
+    if (!chId || currentChannel?.type !== "text") {
+      setCurrentChannelBridged(false);
+      return;
+    }
+    const cached = bridgeStatusRef.current.get(chId);
+    if (cached !== undefined) {
+      setCurrentChannelBridged(cached);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/channels/${chId}/bridge-status`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { bridged: false }))
+      .then((d) => {
+        if (cancelled) return;
+        const bridged = Boolean(d?.bridged);
+        bridgeStatusRef.current.set(chId, bridged);
+        setCurrentChannelBridged(bridged);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [currentChannel?.id, currentChannel?.type]);
   const canPinMessages = canModerateMessages || perms.can("PIN_MESSAGES");
   const router = useRouter();
   const isMobile = useIsMobile();
@@ -639,7 +672,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     // the message endpoint dispatches the interaction and returns without
     // persisting the raw "/command" text (see sendMessage reconciliation).
     void chat.sendMessage();
-  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id]);
+
+    // First message in a Discord-bridged channel → ask for sync consent once.
+    if (currentChannelBridged && !user?.settings?.dataPrivacy?.discordBridgePrompted) {
+      setBridgeConsentOpen(true);
+    }
+  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
@@ -1835,6 +1873,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onDelete={chat.actions.setDeleteConfirmMessage}
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
       />
+
+      <DiscordBridgeConsentDialog open={bridgeConsentOpen} onOpenChange={setBridgeConsentOpen} />
     </div>
   );
 }

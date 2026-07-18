@@ -2762,6 +2762,28 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       channelId: t.String(),
     }),
   })
+  // Whether this channel's messages are bridged out to Discord. Used by the
+  // client to prompt the sender for data-processing consent on their first
+  // message. Returns only a boolean — never the webhook URL (a secret).
+  .get('/:channelId/bridge-status', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, channel } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel || !channel.serverId) return { bridged: false };
+
+    const server = await Server.findById(channel.serverId);
+    const integrations = (server?.settings as any)?.integrations || {};
+    const bridged = Boolean(integrations.discord) && Boolean(integrations.discordWebhooks?.[params.channelId]);
+    return { bridged };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+    }),
+  })
   // SSE stream for real-time messages
   .get('/:channelId/stream', async ({ headers, cookie, params }) => {
     const sseHeaders = {

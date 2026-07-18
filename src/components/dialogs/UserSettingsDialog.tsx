@@ -3596,7 +3596,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <span className="text-white">{gt("Allow data processing by Discord")}</span>
                                 <p className="text-xs text-[var(--text-secondary)]">{gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}</p>
                               </div>
-                              <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked } }, "data-privacy")} />
+                              <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked, discordBridgePrompted: true } }, "data-privacy")} />
                             </label>
                           </div>
                           <label className="flex items-center justify-between py-2">
