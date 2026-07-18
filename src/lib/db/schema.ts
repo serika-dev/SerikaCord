@@ -476,6 +476,10 @@ export const discordUsers = pgTable('discord_users', {
   // Tracks the last time a weekly restriction timeout was applied in a guild
   // that has enabled "restrict unconsented members".
   lastTimeoutAt: timestamp('last_timeout_at'),
+  // Guild IDs where a restriction timeout is currently applied, so it can be
+  // lifted when the user consents (the consent DM button fires in a DM, where
+  // the originating guild is unknown).
+  restrictedGuildIds: text('restricted_guild_ids').array().default([]),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
