@@ -318,6 +318,23 @@ async function setGuildTimeout(guildId: string, discordUserId: string, until: Da
   }
 }
 
+/**
+ * Lift every restriction timeout previously applied to a user across all
+ * bridged guilds, then clear the bookkeeping. Called when a user consents —
+ * the consent button/command fires in a DM, so the guild(s) they were
+ * restricted in are read from `restrictedGuildIds` rather than the interaction.
+ */
+async function liftAllRestrictions(discordId: string): Promise<void> {
+  const { DiscordUser } = await import('@/lib/models/DiscordUser');
+  const row = await DiscordUser.findByDiscordId(discordId);
+  const guildIds: string[] = (row?.restrictedGuildIds as string[] | null) || [];
+  for (const guildId of guildIds) {
+    await setGuildTimeout(guildId, discordId, null);
+  }
+  await DiscordUser.upsertByDiscordId(discordId, { restrictedGuildIds: [], lastTimeoutAt: null });
+  if (guildIds.length) console.log(`[Discord Consent] Lifted restriction for ${discordId} in ${guildIds.length} guild(s).`);
+}
+
 /** Respond to a gateway-delivered interaction via the REST callback endpoint. */
 async function respondInteraction(id: string, token: string, body: any): Promise<void> {
   try {
@@ -346,7 +363,18 @@ async function registerSlashCommands(appId: string): Promise<void> {
           name: 'forgetme',
           description: 'Erase all of your data that SerikaCord has stored from bridged channels.',
           type: 1,
-          // Usable in DMs and guilds.
+          dm_permission: true,
+        },
+        {
+          name: 'opt-in',
+          description: 'Allow SerikaCord to sync your messages from bridged channels (grants consent).',
+          type: 1,
+          dm_permission: true,
+        },
+        {
+          name: 'opt-out',
+          description: 'Stop SerikaCord from syncing your messages and erase your bridged data.',
+          type: 1,
           dm_permission: true,
         },
       ]),
@@ -382,7 +410,10 @@ async function handleUnconsentedMessage(server: any, discordUser: { discordId: s
     if (Date.now() - lastTimeout >= 7 * 24 * 60 * 60 * 1000) {
       const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
       await setGuildTimeout(guildId, discordUser.discordId, until);
-      await DiscordUser.upsertByDiscordId(discordUser.discordId, { lastTimeoutAt: new Date() });
+      // Remember the guild so the timeout can be lifted on consent (union).
+      const existingGuilds: string[] = (row?.restrictedGuildIds as string[] | null) || [];
+      const nextGuilds = existingGuilds.includes(guildId) ? existingGuilds : [...existingGuilds, guildId];
+      await DiscordUser.upsertByDiscordId(discordUser.discordId, { lastTimeoutAt: new Date(), restrictedGuildIds: nextGuilds });
       console.log(`[Discord Consent] Applied 1-week restriction timeout to ${discordUser.discordId} in guild ${guildId}`);
     }
   }
@@ -519,6 +550,68 @@ export async function startDiscordBot() {
             }
           }
 
+          // /opt-in — grant consent and lift any restriction timeouts.
+          if (t === 'INTERACTION_CREATE' && d.type === 2 && d.data?.name === 'opt-in') {
+            const discordId = d.user?.id || d.member?.user?.id;
+            const author = d.user || d.member?.user;
+            if (discordId) {
+              try {
+                const { DiscordUser } = await import('@/lib/models/DiscordUser');
+                await DiscordUser.setConsent(discordId, 'granted', {
+                  username: author?.username,
+                  displayName: buildDisplayName(author || { username: 'unknown' }),
+                  avatar: author ? getAvatarUrl(author) : undefined,
+                });
+                await liftAllRestrictions(discordId);
+              } catch (err) {
+                console.error('[Discord Consent] /opt-in failed:', err);
+              }
+              await respondInteraction(d.id, d.token, {
+                type: 4,
+                data: {
+                  flags: 64,
+                  embeds: [{
+                    title: "You're opted in ✅",
+                    description: 'Your messages in bridged channels will now sync to SerikaCord, and any restriction has been lifted. You can opt out anytime with /opt-out.',
+                    color: 0x22c55e,
+                  }],
+                },
+              });
+              console.log(`[Discord Consent] /opt-in granted for ${discordId}.`);
+            }
+          }
+
+          // /opt-out — withdraw consent and erase bridged data.
+          if (t === 'INTERACTION_CREATE' && d.type === 2 && d.data?.name === 'opt-out') {
+            const discordId = d.user?.id || d.member?.user?.id;
+            if (discordId) {
+              let deletedMessages = 0;
+              try {
+                const { deleteBridgedUserData } = await import('@/lib/discord/consent');
+                const { DiscordUser } = await import('@/lib/models/DiscordUser');
+                await DiscordUser.setConsent(discordId, 'denied');
+                const result = await deleteBridgedUserData(discordId);
+                deletedMessages = result.deletedMessages;
+              } catch (err) {
+                console.error('[Discord Consent] /opt-out failed:', err);
+              }
+              await respondInteraction(d.id, d.token, {
+                type: 4,
+                data: {
+                  flags: 64,
+                  embeds: [{
+                    title: "You're opted out",
+                    description:
+                      `Your messages will no longer be synced, and we deleted **${deletedMessages}** stored ` +
+                      `message${deletedMessages === 1 ? '' : 's'}. You can opt back in anytime with /opt-in.`,
+                    color: 0x6b7280,
+                  }],
+                },
+              });
+              console.log(`[Discord Consent] /opt-out for ${discordId} (${deletedMessages} messages).`);
+            }
+          }
+
           // Consent buttons (delivered over the gateway since no interactions
           // endpoint URL is configured). type 3 = MESSAGE_COMPONENT.
           if (t === 'INTERACTION_CREATE' && d.type === 3) {
@@ -533,12 +626,11 @@ export async function startDiscordBot() {
                   username: author?.username,
                   displayName: buildDisplayName(author || { username: 'unknown' }),
                   avatar: author ? getAvatarUrl(author) : undefined,
-                  // Clear any restriction bookkeeping once they've decided.
-                  lastTimeoutAt: null,
                 });
-                // If they granted and were timed out anywhere, best-effort lift it.
-                if (granted && d.guild_id) {
-                  await setGuildTimeout(d.guild_id, discordId, null);
+                // On consent, lift every restriction timeout we applied (the
+                // button fires in a DM, so use the stored guild list, not d.guild_id).
+                if (granted) {
+                  await liftAllRestrictions(discordId);
                 }
                 // Update the DM message in place (type 7 = UPDATE_MESSAGE).
                 await respondInteraction(d.id, d.token, {
