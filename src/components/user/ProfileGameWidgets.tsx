@@ -60,9 +60,21 @@ function GameCover({ game, size = "md" }: { game: LibraryGame; size?: "sm" | "md
     // eslint-disable-next-line @next/next/no-img-element
     <img src={cdnImage(game.coverUrl)} alt={game.name} className={cn(dims, "rounded-lg object-cover")} />
   ) : (
-    <div className={cn(dims, "rounded-lg bg-white/[0.05] flex items-center justify-center")}>
-      <Gamepad2 className="w-1/3 h-1/3 text-white/30" />
+    <div className={cn(dims, "rounded-lg bg-gradient-to-br from-white/[0.06] to-white/[0.02] flex flex-col items-center justify-center p-1 border border-white/[0.05]")}>
+      <Gamepad2 className="w-1/4 h-1/4 text-white/20" />
+      <span className="text-[8px] text-white/40 text-center truncate max-w-full mt-0.5">{game.name}</span>
     </div>
+  );
+}
+
+function AddPosterButton({ onClick, cols = 4 }: { onClick: () => void; cols?: number }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(cols === 5 ? "aspect-[3/4]" : "aspect-[3/4]", "rounded-lg border-2 border-dashed border-white/10 hover:border-[#8B5CF6]/50 bg-white/[0.02] hover:bg-[#8B5CF6]/[0.04] flex items-center justify-center transition-colors group/add")}
+    >
+      <Plus className="w-5 h-5 text-white/20 group-hover/add:text-[#8B5CF6] transition-colors" />
+    </button>
   );
 }
 
@@ -414,16 +426,35 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
   );
 
   // Grid renderer for liked / wishlist (show 8, then show-more → 2 rows of 4).
-  const renderGrid = (category: "liked" | "wishlist", showAll: boolean, setShowAll: (v: boolean) => void, icon: React.ComponentType<{ className?: string }>, title: string, sectionIdx: number) => {
+  const renderGrid = (category: "liked" | "wishlist", showAll: boolean, setShowAll: (v: boolean) => void, icon: React.ComponentType<{ className?: string }>, title: string) => {
     const games = library[category];
-    if (games.length === 0) return null;
+    const limit = CATEGORY_LIMITS[category];
+    const isFull = games.length >= limit;
+    if (games.length === 0 && !isSelf) return null;
+    if (games.length === 0 && isSelf) {
+      return (
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3">
+          <SectionHeader
+            icon={icon}
+            title={title}
+            subtitle={`0/${limit}`}
+            onMoveUp={() => moveSection(category, -1)}
+            onMoveDown={() => moveSection(category, 1)}
+          />
+          <div className="grid grid-cols-4 gap-2">
+            <AddPosterButton onClick={() => setAddCategory(category)} />
+          </div>
+        </div>
+      );
+    }
     const visible = showAll ? games : games.slice(0, 8);
+    const showAddPoster = isSelf && !isFull && (visible.length < 8 || showAll);
     return (
-      <div>
+      <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3">
         <SectionHeader
           icon={icon}
           title={title}
-          subtitle={`${games.length}/${CATEGORY_LIMITS[category]}`}
+          subtitle={`${games.length}/${limit}`}
           onMoveUp={isSelf ? () => moveSection(category, -1) : undefined}
           onMoveDown={isSelf ? () => moveSection(category, 1) : undefined}
         />
@@ -444,10 +475,16 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
               {editControls(game, true)}
             </div>
           ))}
+          {showAddPoster && <AddPosterButton onClick={() => setAddCategory(category)} />}
         </div>
         {games.length > 8 && (
           <button onClick={() => setShowAll(!showAll)} className="mt-2 text-xs text-[#8B5CF6] hover:underline">
             {showAll ? gt("Show less") : gt("Show more")}
+          </button>
+        )}
+        {isSelf && !showAddPoster && games.length >= 8 && !showAll && !isFull && (
+          <button onClick={() => setAddCategory(category)} className="mt-2 w-full py-2 rounded-lg border border-dashed border-white/10 hover:border-[#8B5CF6]/50 text-xs text-white/40 hover:text-[#8B5CF6] transition-colors flex items-center justify-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> {gt("Add more")}
           </button>
         )}
       </div>
@@ -456,51 +493,64 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
 
   const favorite = library.favorite[0];
 
-  const renderSection = (cat: GameCategory, idx: number) => {
+  const renderSection = (cat: GameCategory) => {
     if (cat === "favorite") {
-      if (!favorite) return null;
+      if (!favorite && !isSelf) return null;
       return (
-        <div key="favorite">
+        <div key="favorite" className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3">
           <SectionHeader
             icon={Star}
             title={gt("Favorite game")}
+            subtitle={favorite ? `1/${CATEGORY_LIMITS.favorite}` : `0/${CATEGORY_LIMITS.favorite}`}
             onMoveUp={isSelf ? () => moveSection("favorite", -1) : undefined}
             onMoveDown={isSelf ? () => moveSection("favorite", 1) : undefined}
           />
-          <div className="group relative flex gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-            <GameCover game={favorite} size="lg" />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{favorite.name}</p>
-              {favorite.note && <p className="text-xs text-white/50 mt-0.5 line-clamp-2">{favorite.note}</p>}
-              {favorite.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1.5">
-                  {favorite.tags.map((txt) => (
-                    <span key={txt} className="text-[10px] px-1.5 py-0.5 rounded bg-[#8B5CF6]/20 text-[#c4b5fd]">{txt}</span>
-                  ))}
-                </div>
+          {favorite ? (
+            <div className="group relative flex gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+              <GameCover game={favorite} size="lg" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{favorite.name}</p>
+                {favorite.note && <p className="text-xs text-white/50 mt-0.5 line-clamp-2">{favorite.note}</p>}
+                {favorite.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {favorite.tags.map((txt) => (
+                      <span key={txt} className="text-[10px] px-1.5 py-0.5 rounded bg-[#8B5CF6]/20 text-[#c4b5fd]">{txt}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {isSelf && (
+                <button onClick={() => remove(favorite)} className="opacity-0 group-hover:opacity-100 self-start p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition"><X className="w-4 h-4" /></button>
               )}
             </div>
-            {isSelf && (
-              <button onClick={() => remove(favorite)} className="opacity-0 group-hover:opacity-100 self-start p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition"><X className="w-4 h-4" /></button>
-            )}
-          </div>
+          ) : (
+            isSelf && (
+              <button onClick={() => setAddCategory("favorite")} className="w-full py-3 rounded-lg border-2 border-dashed border-white/10 hover:border-[#8B5CF6]/50 bg-white/[0.02] hover:bg-[#8B5CF6]/[0.04] text-xs text-white/40 hover:text-[#8B5CF6] transition-colors flex items-center justify-center gap-1.5">
+                <Plus className="w-4 h-4" /> {gt("Add favorite game")}
+              </button>
+            )
+          )}
         </div>
       );
     }
-    if (cat === "liked") return <div key="liked">{renderGrid("liked", showAllLiked, setShowAllLiked, Gamepad2, gt("Games I like"), idx)}</div>;
+    if (cat === "liked") return <div key="liked">{renderGrid("liked", showAllLiked, setShowAllLiked, Gamepad2, gt("Games I like"))}</div>;
     if (cat === "rotation") {
-      if (library.rotation.length === 0) return null;
+      const games = library.rotation;
+      const limit = CATEGORY_LIMITS.rotation;
+      const isFull = games.length >= limit;
+      if (games.length === 0 && !isSelf) return null;
+      const showAddPoster = isSelf && !isFull;
       return (
-        <div key="rotation">
+        <div key="rotation" className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-3">
           <SectionHeader
             icon={RotateCw}
             title={gt("Games in rotation")}
-            subtitle={`${library.rotation.length}/${CATEGORY_LIMITS.rotation}`}
+            subtitle={`${games.length}/${limit}`}
             onMoveUp={isSelf ? () => moveSection("rotation", -1) : undefined}
             onMoveDown={isSelf ? () => moveSection("rotation", 1) : undefined}
           />
           <div className="grid grid-cols-5 gap-2">
-            {library.rotation.map((game) => (
+            {games.map((game) => (
               <div key={game.id} className="group relative" title={game.name}>
                 <GameCover game={game} />
                 {game.tags.length > 0 && (
@@ -516,17 +566,18 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
                 {editControls(game, true)}
               </div>
             ))}
+            {showAddPoster && <AddPosterButton onClick={() => setAddCategory("rotation")} cols={5} />}
           </div>
         </div>
       );
     }
-    if (cat === "wishlist") return <div key="wishlist">{renderGrid("wishlist", showAllWishlist, setShowAllWishlist, Bookmark, gt("Want to play"), idx)}</div>;
+    if (cat === "wishlist") return <div key="wishlist">{renderGrid("wishlist", showAllWishlist, setShowAllWishlist, Bookmark, gt("Want to play"))}</div>;
     return null;
   };
 
   return (
     <div className="space-y-4">
-      {sectionOrder.map((cat, idx) => renderSection(cat, idx))}
+      {sectionOrder.map((cat) => renderSection(cat))}
       {addCategory && (
         <AddGameDialog open={!!addCategory} onOpenChange={(v) => !v && setAddCategory(null)} category={addCategory} allLibrary={library} onAdded={onAdded} />
       )}
