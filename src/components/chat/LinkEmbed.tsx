@@ -7,6 +7,11 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { useChatGt } from "./ChatGtContext";
 
+// `referrerPolicy` isn't in React's <video> typings, but the DOM honors it —
+// needed so hotlink-protected media (e.g. video.twimg.com) doesn't 403 on our
+// referer. Spread as a cast to satisfy the type checker.
+const NO_REFERRER = { referrerPolicy: "no-referrer" } as unknown as React.VideoHTMLAttributes<HTMLVideoElement>;
+
 interface LinkEmbedProps {
   content: string;
   /** Opens a GIF in the in-app image viewer instead of the provider website. */
@@ -994,6 +999,7 @@ function TwitterEmbed({ url }: { url: string }) {
               autoPlay
               playsInline
               poster={data.thumbnail}
+              {...NO_REFERRER}
               className="w-full max-h-[420px] rounded-xl bg-black block"
             />
           ) : (
@@ -1003,7 +1009,7 @@ function TwitterEmbed({ url }: { url: string }) {
               className="relative block w-full rounded-xl overflow-hidden bg-black group"
             >
               {data.thumbnail ? (
-                <img src={data.thumbnail} alt="" className="w-full max-h-[420px] object-cover" loading="lazy" />
+                <img src={data.thumbnail} alt="" referrerPolicy="no-referrer" className="w-full max-h-[420px] object-cover" loading="lazy" />
               ) : (
                 <div className="w-full aspect-video" />
               )}
@@ -1018,7 +1024,7 @@ function TwitterEmbed({ url }: { url: string }) {
       ) : (
         data.thumbnail && (
           <div className="px-3.5 pb-3">
-            <img src={data.thumbnail} alt="" className="w-full max-h-[420px] object-cover rounded-xl" loading="lazy" />
+            <img src={data.thumbnail} alt="" referrerPolicy="no-referrer" className="w-full max-h-[420px] object-cover rounded-xl" loading="lazy" />
           </div>
         )
       )}
@@ -1071,6 +1077,7 @@ function GenericEmbed({
           controls
           playsInline
           poster={preview.thumbnail}
+          {...NO_REFERRER}
           className="w-full max-h-72 bg-black block"
           onClick={(e) => e.stopPropagation()}
         />

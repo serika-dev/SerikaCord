@@ -12,6 +12,10 @@ interface RichEmbedProps {
 
 const DEFAULT_ACCENT = "#8B5CF6";
 
+// `referrerPolicy` isn't in React's <video> typings but the DOM honors it —
+// stops hotlink-protected media (e.g. video.twimg.com) 403ing on our referer.
+const NO_REFERRER = { referrerPolicy: "no-referrer" } as unknown as React.VideoHTMLAttributes<HTMLVideoElement>;
+
 /** Convert an integer Discord color (0xRRGGBB) into a CSS hex string. */
 function colorToHex(color?: number): string {
   if (typeof color !== "number" || !Number.isFinite(color)) return DEFAULT_ACCENT;
@@ -63,7 +67,7 @@ function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClic
     return (
       <div className="mt-2 inline-block max-w-[432px] rounded-lg overflow-hidden bg-black">
         {videoUrl ? (
-          <video src={videoUrl} controls playsInline className="block max-h-[360px] w-auto rounded-lg" />
+          <video src={videoUrl} controls playsInline {...NO_REFERRER} className="block max-h-[360px] w-auto rounded-lg" />
         ) : (
           <button type="button" onClick={() => imageUrl && onMediaClick?.(imageUrl, embed.title)} className="block">
             <img src={imageUrl} alt={embed.title || "Embed image"} className="block max-h-[360px] w-auto rounded-lg cursor-pointer" loading="lazy" />
@@ -150,7 +154,7 @@ function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClic
 
       {videoUrl && (
         <div className="px-3 pb-3">
-          <video src={videoUrl} controls playsInline className="block max-h-[300px] w-full rounded-md bg-black" poster={imageUrl} />
+          <video src={videoUrl} controls playsInline {...NO_REFERRER} className="block max-h-[300px] w-full rounded-md bg-black" poster={imageUrl} />
         </div>
       )}
 
