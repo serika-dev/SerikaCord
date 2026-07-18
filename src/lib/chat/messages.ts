@@ -34,6 +34,7 @@ export function normalizeIncomingMessage<M extends ChatMessage>(raw: RawMessageP
     authorId,
     author,
     attachments: raw.attachments || [],
+    embeds: raw.embeds || [],
     reactions: raw.reactions || [],
     customEmojis: raw.customEmojis || [],
     mentionEveryone: Boolean(raw.mentionEveryone),

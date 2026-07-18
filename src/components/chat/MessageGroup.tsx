@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { RichEmbed } from "@/components/chat/RichEmbed";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";
 import { MessageHoverActions, type PickerEmoji } from "@/components/chat/MessageHoverActions";
@@ -328,6 +329,13 @@ function MessageGroupInner<M extends ChatMessage>({
                       <div className="mt-1 text-[11px] text-[var(--app-muted)] inline-flex items-center gap-1">
                         {gt("Only you can see this")}
                       </div>
+                    )}
+
+                    {message.embeds && message.embeds.length > 0 && (
+                    <RichEmbed
+                      embeds={message.embeds}
+                      onMediaClick={(src, alt) => onMediaClick(src, alt, message.id)}
+                    />
                     )}
 
                     {inlineEmbedsEnabled && (
