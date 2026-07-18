@@ -14,7 +14,7 @@ export default function SocialSdkPage() {
     { label: gt("API Reference"), desc: gt("The native /api/v1 Social SDK endpoints."), icon: BookOpen, href: "/developers/docs/social-sdk/api-reference" },
     { label: gt("External Auth"), desc: gt("OAuth2 access tokens & scopes for SDK calls."), icon: KeyRound, href: "/developers/docs/social-sdk/external-auth" },
     { label: gt("Relationships & Presence"), desc: gt("Read friends and live rich presence."), icon: MessageSquare, href: "/developers/docs/social-sdk/relationships" },
-    { label: gt("Widgets"), desc: gt("Author a profile widget and push user data."), icon: LayoutGrid, href: `/developers/applications/${appId}/widget` },
+    { label: gt("Widgets"), desc: gt("Author a profile widget and push user data."), icon: LayoutGrid, href: `/widget-editor/${appId}` },
   ];
 
   return (

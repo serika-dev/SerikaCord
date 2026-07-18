@@ -430,6 +430,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         <div
           ref={editorRef}
           role="textbox"
+          data-message-composer="true"
           aria-multiline="true"
           aria-label={ariaLabel ?? placeholder}
           contentEditable={!disabled}

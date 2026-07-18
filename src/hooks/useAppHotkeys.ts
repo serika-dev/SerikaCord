@@ -9,6 +9,24 @@ import { emitHotkey, matchHotkey, type HotkeyAction } from "@/lib/keybinds";
 /** Channel types the up/down navigation shortcuts can land on. */
 const NAVIGABLE = new Set(["text", "announcement", "forum"]);
 
+/**
+ * Chat actions that manipulate the composer/chat UI (emoji, GIF, sticker pickers,
+ * upload, etc.). These carry `worksWhileTyping` so they fire from inside the
+ * message composer, but they must NOT fire while typing in unrelated fields such
+ * as the bug-report form or settings inputs.
+ */
+const COMPOSER_ONLY_WHILE_TYPING = new Set<HotkeyAction>([
+  "toggle-emoji",
+  "toggle-gifs",
+  "toggle-stickers",
+  "upload-file",
+]);
+
+/** True if the focused element is (inside) the chat message composer. */
+function isMessageComposer(el: Element | null): boolean {
+  return !!el?.closest?.('[data-message-composer="true"]');
+}
+
 /** True if the focused element is an editable text field. */
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
@@ -129,6 +147,10 @@ export function useAppHotkeys() {
       if (!hk) return;
       const typing = isTypingTarget(document.activeElement);
       if (typing && !hk.worksWhileTyping) return;
+      // Composer-scoped chat shortcuts (emoji/GIF/sticker/upload) may open while
+      // typing, but only from the message composer itself — never from other
+      // text fields like the bug-report form or settings inputs.
+      if (typing && COMPOSER_ONLY_WHILE_TYPING.has(hk.action) && !isMessageComposer(document.activeElement)) return;
       // Tab → focus composer must not clobber normal focus traversal: only
       // grab it when nothing is focused yet (activeElement is <body>).
       if (hk.action === "focus-composer" && document.activeElement !== document.body) return;
