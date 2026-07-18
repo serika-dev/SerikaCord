@@ -743,9 +743,11 @@ export type UserGameInsert = typeof userGames.$inferInsert;
 export const widgetConfigs = pgTable('widget_configs', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   applicationId: uuid('application_id').notNull(),
-  name: text('name').notNull(),
+  name: text('name').notNull(), // display_name
   status: text('status').default('draft').notNull(), // draft | published
+  // surfaces: map[surfaceType, { layout, components: map[compKey, { fields: map[fieldKey, {value_type, presentation_type, value, fallback}] }] }]
   surfaces: jsonb('surfaces').default({}),
+  resolvedAssets: jsonb('resolved_assets').default([]),
   sampleData: jsonb('sample_data').default({}),
   version: integer('version').default(1).notNull(),
   publishedAt: timestamp('published_at'),

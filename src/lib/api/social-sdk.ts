@@ -4,6 +4,64 @@ import { User, RichPresence, WidgetConfig, WidgetUserData, Application } from '@
 import {
   getUserLibrary, getUserCategory, isValidCategory, addGame, removeGame, updateGame,
 } from '@/lib/services/gamesLibrary';
+import {
+  WIDGET_SURFACES, GAME_WIDGET_TYPES, GAME_WIDGET_LIMITS, GAME_WIDGET_TAG_VALUES, GAME_WIDGET_SKILL_TAGS,
+  type GameWidgetType,
+} from '@/lib/constants/widgets';
+
+/** Serialize the layout definitions into the Discord "layout definition" shape. */
+function layoutDefinitions() {
+  return WIDGET_SURFACES.flatMap((surface) =>
+    surface.layouts.map((l) => ({
+      key: l.key,
+      surface: surface.key,
+      display_name: l.label,
+      components: Object.fromEntries(l.components.map((c) => [c.key, {
+        display_name: c.label,
+        required: !!c.required,
+        fields: Object.fromEntries(c.fields.map((f) => [f.key, {
+          display_name: f.label,
+          required: !!f.required,
+          allowed_presentation_types: f.allowedPresentationTypes ?? (f.kind === 'image' ? ['image'] : ['text']),
+        }])),
+      }])),
+    })),
+  );
+}
+
+/** Validate + normalize an incoming array of Game Widget Objects. */
+function normalizeGameWidgets(input: unknown): { ok: true; widgets: any[] } | { ok: false; error: string } {
+  const arr = Array.isArray(input) ? input : [];
+  const seen = new Set<string>();
+  const widgets: any[] = [];
+  for (const raw of arr) {
+    const data = (raw as any)?.data ?? {};
+    const type = data.type as GameWidgetType;
+    if (!GAME_WIDGET_TYPES.includes(type)) return { ok: false, error: `Invalid widget type: ${type}` };
+    if (seen.has(type)) return { ok: false, error: `Duplicate widget type: ${type}` };
+    seen.add(type);
+    const games = Array.isArray(data.games) ? data.games : [];
+    if (type !== 'application' && games.length > GAME_WIDGET_LIMITS[type]) {
+      return { ok: false, error: `${type} allows at most ${GAME_WIDGET_LIMITS[type]} games` };
+    }
+    for (const g of games) {
+      const tags: string[] = Array.isArray(g.tags) ? g.tags : [];
+      if (tags.some((tg) => !GAME_WIDGET_TAG_VALUES.includes(tg as any))) return { ok: false, error: 'Unknown game widget tag' };
+      if (tags.filter((tg) => GAME_WIDGET_SKILL_TAGS.includes(tg as any)).length > 1) {
+        return { ok: false, error: 'Only one skill tag is allowed per game' };
+      }
+    }
+    widgets.push({
+      id: (raw as any)?.id ?? `${type}:${Date.now()}`,
+      updated_at: new Date().toISOString(),
+      data: {
+        type,
+        ...(type === 'application' ? { application_id: data.application_id } : { games }),
+      },
+    });
+  }
+  return { ok: true, widgets };
+}
 
 /**
  * Serika Social SDK — public native API (`/api/v1`).
@@ -202,4 +260,65 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     const targetId = params.uid === '@me' ? (user as any).id : params.uid;
     const row = await WidgetUserData.findOne({ applicationId: params.id, userId: targetId });
     return { data: row?.data ?? null, updated_at: row?.updatedAt ?? null };
+  })
+
+  // ── Layout definitions (public) ───────────────────────────────────────────
+  .get('/widget-configs/layout-definitions', () => ({ definitions: layoutDefinitions() }))
+
+  // ── Featured widget configs (published, grouped by application) ────────────
+  .get('/widget-configs/featured', async () => {
+    const configs = await WidgetConfig.findPublished(50);
+    const byApp: Record<string, any[]> = {};
+    for (const c of configs) {
+      (byApp[c.applicationId] ??= []).push({
+        application_id: c.applicationId,
+        config_id: c.id,
+        display_name: c.name,
+        surfaces: c.surfaces,
+        status: c.status,
+        published_at: c.publishedAt ?? null,
+        updated_at: c.updatedAt ?? null,
+      });
+    }
+    return { application_ids: Object.keys(byApp), configs: byApp };
+  })
+
+  // ── Profile game widgets (Game Widget Objects, max 1 per type) ─────────────
+  .put('/users/@me/widgets', async ({ headers, cookie, body, set }) => {
+    const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const result = normalizeGameWidgets((body as any).widgets);
+    if (!result.ok) { set.status = 400; return { error: result.error }; }
+    // Preserve existing application placements; replace game-widget entries.
+    const existing: any[] = Array.isArray((user as any).profileWidgets) ? (user as any).profileWidgets : [];
+    const appPlacements = existing.filter((p) => p.type === 'application');
+    await User.updateById((user as any).id, { profileWidgets: [...result.widgets, ...appPlacements] });
+    return { widgets: result.widgets };
+  }, {
+    body: t.Object({ widgets: t.Array(t.Any(), { maxItems: GAME_WIDGET_TYPES.length }) }),
+  })
+
+  // ── Suggested games for profile widgets ────────────────────────────────────
+  .get('/users/@me/widgets/suggested-games', async ({ headers, cookie, set }) => {
+    const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const lib = await getUserLibrary((user as any).id) as Record<string, any[]>;
+    const idOf = (g: any) => String(g.igdbId ?? g.gameId ?? g.id ?? '');
+    const suggested = [...(lib.favorite ?? []), ...(lib.liked ?? []), ...(lib.rotation ?? [])].map(idOf).filter(Boolean);
+    const wishlist = (lib.wishlist ?? []).map(idOf).filter(Boolean);
+    return { suggested_games: suggested, suggested_wishlist_games: wishlist };
+  })
+
+  // ── User application identities ─────────────────────────────────────────────
+  .get('/users/:id/application-identities', async ({ headers, cookie, params, set }) => {
+    const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    // Identity data is provider-issued; we currently surface widget-data owners.
+    const targetId = params.id === '@me' ? (user as any).id : params.id;
+    const { db, schema } = await import('@/lib/db/postgres');
+    const { eq } = await import('drizzle-orm');
+    const rows = await db.select({ applicationId: schema.widgetUserData.applicationId })
+      .from(schema.widgetUserData)
+      .where(eq(schema.widgetUserData.userId, targetId));
+    return { identities: rows.map((r) => ({ application_id: r.applicationId, provider_issued_user_id: targetId })) };
   });

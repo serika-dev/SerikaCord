@@ -1561,4 +1561,22 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     if ('error' in access) return access.error;
     await WidgetConfig.deleteByApplication(params.id);
     return { success: true };
+  })
+  // ─── 1:1 list alias (List Application Widget Configs) ──────────────────────
+  // SerikaCord keeps a single config per application; the list form returns it
+  // as an array to match the documented Discord shape.
+  .get('/applications/:id/widget-configs', async ({ headers, cookie, params, set }) => {
+    const access = await requireAppAccess(headers, cookie, params.id, set);
+    if ('error' in access) return access.error;
+    const config = await WidgetConfig.findByApplication(params.id);
+    return { configs: config ? [{
+      application_id: config.applicationId,
+      config_id: config.id,
+      display_name: config.name,
+      surfaces: config.surfaces,
+      resolved_assets: config.resolvedAssets ?? [],
+      status: config.status,
+      published_at: config.publishedAt ?? null,
+      updated_at: config.updatedAt ?? null,
+    }] : [] };
   });

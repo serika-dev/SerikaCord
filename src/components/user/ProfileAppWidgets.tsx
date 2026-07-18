@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { WidgetRenderer, type WidgetConfigShape, type WidgetUserData } from "@/components/widgets/WidgetRenderer";
+import { WidgetRenderer, widgetHasContent, type WidgetConfigShape, type WidgetUserData } from "@/components/widgets/WidgetRenderer";
 
 interface Placement {
   id: string;
@@ -132,7 +132,12 @@ export function ProfileAppWidgets({ userId, isSelf, appIcon }: { userId: string;
   };
 
   if (loading) return null;
-  if (!isSelf && placements.length === 0) return null;
+
+  // Only render widgets that actually resolve content — never show empty shells.
+  const visible = placements.filter((p) => p.config && widgetHasContent(p.config, p.data ?? null));
+
+  // Non-self viewers see nothing if there are no renderable widgets.
+  if (!isSelf && visible.length === 0) return null;
 
   return (
     <div>
@@ -145,15 +150,15 @@ export function ProfileAppWidgets({ userId, isSelf, appIcon }: { userId: string;
         )}
       </div>
       <div className="space-y-2">
-        {placements.map((p) => p.config ? (
+        {visible.map((p) => (
           <div key={p.id} className="group relative">
-            <WidgetRenderer config={p.config} data={p.data ?? null} icon={appIcon} />
+            <WidgetRenderer config={p.config!} data={p.data ?? null} icon={appIcon} />
             {isSelf && (
               <button onClick={() => remove(p.applicationId!)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded bg-black/60 hover:bg-red-500 text-white transition"><X className="w-3.5 h-3.5" /></button>
             )}
           </div>
-        ) : null)}
-        {isSelf && placements.length === 0 && (
+        ))}
+        {isSelf && visible.length === 0 && (
           <button onClick={() => setAddOpen(true)} className="w-full py-3 rounded-xl border border-dashed border-white/10 text-xs text-white/40 hover:border-white/20 hover:text-white/60 transition">
             {gt("Add a widget to your profile")}
           </button>

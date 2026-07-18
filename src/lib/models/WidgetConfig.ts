@@ -32,6 +32,21 @@ export const WidgetConfig = {
     return this.findOne({ applicationId });
   },
 
+  /** All published configs (Discord "featured widget configs"). */
+  async findPublished(limit = 50) {
+    return db.select().from(schema.widgetConfigs)
+      .where(eq(schema.widgetConfigs.status, 'published'))
+      .limit(limit);
+  },
+
+  /** Published configs for a set of application IDs, grouped by application. */
+  async findByApplications(applicationIds: string[]) {
+    if (applicationIds.length === 0) return [] as IWidgetConfig[];
+    const rows = await db.select().from(schema.widgetConfigs);
+    const set = new Set(applicationIds.map((a) => normalizeId(a)));
+    return rows.filter((r) => set.has(r.applicationId));
+  },
+
   async create(data: typeof schema.widgetConfigs.$inferInsert) {
     const [row] = await db.insert(schema.widgetConfigs).values(data).returning();
     return row;
