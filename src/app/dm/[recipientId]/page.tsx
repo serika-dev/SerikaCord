@@ -481,8 +481,10 @@ export default function DMConversationPage() {
           groups={chat.groupedMessages}
           isLoading={chat.isLoading}
           hasMoreOlder={chat.hasMoreOlder}
+          hasMoreNewer={chat.hasMoreNewer}
           isLoadingMore={chat.isLoadingMore}
           loadOlderMessages={chat.loadOlderMessages}
+          loadNewerMessages={chat.loadNewerMessages}
           actions={chat.actions}
           currentUserId={user.id}
           canPin

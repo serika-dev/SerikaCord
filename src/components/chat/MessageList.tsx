@@ -54,8 +54,12 @@ interface MessageListProps<M extends ChatMessage> {
   groups: MessageGroupData<M>[];
   isLoading: boolean;
   hasMoreOlder: boolean;
+  /** True when the window is detached from the live tail (jumped to a pin/search
+   *  result, or trimmed) — enables scroll-down "load newer" pagination. */
+  hasMoreNewer?: boolean;
   isLoadingMore: boolean;
   loadOlderMessages: () => Promise<boolean>;
+  loadNewerMessages?: () => Promise<boolean>;
   actions: ReturnType<typeof useMessageActions<M>>;
   currentUserId?: string;
   /** Owner / MANAGE_MESSAGES — can delete other people's messages. */
@@ -88,8 +92,10 @@ function MessageListInner<M extends ChatMessage>(
     groups,
     isLoading,
     hasMoreOlder,
+    hasMoreNewer = false,
     isLoadingMore,
     loadOlderMessages,
+    loadNewerMessages,
     actions,
     currentUserId,
     canModerate = false,
@@ -187,9 +193,9 @@ function MessageListInner<M extends ChatMessage>(
 
   // Latest mutable handlers behind stable identities so memoized rows
   // don't re-render on every parent render.
-  const latestRef = useRef({ actions, loadOlderMessages, onReplyFocus, onAtBottomChange });
+  const latestRef = useRef({ actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange });
   useEffect(() => {
-    latestRef.current = { actions, loadOlderMessages, onReplyFocus, onAtBottomChange };
+    latestRef.current = { actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange };
   });
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -350,6 +356,12 @@ function MessageListInner<M extends ChatMessage>(
       if (atBottom) {
         setNewMessagesCount(0);
         setNewMessageStartId(null);
+        // Detached window (jumped to a pin/search result, or trimmed): reaching
+        // the bottom loads the next newer page so the user can scroll all the way
+        // back to the latest message.
+        if (hasMoreNewer && !isLoadingMore && readyForPaginationRef.current) {
+          void latestRef.current.loadNewerMessages?.();
+        }
       }
 
       // Only paginate once the list has settled at the bottom for this context
@@ -369,7 +381,7 @@ function MessageListInner<M extends ChatMessage>(
         void latestRef.current.loadOlderMessages();
       }
     });
-  }, [hasMoreOlder, isLoadingMore]);
+  }, [hasMoreOlder, hasMoreNewer, isLoadingMore]);
 
   // Stable handlers for memoized rows.
   const stable = useMemo(() => {

@@ -235,6 +235,14 @@ export function useChatSession<M extends ChatMessage>({
   // otherwise fire sendMessage multiple times before the flag flips.
   const sendingRef = useRef(false);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  // True when the loaded window is NOT anchored to the live tail — i.e. we jumped
+  // to a pinned/search result via `around`, or older-history loading trimmed the
+  // newest messages away. Drives forward ("load newer") pagination so the user
+  // can scroll back down to the latest message. Mirror in a ref so SSE/live
+  // appends can be gated without re-subscribing.
+  const [hasMoreNewer, setHasMoreNewer] = useState(false);
+  const hasMoreNewerRef = useRef(false);
+  useEffect(() => { hasMoreNewerRef.current = hasMoreNewer; }, [hasMoreNewer]);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState<M[]>([]);
   const [isLoadingPins, setIsLoadingPins] = useState(false);
@@ -259,6 +267,9 @@ export function useChatSession<M extends ChatMessage>({
     fetchedUnknownAuthorsRef.current.clear();
     setPinnedMessages([]);
     setIsLoadingMore(false);
+    // A fresh context always opens anchored to the live tail.
+    setHasMoreNewer(false);
+    hasMoreNewerRef.current = false;
     if (apiBase) {
       const cached = readCache<M>(apiBase);
       if (cached && cached.length > 0) {
@@ -358,6 +369,9 @@ export function useChatSession<M extends ChatMessage>({
         const data = await response.json();
         if (activeFetchContextRef.current !== requestedContext) return;
         const raw = Array.isArray(data) ? data : data.messages || [];
+        // fetchMessages always resolves to the live tail (plain limit or delta
+        // `after` the cache), so we're anchored to the present again.
+        setHasMoreNewer(false);
 
         if (deltaCursor) {
           // Delta revalidation. A full page of results means there may be a gap
@@ -445,9 +459,14 @@ export function useChatSession<M extends ChatMessage>({
               filtered.push(normalized);
             }
             const combined = [...filtered, ...prev];
-            return combined.length > MAX_LOADED_MESSAGES
-              ? combined.slice(0, MAX_LOADED_MESSAGES)
-              : combined;
+            if (combined.length > MAX_LOADED_MESSAGES) {
+              // We dropped the newest messages off the bottom to cap memory, so
+              // the window is no longer anchored to the live tail — enable
+              // forward pagination so scrolling back down can reload them.
+              setHasMoreNewer(true);
+              return combined.slice(0, MAX_LOADED_MESSAGES);
+            }
+            return combined;
           });
           setHasMoreOlder(raw.length >= PAGE_SIZE);
           return true;
@@ -461,6 +480,58 @@ export function useChatSession<M extends ChatMessage>({
     }
     return false;
   }, [apiBase, isLoadingMore, hasMoreOlder, messages]);
+
+  // Load the page of messages *after* the newest currently-loaded one. Used when
+  // the window is detached from the live tail (jumped to a pin/search result, or
+  // older-history loading trimmed the newest away) so scrolling back down reaches
+  // the latest messages again.
+  const loadNewerMessages = useCallback(async (): Promise<boolean> => {
+    if (!apiBase || isLoadingMore || !hasMoreNewer || messages.length === 0) return false;
+    // Newest non-optimistic message is the forward cursor.
+    let newestId: string | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const id = messages[i]?.id;
+      if (id && !id.startsWith("temp-")) { newestId = id; break; }
+    }
+    if (!newestId) return false;
+
+    setIsLoadingMore(true);
+    try {
+      const response = await fetch(`${apiBase}/messages?after=${newestId}&limit=${PAGE_SIZE}`);
+      if (response.ok) {
+        const data = await response.json();
+        const raw = Array.isArray(data) ? data : data.messages || [];
+        if (raw.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const seenNewer = new Set<string>();
+            const filtered: M[] = [];
+            for (const item of raw) {
+              const normalized = normalizeIncomingMessage<M>(item);
+              if (seenNewer.has(normalized.id) || existingIds.has(normalized.id)) continue;
+              seenNewer.add(normalized.id);
+              filtered.push(normalized);
+            }
+            const combined = [...prev, ...filtered];
+            if (combined.length > MAX_LOADED_MESSAGES) {
+              // Trimmed the oldest off the top → older history is now reloadable.
+              setHasMoreOlder(true);
+              return combined.slice(combined.length - MAX_LOADED_MESSAGES);
+            }
+            return combined;
+          });
+        }
+        // A short page means we've caught up to the live tail.
+        setHasMoreNewer(raw.length >= PAGE_SIZE);
+        return true;
+      }
+    } catch (error) {
+      console.error("Failed to load newer messages:", error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+    return false;
+  }, [apiBase, isLoadingMore, hasMoreNewer, messages]);
 
   // Ensure a message is loaded so the UI can scroll to it. If it's already in
   // the window, no-op. Otherwise load a window centered on it via the `around`
@@ -485,6 +556,10 @@ export function useChatSession<M extends ChatMessage>({
       }
       setMessages(window);
       setHasMoreOlder(true);
+      // The window is centered on the target, not the live tail — allow scrolling
+      // back down to newer messages (fixes "can't see newer messages after
+      // viewing a pinned message").
+      setHasMoreNewer(true);
       return window.some((m) => m.id === messageId);
     } catch (error) {
       console.error("Failed to jump to message:", error);
@@ -594,6 +669,16 @@ export function useChatSession<M extends ChatMessage>({
       if (data.type === "message") {
         const incoming = normalizeIncomingMessage<M>(data.message);
         const isOwnMessage = incoming.authorId === user?.id || incoming.author?.id === user?.id;
+
+        // While viewing a detached window (jumped to a pin/search result), don't
+        // append live messages at the bottom — they'd render as falsely adjacent
+        // to the window's tail. They'll be picked up by forward pagination when
+        // the user scrolls back down to the present. Own sends still show so the
+        // composer feels responsive.
+        if (hasMoreNewerRef.current && !isOwnMessage) {
+          latestRef.current.onIncomingMessage?.(incoming);
+          return;
+        }
 
         setMessages((prev) => {
           if (prev.some((m) => m.id === incoming.id)) return prev;
@@ -877,9 +962,11 @@ export function useChatSession<M extends ChatMessage>({
     isLoading,
     isSending,
     hasMoreOlder,
+    hasMoreNewer,
     isLoadingMore,
     fetchMessages,
     loadOlderMessages,
+    loadNewerMessages,
     jumpToMessage,
     pinnedMessages,
     isLoadingPins,

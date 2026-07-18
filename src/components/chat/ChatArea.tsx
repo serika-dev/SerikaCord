@@ -1638,8 +1638,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         groups={chat.groupedMessages}
         isLoading={chat.isLoading}
         hasMoreOlder={chat.hasMoreOlder}
+        hasMoreNewer={chat.hasMoreNewer}
         isLoadingMore={chat.isLoadingMore}
         loadOlderMessages={chat.loadOlderMessages}
+        loadNewerMessages={chat.loadNewerMessages}
         actions={chat.actions}
         currentUserId={user?.id}
         canModerate={canModerateMessages}

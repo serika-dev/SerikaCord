@@ -226,7 +226,9 @@ export function ProfileCard({
 
   const status = user.status ?? "offline";
   const displayName = user.nickname || user.displayName || user.username;
-  const userActivity = useUserActivity(user.id);
+  // Focused profile card — poll fast so games/coding status feels realtime and
+  // clears near-instantly when the desktop app stops reporting it.
+  const userActivity = useUserActivity(user.id, { intervalMs: 5_000 });
   const moeActivity = userActivity?.activity ?? null;
 
   // Right-click context menu for role chips (copy ID / colour hex).

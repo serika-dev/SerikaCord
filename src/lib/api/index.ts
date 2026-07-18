@@ -186,6 +186,26 @@ function getPublicPresenceStatus(user: { status?: string | null; presenceLastHea
   });
 }
 
+// Which rich-presence types should surface first on a profile. Games always win
+// over IDEs/coding tools (devin, vscode, cursor, …) so "Playing a Game" is the
+// primary card even when a coding session is also live.
+const ACTIVITY_TYPE_PRIORITY: Record<string, number> = {
+  game: 0,
+};
+function activityPriorityRank(type: string | null | undefined): number {
+  return ACTIVITY_TYPE_PRIORITY[(type ?? 'other') as string] ?? 10;
+}
+function sortActivitiesByPriority<T extends { type?: string | null }>(activities: T[]): T[] {
+  // Stable sort: game types float to the front, everything else keeps insertion order.
+  return activities
+    .map((a, i) => [a, i] as const)
+    .sort((x, y) => {
+      const d = activityPriorityRank(x[0].type) - activityPriorityRank(y[0].type);
+      return d !== 0 ? d : x[1] - y[1];
+    })
+    .map(([a]) => a);
+}
+
 const activeFriendStreamConnections = new Map<string, Set<ReadableStreamDefaultController>>();
 
 function emitFriendEvent(userIds: string[], payload: Record<string, unknown>) {
@@ -1802,7 +1822,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       music = await getLastFmNowPlaying(lastfmConnection.accountId).catch(() => null);
     }
 
-    const activities = (activeRichPresence as any[]).map((doc) => ({
+    const activities = sortActivitiesByPriority((activeRichPresence as any[]).map((doc) => ({
       type: doc.type,
       name: doc.name,
       details: doc.details ?? null,
@@ -1816,7 +1836,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       applicationId: doc.applicationId ?? null,
       assets: doc.assets ?? null,
       buttons: doc.buttons ?? null,
-    }));
+    })));
 
     const result = {
       activity: watchActivity,
@@ -1940,6 +1960,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
       await RichPresence.deleteById(p.id);
     }
 
+    // Drop the cached activity snapshot so the next poll reflects this heartbeat
+    // immediately (added/removed apps, e.g. closing Devin) instead of serving a
+    // stale 5s copy.
+    await cache.del(`activity:${authUserId}`).catch(() => {});
+
     // Persist to the recent-activity log unless the user disabled it. Games and
     // apps are worth remembering; skip transient "other" noise. Fire-and-forget
     // so history writes never slow down or fail the presence heartbeat.
@@ -2002,6 +2027,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
     for (const p of allPresence) {
       await RichPresence.deleteById(p.id);
     }
+    // Invalidate cache so the profile clears instantly on desktop app exit.
+    await cache.del(`activity:${authUserId}`).catch(() => {});
     return { ok: true };
   })
   // Recent activity log — games/apps the user has played, newest first.
@@ -2127,7 +2154,7 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
         ]);
 
         const activeRichPresence = (richPresenceDocs as any[]).filter((doc) => doc.expiresAt && new Date(doc.expiresAt) > now);
-        const activities = activeRichPresence.map((doc) => ({
+        const activities = sortActivitiesByPriority(activeRichPresence.map((doc) => ({
           type: doc.type,
           name: doc.name,
           details: doc.details ?? null,
@@ -2141,7 +2168,7 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
           applicationId: doc.applicationId ?? null,
           assets: doc.assets ?? null,
           buttons: doc.buttons ?? null,
-        }));
+        })));
 
         let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
         if (lastfmConnection?.accountId) {
