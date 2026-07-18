@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod presence;
+mod updater_window;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -100,20 +101,19 @@ const PRESENCE_REPORTER_JS: &str = r#"
 })();
 "#;
 
-// Check GitHub Releases for a newer signed build and, if found, download +
-// install it, then relaunch. Tauri v2's updater is entirely manual — nothing
-// happens unless we call `check()` ourselves — which is why auto-update never
-// worked before. Runs shortly after startup and fails silently (no network,
-// no release yet, already latest, …) so it never blocks the app.
+/// Check for updates, showing progress in the updater splash window.
+/// Returns `true` if an update was installed and the app should relaunch
+/// (caller should not proceed to show the main window in that case).
 #[cfg(desktop)]
-async fn run_update_check(app: tauri::AppHandle) {
+async fn run_update_check(app: tauri::AppHandle) -> bool {
     use tauri_plugin_updater::UpdaterExt;
 
     let updater = match app.updater() {
         Ok(u) => u,
         Err(e) => {
             eprintln!("[updater] init failed: {e}");
-            return;
+            updater_window::emit_error(&app, &e.to_string());
+            return false;
         }
     };
 
@@ -121,29 +121,88 @@ async fn run_update_check(app: tauri::AppHandle) {
         Ok(Some(update)) => {
             let version = update.version.clone();
             eprintln!("[updater] update available: {version} — downloading");
-            let mut downloaded: usize = 0;
+            updater_window::emit_progress(&app, &format!("Downloading v{version}…"), Some(0.0));
+
+            let app_for_progress = app.clone();
+            let mut downloaded: u64 = 0;
             let result = update
                 .download_and_install(
                     |chunk, total| {
-                        downloaded += chunk;
+                        downloaded += chunk as u64;
                         if let Some(total) = total {
-                            eprintln!("[updater] {downloaded}/{total} bytes");
+                            let percent = (downloaded as f64 / total as f64) * 100.0;
+                            let mb_done = downloaded / 1024 / 1024;
+                            let mb_total = total / 1024 / 1024;
+                            eprintln!("[updater] {mb_done}/{mb_total} MB ({percent:.0}%)");
+                            updater_window::emit_progress(
+                                &app_for_progress,
+                                &format!("Downloading… {mb_done}/{mb_total} MB"),
+                                Some(percent),
+                            );
                         }
                     },
-                    || eprintln!("[updater] download finished, installing"),
+                    || {
+                        eprintln!("[updater] download finished, installing");
+                        updater_window::emit_progress(&app_for_progress, "Installing…", None);
+                    },
                 )
                 .await;
+
             match result {
                 Ok(_) => {
                     eprintln!("[updater] installed {version} — relaunching");
+                    updater_window::emit_done(&app);
+                    // Small delay so the user sees the completed state.
+                    std::thread::sleep(std::time::Duration::from_millis(800));
                     app.restart();
+                    #[allow(unreachable_code)]
+                    return true;
                 }
-                Err(e) => eprintln!("[updater] install failed: {e}"),
+                Err(e) => {
+                    eprintln!("[updater] install failed: {e}");
+                    updater_window::emit_error(&app, &e.to_string());
+                }
             }
         }
-        Ok(None) => eprintln!("[updater] already up to date"),
-        Err(e) => eprintln!("[updater] check failed: {e}"),
+        Ok(None) => {
+            eprintln!("[updater] already up to date");
+            updater_window::emit_no_update(&app);
+        }
+        Err(e) => {
+            eprintln!("[updater] check failed: {e}");
+            updater_window::emit_error(&app, &e.to_string());
+        }
     }
+    false
+}
+
+/// Build the main application window (called after the updater check completes).
+fn build_main_window(app: &tauri::AppHandle) {
+    if app.get_webview_window("main").is_some() {
+        show_main_window(app);
+        return;
+    }
+
+    let start_url: tauri::Url = format!("{APP_URL}{START_PATH}")
+        .parse()
+        .expect("valid start URL");
+
+    let opener_handle = app.clone();
+    let _ = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(start_url))
+        .title("SerikaCord")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(940.0, 500.0)
+        .initialization_script(PRESENCE_REPORTER_JS)
+        .on_navigation(move |url| {
+            let target = url.as_str();
+            let allowed =
+                target.starts_with(APP_URL) || target.starts_with("http://localhost");
+            if !allowed {
+                let _ = opener_handle.opener().open_url(target, None::<&str>);
+            }
+            allowed
+        })
+        .build();
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -179,28 +238,14 @@ fn main() {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
 
-            let start_url: tauri::Url = format!("{APP_URL}{START_PATH}")
-                .parse()
-                .expect("valid start URL");
-
-            // Links outside the app (and localhost during development) open
-            // in the system browser instead of navigating the app window.
-            let opener_handle = app.handle().clone();
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(start_url))
-                .title("SerikaCord")
-                .inner_size(1280.0, 800.0)
-                .min_inner_size(940.0, 500.0)
-                .initialization_script(PRESENCE_REPORTER_JS)
-                .on_navigation(move |url| {
-                    let target = url.as_str();
-                    let allowed =
-                        target.starts_with(APP_URL) || target.starts_with("http://localhost");
-                    if !allowed {
-                        let _ = opener_handle.opener().open_url(target, None::<&str>);
-                    }
-                    allowed
-                })
-                .build()?;
+            // Show the updater splash window FIRST — before anything else.
+            // This mirrors Discord's desktop updater: a small window appears,
+            // checks for updates, and either installs them (with progress) or
+            // proceeds to the main app.
+            #[cfg(desktop)]
+            {
+                let _ = updater_window::create_updater_window(app.handle());
+            }
 
             // Tray icon with Open/Quit; left-click toggles the window.
             let show_item = MenuItem::with_id(app, "show", "Open SerikaCord", true, None::<&str>)?;
@@ -235,23 +280,44 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Run the update check, then build the main window.
+            // On non-desktop targets (mobile), skip straight to the main window.
+            let handle = app.handle().clone();
+
+            #[cfg(desktop)]
+            {
+                tauri::async_runtime::spawn(async move {
+                    let should_relaunch = run_update_check(handle.clone()).await;
+
+                    if !should_relaunch {
+                        // Small delay so the splash isn't visually jarring.
+                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        updater_window::close_updater_window(&handle);
+                        build_main_window(&handle);
+                    }
+                    // If should_relaunch is true, run_update_check already called
+                    // app.restart() — we won't reach here.
+                });
+            }
+
+            #[cfg(not(desktop))]
+            {
+                build_main_window(&handle);
+            }
+
             // Start background game/app detection → reports via the web app.
             presence::spawn_detection_loop(app.handle().clone());
 
-            // Check for updates on launch (async, non-blocking).
-            #[cfg(desktop)]
-            {
-                let update_handle = app.handle().clone();
-                tauri::async_runtime::spawn(run_update_check(update_handle));
-            }
-
             Ok(())
         })
-        // Close-to-tray: closing the window hides it, quit via the tray menu.
+        // Close-to-tray: closing the main window hides it, quit via the tray.
+        // The updater window closes normally (no prevent).
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
         })
         .run(tauri::generate_context!())

@@ -181,15 +181,11 @@ function AddGameDialog({
 }
 
 // ── Section shell ─────────────────────────────────────────────────────────────
-function SectionHeader({ icon: Icon, title, subtitle, canAdd, atLimit, onAdd }: {
+function SectionHeader({ icon: Icon, title, subtitle }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   subtitle?: string;
-  canAdd: boolean;
-  atLimit: boolean;
-  onAdd: () => void;
 }) {
-  const gt = useGT();
   return (
     <div className="flex items-center justify-between mb-2">
       <div className="flex items-center gap-2">
@@ -197,25 +193,22 @@ function SectionHeader({ icon: Icon, title, subtitle, canAdd, atLimit, onAdd }: 
         <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide">{title}</h4>
         {subtitle && <span className="text-[10px] text-white/30">{subtitle}</span>}
       </div>
-      {canAdd && (
-        <button
-          onClick={onAdd}
-          disabled={atLimit}
-          title={atLimit ? gt("Limit reached") : gt("Add game")}
-          className="p-1 rounded-md hover:bg-white/[0.08] text-white/60 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
-      )}
     </div>
   );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export function ProfileGameWidgets({ userId, isSelf }: { userId: string; isSelf: boolean }) {
+// `addCategory`/`setAddCategory` are controlled by the parent so the single
+// "Add Widget" popup can drive the game-add dialog. Empty categories are never
+// rendered — nothing is forced onto the profile by default.
+export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory }: {
+  userId: string;
+  isSelf: boolean;
+  addCategory: GameCategory | null;
+  setAddCategory: (c: GameCategory | null) => void;
+}) {
   const gt = useGT();
   const { library, loading, setLibrary, refetch } = useLibrary(userId);
-  const [addCategory, setAddCategory] = useState<GameCategory | null>(null);
   const [showAllLiked, setShowAllLiked] = useState(false);
   const [showAllWishlist, setShowAllWishlist] = useState(false);
 
@@ -274,29 +267,23 @@ export function ProfileGameWidgets({ userId, isSelf }: { userId: string; isSelf:
   // Grid renderer for liked / wishlist (show 8, then show-more → 2 rows of 4).
   const renderGrid = (category: "liked" | "wishlist", showAll: boolean, setShowAll: (v: boolean) => void, icon: React.ComponentType<{ className?: string }>, title: string) => {
     const games = library[category];
-    if (!isSelf && games.length === 0) return null;
+    if (games.length === 0) return null;
     const visible = showAll ? games : games.slice(0, 8);
     return (
       <div>
-        <SectionHeader icon={icon} title={title} subtitle={`${games.length}/${CATEGORY_LIMITS[category]}`} canAdd={isSelf} atLimit={games.length >= CATEGORY_LIMITS[category]} onAdd={() => setAddCategory(category)} />
-        {games.length === 0 ? (
-          <p className="text-xs text-white/25 py-2">{gt("Nothing here yet")}</p>
-        ) : (
-          <>
-            <div className="grid grid-cols-4 gap-2">
-              {visible.map((game) => (
-                <div key={game.id} className="group relative" title={game.name}>
-                  <GameCover game={game} />
-                  {editControls(game, false)}
-                </div>
-              ))}
+        <SectionHeader icon={icon} title={title} subtitle={`${games.length}/${CATEGORY_LIMITS[category]}`} />
+        <div className="grid grid-cols-4 gap-2">
+          {visible.map((game) => (
+            <div key={game.id} className="group relative" title={game.name}>
+              <GameCover game={game} />
+              {editControls(game, false)}
             </div>
-            {games.length > 8 && (
-              <button onClick={() => setShowAll(!showAll)} className="mt-2 text-xs text-[#8B5CF6] hover:underline">
-                {showAll ? gt("Show less") : gt("Show more")}
-              </button>
-            )}
-          </>
+          ))}
+        </div>
+        {games.length > 8 && (
+          <button onClick={() => setShowAll(!showAll)} className="mt-2 text-xs text-[#8B5CF6] hover:underline">
+            {showAll ? gt("Show less") : gt("Show more")}
+          </button>
         )}
       </div>
     );
@@ -306,33 +293,27 @@ export function ProfileGameWidgets({ userId, isSelf }: { userId: string; isSelf:
 
   return (
     <div className="space-y-4">
-      {/* Favorite game */}
-      {(isSelf || favorite) && (
+      {/* Favorite game — only if set */}
+      {favorite && (
         <div>
-          <SectionHeader icon={Star} title={gt("Favorite game")} canAdd={isSelf && !favorite} atLimit={false} onAdd={() => setAddCategory("favorite")} />
-          {favorite ? (
-            <div className="group relative flex gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-              <GameCover game={favorite} size="lg" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-white truncate">{favorite.name}</p>
-                {favorite.note && <p className="text-xs text-white/50 mt-0.5 line-clamp-2">{favorite.note}</p>}
-                {favorite.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {favorite.tags.map((txt) => (
-                      <span key={txt} className="text-[10px] px-1.5 py-0.5 rounded bg-[#8B5CF6]/20 text-[#c4b5fd]">{txt}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {isSelf && (
-                <button onClick={() => remove(favorite)} className="opacity-0 group-hover:opacity-100 self-start p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition"><X className="w-4 h-4" /></button>
+          <SectionHeader icon={Star} title={gt("Favorite game")} />
+          <div className="group relative flex gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+            <GameCover game={favorite} size="lg" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white truncate">{favorite.name}</p>
+              {favorite.note && <p className="text-xs text-white/50 mt-0.5 line-clamp-2">{favorite.note}</p>}
+              {favorite.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {favorite.tags.map((txt) => (
+                    <span key={txt} className="text-[10px] px-1.5 py-0.5 rounded bg-[#8B5CF6]/20 text-[#c4b5fd]">{txt}</span>
+                  ))}
+                </div>
               )}
             </div>
-          ) : (
-            <button onClick={() => setAddCategory("favorite")} className="w-full py-3 rounded-xl border border-dashed border-white/10 text-xs text-white/40 hover:border-white/20 hover:text-white/60 transition">
-              {gt("Choose your favorite game")}
-            </button>
-          )}
+            {isSelf && (
+              <button onClick={() => remove(favorite)} className="opacity-0 group-hover:opacity-100 self-start p-1 rounded hover:bg-white/10 text-white/50 hover:text-white transition"><X className="w-4 h-4" /></button>
+            )}
+          </div>
         </div>
       )}
 
@@ -340,21 +321,17 @@ export function ProfileGameWidgets({ userId, isSelf }: { userId: string; isSelf:
       {renderGrid("liked", showAllLiked, setShowAllLiked, Gamepad2, gt("Games I like"))}
 
       {/* Games in rotation */}
-      {(isSelf || library.rotation.length > 0) && (
+      {library.rotation.length > 0 && (
         <div>
-          <SectionHeader icon={RotateCw} title={gt("Games in rotation")} subtitle={`${library.rotation.length}/${CATEGORY_LIMITS.rotation}`} canAdd={isSelf} atLimit={library.rotation.length >= CATEGORY_LIMITS.rotation} onAdd={() => setAddCategory("rotation")} />
-          {library.rotation.length === 0 ? (
-            <p className="text-xs text-white/25 py-2">{gt("Nothing here yet")}</p>
-          ) : (
-            <div className="grid grid-cols-5 gap-2">
-              {library.rotation.map((game) => (
-                <div key={game.id} className="group relative" title={game.name}>
-                  <GameCover game={game} />
-                  {editControls(game, true)}
-                </div>
-              ))}
-            </div>
-          )}
+          <SectionHeader icon={RotateCw} title={gt("Games in rotation")} subtitle={`${library.rotation.length}/${CATEGORY_LIMITS.rotation}`} />
+          <div className="grid grid-cols-5 gap-2">
+            {library.rotation.map((game) => (
+              <div key={game.id} className="group relative" title={game.name}>
+                <GameCover game={game} />
+                {editControls(game, true)}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

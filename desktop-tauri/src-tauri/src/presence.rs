@@ -123,6 +123,8 @@ fn match_known_game(exe_lower: &str) -> Option<DetectedActivity> {
         ("hoyoverse", "Genshin Impact", true),
         ("genshinimpact", "Genshin Impact", true),
         ("starrail", "Honkai: Star Rail", true),
+        ("bluearchive", "Blue Archive", true),
+        ("blue archive", "Blue Archive", true),
     ];
     for (needle, search, substring) in table {
         let hit = if *substring { exe_lower.contains(needle) } else { exe_lower == *needle };

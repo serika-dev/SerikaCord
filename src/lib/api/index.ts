@@ -1870,7 +1870,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 30) : 12;
     const rows = await ActivityHistory.recent(targetUser.id, limit).catch(() => []);
     return {
-      activities: rows.map((r) => ({
+      activities: sortActivitiesByPriority(rows.map((r) => ({
         type: r.type,
         name: r.name,
         imageUrl: r.imageUrl ?? null,
@@ -1878,7 +1878,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         lastSeenAt: r.lastSeenAt,
         durationSeconds: r.durationSeconds,
         sessions: r.sessions,
-      })),
+      }))),
     };
   }, {
     params: t.Object({ userId: t.String() }),
@@ -2043,7 +2043,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 50) : 20;
     const rows = await ActivityHistory.recent(authUserId, limit);
     return {
-      activities: rows.map((r) => ({
+      activities: sortActivitiesByPriority(rows.map((r) => ({
         type: r.type,
         name: r.name,
         imageUrl: r.imageUrl ?? null,
@@ -2051,7 +2051,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         lastSeenAt: r.lastSeenAt,
         durationSeconds: r.durationSeconds,
         sessions: r.sessions,
-      })),
+      }))),
     };
   }, {
     query: t.Object({ limit: t.Optional(t.String()) }),

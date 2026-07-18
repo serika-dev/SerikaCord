@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default permissions for the SerikaCord desktop window",
-  "windows": ["main"],
+  "description": "Default permissions for the SerikaCord desktop windows",
+  "windows": ["main", "updater"],
   "permissions": [
     "core:default",
     "updater:default"

@@ -10,7 +10,7 @@ import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/comp
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
-import { ProfileGameWidgets } from "@/components/user/ProfileGameWidgets";
+import { ProfileGameWidgets, type GameCategory } from "@/components/user/ProfileGameWidgets";
 import { ProfileAppWidgets } from "@/components/user/ProfileAppWidgets";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
@@ -107,6 +107,7 @@ export function FullProfileDialog({
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryEntry[]>([]);
+  const [gameAddCategory, setGameAddCategory] = useState<GameCategory | null>(null);
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
   const [canModerate, setCanModerate] = useState(false);
   const [isAdminOfServer, setIsAdminOfServer] = useState(false);
@@ -493,10 +494,10 @@ export function FullProfileDialog({
               {activeTab === "board" && (
                 <div className="space-y-4">
                   {/* Game library widgets (favorite / liked / rotation / wishlist) */}
-                  <ProfileGameWidgets userId={fullUser.id} isSelf={!!isSelf} />
+                  <ProfileGameWidgets userId={fullUser.id} isSelf={!!isSelf} addCategory={gameAddCategory} setAddCategory={setGameAddCategory} />
 
                   {/* Application widgets placed on the profile */}
-                  <ProfileAppWidgets userId={fullUser.id} isSelf={!!isSelf} />
+                  <ProfileAppWidgets userId={fullUser.id} isSelf={!!isSelf} onAddGameCategory={setGameAddCategory} />
 
                   {/* Connections */}
                   {fullUser.connections && fullUser.connections.length > 0 && (
