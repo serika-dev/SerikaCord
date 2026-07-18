@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { Plus, X, Loader2, Gamepad2, Star, RotateCw, Bookmark } from "lucide-react";
 import { toast } from "sonner";
-import { cdnImage } from "@/lib/utils";
+import { cdnImage, cn } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WidgetRenderer, widgetHasContent, type WidgetConfigShape, type WidgetUserData } from "@/components/widgets/WidgetRenderer";
 import type { GameCategory } from "@/components/user/ProfileGameWidgets";
+import { CATEGORY_LIMITS, type LibraryGame } from "@/components/user/ProfileGameWidgets";
 
 interface Placement {
   id: string;
@@ -32,12 +33,11 @@ const GAME_CATEGORY_OPTIONS: { category: GameCategory; icon: React.ComponentType
   { category: "wishlist", icon: Bookmark, label: (gt) => gt("Want to Play") },
 ];
 
-function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategory }: {
+function AddWidgetDialog({ open, onOpenChange, onAddGameCategory, gameLibrary }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  existing: string[];
-  onAdd: (applicationId: string) => void;
   onAddGameCategory?: (category: GameCategory) => void;
+  gameLibrary?: Record<GameCategory, LibraryGame[]>;
 }) {
   const gt = useGT();
   const [available, setAvailable] = useState<AvailableWidget[]>([]);
@@ -53,6 +53,11 @@ function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategor
       .finally(() => setLoading(false));
   }, [open]);
 
+  const availableCategories = GAME_CATEGORY_OPTIONS.filter(({ category }) => {
+    if (!gameLibrary) return true;
+    return gameLibrary[category].length < CATEGORY_LIMITS[category];
+  });
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[#0c0c10] border-white/[0.08] sm:max-w-md">
@@ -61,23 +66,27 @@ function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategor
         </DialogHeader>
         <div className="space-y-2 max-h-[50vh] overflow-y-auto">
           {/* Game categories */}
-          {onAddGameCategory && (
+          {onAddGameCategory && availableCategories.length > 0 && (
             <>
               <p className="text-[10px] font-bold text-white/30 uppercase tracking-wide px-1 pt-1">{gt("Games")}</p>
-              {GAME_CATEGORY_OPTIONS.map(({ category, icon: Icon, label }) => (
-                <button
-                  key={category}
-                  onClick={() => { onAddGameCategory(category); onOpenChange(false); }}
-                  className="w-full flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] transition-colors text-left"
-                >
-                  <div className="w-9 h-9 rounded-lg bg-[#8B5CF6]/20 flex items-center justify-center"><Icon className="w-4 h-4 text-[#8B5CF6]" /></div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white font-medium truncate">{label(gt)}</p>
-                  </div>
-                  <Plus className="w-4 h-4 text-white/50" />
-                </button>
-              ))}
-              {/* Divider only when there are also app widgets below */}
+              {availableCategories.map(({ category, icon: Icon, label }) => {
+                const count = gameLibrary?.[category]?.length ?? 0;
+                const limit = CATEGORY_LIMITS[category];
+                return (
+                  <button
+                    key={category}
+                    onClick={() => { onAddGameCategory(category); onOpenChange(false); }}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] transition-colors text-left"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-[#8B5CF6]/20 flex items-center justify-center"><Icon className="w-4 h-4 text-[#8B5CF6]" /></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white font-medium truncate">{label(gt)}</p>
+                      {limit > 1 && <p className="text-[10px] text-white/30">{count}/{limit}</p>}
+                    </div>
+                    <Plus className="w-4 h-4 text-white/50" />
+                  </button>
+                );
+              })}
               {available.length > 0 && (
                 <div className="border-t border-white/[0.06] my-2" />
               )}
@@ -92,13 +101,11 @@ function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategor
             <>
               <p className="text-[10px] font-bold text-white/30 uppercase tracking-wide px-1">{gt("Widgets")}</p>
               {available.map((w) => {
-                const added = existing.includes(w.applicationId);
                 return (
                   <button
                     key={w.applicationId}
-                    disabled={added}
-                    onClick={() => { onAdd(w.applicationId); onOpenChange(false); }}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] transition-colors text-left disabled:opacity-40"
+                    onClick={() => { onOpenChange(false); }}
+                    className="w-full flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] transition-colors text-left"
                   >
                     {w.icon ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -110,7 +117,7 @@ function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategor
                       <p className="text-sm text-white font-medium truncate">{w.name}</p>
                       <p className="text-xs text-white/40 truncate">{w.appName || gt("Application")}</p>
                     </div>
-                    {added ? <span className="text-[10px] text-white/40">{gt("Added")}</span> : <Plus className="w-4 h-4 text-white/50" />}
+                    <Plus className="w-4 h-4 text-white/50" />
                   </button>
                 );
               })}
@@ -122,11 +129,22 @@ function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategor
   );
 }
 
-export function ProfileAppWidgets({ userId, isSelf, appIcon, onAddGameCategory }: { userId: string; isSelf: boolean; appIcon?: string | null; onAddGameCategory?: (category: GameCategory) => void }) {
+export function ProfileAppWidgets({ userId, isSelf, appIcon, onAddGameCategory, gameLibrary }: { userId: string; isSelf: boolean; appIcon?: string | null; onAddGameCategory?: (category: GameCategory) => void; gameLibrary?: Record<GameCategory, LibraryGame[]> }) {
   const gt = useGT();
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
+  const [localGameLib, setLocalGameLib] = useState<Record<GameCategory, LibraryGame[]>>({ favorite: [], liked: [], rotation: [], wishlist: [] });
+
+  useEffect(() => {
+    if (!isSelf || !onAddGameCategory) return;
+    fetch(`/api/users/${userId}/games`)
+      .then((r) => r.json())
+      .then((d) => setLocalGameLib(d.library || { favorite: [], liked: [], rotation: [], wishlist: [] }))
+      .catch(() => {});
+  }, [userId, isSelf, onAddGameCategory, addOpen]);
+
+  const libForDialog = gameLibrary ?? localGameLib;
 
   const refetch = useCallback(async () => {
     try {
@@ -177,14 +195,14 @@ export function ProfileAppWidgets({ userId, isSelf, appIcon, onAddGameCategory }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide">{gt("Widgets")}</h4>
-        {isSelf && (
+      {isSelf && (
+        <div className="flex items-center justify-between mb-2">
+          <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide">{gt("Widgets")}</h4>
           <button onClick={() => setAddOpen(true)} className="flex items-center gap-1 text-xs text-[#8B5CF6] hover:underline">
             <Plus className="w-3.5 h-3.5" /> {gt("Add Widget")}
           </button>
-        )}
-      </div>
+        </div>
+      )}
       <div className="space-y-2">
         {visible.map((p) => (
           <div key={p.id} className="group relative">
@@ -194,13 +212,8 @@ export function ProfileAppWidgets({ userId, isSelf, appIcon, onAddGameCategory }
             )}
           </div>
         ))}
-        {isSelf && visible.length === 0 && (
-          <button onClick={() => setAddOpen(true)} className="w-full py-3 rounded-xl border border-dashed border-white/10 text-xs text-white/40 hover:border-white/20 hover:text-white/60 transition">
-            {gt("Add a widget to your profile")}
-          </button>
-        )}
       </div>
-      <AddWidgetDialog open={addOpen} onOpenChange={setAddOpen} existing={placements.map((p) => p.applicationId!).filter(Boolean)} onAdd={add} onAddGameCategory={onAddGameCategory} />
+      <AddWidgetDialog open={addOpen} onOpenChange={setAddOpen} onAddGameCategory={onAddGameCategory} gameLibrary={libForDialog} />
     </div>
   );
 }

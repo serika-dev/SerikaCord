@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, X, Search, Star, Gamepad2, RotateCw, Bookmark, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { Plus, X, Search, Star, Gamepad2, RotateCw, Bookmark, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -28,7 +28,7 @@ type Library = Record<GameCategory, LibraryGame[]>;
 
 const EMPTY_LIBRARY: Library = { favorite: [], liked: [], rotation: [], wishlist: [] };
 
-const CATEGORY_LIMITS: Record<GameCategory, number> = { favorite: 1, liked: 20, rotation: 5, wishlist: 20 };
+export const CATEGORY_LIMITS: Record<GameCategory, number> = { favorite: 1, liked: 20, rotation: 5, wishlist: 20 };
 
 // ── Data hooks ───────────────────────────────────────────────────────────────
 function useLibrary(userId: string) {
@@ -104,12 +104,12 @@ function TagPicker({
 }
 
 function AddGameDialog({
-  open, onOpenChange, category, existing, onAdded,
+  open, onOpenChange, category, allLibrary, onAdded,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   category: GameCategory;
-  existing: LibraryGame[];
+  allLibrary: Library;
   onAdded: (game: LibraryGame) => void;
 }) {
   const gt = useGT();
@@ -152,12 +152,14 @@ function AddGameDialog({
 
   const existingSet = useMemo(() => {
     const s = new Set<string | number>();
-    for (const g of existing) {
-      if (g.igdbId != null) s.add(g.igdbId);
-      s.add(g.name.toLowerCase());
+    for (const cat of Object.values(allLibrary)) {
+      for (const g of cat) {
+        if (g.igdbId != null) s.add(g.igdbId);
+        s.add(g.name.toLowerCase());
+      }
     }
     return s;
-  }, [existing]);
+  }, [allLibrary]);
 
   const visibleResults = results
     .filter((r) => !existingSet.has(r.id) && !existingSet.has(r.name.toLowerCase()))
@@ -178,8 +180,8 @@ function AddGameDialog({
           igdbId: game.id,
           name: game.name,
           coverUrl: game.coverUrl ?? undefined,
-          tags: category === "favorite" || category === "rotation" ? selectedTags : undefined,
-          note: category === "favorite" ? (note.trim() || undefined) : undefined,
+          tags: selectedTags.length > 0 ? selectedTags : undefined,
+          note: note.trim() || undefined,
         }),
       });
       const data = await res.json();
@@ -238,23 +240,19 @@ function AddGameDialog({
             />
           </div>
 
-          {category === "favorite" && (
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder={gt("Why is this your favorite?")}
-              rows={2}
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-[#8B5CF6] resize-none"
-            />
-          )}
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={gt("Add a note…")}
+            rows={2}
+            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline-none focus:border-[#8B5CF6] resize-none"
+          />
 
-          {(category === "favorite" || category === "rotation") && (
-            <div className="space-y-3">
-              <TagPicker label={gt("Skill level")} value={tags.skill} onChange={(v) => setTags((t) => ({ ...t, skill: v }))} options={options.skill} />
-              <TagPicker label={gt("Rating")} value={tags.rating} onChange={(v) => setTags((t) => ({ ...t, rating: v }))} options={options.rating} />
-              <TagPicker label={gt("Looking for")} value={tags.lookingFor} onChange={(v) => setTags((t) => ({ ...t, lookingFor: v }))} options={options.lookingFor} />
-            </div>
-          )}
+          <div className="space-y-3">
+            <TagPicker label={gt("Skill level")} value={tags.skill} onChange={(v) => setTags((t) => ({ ...t, skill: v }))} options={options.skill} />
+            <TagPicker label={gt("Rating")} value={tags.rating} onChange={(v) => setTags((t) => ({ ...t, rating: v }))} options={options.rating} />
+            <TagPicker label={gt("Looking for")} value={tags.lookingFor} onChange={(v) => setTags((t) => ({ ...t, lookingFor: v }))} options={options.lookingFor} />
+          </div>
 
           <div className="min-h-[80px] space-y-1">
             {searching ? (
@@ -298,18 +296,26 @@ function AddGameDialog({
 }
 
 // ── Section shell ─────────────────────────────────────────────────────────────
-function SectionHeader({ icon: Icon, title, subtitle }: {
+function SectionHeader({ icon: Icon, title, subtitle, onMoveUp, onMoveDown }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   subtitle?: string;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between mb-2">
+    <div className="flex items-center justify-between mb-2 group/hdr">
       <div className="flex items-center gap-2">
         <Icon className="w-3.5 h-3.5 text-[#8B5CF6]" />
         <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide">{title}</h4>
         {subtitle && <span className="text-[10px] text-white/30">{subtitle}</span>}
       </div>
+      {(onMoveUp || onMoveDown) && (
+        <div className="flex items-center gap-0.5 opacity-0 group-hover/hdr:opacity-100 transition-opacity">
+          {onMoveUp && <button onClick={onMoveUp} className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white"><ChevronUp className="w-3 h-3" /></button>}
+          {onMoveDown && <button onClick={onMoveDown} className="p-0.5 rounded hover:bg-white/10 text-white/40 hover:text-white"><ChevronDown className="w-3 h-3" /></button>}
+        </div>
+      )}
     </div>
   );
 }
@@ -318,6 +324,9 @@ function SectionHeader({ icon: Icon, title, subtitle }: {
 // `addCategory`/`setAddCategory` are controlled by the parent so the single
 // "Add Widget" popup can drive the game-add dialog. Empty categories are never
 // rendered — nothing is forced onto the profile by default.
+const DEFAULT_SECTION_ORDER: GameCategory[] = ["favorite", "liked", "rotation", "wishlist"];
+const SECTION_STORAGE_KEY = "serika:game-widget-order";
+
 export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory }: {
   userId: string;
   isSelf: boolean;
@@ -328,6 +337,29 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
   const { library, loading, setLibrary, refetch } = useLibrary(userId);
   const [showAllLiked, setShowAllLiked] = useState(false);
   const [showAllWishlist, setShowAllWishlist] = useState(false);
+  const [sectionOrder, setSectionOrder] = useState<GameCategory[]>(() => {
+    if (typeof window === "undefined") return DEFAULT_SECTION_ORDER;
+    try {
+      const saved = localStorage.getItem(SECTION_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as GameCategory[];
+        if (Array.isArray(parsed) && parsed.length === 4) return parsed;
+      }
+    } catch {}
+    return DEFAULT_SECTION_ORDER;
+  });
+
+  const moveSection = (cat: GameCategory, dir: -1 | 1) => {
+    setSectionOrder((prev) => {
+      const idx = prev.indexOf(cat);
+      const next = idx + dir;
+      if (next < 0 || next >= prev.length) return prev;
+      const arr = [...prev];
+      [arr[idx], arr[next]] = [arr[next], arr[idx]];
+      try { localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(arr)); } catch {}
+      return arr;
+    });
+  };
 
   const remove = async (game: LibraryGame) => {
     // Optimistic
@@ -382,17 +414,33 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
   );
 
   // Grid renderer for liked / wishlist (show 8, then show-more → 2 rows of 4).
-  const renderGrid = (category: "liked" | "wishlist", showAll: boolean, setShowAll: (v: boolean) => void, icon: React.ComponentType<{ className?: string }>, title: string) => {
+  const renderGrid = (category: "liked" | "wishlist", showAll: boolean, setShowAll: (v: boolean) => void, icon: React.ComponentType<{ className?: string }>, title: string, sectionIdx: number) => {
     const games = library[category];
     if (games.length === 0) return null;
     const visible = showAll ? games : games.slice(0, 8);
     return (
       <div>
-        <SectionHeader icon={icon} title={title} subtitle={`${games.length}/${CATEGORY_LIMITS[category]}`} />
+        <SectionHeader
+          icon={icon}
+          title={title}
+          subtitle={`${games.length}/${CATEGORY_LIMITS[category]}`}
+          onMoveUp={isSelf ? () => moveSection(category, -1) : undefined}
+          onMoveDown={isSelf ? () => moveSection(category, 1) : undefined}
+        />
         <div className="grid grid-cols-4 gap-2">
           {visible.map((game) => (
             <div key={game.id} className="group relative" title={game.name}>
               <GameCover game={game} />
+              {game.tags.length > 0 && (
+                <div className="flex flex-wrap gap-0.5 mt-1">
+                  {game.tags.slice(0, 2).map((txt) => (
+                    <span key={txt} className="text-[8px] px-1 py-0.5 rounded bg-[#8B5CF6]/20 text-[#c4b5fd] truncate max-w-full">{txt}</span>
+                  ))}
+                  {game.tags.length > 2 && (
+                    <span className="text-[8px] px-1 py-0.5 rounded bg-white/[0.06] text-white/40">+{game.tags.length - 2}</span>
+                  )}
+                </div>
+              )}
               {editControls(game, true)}
             </div>
           ))}
@@ -408,12 +456,17 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
 
   const favorite = library.favorite[0];
 
-  return (
-    <div className="space-y-4">
-      {/* Favorite game — only if set */}
-      {favorite && (
-        <div>
-          <SectionHeader icon={Star} title={gt("Favorite game")} />
+  const renderSection = (cat: GameCategory, idx: number) => {
+    if (cat === "favorite") {
+      if (!favorite) return null;
+      return (
+        <div key="favorite">
+          <SectionHeader
+            icon={Star}
+            title={gt("Favorite game")}
+            onMoveUp={isSelf ? () => moveSection("favorite", -1) : undefined}
+            onMoveDown={isSelf ? () => moveSection("favorite", 1) : undefined}
+          />
           <div className="group relative flex gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
             <GameCover game={favorite} size="lg" />
             <div className="flex-1 min-w-0">
@@ -432,15 +485,20 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
             )}
           </div>
         </div>
-      )}
-
-      {/* Games I like */}
-      {renderGrid("liked", showAllLiked, setShowAllLiked, Gamepad2, gt("Games I like"))}
-
-      {/* Games in rotation */}
-      {library.rotation.length > 0 && (
-        <div>
-          <SectionHeader icon={RotateCw} title={gt("Games in rotation")} subtitle={`${library.rotation.length}/${CATEGORY_LIMITS.rotation}`} />
+      );
+    }
+    if (cat === "liked") return <div key="liked">{renderGrid("liked", showAllLiked, setShowAllLiked, Gamepad2, gt("Games I like"), idx)}</div>;
+    if (cat === "rotation") {
+      if (library.rotation.length === 0) return null;
+      return (
+        <div key="rotation">
+          <SectionHeader
+            icon={RotateCw}
+            title={gt("Games in rotation")}
+            subtitle={`${library.rotation.length}/${CATEGORY_LIMITS.rotation}`}
+            onMoveUp={isSelf ? () => moveSection("rotation", -1) : undefined}
+            onMoveDown={isSelf ? () => moveSection("rotation", 1) : undefined}
+          />
           <div className="grid grid-cols-5 gap-2">
             {library.rotation.map((game) => (
               <div key={game.id} className="group relative" title={game.name}>
@@ -460,13 +518,17 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
             ))}
           </div>
         </div>
-      )}
+      );
+    }
+    if (cat === "wishlist") return <div key="wishlist">{renderGrid("wishlist", showAllWishlist, setShowAllWishlist, Bookmark, gt("Want to play"), idx)}</div>;
+    return null;
+  };
 
-      {/* Want to play */}
-      {renderGrid("wishlist", showAllWishlist, setShowAllWishlist, Bookmark, gt("Want to play"))}
-
+  return (
+    <div className="space-y-4">
+      {sectionOrder.map((cat, idx) => renderSection(cat, idx))}
       {addCategory && (
-        <AddGameDialog open={!!addCategory} onOpenChange={(v) => !v && setAddCategory(null)} category={addCategory} existing={library[addCategory]} onAdded={onAdded} />
+        <AddGameDialog open={!!addCategory} onOpenChange={(v) => !v && setAddCategory(null)} category={addCategory} allLibrary={library} onAdded={onAdded} />
       )}
     </div>
   );
