@@ -95,7 +95,7 @@ export async function lookupGame(query: string): Promise<IgdbGame | null> {
   try {
     // IGDB uses its own Apicalypse query language in the POST body.
     const escaped = q.replace(/"/g, '\\"');
-    const body = `search "${escaped}"; fields name,cover.image_id,summary; where category = (0,8,9,11) & version_parent = null; limit 5;`;
+    const body = `search "${escaped}"; fields name,cover.image_id,summary; where version_parent = null; limit 5;`;
     const res = await fetch(`${IGDB_BASE}/games`, {
       method: 'POST',
       headers: {

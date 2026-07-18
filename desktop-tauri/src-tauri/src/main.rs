@@ -286,6 +286,7 @@ fn main() {
 
             #[cfg(desktop)]
             {
+                let presence_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     let should_relaunch = run_update_check(handle.clone()).await;
 
@@ -294,6 +295,10 @@ fn main() {
                         std::thread::sleep(std::time::Duration::from_millis(500));
                         updater_window::close_updater_window(&handle);
                         build_main_window(&handle);
+                        // Start presence detection only after the main window exists,
+                        // so eval() calls reach __serikaSetActivities instead of
+                        // being silently dropped.
+                        presence::spawn_detection_loop(presence_handle);
                     }
                     // If should_relaunch is true, run_update_check already called
                     // app.restart() — we won't reach here.
@@ -303,10 +308,8 @@ fn main() {
             #[cfg(not(desktop))]
             {
                 build_main_window(&handle);
+                presence::spawn_detection_loop(app.handle().clone());
             }
-
-            // Start background game/app detection → reports via the web app.
-            presence::spawn_detection_loop(app.handle().clone());
 
             Ok(())
         })
