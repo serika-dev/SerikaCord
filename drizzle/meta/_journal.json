@@ -15,6 +15,13 @@
       "when": 1784142188938,
       "tag": "0001_secret_sway",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784400160416,
+      "tag": "0002_organic_bromley",
+      "breakpoints": true
     }
   ]
 }
