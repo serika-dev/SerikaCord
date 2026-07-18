@@ -3590,6 +3590,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                       {activeTab === "data-privacy" && (
                         <>
+                          <div className="pb-2 mb-2 border-b border-[var(--border-subtle)]">
+                            <label className="flex items-center justify-between py-2">
+                              <div className="pr-4">
+                                <span className="text-white">{gt("Allow data processing by Discord")}</span>
+                                <p className="text-xs text-[var(--text-secondary)]">{gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}</p>
+                              </div>
+                              <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked } }, "data-privacy")} />
+                            </label>
+                          </div>
                           <label className="flex items-center justify-between py-2">
                             <span className="text-white">{gt("Allow data personalization")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")} />

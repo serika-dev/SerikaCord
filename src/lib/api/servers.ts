@@ -1042,6 +1042,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           break;
         }
         case 'integrations.discord':
+        case 'integrations.discordRestrictUnconsented':
         case 'integrations.twitch':
         case 'integrations.youtube':
         case 'integrations.webhooks': {
@@ -1225,6 +1226,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       },
       integrations: {
         discord: serverSettings2.integrations?.discord ?? false,
+        discordRestrictUnconsented: serverSettings2.integrations?.discordRestrictUnconsented ?? false,
         twitch: serverSettings2.integrations?.twitch ?? false,
         youtube: serverSettings2.integrations?.youtube ?? false,
         webhooks: serverSettings2.integrations?.webhooks ?? false,

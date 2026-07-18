@@ -50,9 +50,9 @@ export default function ApplicationDetailLayoutClient({
   const activeTab = pathname?.split("/").pop() || "information";
 
   return (
-    <div className="flex-1 flex overflow-hidden">
+    <div className="flex-1 flex">
       {/* Sidebar */}
-      <aside className="w-72 border-r border-white/[0.06] bg-[#0d0d0d] flex flex-col shrink-0 h-[calc(100vh-3.5rem)] sticky top-0">
+      <aside className="w-72 border-r border-white/[0.06] bg-[#0d0d0d] flex flex-col shrink-0 sticky top-14 self-start h-[calc(100vh-3.5rem)]">
         <div className="p-5 border-b border-white/[0.06]">
           <Link
             href="/developers/applications"
@@ -73,11 +73,7 @@ export default function ApplicationDetailLayoutClient({
                 ) : app?.botAvatar ? (
                   <img src={cdnImage(app.botAvatar)} alt="" className="size-10 rounded-xl object-cover" />
                 ) : (
-                  <img 
-                    src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app?.name || 'bot')}`}
-                    alt=""
-                    className="size-10 rounded-xl object-cover animate-pulse-slow" 
-                  />
+                  <Bot className="size-5 text-[#8B5CF6]" />
                 )}
               </div>
               <div className="min-w-0">
@@ -131,7 +127,7 @@ export default function ApplicationDetailLayoutClient({
       </aside>
 
       {/* Main content */}
-      <div className="flex-1 overflow-y-auto bg-[#0a0a0a]">
+      <div className="flex-1 bg-[#0a0a0a]">
         <div className="max-w-4xl mx-auto px-6 py-8">
           {error ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">

@@ -90,6 +90,7 @@ export interface ReferencedMessage {
     avatar?: string;
     isBot?: boolean;
     isVerified?: boolean;
+    isDiscord?: boolean;
   };
   createdAt?: string;
 }

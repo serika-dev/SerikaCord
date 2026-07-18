@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 
 const BOT_ID = process.env.SERIKA_DISCORD_ID || '1524469730256355421';
+const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://serika.chat').replace(/\/$/, '');
 
 // Gateway intents: Guilds (1) + Guild Messages (512) + Message Content (32768)
 const GATEWAY_INTENTS = 1 | 512 | 32768;
@@ -34,6 +35,75 @@ function mapAttachments(d: any): any[] {
     width: att.width || null,
     height: att.height || null,
   }));
+}
+
+/**
+ * Map Discord embeds to Serika's embed shape. The field names line up almost
+ * exactly (title/description/url/color/author/fields/image/thumbnail/video/
+ * footer/timestamp), so this is mostly a pass-through that drops any keys the
+ * renderer doesn't use and guards against malformed payloads.
+ */
+function mapEmbeds(d: any): any[] {
+  if (!d.embeds || !Array.isArray(d.embeds)) return [];
+  return d.embeds
+    .filter((e: any) => e && typeof e === 'object')
+    .map((e: any) => ({
+      title: e.title,
+      type: e.type,
+      description: e.description,
+      url: e.url,
+      timestamp: e.timestamp,
+      color: typeof e.color === 'number' ? e.color : undefined,
+      footer: e.footer ? { text: e.footer.text, icon_url: e.footer.icon_url || e.footer.proxy_icon_url } : undefined,
+      image: e.image ? { url: e.image.url || e.image.proxy_url, width: e.image.width, height: e.image.height } : undefined,
+      thumbnail: e.thumbnail ? { url: e.thumbnail.url || e.thumbnail.proxy_url, width: e.thumbnail.width, height: e.thumbnail.height } : undefined,
+      video: e.video ? { url: e.video.url || e.video.proxy_url, width: e.video.width, height: e.video.height } : undefined,
+      author: e.author ? { name: e.author.name, url: e.author.url, icon_url: e.author.icon_url || e.author.proxy_icon_url } : undefined,
+      fields: Array.isArray(e.fields) ? e.fields.map((f: any) => ({ name: f.name, value: f.value, inline: Boolean(f.inline) })) : undefined,
+    }));
+}
+
+/**
+ * Resolve a Discord reply (message_reference) to the matching Serika message so
+ * the reply renders natively in Serika. Returns null if the referenced message
+ * isn't bridged (e.g. it predates the bridge or was from an unconsented user).
+ */
+async function resolveReply(d: any): Promise<{ referencedMessageId: string; referencedMessage: any } | null> {
+  const refId: string | undefined = d.message_reference?.message_id || d.referenced_message?.id;
+  if (!refId) return null;
+  const { Message } = await import('@/lib/models');
+  const serikaRef = await Message.findByDiscordMessageId(refId);
+  if (!serikaRef) return null;
+
+  // Best-effort author snapshot for the inline reply preview.
+  let refAuthor: any = { id: serikaRef.authorId, username: 'user', displayName: 'User' };
+  try {
+    const { User, DiscordUser } = await import('@/lib/models');
+    const u = await User.findById(serikaRef.authorId);
+    if (u) {
+      refAuthor = { id: u.id, username: u.username, displayName: u.displayName, avatar: u.avatar };
+    } else {
+      const du = await DiscordUser.findById(serikaRef.authorId);
+      if (du) refAuthor = { id: du.id, username: du.username, displayName: du.displayName, avatar: du.avatar };
+    }
+  } catch { /* fall back to placeholder author */ }
+
+  let refContent = '';
+  try {
+    const { decryptFromStorage } = await import('@/lib/security');
+    refContent = serikaRef.content ? await decryptFromStorage(serikaRef.content) : '';
+  } catch { /* leave empty */ }
+
+  return {
+    referencedMessageId: serikaRef.id,
+    referencedMessage: {
+      id: serikaRef.id,
+      content: refContent,
+      authorId: serikaRef.authorId,
+      author: refAuthor,
+      attachments: serikaRef.attachments || [],
+    },
+  };
 }
 
 /**
@@ -75,7 +145,9 @@ async function findBridgedChannel(guildId: string, discordChannelId: string): Pr
   return null;
 }
 
-async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean; isLinked: boolean }> {
+type ConsentStatus = 'pending' | 'granted' | 'denied';
+
+async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean; isLinked: boolean; consentStatus: ConsentStatus; discordId: string }> {
   const { User } = await import('@/lib/models');
   const { UserConnection } = await import('@/lib/models/UserConnection');
   const { DiscordUser } = await import('@/lib/models/DiscordUser');
@@ -96,6 +168,8 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string;
           avatar: (updated || linkedUser).avatar || null,
           isBot: (updated || linkedUser).isBot || false,
           isLinked: true,
+          consentStatus: 'granted',
+          discordId: discordAuthor.id,
         };
       }
       return {
@@ -105,6 +179,8 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string;
         avatar: linkedUser.avatar || null,
         isBot: linkedUser.isBot || false,
         isLinked: true,
+        consentStatus: 'granted',
+        discordId: discordAuthor.id,
       };
     }
   }
@@ -126,6 +202,8 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string;
           avatar: linkedUser.avatar || null,
           isBot: linkedUser.isBot || false,
           isLinked: true,
+          consentStatus: 'granted',
+          discordId: discordAuthor.id,
         };
       }
     }
@@ -148,7 +226,166 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string;
     avatar: discordUser.avatar,
     isBot: discordUser.isBot || false,
     isLinked: false,
+    consentStatus: (discordUser.consentStatus as ConsentStatus) || 'pending',
+    discordId: discordAuthor.id,
   };
+}
+
+// ── Discord REST helpers (bridge bot) ──────────────────────────────────────
+const DISCORD_API = 'https://discord.com/api/v10';
+
+function botHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bot ${process.env.SERIKA_DISCORD_TOKEN}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+/** Open (or reuse) a DM channel with a Discord user. Returns the channel id. */
+async function openDMChannel(discordUserId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${DISCORD_API}/users/@me/channels`, {
+      method: 'POST',
+      headers: botHeaders(),
+      body: JSON.stringify({ recipient_id: discordUserId }),
+    });
+    if (!res.ok) {
+      console.warn(`[Discord Consent] Failed to open DM channel for ${discordUserId}: ${res.status}`);
+      return null;
+    }
+    const channel = await res.json().catch(() => null);
+    return channel?.id || null;
+  } catch (err) {
+    console.error('[Discord Consent] openDMChannel error:', err);
+    return null;
+  }
+}
+
+/**
+ * DM a Discord user asking them to consent to Serika processing their messages.
+ * Includes Agree / Decline buttons handled via the INTERACTION_CREATE gateway
+ * event. Rate-limited to once per 24h per user via `lastConsentDmAt`.
+ */
+async function sendConsentDM(discordUser: { discordId: string; lastConsentDmAt?: Date | null }, serverName: string): Promise<void> {
+  const last = discordUser.lastConsentDmAt ? new Date(discordUser.lastConsentDmAt).getTime() : 0;
+  if (Date.now() - last < 24 * 60 * 60 * 1000) return; // already asked recently
+
+  const { DiscordUser } = await import('@/lib/models/DiscordUser');
+  const channelId = await openDMChannel(discordUser.discordId);
+  if (!channelId) return;
+
+  try {
+    await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
+      method: 'POST',
+      headers: botHeaders(),
+      body: JSON.stringify({
+        embeds: [{
+          title: 'Data processing consent required',
+          description:
+            `**You must allow data processing by Serika to chat in ${serverName}.**\n\n` +
+            `This server is bridged to SerikaCord. Until you agree, your messages in the bridged ` +
+            `channels will **not** be copied or forwarded, and the server may restrict you from chatting.\n\n` +
+            `Serika will only store your username, avatar, and the message content you send in bridged ` +
+            `channels, solely to relay it. You can withdraw consent at any time by pressing **Decline** ` +
+            `or contacting the server admins, and your data will be deleted.`,
+          color: 0x5865f2,
+        }],
+        components: [{
+          type: 1,
+          components: [
+            { type: 2, style: 3, label: 'I agree', custom_id: 'serika_consent_grant' },
+            { type: 2, style: 4, label: 'Decline', custom_id: 'serika_consent_deny' },
+          ],
+        }],
+      }),
+    });
+    await DiscordUser.upsertByDiscordId(discordUser.discordId, { lastConsentDmAt: new Date() });
+  } catch (err) {
+    console.error('[Discord Consent] Failed to send consent DM:', err);
+  }
+}
+
+/** Apply (or clear) a guild timeout via communication_disabled_until. */
+async function setGuildTimeout(guildId: string, discordUserId: string, until: Date | null): Promise<void> {
+  try {
+    await fetch(`${DISCORD_API}/guilds/${guildId}/members/${discordUserId}`, {
+      method: 'PATCH',
+      headers: botHeaders(),
+      body: JSON.stringify({ communication_disabled_until: until ? until.toISOString() : null }),
+    });
+  } catch (err) {
+    console.error('[Discord Consent] Failed to set guild timeout:', err);
+  }
+}
+
+/** Respond to a gateway-delivered interaction via the REST callback endpoint. */
+async function respondInteraction(id: string, token: string, body: any): Promise<void> {
+  try {
+    await fetch(`${DISCORD_API}/interactions/${id}/${token}/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.error('[Discord Consent] Failed to respond to interaction:', err);
+  }
+}
+
+/**
+ * Register the bridge bot's global slash commands. Idempotent — Discord upserts
+ * by name, so running this on every startup is safe. Currently registers
+ * `/forgetme` so any Discord user can erase their bridged data on demand.
+ */
+async function registerSlashCommands(appId: string): Promise<void> {
+  try {
+    const res = await fetch(`${DISCORD_API}/applications/${appId}/commands`, {
+      method: 'PUT',
+      headers: botHeaders(),
+      body: JSON.stringify([
+        {
+          name: 'forgetme',
+          description: 'Erase all of your data that SerikaCord has stored from bridged channels.',
+          type: 1,
+          // Usable in DMs and guilds.
+          dm_permission: true,
+        },
+      ]),
+    });
+    if (res.ok) console.log('[Discord Bot] Slash commands registered (/forgetme).');
+    else console.warn(`[Discord Bot] Failed to register slash commands: ${res.status}`);
+  } catch (err) {
+    console.error('[Discord Bot] Error registering slash commands:', err);
+  }
+}
+
+/**
+ * Called when a Discord user without granted consent posts in a bridged channel.
+ * Never syncs their message. DMs a consent request (rate-limited), and — if the
+ * server opted into restriction — applies a 1-week timeout, re-applied weekly.
+ */
+async function handleUnconsentedMessage(server: any, discordUser: { discordId: string; consentStatus: ConsentStatus }): Promise<void> {
+  const integrations = server.settings?.integrations || {};
+  const guildId: string | undefined = integrations.discordGuildId;
+
+  const { DiscordUser } = await import('@/lib/models/DiscordUser');
+  const row = await DiscordUser.findByDiscordId(discordUser.discordId);
+
+  // A prior explicit "Decline" is respected; we don't re-DM decliners, but the
+  // server may still choose to restrict them below.
+  if (row?.consentStatus !== 'denied') {
+    await sendConsentDM({ discordId: discordUser.discordId, lastConsentDmAt: row?.lastConsentDmAt }, server.name || 'this server');
+  }
+
+  if (integrations.discordRestrictUnconsented && guildId) {
+    const lastTimeout = row?.lastTimeoutAt ? new Date(row.lastTimeoutAt).getTime() : 0;
+    // Re-apply at most once per week so we don't hammer the API on every message.
+    if (Date.now() - lastTimeout >= 7 * 24 * 60 * 60 * 1000) {
+      const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await setGuildTimeout(guildId, discordUser.discordId, until);
+      await DiscordUser.upsertByDiscordId(discordUser.discordId, { lastTimeoutAt: new Date() });
+      console.log(`[Discord Consent] Applied 1-week restriction timeout to ${discordUser.discordId} in guild ${guildId}`);
+    }
+  }
 }
 
 export async function startDiscordBot() {
@@ -241,10 +478,94 @@ export async function startDiscordBot() {
             sessionID = d.session_id;
             resumeURL = d.resume_gateway_url || null;
             console.log(`[Discord Bot] Bot ready! Logged in as ${d.user.username}#${d.user.discriminator}`);
+            // Register /forgetme (and any future commands). application id === bot user id.
+            void registerSlashCommands(d.application?.id || d.user.id);
           }
 
           if (t === 'RESUMED') {
             console.log('[Discord Bot] Session resumed — replaying missed events.');
+          }
+
+          // Slash commands. type 2 = APPLICATION_COMMAND.
+          if (t === 'INTERACTION_CREATE' && d.type === 2 && d.data?.name === 'forgetme') {
+            const discordId = d.user?.id || d.member?.user?.id;
+            if (discordId) {
+              let deletedMessages = 0;
+              try {
+                const { deleteBridgedUserData } = await import('@/lib/discord/consent');
+                const { DiscordUser } = await import('@/lib/models/DiscordUser');
+                // Record a 'denied' decision, then fully erase the profile + messages.
+                await DiscordUser.setConsent(discordId, 'denied');
+                const result = await deleteBridgedUserData(discordId, { forgetProfile: true });
+                deletedMessages = result.deletedMessages;
+              } catch (err) {
+                console.error('[Discord Consent] /forgetme failed:', err);
+              }
+              await respondInteraction(d.id, d.token, {
+                type: 4,
+                data: {
+                  flags: 64, // ephemeral
+                  embeds: [{
+                    title: 'Your data has been erased',
+                    description:
+                      `We deleted **${deletedMessages}** message${deletedMessages === 1 ? '' : 's'} and your bridged ` +
+                      `profile from SerikaCord. Your consent is now set to declined, so nothing further will be ` +
+                      `stored unless you opt back in. You can also manage this at ${SITE_URL}/forgetme.`,
+                    color: 0x22c55e,
+                  }],
+                },
+              });
+              console.log(`[Discord Consent] /forgetme erased data for ${discordId} (${deletedMessages} messages).`);
+            }
+          }
+
+          // Consent buttons (delivered over the gateway since no interactions
+          // endpoint URL is configured). type 3 = MESSAGE_COMPONENT.
+          if (t === 'INTERACTION_CREATE' && d.type === 3) {
+            const customId: string = d.data?.custom_id || '';
+            if (customId === 'serika_consent_grant' || customId === 'serika_consent_deny') {
+              const discordId = d.user?.id || d.member?.user?.id;
+              const author = d.user || d.member?.user;
+              if (discordId) {
+                const { DiscordUser } = await import('@/lib/models/DiscordUser');
+                const granted = customId === 'serika_consent_grant';
+                await DiscordUser.setConsent(discordId, granted ? 'granted' : 'denied', {
+                  username: author?.username,
+                  displayName: buildDisplayName(author || { username: 'unknown' }),
+                  avatar: author ? getAvatarUrl(author) : undefined,
+                  // Clear any restriction bookkeeping once they've decided.
+                  lastTimeoutAt: null,
+                });
+                // If they granted and were timed out anywhere, best-effort lift it.
+                if (granted && d.guild_id) {
+                  await setGuildTimeout(d.guild_id, discordId, null);
+                }
+                // Update the DM message in place (type 7 = UPDATE_MESSAGE).
+                await respondInteraction(d.id, d.token, {
+                  type: 7,
+                  data: {
+                    embeds: [{
+                      title: granted ? 'Consent granted ✅' : 'Consent declined',
+                      description: granted
+                        ? 'Thank you — your messages in bridged channels will now sync to SerikaCord. You can withdraw consent at any time by contacting the server admins.'
+                        : 'Understood. Your messages will not be processed or synced by Serika. Any data previously stored will be removed. You can re-enable this later if you change your mind.',
+                      color: granted ? 0x22c55e : 0x6b7280,
+                    }],
+                    components: [],
+                  },
+                });
+                // On decline, purge any previously-stored bridged messages/profile.
+                if (!granted) {
+                  try {
+                    const { deleteBridgedUserData } = await import('@/lib/discord/consent');
+                    await deleteBridgedUserData(discordId);
+                  } catch (err) {
+                    console.error('[Discord Consent] Failed to purge data on decline:', err);
+                  }
+                }
+                console.log(`[Discord Consent] User ${discordId} ${granted ? 'granted' : 'declined'} consent.`);
+              }
+            }
           }
 
           if (t === 'MESSAGE_CREATE') {
@@ -267,13 +588,21 @@ export async function startDiscordBot() {
             const serikaUser = await getOrCreateDiscordUser(d.author);
             const isLinkedAccount = serikaUser.isLinked;
 
+            // Consent gate: never store or forward messages from a Discord user
+            // who has not granted data-processing consent. Ask for it (and
+            // optionally restrict them) instead.
+            if (serikaUser.consentStatus !== 'granted') {
+              console.log(`[Discord Consent] Skipping message from unconsented user ${d.author.username} (${d.author.id}).`);
+              await handleUnconsentedMessage(server, { discordId: serikaUser.discordId, consentStatus: serikaUser.consentStatus });
+              return;
+            }
+
             // Convert Discord content to Serika-friendly format
             const rawContent = d.content || '';
             const content = formatDiscordContentForSerika(rawContent);
             const attachments = mapAttachments(d);
-
-            // Also include embeds from Discord (e.g., link previews) as attachments-like objects
-            const embeds = (d.embeds && Array.isArray(d.embeds)) ? d.embeds : [];
+            const embeds = mapEmbeds(d);
+            const reply = await resolveReply(d);
 
             if (!content && attachments.length === 0 && embeds.length === 0) {
               console.warn('[Discord Bot] ⚠️ MESSAGE_CREATE has empty content and no attachments — skipping.');
@@ -289,8 +618,10 @@ export async function startDiscordBot() {
               serverId: server.id,
               authorId: serikaUser.id,
               content: encryptedContent,
-              type: 'default',
+              type: reply ? 'reply' : 'default',
               attachments,
+              embeds,
+              referencedMessageId: reply?.referencedMessageId ?? null,
               discordMessageId: d.id,
             });
 
@@ -315,8 +646,11 @@ export async function startDiscordBot() {
               createdAt: msg.createdAt ? new Date(msg.createdAt).toISOString() : new Date().toISOString(),
               updatedAt: msg.updatedAt ? new Date(msg.updatedAt).toISOString() : new Date().toISOString(),
               attachments,
+              embeds,
+              referencedMessageId: reply?.referencedMessageId ?? null,
+              referencedMessage: reply?.referencedMessage ?? null,
               edited: false,
-              type: 'default',
+              type: reply ? 'reply' : 'default',
               pinned: false,
               reactions: [],
             };
@@ -344,30 +678,36 @@ export async function startDiscordBot() {
               return;
             }
 
-            // The edit payload may only contain partial content
-            if (!d.content) return;
+            // MESSAGE_UPDATE fires for content edits AND for embed-only changes
+            // (e.g. Discord unfurling a link a moment after the message posts).
+            // Only skip if there's genuinely nothing we track in the payload.
+            const hasContent = typeof d.content === 'string';
+            const hasEmbeds = Array.isArray(d.embeds);
+            const hasAttachments = Array.isArray(d.attachments);
+            if (!hasContent && !hasEmbeds && !hasAttachments) return;
 
-            const newContent = formatDiscordContentForSerika(d.content);
-            const encryptedNew = await encryptForStorage(newContent);
-
-            await Message.updateById(serikaMsg.id, {
-              content: encryptedNew,
-              edited: true,
-              editedTimestamp: new Date(),
-            });
-
-            // Update attachments if provided
-            if (d.attachments) {
-              const newAttachments = mapAttachments(d);
-              await Message.updateById(serikaMsg.id, { attachments: newAttachments });
+            const update: Record<string, any> = { updatedAt: new Date() };
+            let newContent: string | undefined;
+            if (hasContent) {
+              newContent = formatDiscordContentForSerika(d.content);
+              update.content = await encryptForStorage(newContent);
+              update.edited = true;
+              update.editedTimestamp = new Date();
             }
+            const newEmbeds = hasEmbeds ? mapEmbeds(d) : undefined;
+            if (newEmbeds) update.embeds = newEmbeds;
+            const newAttachments = hasAttachments ? mapAttachments(d) : undefined;
+            if (newAttachments) update.attachments = newAttachments;
+
+            await Message.updateById(serikaMsg.id, update);
 
             publishToChannel(serikaChannelId, {
               type: 'edit',
               messageId: serikaMsg.id,
-              content: newContent,
               channelId: serikaChannelId,
-              edited: true,
+              ...(newContent !== undefined ? { content: newContent, edited: true } : {}),
+              ...(newEmbeds !== undefined ? { embeds: newEmbeds } : {}),
+              ...(newAttachments !== undefined ? { attachments: newAttachments } : {}),
               updatedAt: new Date().toISOString(),
             });
             console.log(`[Discord Bot] Forwarded message edit for Discord msg ${d.id} → Serika msg ${serikaMsg.id}`);

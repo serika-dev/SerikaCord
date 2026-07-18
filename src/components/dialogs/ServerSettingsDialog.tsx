@@ -442,6 +442,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         "safety.antiSpam": true,
         "safety.mentionSpamLimit": 5,
         "integrations.discord": false,
+        "integrations.discordRestrictUnconsented": false,
         "integrations.discordGuildId": "",
         "integrations.discordMode": "add",
         "integrations.twitch": false,
@@ -472,6 +473,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           base["safety.antiSpam"] = s.safety?.antiSpam ?? true;
           base["safety.mentionSpamLimit"] = s.safety?.mentionSpamLimit ?? 5;
           base["integrations.discord"] = Boolean(s.integrations?.discord);
+          base["integrations.discordRestrictUnconsented"] = Boolean(s.integrations?.discordRestrictUnconsented);
           base["integrations.discordGuildId"] = s.integrations?.discordGuildId || "";
           base["integrations.discordMode"] = s.integrations?.discordMode || "add";
           base["integrations.twitch"] = Boolean(s.integrations?.twitch);
@@ -3523,6 +3525,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   <p className="text-[11px] text-[#666666] mt-1.5">
                     <T>Right-click your Discord server &gt; Copy Server ID (enable Developer Mode in Discord settings)</T>
                   </p>
+                </div>
+
+                {/* Consent enforcement */}
+                <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-[#0d0d0d] border border-[#1e1e1e]">
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-white"><T>Restrict members who haven&apos;t agreed</T></p>
+                    <p className="text-[11px] text-[#888888] mt-0.5">
+                      <T>Discord members who decline data processing by Serika are timed out for 1 week (re-applied weekly) until they agree. Their messages are never synced regardless of this setting.</T>
+                    </p>
+                  </div>
+                  <ToggleSwitch
+                    checked={draftBool("integrations.discordRestrictUnconsented")}
+                    onCheckedChange={(checked) => settingsDraft.update("integrations.discordRestrictUnconsented", checked)}
+                    aria-label="Restrict unconsented members"
+                  />
                 </div>
 
                 {/* Advanced Sync Controls */}

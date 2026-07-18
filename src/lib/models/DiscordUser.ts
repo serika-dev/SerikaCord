@@ -50,6 +50,15 @@ export const DiscordUser = {
     return row || null;
   },
 
+  /** Record a consent decision for a Discord user (creates the row if needed). */
+  async setConsent(discordId: string, status: 'pending' | 'granted' | 'denied', extra?: Partial<typeof schema.discordUsers.$inferInsert>) {
+    return DiscordUser.upsertByDiscordId(discordId, {
+      consentStatus: status,
+      consentUpdatedAt: new Date(),
+      ...(extra || {}),
+    });
+  },
+
   async upsertByDiscordId(discordId: string, data: Partial<typeof schema.discordUsers.$inferInsert>) {
     const existing = await DiscordUser.findByDiscordId(discordId);
     if (existing) {

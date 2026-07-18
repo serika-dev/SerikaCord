@@ -594,6 +594,22 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
       return;
     }
 
+    // Outbound consent gate: only forward a Serika user's messages to Discord if
+    // they have explicitly agreed to their content being processed by Discord.
+    // If not agreed, NEVER sync this user. (Deletes are allowed through so a
+    // previously-synced message can still be removed from Discord.)
+    if (action !== 'delete') {
+      const authorId = message.authorId || message.author?.id;
+      if (authorId) {
+        const author = await User.findById(authorId);
+        const consented = Boolean((author?.settings as any)?.dataPrivacy?.discordBridgeOutbound);
+        if (!consented) {
+          console.log(`[Discord Bridge] Author ${authorId} has not consented to Discord processing — skipping outbound sync.`);
+          return;
+        }
+      }
+    }
+
     const guildId = integrations.discordGuildId;
     const webhookUrl = integrations.discordWebhooks?.[channelId];
 
@@ -606,10 +622,29 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     const webhookUserPart = {
       username: `${username} (Serika)`,
       avatar_url: avatarUrl,
+      // Bridged messages may never ping @everyone/@here or any role. Allow only
+      // direct user mentions to resolve. This is applied to every webhook body.
+      allowed_mentions: { parse: ['users'] as string[] },
     };
 
-    // Build Discord-friendly content from Serika content
-    const discordContent = formatSerikaContentForDiscord(message.content || '');
+    // Build Discord-friendly content from Serika content. Webhooks can't create
+    // native replies, so a Serika reply is rendered as a Discord-style quote line
+    // referencing the replied-to author + a snippet of their message.
+    let replyPrefix = '';
+    if (action === 'create' && message.referencedMessageId) {
+      try {
+        const refMsg = await Message.findById(message.referencedMessageId);
+        if (refMsg) {
+          const refAuthor = await User.findById(refMsg.authorId);
+          const refName = refAuthor?.displayName || refAuthor?.username || 'someone';
+          let refText = '';
+          try { refText = refMsg.content ? await decryptFromStorage(refMsg.content) : ''; } catch { /* ignore */ }
+          refText = refText.replace(/\n/g, ' ').slice(0, 80);
+          replyPrefix = `> **@${refName}**${refText ? `: ${refText}` : ''}\n`;
+        }
+      } catch { /* best-effort reply quoting */ }
+    }
+    const discordContent = `${replyPrefix}${formatSerikaContentForDiscord(message.content || '')}`;
 
     // Build embeds from attachments — handle images, videos, and other files
     const buildAttachmentEmbeds = (attachments: any[]): any[] => {
@@ -680,6 +715,7 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
         const editUrl = `${webhookUrl}/messages/${discordMsgId}`;
         const body: any = {
           content: discordContent,
+          allowed_mentions: { parse: ['users'] },
         };
         const embeds = buildAttachmentEmbeds(message.attachments);
         if (embeds.length > 0) body.embeds = embeds;

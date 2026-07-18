@@ -204,11 +204,7 @@ export default function ApplicationsPage() {
                       ) : app.botAvatar ? (
                         <img src={cdnImage(app.botAvatar)} alt="" className="size-full object-cover" />
                       ) : (
-                        <img 
-                          src={`https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(app.name)}`} 
-                          alt="" 
-                          className="size-full object-cover" 
-                        />
+                        <Bot className="size-6 text-[#8B5CF6]" />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">

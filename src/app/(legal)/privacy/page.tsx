@@ -73,6 +73,29 @@ export default async function PrivacyPage() {
       </section>
 
       <section>
+        <H>{gt("Discord Bridge & Data Processing")}</H>
+        <p>
+          {gt("Some servers connect (\"bridge\") a Discord server to SerikaCord so messages can be mirrored between the two platforms. This feature is consent-based and complies with the Discord Developer Terms of Service and Developer Policy.")}
+        </p>
+        <H3>{gt("If you chat in Discord (inbound)")}</H3>
+        <ul className="list-disc list-inside space-y-1">
+          <li>{gt("We do not store or forward any of your messages until you explicitly agree. Our bot will DM you asking for consent.")}</li>
+          <li>{gt("If you agree, we store only your Discord username, avatar, and the content of messages you send in bridged channels, solely to relay them to SerikaCord.")}</li>
+          <li>{gt("If you decline (or never respond), your messages are never processed, and any data we hold for you is deleted. Server admins may optionally restrict unconsented members from chatting until they agree.")}</li>
+          <li>{gt("You can withdraw consent at any time, after which we delete your bridged data.")}</li>
+        </ul>
+        <H3>{gt("If you chat in SerikaCord (outbound)")}</H3>
+        <ul className="list-disc list-inside space-y-1">
+          <li>{gt("Your messages are only sent to a bridged Discord server if you have enabled \"Allow data processing by Discord\" in Settings → Data & Privacy.")}</li>
+          <li>{gt("If you have not enabled it, your messages are never synced to Discord.")}</li>
+        </ul>
+        <H3>{gt("Retention & deletion")}</H3>
+        <p>
+          {gt("We retain bridged Discord data only as long as necessary to provide the bridge. We delete it promptly when it is no longer necessary, when you or Discord request deletion, when a server disables the bridge, or when we stop operating the feature, consistent with Discord's Developer Terms of Service.")}
+        </p>
+      </section>
+
+      <section>
         <H>{gt("4. Information Sharing")}</H>
         <p>{gt("We do not sell your personal data. We may share information:")}</p>
         <ul className="list-disc list-inside mt-2 space-y-1">
