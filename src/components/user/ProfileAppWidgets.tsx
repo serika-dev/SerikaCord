@@ -25,11 +25,11 @@ interface AvailableWidget {
   appName: string | null;
 }
 
-const GAME_CATEGORY_OPTIONS: { category: GameCategory; icon: React.ComponentType<{ className?: string }>; label: string }[] = [
-  { category: "favorite", icon: Star, label: "Favorite Game" },
-  { category: "liked", icon: Gamepad2, label: "Games I Like" },
-  { category: "rotation", icon: RotateCw, label: "Games in Rotation" },
-  { category: "wishlist", icon: Bookmark, label: "Want to Play" },
+const GAME_CATEGORY_OPTIONS: { category: GameCategory; icon: React.ComponentType<{ className?: string }>; label: (gt: ReturnType<typeof useGT>) => string }[] = [
+  { category: "favorite", icon: Star, label: (gt) => gt("Favorite Game") },
+  { category: "liked", icon: Gamepad2, label: (gt) => gt("Games I Like") },
+  { category: "rotation", icon: RotateCw, label: (gt) => gt("Games in Rotation") },
+  { category: "wishlist", icon: Bookmark, label: (gt) => gt("Want to Play") },
 ];
 
 function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategory }: {
@@ -72,7 +72,7 @@ function AddWidgetDialog({ open, onOpenChange, existing, onAdd, onAddGameCategor
                 >
                   <div className="w-9 h-9 rounded-lg bg-[#8B5CF6]/20 flex items-center justify-center"><Icon className="w-4 h-4 text-[#8B5CF6]" /></div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white font-medium truncate">{gt(label)}</p>
+                    <p className="text-sm text-white font-medium truncate">{label(gt)}</p>
                   </div>
                   <Plus className="w-4 h-4 text-white/50" />
                 </button>
