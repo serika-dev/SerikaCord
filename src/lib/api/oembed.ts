@@ -405,6 +405,31 @@ const TWITTER_HOSTS = new Set([
   'twittpr.com', 'www.twittpr.com',
 ]);
 
+// twimg CDNs block browser requests (Sec-Fetch / TLS fingerprinting), so we
+// stream their media through our own /oembed/media proxy — which fetches
+// server-side where the request succeeds. Only these hosts may be proxied.
+const MEDIA_PROXY_HOSTS = new Set([
+  'video.twimg.com',
+  'video-ft.twimg.com',
+  'pbs.twimg.com',
+  'pbs-ft.twimg.com',
+  'ton.twimg.com',
+]);
+
+function isProxyableMediaHost(url: string): boolean {
+  try {
+    return MEDIA_PROXY_HOSTS.has(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+/** Rewrite a hotlink-protected media URL to go through our media proxy. */
+function proxyMediaUrl(url: string | undefined): string | undefined {
+  if (!url) return url;
+  return isProxyableMediaHost(url) ? `/api/oembed/media?url=${encodeURIComponent(url)}` : url;
+}
+
 function parseTweetRef(url: string): { screenName: string; id: string } | null {
   // Matches /{user}/status/{id} and the fix* /i/status/{id} shorthand.
   const m = url.match(/(?:^|\/)([^/]+)\/status(?:es)?\/(\d+)/);
@@ -475,12 +500,12 @@ async function fetchTwitterProviderOEmbed(url: string): Promise<OEmbedResponse |
       url: tweet.url || url,
       title: handle ? `${displayName} (${handle})` : displayName,
       description: tweet.text || '',
-      thumbnail: video?.thumbnail_url || photo?.url,
+      thumbnail: proxyMediaUrl(video?.thumbnail_url || photo?.url),
       thumbnailWidth: photo?.width,
       thumbnailHeight: photo?.height,
       siteName: hostname.includes('x.com') ? 'X' : 'Twitter',
       type: video ? 'video' : (photo ? 'image' : 'article'),
-      video: video?.url,
+      video: proxyMediaUrl(video?.url),
       videoWidth: video?.width,
       videoHeight: video?.height,
       author: displayName,
@@ -633,6 +658,53 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       console.error('OEmbed fetch error:', error);
       set.status = 500;
       return { error: 'Failed to fetch URL' };
+    }
+  }, {
+    query: t.Object({
+      url: t.String(),
+    }),
+  })
+  // Media proxy for hotlink-protected CDNs (twimg). Streams the upstream
+  // response server-side, forwarding Range requests so video seeking works.
+  .get('/media', async ({ query, set, request }) => {
+    const url = query.url;
+    if (!url || !isProxyableMediaHost(url)) {
+      set.status = 400;
+      return { error: 'Unsupported media host' };
+    }
+
+    try {
+      const upstreamHeaders: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (compatible; SerikaCord/1.0)',
+        Accept: '*/*',
+      };
+      const range = request.headers.get('range');
+      if (range) upstreamHeaders.Range = range;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      const upstream = await fetch(url, { headers: upstreamHeaders, signal: controller.signal, redirect: 'follow' });
+      clearTimeout(timeout);
+
+      if (!upstream.ok && upstream.status !== 206) {
+        set.status = 502;
+        return { error: 'Upstream fetch failed' };
+      }
+
+      const headers = new Headers();
+      const passthrough = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
+      for (const h of passthrough) {
+        const v = upstream.headers.get(h);
+        if (v) headers.set(h, v);
+      }
+      if (!headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes');
+      headers.set('cache-control', 'public, max-age=86400');
+      headers.set('access-control-allow-origin', '*');
+
+      return new Response(upstream.body, { status: upstream.status, headers });
+    } catch {
+      set.status = 502;
+      return { error: 'Media proxy error' };
     }
   }, {
     query: t.Object({
