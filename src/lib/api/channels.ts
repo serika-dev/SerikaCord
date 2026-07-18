@@ -1493,6 +1493,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         createdAt: msg.createdAt,
         updatedAt: msg.updatedAt,
         attachments: msg.attachments || [],
+        embeds: Array.isArray(msg.embeds) ? msg.embeds : [],
         edited: msg.edited,
         type: msg.type,
         referencedMessageId: msg.referencedMessageId,

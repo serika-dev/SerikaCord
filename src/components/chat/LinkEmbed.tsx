@@ -87,7 +87,7 @@ function parseYouTubeUrl(url: string): string | null {
 
 function getUrlType(url: string): "youtube" | "twitter" | "spotify" | "giphy" | "tenor" | "klipy" | "niconico" | "bilibili" | "serikavideo" | "vimeo" | "dailymotion" | "twitch" | "streamable" | "generic" {
   if (/youtube\.com|youtu\.be/.test(url)) return "youtube";
-  if (/twitter\.com|x\.com/.test(url)) return "twitter";
+  if (/twitter\.com|x\.com|fixvx\.com|fixupx\.com|vxtwitter\.com|fxtwitter\.com|twittpr\.com/.test(url)) return "twitter";
   if (/open\.spotify\.com/.test(url)) return "spotify";
   if (/giphy\.com/.test(url)) return "giphy";
   if (/tenor\.com/.test(url)) return "tenor";
@@ -887,12 +887,165 @@ function StreamableEmbed({ videoId, url }: { videoId: string; url: string }) {
   );
 }
 
+interface OEmbedData {
+  title?: string;
+  description?: string;
+  thumbnail?: string;
+  thumbnailWidth?: number;
+  thumbnailHeight?: number;
+  siteName?: string;
+  type?: string;
+  video?: string;
+  videoWidth?: number;
+  videoHeight?: number;
+  author?: string;
+  authorUrl?: string;
+  provider?: string;
+}
+
+function XLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  );
+}
+
+/**
+ * Rich Twitter/X card. Loads tweet media (photos + a direct mp4 for videos)
+ * from the oEmbed endpoint, which resolves via the fxtwitter API — so videos
+ * play inline instead of linking out. Works for x.com/twitter.com and the
+ * fixvx / fixupx / vxtwitter proxy links.
+ */
+function TwitterEmbed({ url }: { url: string }) {
+  const [data, setData] = useState<OEmbedData | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [playing, setPlaying] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    setFailed(false);
+    setPlaying(false);
+    fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((d: OEmbedData | null) => {
+        if (!active) return;
+        if (!d || (!d.title && !d.description && !d.thumbnail)) { setFailed(true); return; }
+        setData(d);
+      })
+      .catch(() => active && setFailed(true));
+    return () => { active = false; };
+  }, [url]);
+
+  if (failed) return <GenericEmbed url={url} />;
+
+  if (!data) {
+    return (
+      <div className="mt-2 max-w-[520px] rounded-xl border border-white/10 bg-[#16181c] p-4 animate-pulse">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-full bg-white/10" />
+          <div className="flex-1 space-y-1.5">
+            <div className="h-2.5 w-32 bg-white/10 rounded" />
+            <div className="h-2 w-20 bg-white/5 rounded" />
+          </div>
+        </div>
+        <div className="mt-3 h-3 w-3/4 bg-white/10 rounded" />
+      </div>
+    );
+  }
+
+  // title is "Display Name (@handle)" — split it back apart for layout.
+  const nameMatch = data.title?.match(/^(.*?)\s*\((@[^)]+)\)\s*$/);
+  const displayName = nameMatch?.[1] || data.author || data.title || "Twitter";
+  const handle = nameMatch?.[2];
+  const hasVideo = !!data.video;
+
+  return (
+    <div className="mt-2 max-w-[520px] rounded-xl border border-white/10 bg-[#16181c] overflow-hidden">
+      <div className="p-3.5">
+        {/* Author row */}
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {data.thumbnail && !hasVideo && data.type === "article" ? null : null}
+            <div className="min-w-0">
+              <div className="text-white text-sm font-bold leading-tight truncate">{displayName}</div>
+              {handle && <div className="text-[#71767b] text-xs leading-tight truncate">{handle}</div>}
+            </div>
+          </div>
+          <XLogo className="w-5 h-5 text-white shrink-0" />
+        </div>
+
+        {/* Tweet text */}
+        {data.description && (
+          <div className="text-[#e7e9ea] text-[15px] leading-normal whitespace-pre-wrap break-words">
+            {data.description}
+          </div>
+        )}
+      </div>
+
+      {/* Media */}
+      {hasVideo ? (
+        <div className="px-3.5 pb-3">
+          {playing ? (
+            <video
+              src={data.video}
+              controls
+              autoPlay
+              playsInline
+              poster={data.thumbnail}
+              className="w-full max-h-[420px] rounded-xl bg-black block"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPlaying(true)}
+              className="relative block w-full rounded-xl overflow-hidden bg-black group"
+            >
+              {data.thumbnail ? (
+                <img src={data.thumbnail} alt="" className="w-full max-h-[420px] object-cover" loading="lazy" />
+              ) : (
+                <div className="w-full aspect-video" />
+              )}
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/30 transition-colors">
+                <div className="w-16 h-16 rounded-full bg-black/70 border border-white/30 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  <Play className="w-7 h-7 text-white ml-1" fill="white" />
+                </div>
+              </div>
+            </button>
+          )}
+        </div>
+      ) : (
+        data.thumbnail && (
+          <div className="px-3.5 pb-3">
+            <img src={data.thumbnail} alt="" className="w-full max-h-[420px] object-cover rounded-xl" loading="lazy" />
+          </div>
+        )
+      )}
+
+      {/* Footer: engagement + link */}
+      <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 border-t border-white/5">
+        <span className="text-[#71767b] text-xs truncate">{data.provider || (data.siteName || "X")}</span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#71767b] hover:text-white transition-colors shrink-0 inline-flex items-center gap-1 text-xs"
+        >
+          {data.siteName || "X"}
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
 function GenericEmbed({
   url,
   preview,
 }: {
   url: string;
-  preview?: { title?: string; description?: string; thumbnail?: string; siteName?: string };
+  preview?: OEmbedData;
 }) {
   let hostname = "link";
   let pathname = "";
@@ -912,13 +1065,24 @@ function GenericEmbed({
       rel="noopener noreferrer"
       className="mt-2 block max-w-[400px] border-l-4 border-[#8B5CF6] bg-[#1a1a1a] rounded-r-lg overflow-hidden hover:bg-[#222222] transition-colors"
     >
-      {preview?.thumbnail && (
-        <img
-          src={preview.thumbnail}
-          alt={preview.title || "Link preview"}
-          className="w-full max-h-52 object-cover"
-          loading="lazy"
+      {preview?.video ? (
+        <video
+          src={preview.video}
+          controls
+          playsInline
+          poster={preview.thumbnail}
+          className="w-full max-h-72 bg-black block"
+          onClick={(e) => e.stopPropagation()}
         />
+      ) : (
+        preview?.thumbnail && (
+          <img
+            src={preview.thumbnail}
+            alt={preview.title || "Link preview"}
+            className="w-full max-h-52 object-cover"
+            loading="lazy"
+          />
+        )
       )}
       <div className="p-3">
         <div className="flex items-center gap-2 text-xs text-[#8B5CF6] font-medium mb-1">
@@ -1069,10 +1233,11 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
   // Decode entities (e.g. `&amp;` in query strings) so URLs resolve correctly.
   const urls = extractUrls(decodeHtmlEntities(content));
   const url = urls[0] || "";
-  const [preview, setPreview] = useState<{ title?: string; description?: string; thumbnail?: string; siteName?: string } | null>(null);
+  const [preview, setPreview] = useState<OEmbedData | null>(null);
 
   useEffect(() => {
-    if (!url || shouldSkipOEmbed(url)) {
+    // Twitter/X is rendered by TwitterEmbed, which fetches its own richer data.
+    if (!url || shouldSkipOEmbed(url) || getUrlType(url) === "twitter") {
       setPreview(null);
       return;
     }
@@ -1091,7 +1256,16 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
           title: data.title,
           description: data.description,
           thumbnail: data.thumbnail,
+          thumbnailWidth: data.thumbnailWidth,
+          thumbnailHeight: data.thumbnailHeight,
           siteName: data.siteName,
+          type: data.type,
+          video: data.video,
+          videoWidth: data.videoWidth,
+          videoHeight: data.videoHeight,
+          author: data.author,
+          authorUrl: data.authorUrl,
+          provider: data.provider,
         });
       })
       .catch(() => {
@@ -1172,6 +1346,10 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
     if (videoId) {
       return <StreamableEmbed videoId={videoId} url={url} />;
     }
+  }
+
+  if (urlType === "twitter") {
+    return <TwitterEmbed url={url} />;
   }
 
   if (urlType === "spotify") {

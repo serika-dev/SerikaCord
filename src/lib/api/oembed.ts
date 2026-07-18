@@ -5,9 +5,21 @@ interface OEmbedResponse {
   title?: string;
   description?: string;
   thumbnail?: string;
+  /** Thumbnail dimensions from og:image:width/height when present. */
+  thumbnailWidth?: number;
+  thumbnailHeight?: number;
   siteName?: string;
   url?: string;
   type?: string;
+  /** Direct playable video URL (og:video / twitter:player:stream). */
+  video?: string;
+  videoWidth?: number;
+  videoHeight?: number;
+  /** Content author (used for tweets, articles, etc.). */
+  author?: string;
+  authorUrl?: string;
+  /** Extra provider metadata (e.g. tweet engagement counts). */
+  provider?: string;
 }
 
 const FIRST_PARTY_DOMAINS = [
@@ -34,54 +46,89 @@ function isDirectMediaUrl(url: string): boolean {
   return /\.(gif|jpg|jpeg|png|webp|svg|bmp|mp4|webm)(\?.*)?$/i.test(url);
 }
 
-// Extract meta tags from HTML
+function decodeEntities(input: string): string {
+  return input
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => {
+      try { return String.fromCodePoint(Number(n)); } catch { return _; }
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => {
+      try { return String.fromCodePoint(parseInt(n, 16)); } catch { return _; }
+    });
+}
+
+/**
+ * Read a `<meta>` tag's content for a given `property`/`name` regardless of
+ * attribute order (content-first or property-first). Returns undefined if absent.
+ */
+function metaContent(html: string, key: string, attr: 'property' | 'name' = 'property'): string | undefined {
+  const esc = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const forward = new RegExp(`<meta[^>]*${attr}=["']${esc}["'][^>]*content=["']([^"']*)["']`, 'i');
+  const reverse = new RegExp(`<meta[^>]*content=["']([^"']*)["'][^>]*${attr}=["']${esc}["']`, 'i');
+  const raw = html.match(forward)?.[1] ?? html.match(reverse)?.[1];
+  return raw !== undefined ? decodeEntities(raw) : undefined;
+}
+
+function toInt(v?: string): number | undefined {
+  if (!v) return undefined;
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+// Extract Open Graph / Twitter Card / standard meta tags from HTML.
 function extractMetaTags(html: string): OEmbedResponse {
   const data: OEmbedResponse = {};
-  
-  // Open Graph tags
-  const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i)?.[1] ||
-                  html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i)?.[1];
-  const ogDesc = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i)?.[1] ||
-                 html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:description["']/i)?.[1];
-  const ogImage = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i)?.[1] ||
-                  html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i)?.[1];
-  const ogSiteName = html.match(/<meta[^>]*property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i)?.[1] ||
-                     html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:site_name["']/i)?.[1];
-  
-  // Twitter tags (fallback)
-  const twitterTitle = html.match(/<meta[^>]*name=["']twitter:title["'][^>]*content=["']([^"']+)["']/i)?.[1];
-  const twitterDesc = html.match(/<meta[^>]*name=["']twitter:description["'][^>]*content=["']([^"']+)["']/i)?.[1];
-  const twitterImage = html.match(/<meta[^>]*name=["']twitter:image["'][^>]*content=["']([^"']+)["']/i)?.[1];
-  
-  // Standard meta tags (fallback)
+
+  const ogTitle = metaContent(html, 'og:title');
+  const ogDesc = metaContent(html, 'og:description');
+  const ogImage = metaContent(html, 'og:image:secure_url') || metaContent(html, 'og:image:url') || metaContent(html, 'og:image');
+  const ogSiteName = metaContent(html, 'og:site_name');
+  const ogType = metaContent(html, 'og:type');
+  const ogUrl = metaContent(html, 'og:url');
+
+  // og:video (many sites expose an mp4 here). Prefer secure_url, then a
+  // direct video URL, and only fall back to iframe player URLs last.
+  const ogVideo = metaContent(html, 'og:video:secure_url') || metaContent(html, 'og:video:url') || metaContent(html, 'og:video');
+  const ogVideoType = metaContent(html, 'og:video:type');
+  const twitterStream = metaContent(html, 'twitter:player:stream', 'name');
+
+  // Twitter Card tags (fallback / richer author info).
+  const twitterTitle = metaContent(html, 'twitter:title', 'name');
+  const twitterDesc = metaContent(html, 'twitter:description', 'name');
+  const twitterImage = metaContent(html, 'twitter:image', 'name') || metaContent(html, 'twitter:image:src', 'name');
+  const twitterCreator = metaContent(html, 'twitter:creator', 'name');
+
+  // Standard meta tags (last resort).
   const metaTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
-  const metaDesc = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i)?.[1];
-  
-  data.title = ogTitle || twitterTitle || metaTitle;
+  const metaDesc = metaContent(html, 'description', 'name');
+  const articleAuthor = metaContent(html, 'article:author') || metaContent(html, 'author', 'name');
+
+  data.title = ogTitle || twitterTitle || (metaTitle ? decodeEntities(metaTitle) : undefined);
   data.description = ogDesc || twitterDesc || metaDesc;
   data.thumbnail = ogImage || twitterImage;
+  data.thumbnailWidth = toInt(metaContent(html, 'og:image:width'));
+  data.thumbnailHeight = toInt(metaContent(html, 'og:image:height'));
   data.siteName = ogSiteName;
-  
-  // Decode HTML entities
-  if (data.title) {
-    data.title = data.title
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&#x27;/g, "'");
+  data.type = ogType;
+  data.url = ogUrl;
+  data.author = articleAuthor || twitterCreator;
+
+  // Only surface a playable video when it looks like a direct media file, not
+  // an HTML iframe player (those are handled by dedicated provider embeds).
+  const candidateVideo = twitterStream || ogVideo;
+  const looksLikeFile = candidateVideo && (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(candidateVideo) || /video\/(mp4|webm)/i.test(ogVideoType || ''));
+  if (looksLikeFile) {
+    data.video = candidateVideo;
+    data.videoWidth = toInt(metaContent(html, 'og:video:width'));
+    data.videoHeight = toInt(metaContent(html, 'og:video:height'));
   }
-  if (data.description) {
-    data.description = data.description
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&#x27;/g, "'");
-  }
-  
+
   return data;
 }
 
@@ -121,6 +168,11 @@ const OEMBED_WHITELIST = [
   'gfycat.com',
   'x.com',
   'twitter.com',
+  'fixvx.com',
+  'fixupx.com',
+  'vxtwitter.com',
+  'fxtwitter.com',
+  'twittpr.com',
   'bsky.app',
   'mastodon.social',
   'threads.net',
@@ -339,6 +391,107 @@ async function fetchBilibiliProviderOEmbed(url: string): Promise<OEmbedResponse 
   }
 }
 
+// Twitter / X links (and the fix* proxy domains) get a rich card with the
+// actual media via the fxtwitter API — this reliably returns a direct mp4 for
+// videos, all photos, the author, and engagement counts, none of which are
+// available by scraping x.com (which is JS-rendered and blocks bots).
+const TWITTER_HOSTS = new Set([
+  'twitter.com', 'www.twitter.com', 'mobile.twitter.com',
+  'x.com', 'www.x.com',
+  'fixvx.com', 'www.fixvx.com',
+  'fixupx.com', 'www.fixupx.com',
+  'vxtwitter.com', 'www.vxtwitter.com',
+  'fxtwitter.com', 'www.fxtwitter.com',
+  'twittpr.com', 'www.twittpr.com',
+]);
+
+function parseTweetRef(url: string): { screenName: string; id: string } | null {
+  // Matches /{user}/status/{id} and the fix* /i/status/{id} shorthand.
+  const m = url.match(/(?:^|\/)([^/]+)\/status(?:es)?\/(\d+)/);
+  if (m) return { screenName: m[1] === 'i' ? '_' : m[1], id: m[2] };
+  const short = url.match(/\/i\/status\/(\d+)/);
+  if (short) return { screenName: '_', id: short[1] };
+  return null;
+}
+
+interface FxTweet {
+  code?: number;
+  tweet?: {
+    url?: string;
+    text?: string;
+    created_at?: string;
+    author?: { name?: string; screen_name?: string; avatar_url?: string; url?: string };
+    replies?: number;
+    retweets?: number;
+    likes?: number;
+    views?: number;
+    media?: {
+      videos?: { url?: string; thumbnail_url?: string; width?: number; height?: number; type?: string }[];
+      photos?: { url?: string; width?: number; height?: number }[];
+    };
+  };
+}
+
+async function fetchTwitterProviderOEmbed(url: string): Promise<OEmbedResponse | null> {
+  let hostname: string;
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (!TWITTER_HOSTS.has(hostname)) return null;
+
+  const ref = parseTweetRef(url);
+  if (!ref) return null;
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const apiUrl = `https://api.fxtwitter.com/${encodeURIComponent(ref.screenName)}/status/${ref.id}`;
+    const response = await fetch(apiUrl, {
+      signal: controller.signal,
+      headers: { Accept: 'application/json', 'User-Agent': 'SerikaCord/1.0 (Link Preview Bot)' },
+    });
+    clearTimeout(timeout);
+    if (!response.ok) return null;
+
+    const json = (await response.json()) as FxTweet;
+    const tweet = json.tweet;
+    if (!tweet) return null;
+
+    const author = tweet.author;
+    const displayName = author?.name || author?.screen_name || 'Twitter';
+    const handle = author?.screen_name ? `@${author.screen_name}` : undefined;
+    const video = tweet.media?.videos?.[0];
+    const photo = tweet.media?.photos?.[0];
+
+    // Compose engagement line for the provider/description area.
+    const stats: string[] = [];
+    if (typeof tweet.likes === 'number') stats.push(`❤️ ${tweet.likes.toLocaleString()}`);
+    if (typeof tweet.retweets === 'number') stats.push(`🔁 ${tweet.retweets.toLocaleString()}`);
+    if (typeof tweet.replies === 'number') stats.push(`💬 ${tweet.replies.toLocaleString()}`);
+
+    return {
+      url: tweet.url || url,
+      title: handle ? `${displayName} (${handle})` : displayName,
+      description: tweet.text || '',
+      thumbnail: video?.thumbnail_url || photo?.url,
+      thumbnailWidth: photo?.width,
+      thumbnailHeight: photo?.height,
+      siteName: hostname.includes('x.com') ? 'X' : 'Twitter',
+      type: video ? 'video' : (photo ? 'image' : 'article'),
+      video: video?.url,
+      videoWidth: video?.width,
+      videoHeight: video?.height,
+      author: displayName,
+      authorUrl: author?.url,
+      provider: stats.length ? stats.join('   ') : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Combined whitelist: defaults + admin-configured custom domains
 let cachedCustomWhitelist: string[] | null = null;
 let cacheExpiry = 0;
@@ -411,7 +564,12 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
     if (bilibiliOEmbed) {
       return bilibiliOEmbed;
     }
-    
+
+    const twitterOEmbed = await fetchTwitterProviderOEmbed(url);
+    if (twitterOEmbed) {
+      return twitterOEmbed;
+    }
+
     const whitelisted = await isWhitelistedDomainAsync(url);
     const fetchTimeout = whitelisted ? 5000 : 3000;
     const maxReadBytes = whitelisted ? 50 * 1024 : 20 * 1024;

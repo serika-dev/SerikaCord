@@ -224,7 +224,7 @@ export default function WidgetEditorPage() {
             <select
               value={activeSurface}
               onChange={(e) => { setActiveSurface(e.target.value as WidgetSurfaceType); setSelected(null); setTab("design"); }}
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6] [color-scheme:dark]"
             >
               {WIDGET_SURFACES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
@@ -280,9 +280,10 @@ export default function WidgetEditorPage() {
           </div>
         </aside>
 
-        {/* Center preview */}
-        <main className="flex-1 min-w-0 flex flex-col items-center justify-center bg-[#0d0d10] p-6">
-          <div className="w-full max-w-sm">
+        {/* Center preview — a lighter "stage" so the dark widget card stands out */}
+        <main className="flex-1 min-w-0 flex flex-col items-center justify-center gap-3 bg-[#232428] p-6 [background-image:radial-gradient(circle_at_center,rgba(255,255,255,0.04),transparent_70%)]">
+          <span className="text-[10px] uppercase tracking-wide text-white/40">{gt("Live preview")}</span>
+          <div className="w-full max-w-sm shadow-2xl shadow-black/50">
             <WidgetRenderer config={{ name, surfaces }} data={rendererData} mode={previewMode(activeSurface)} />
           </div>
         </main>
@@ -300,7 +301,7 @@ export default function WidgetEditorPage() {
                 <select
                   value={selectedField?.value_type ?? "custom_string"}
                   onChange={(e) => setField(selected!.comp, selected!.field, { value_type: e.target.value as WidgetField["value_type"] })}
-                  className="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
+                  className="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6] [color-scheme:dark]"
                 >
                   <option value="custom_string">{gt("Custom String")}</option>
                   <option value="data">{gt("User Data")}</option>
@@ -393,7 +394,7 @@ export default function WidgetEditorPage() {
               {sample.map((entry, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <input value={entry.name} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder={gt("Key")} className="w-48 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]" />
-                  <select value={entry.type} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, type: Number(e.target.value) } : x)))} className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white">
+                  <select value={entry.type} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, type: Number(e.target.value) } : x)))} className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white [color-scheme:dark]">
                     <option value={1}>{gt("String")}</option>
                     <option value={2}>{gt("Number")}</option>
                     <option value={3}>{gt("Media")}</option>
