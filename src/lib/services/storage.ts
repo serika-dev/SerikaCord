@@ -1,16 +1,24 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { config } from '../config';
-import { nanoid } from 'nanoid';
 import crypto from 'crypto';
+import fs from 'fs';
+import { nanoid } from 'nanoid';
+import path from 'path';
+import { config } from '../config';
 
-// Initialize S3 client for Backblaze B2
+// Whether B2 credentials are configured — if not, fall back to local disk storage.
+const useLocalStorage = !config.B2_KEY_ID || !config.B2_APPLICATION_KEY;
+if (useLocalStorage) {
+  console.warn('⚠️ B2 credentials not configured — using local disk storage (dev only). Files will be saved to public/uploads/.');
+}
+
+// Initialize S3 client for Backblaze B2 (only used when credentials are present)
 const s3Client = new S3Client({
   endpoint: `https://${config.B2_ENDPOINT}`,
   region: config.B2_REGION,
   credentials: {
-    accessKeyId: config.B2_KEY_ID,
-    secretAccessKey: config.B2_APPLICATION_KEY,
+    accessKeyId: config.B2_KEY_ID || 'placeholder',
+    secretAccessKey: config.B2_APPLICATION_KEY || 'placeholder',
   },
   forcePathStyle: true,
 });
@@ -145,6 +153,14 @@ export class StorageService {
 
     const hash = await calculateHash(buffer);
 
+    // ----- Local disk fallback (no B2 credentials) -----
+    if (useLocalStorage) {
+      const uploadsDir = path.join(process.cwd(), 'public', 'uploads', ...key.split('/').slice(0, -1));
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      fs.writeFileSync(path.join(process.cwd(), 'public', 'uploads', ...key.split('/')), buffer);
+      return { url: `/uploads/${key}`, key, size, contentType, hash };
+    }
+
     // S3 metadata values must be ASCII — encode non-ASCII filenames
     const safeFilename = encodeURIComponent(filename || 'unknown');
 
@@ -191,6 +207,14 @@ export class StorageService {
 
   // Delete a file
   async delete(key: string): Promise<void> {
+    if (useLocalStorage) {
+      try {
+        fs.unlinkSync(path.join(process.cwd(), 'public', 'uploads', ...key.split('/')));
+      } catch {
+        // best-effort
+      }
+      return;
+    }
     await s3Client.send(new DeleteObjectCommand({
       Bucket: config.B2_BUCKET_NAME,
       Key: key,
