@@ -75,6 +75,7 @@ interface MessageListProps<M extends ChatMessage> {
   serverEmojis?: PickerEmoji[];
   availableServerEmojis?: PickerEmoji[];
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
+  onSuppressEmbeds?: (messageId: string) => void;
   /** Focus the composer after choosing "reply" (or similar). */
   onReplyFocus?: () => void;
   /** Rendered above the first message when the full history is loaded. */
@@ -109,6 +110,7 @@ function MessageListInner<M extends ChatMessage>(
     serverEmojis,
     availableServerEmojis,
     onMediaClick,
+    onSuppressEmbeds,
     onReplyFocus,
     welcomeHeader,
     emptyText,
@@ -490,6 +492,7 @@ function MessageListInner<M extends ChatMessage>(
                   onToggleReaction={stable.onToggleReaction}
                   onOpenReactionPicker={stable.onOpenReactionPicker}
                   onMediaClick={onMediaClick}
+                  onSuppressEmbeds={onSuppressEmbeds}
                   onJumpToMessage={scrollToMessage}
                   formattedTimestamp={formattedTimestamps[idx]}
                 />

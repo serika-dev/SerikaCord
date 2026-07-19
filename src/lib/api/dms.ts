@@ -575,6 +575,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         referencedMessage,
         sticker: msg.sticker || undefined,
         interaction: (msg as any).interaction ?? undefined,
+        suppressEmbeds: Boolean((msg as any).suppressEmbeds),
       };
     });
 
@@ -1072,6 +1073,51 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }),
     body: t.Object({
       content: t.String({ maxLength: 4000 }),
+    }),
+  })
+  // Suppress embeds on DM message
+  .post('/:recipientId/messages/:messageId/suppress-embeds', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    if (!params.recipientId || !params.messageId) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+
+    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+
+    const message = await Message.findOne({
+      id: params.messageId,
+      channelId: channel.id,
+      isDeleted: false,
+    });
+
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+
+    if (message.authorId !== user.id) {
+      set.status = 403;
+      return { error: 'You can only suppress embeds on your own messages' };
+    }
+
+    await Message.updateById(message.id, { suppressEmbeds: true });
+
+    publishToDm(channel.id, {
+      type: 'suppress_embeds',
+      messageId: params.messageId,
+    });
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      recipientId: t.String(),
+      messageId: t.String(),
     }),
   })
   // Delete DM message

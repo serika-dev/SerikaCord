@@ -246,6 +246,21 @@ export function useMessageActions<M extends ChatMessage>({
     [addReaction, removeReaction]
   );
 
+  const suppressEmbeds = useCallback(async (messageId: string) => {
+    if (!apiBase) return;
+    setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, suppressEmbeds: true } : m));
+    try {
+      const response = await fetch(`${apiBase}/messages/${messageId}/suppress-embeds`, { method: "POST" });
+      if (!response.ok) {
+        setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, suppressEmbeds: false } : m));
+        toast.error(gt("Failed to suppress embeds"));
+      }
+    } catch {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, suppressEmbeds: false } : m));
+      toast.error(gt("Failed to suppress embeds. Check your connection."));
+    }
+  }, [apiBase, setMessages, gt]);
+
   return useMemo(
     () => ({
       editingMessage,
@@ -272,6 +287,7 @@ export function useMessageActions<M extends ChatMessage>({
       addReaction,
       removeReaction,
       toggleReaction,
+      suppressEmbeds,
     }),
     [
       editingMessage,
@@ -298,6 +314,7 @@ export function useMessageActions<M extends ChatMessage>({
       addReaction,
       removeReaction,
       toggleReaction,
+      suppressEmbeds,
     ]
   );
 }

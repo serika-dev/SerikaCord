@@ -25,7 +25,11 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
 # Build the application
-RUN bun run build
+# Cache mounts persist webpack's incremental compilation cache across builds.
+# This dramatically speeds up rebuilds (only changed modules are recompiled).
+RUN --mount=type=cache,id=serikacord-next-cache,target=/app/.next/cache \
+    --mount=type=cache,id=serikacord-node-cache,target=/app/node_modules/.cache \
+    bun run build
 
 # Production stage — runs the custom server (Next.js + bot gateway, one port).
 FROM base AS runner

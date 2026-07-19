@@ -1,13 +1,14 @@
 "use client";
 
 import { memo } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, X } from "lucide-react";
 import type { MessageEmbed } from "@/lib/chat/types";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 interface RichEmbedProps {
   embeds?: MessageEmbed[];
   onMediaClick?: (src: string, alt?: string) => void;
+  onSuppress?: () => void;
 }
 
 const DEFAULT_ACCENT = "#8B5CF6";
@@ -238,7 +239,7 @@ function isGifProviderEmbed(embed: MessageEmbed): boolean {
 }
 
 /** Renders bot-authored rich embeds (Discord embed format) below a message. */
-export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick }: RichEmbedProps) {
+export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick, onSuppress }: RichEmbedProps) {
   if (!embeds || embeds.length === 0) return null;
   // Filter out GIF-provider embeds — LinkEmbed renders those URLs as inline
   // GIFs, so showing the raw video embed too would duplicate the media.
@@ -246,7 +247,16 @@ export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick }: RichE
   if (filtered.length === 0) return null;
   // Cap the number of rendered embeds to match Discord (max 10).
   return (
-    <div className="flex flex-col">
+    <div className="relative group/embed flex flex-col">
+      {onSuppress && (
+        <button
+          onClick={onSuppress}
+          className="absolute top-1 right-1 z-10 opacity-0 group-hover/embed:opacity-100 transition-opacity p-1 rounded bg-black/60 text-white hover:bg-black/80"
+          title="Remove embed"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
       {filtered.slice(0, 10).map((embed, i) => (
         <SingleEmbed key={i} embed={embed} onMediaClick={onMediaClick} />
       ))}

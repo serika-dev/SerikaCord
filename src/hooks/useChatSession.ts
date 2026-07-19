@@ -733,6 +733,17 @@ export function useChatSession<M extends ChatMessage>({
         return;
       }
 
+      if (data.type === "suppress_embeds") {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === data.messageId
+              ? { ...m, suppressEmbeds: true }
+              : m
+          )
+        );
+        return;
+      }
+
       if (data.type === "delete") {
         setMessages((prev) => {
           const next = prev.filter((m) => m.id !== data.messageId);

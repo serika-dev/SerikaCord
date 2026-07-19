@@ -1693,6 +1693,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         serverEmojis={serverEmojis}
         availableServerEmojis={allServerEmojis}
         onMediaClick={lightbox.openMediaViewer}
+        onSuppressEmbeds={chat.actions.suppressEmbeds}
         onReplyFocus={focusComposer}
         welcomeHeader={welcomeHeader}
         resetKey={currentChannel?.id}

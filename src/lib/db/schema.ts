@@ -226,6 +226,7 @@ export const messages = pgTable('messages', {
   deletedAt: timestamp('deleted_at'),
   interaction: jsonb('interaction'),
   discordMessageId: text('discord_message_id'),
+  suppressEmbeds: boolean('suppress_embeds').default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

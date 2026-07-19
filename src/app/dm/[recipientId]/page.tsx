@@ -493,6 +493,7 @@ export default function DMConversationPage() {
           serverEmojis={availableServerEmojis}
           availableServerEmojis={availableServerEmojis}
           onMediaClick={lightbox.openMediaViewer}
+          onSuppressEmbeds={chat.actions.suppressEmbeds}
           onReplyFocus={focusComposer}
           welcomeHeader={welcomeHeader}
           emptyText={`${gt("Say hi to")} ${recipientName || gt("your friend")}!`}

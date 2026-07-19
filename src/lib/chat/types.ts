@@ -124,6 +124,8 @@ export interface ChatMessage {
   ephemeral?: boolean;
   /** Set on a bot's slash-command response: who invoked which command. */
   interaction?: { name: string; user: { id: string; username: string } };
+  /** When true, link previews and rich embeds are hidden for this message. */
+  suppressEmbeds?: boolean;
 }
 
 export interface MessageGroupData<M extends ChatMessage = ChatMessage> {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, memo } from "react";
-import { ExternalLink, Play } from "lucide-react";
+import { ExternalLink, Play, X } from "lucide-react";
 import { useInView } from "@/hooks/useInView";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
@@ -17,6 +17,7 @@ interface LinkEmbedProps {
   content: string;
   /** Opens a GIF in the in-app image viewer instead of the provider website. */
   onMediaClick?: (src: string, alt?: string) => void;
+  onSuppress?: () => void;
 }
 
 /** Shared media/badge layout for provider GIF embeds (Giphy/Tenor/Klipy). */
@@ -1240,7 +1241,7 @@ function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { t
 
 // Memoized: embeds fetch previews and must not re-run while unrelated chat
 // state (composer text, typing indicators) changes.
-export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: LinkEmbedProps) {
+export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSuppress }: LinkEmbedProps) {
   // Decode entities (e.g. `&amp;` in query strings) so URLs resolve correctly.
   const urls = extractUrls(decodeHtmlEntities(content));
   const url = urls[0] || "";
@@ -1395,7 +1396,16 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
   // Wrapper carries the visibility sensor so the oembed fetch above only fires
   // once this generic card nears the viewport.
   return (
-    <div ref={genericRef}>
+    <div ref={genericRef} className="relative group/embed">
+      {onSuppress && (
+        <button
+          onClick={onSuppress}
+          className="absolute top-1 right-1 z-10 opacity-0 group-hover/embed:opacity-100 transition-opacity p-1 rounded bg-black/60 text-white hover:bg-black/80"
+          title="Remove embed"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
       <GenericEmbed url={url} preview={preview || undefined} />
     </div>
   );

@@ -69,6 +69,7 @@ export interface MessageGroupProps<M extends ChatMessage> {
   onToggleReaction: (messageId: string, emoji: string, hasReacted: boolean) => void;
   onOpenReactionPicker: (messageId: string) => void;
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
+  onSuppressEmbeds?: (messageId: string) => void;
   onJumpToMessage?: (messageId: string) => void;
   formattedTimestamp: string;
 }
@@ -109,6 +110,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onToggleReaction,
   onOpenReactionPicker,
   onMediaClick,
+  onSuppressEmbeds,
   onJumpToMessage,
   formattedTimestamp,
 }: MessageGroupProps<M>) {
@@ -332,17 +334,19 @@ function MessageGroupInner<M extends ChatMessage>({
                       </div>
                     )}
 
-                    {message.embeds && message.embeds.length > 0 && (
+                    {message.embeds && message.embeds.length > 0 && !message.suppressEmbeds && (
                     <RichEmbed
                       embeds={message.embeds}
                       onMediaClick={(src, alt) => onMediaClick(src, alt, message.id)}
+                      onSuppress={onSuppressEmbeds ? () => onSuppressEmbeds(message.id) : undefined}
                     />
                     )}
 
-                    {inlineEmbedsEnabled && (
+                    {inlineEmbedsEnabled && !message.suppressEmbeds && (
                     <LinkEmbed
                       content={message.content}
                       onMediaClick={(src, alt) => onMediaClick(src, alt, message.id)}
+                      onSuppress={onSuppressEmbeds ? () => onSuppressEmbeds(message.id) : undefined}
                     />
                     )}
 
@@ -475,6 +479,7 @@ function arePropsEqual<M extends ChatMessage>(
     prev.serverEmojis === next.serverEmojis &&
     prev.availableServerEmojis === next.availableServerEmojis &&
     prev.onMediaClick === next.onMediaClick &&
+    prev.onSuppressEmbeds === next.onSuppressEmbeds &&
     prev.onJumpToMessage === next.onJumpToMessage
   );
 }

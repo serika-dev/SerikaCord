@@ -133,7 +133,7 @@ const nextConfig: NextConfig = {
     ];
   },
 
-  // webpack customizations for gt-next + build speed
+  // webpack customizations for gt-next
   webpack: (config, { isServer }) => {
     if (isServer) {
       // gt-next's .mjs build files use CommonJS require() for their internal
@@ -147,14 +147,6 @@ const nextConfig: NextConfig = {
         type: 'javascript/auto',
       });
     }
-    // Persistent filesystem cache for webpack — speeds up incremental builds
-    // dramatically by reusing compiled modules from the previous run.
-    config.cache = {
-      type: 'filesystem',
-      buildDependencies: {
-        config: [__filename],
-      },
-    };
     return config;
   },
 };

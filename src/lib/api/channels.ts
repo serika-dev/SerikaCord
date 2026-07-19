@@ -1557,6 +1557,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         customEmojis: customEmojis.length > 0 ? customEmojis : undefined,
         sticker: msg.sticker || undefined,
         interaction: (msg as any).interaction ?? undefined,
+        suppressEmbeds: Boolean((msg as any).suppressEmbeds),
       };
     });
 
@@ -2426,6 +2427,57 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }),
     body: t.Object({
       content: t.String({ maxLength: 4000 }),
+    }),
+  })
+  // Suppress embeds on a message
+  .post('/:channelId/messages/:messageId/suppress-embeds', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const { hasAccess, channel, error } = await checkChannelAccess(
+      user.id,
+      params.channelId
+    );
+
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+
+    const message = await Message.findOne({
+      id: params.messageId,
+      channelId: params.channelId,
+      isDeleted: false,
+    });
+
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+
+    // Only the author or someone with manage messages can suppress embeds
+    const isAuthor = compareIds(message.authorId, user.id);
+    if (!isAuthor) {
+      // TODO: check manage messages permission
+      set.status = 403;
+      return { error: 'You can only suppress embeds on your own messages' };
+    }
+
+    await Message.updateById(message.id, { suppressEmbeds: true });
+
+    publishToChannel(params.channelId, {
+      type: 'suppress_embeds',
+      messageId: params.messageId,
+    });
+
+    return { success: true };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+      messageId: t.String(),
     }),
   })
   // Delete message
