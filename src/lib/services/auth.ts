@@ -2,13 +2,15 @@ import { config } from '../config';
 import { User, type IUser } from '../models';
 import { cache } from '../db';
 import { accountsInternalVerify } from './accountsClient';
+import { BoundedMap } from '../utils/boundedMap';
 import * as jose from 'jose';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 
 // Short-lived in-memory cache for accounts.serika.dev token verification.
 // Without this, every API call with an accounts token hits the accounts service.
-const tokenVerifyCache = new Map<string, { result: any; expiresAt: number }>();
+// Bounded: keyed by token hash, so unique keys accumulate as tokens rotate.
+const tokenVerifyCache = new BoundedMap<string, { result: any; expiresAt: number }>(5000);
 const TOKEN_VERIFY_CACHE_TTL_MS = 30_000;
 
 // Session interface

@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { ServerMember } from '@/lib/models';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 
 export interface ChannelActivityPayload {
   type: 'channel_activity';
@@ -70,7 +71,7 @@ function emitLocal(userIds: string[], payload: ChannelActivityPayload) {
 
 // ── Server-member id cache (bounds DB load under message bursts) ────────────
 const MEMBER_CACHE_TTL_MS = 30_000;
-const memberCache = new Map<string, { ids: Set<string>; expires: number }>();
+const memberCache = new BoundedMap<string, { ids: Set<string>; expires: number }>(500);
 
 async function getServerMemberIds(serverId: string): Promise<Set<string>> {
   const cached = memberCache.get(serverId);

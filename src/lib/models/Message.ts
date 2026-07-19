@@ -1,4 +1,4 @@
-import { eq, sql, and, desc, asc, lt, gt, type SQL } from 'drizzle-orm';
+import { eq, ne, sql, and, or, desc, asc, lt, gt, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -96,5 +96,44 @@ export const Message = {
   async count() {
     const result = await db.select({ count: sql<number>`count(*)::int` }).from(schema.messages);
     return result[0]?.count ?? 0;
+  },
+
+  /**
+   * Count unread, non-own, non-deleted messages for a set of channels in a
+   * single grouped query. Each entry carries its own `after` cutoff (the user's
+   * per-channel read marker); a null cutoff counts the whole channel.
+   *
+   * One round-trip regardless of channel count — used to seed DM unread badges
+   * without N per-channel queries. Returns { channelId: count } (channels with
+   * zero unread are omitted).
+   */
+  async unreadCounts(
+    entries: { channelId: string; after: Date | null }[],
+    userId: string,
+  ): Promise<Record<string, number>> {
+    if (entries.length === 0) return {};
+    const perChannel = entries.map((e) => {
+      const chan = buildCondition(schema.messages.channelId, e.channelId, true);
+      return e.after ? and(chan, gt(schema.messages.createdAt, e.after)) : chan;
+    });
+    const rows = await db
+      .select({
+        channelId: schema.messages.channelId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(schema.messages)
+      .where(
+        and(
+          ne(schema.messages.authorId, normalizeId(userId)),
+          eq(schema.messages.isDeleted, false),
+          or(...perChannel),
+        ),
+      )
+      .groupBy(schema.messages.channelId);
+    const out: Record<string, number> = {};
+    for (const r of rows) {
+      if (r.count > 0) out[r.channelId] = r.count;
+    }
+    return out;
   },
 };

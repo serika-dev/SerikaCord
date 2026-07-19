@@ -31,6 +31,8 @@ function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
 }
 
+const sseEncoder = new TextEncoder();
+
 // Helper function for auth
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
   const authHeader = headers.authorization ?? null;
@@ -209,7 +211,7 @@ function sortActivitiesByPriority<T extends { type?: string | null }>(activities
 const activeFriendStreamConnections = new Map<string, Set<ReadableStreamDefaultController>>();
 
 function emitFriendEvent(userIds: string[], payload: Record<string, unknown>) {
-  const encoded = new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+  const encoded = sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
   for (const userId of userIds) {
     const streams = activeFriendStreamConnections.get(userId);
     if (!streams) continue;
@@ -903,7 +905,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     if (!user) {
       const errorStream = new ReadableStream({
         start(controller) {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
           controller.close();
         },
       });
@@ -2213,7 +2215,7 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
     if (!user) {
       const errorStream = new ReadableStream({
         start(controller) {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
           controller.close();
         },
       });
@@ -2231,11 +2233,11 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
           activeFriendStreamConnections.set(userKey, new Set());
         }
         activeFriendStreamConnections.get(userKey)!.add(controller);
-        controller.enqueue(new TextEncoder().encode('data: {"type":"connected"}\n\n'));
+        controller.enqueue(sseEncoder.encode('data: {"type":"connected"}\n\n'));
 
         pingInterval = setInterval(() => {
           try {
-            controller.enqueue(new TextEncoder().encode('data: {"type":"ping"}\n\n'));
+            controller.enqueue(sseEncoder.encode('data: {"type":"ping"}\n\n'));
           } catch {
             if (pingInterval) clearInterval(pingInterval);
             activeFriendStreamConnections.get(userKey)?.delete(controller);

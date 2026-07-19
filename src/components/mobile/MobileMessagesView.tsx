@@ -31,7 +31,7 @@ interface MobileMessagesViewProps {
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const router = useRouter();
   const gt = useGT();
-  const { isChannelUnread, registerChannels } = useUnread();
+  const { isChannelUnread, registerChannels, getMentionCount, seedDmCounts } = useUnread();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -105,6 +105,12 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             lastMessageAt: c.updatedAt ?? null,
           }))
         );
+        // Seed authoritative per-DM unread counts for the accent count badges.
+        const counts: Record<string, number> = {};
+        for (const c of (data.channels || []) as Array<{ id: string; unreadCount?: number }>) {
+          counts[c.id] = c.unreadCount || 0;
+        }
+        seedDmCounts(counts);
       }
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -113,7 +119,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       setIsRefreshing(false);
       setPullDistance(0);
     }
-  }, [formatTimestamp, registerChannels]);
+  }, [formatTimestamp, registerChannels, seedDmCounts]);
 
   useEffect(() => {
     fetchMessages();
@@ -460,10 +466,20 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     </p>
                   </div>
 
-                  {/* Unread badge */}
-                  {unread && (
-                    <span className="w-2.5 h-2.5 flex-shrink-0 bg-[#ED4245] rounded-full shadow-lg" />
-                  )}
+                  {/* Unread badge — accent count pill, falling back to a dot. */}
+                  {(() => {
+                    const count = getMentionCount(message.id);
+                    if (count > 0) {
+                      return (
+                        <span className="min-w-[20px] h-5 px-1.5 flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-[11px] font-bold text-[var(--text-on-accent)] leading-none shadow-lg">
+                          {count > 99 ? "99+" : count}
+                        </span>
+                      );
+                    }
+                    return unread ? (
+                      <span className="w-2.5 h-2.5 flex-shrink-0 bg-[var(--app-accent)] rounded-full shadow-lg" />
+                    ) : null;
+                  })()}
                 </button>
                 );
               })}

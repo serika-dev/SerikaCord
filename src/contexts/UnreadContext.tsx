@@ -53,6 +53,18 @@ interface UnreadContextValue {
   registerChannels: (channels: ChannelMeta[]) => void;
   /** Called when the user opens a channel — marks it read + preps preload. */
   setActiveChannel: (channelId: string | null) => void;
+  /**
+   * Seed exact per-DM unread counts from the server (`/api/dms`). Unlike the
+   * live increment, this is authoritative — it replaces the count for each
+   * channel so a reload shows the real number, not a session-local tally.
+   */
+  seedDmCounts: (counts: Record<string, number>) => void;
+  /**
+   * Live-bump a DM's unread badge when a message arrives over the DM stream.
+   * DMs don't flow through the activity stream, so this is how their counts
+   * stay realtime. No-op while the DM is the active channel.
+   */
+  notifyDmActivity: (channelId: string, createdAt?: string) => void;
 }
 
 const UnreadContext = createContext<UnreadContextValue | undefined>(undefined);
@@ -161,6 +173,42 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     },
     [markChannelRead]
   );
+
+  // Authoritative per-DM unread counts from the server. Replace (not add) so a
+  // reload reflects the real number; never overwrite the count of the DM the
+  // user is currently reading (it should stay cleared).
+  const seedDmCounts = useCallback((counts: Record<string, number>) => {
+    setMentionCounts((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const [channelId, count] of Object.entries(counts)) {
+        if (channelId === activeChannelRef.current) {
+          if (next[channelId]) { delete next[channelId]; changed = true; }
+          continue;
+        }
+        const desired = count > 0 ? count : undefined;
+        if (next[channelId] !== desired) {
+          if (desired === undefined) delete next[channelId];
+          else next[channelId] = desired;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const notifyDmActivity = useCallback((channelId: string, createdAt?: string) => {
+    if (!channelId) return;
+    const ts = createdAt || new Date().toISOString();
+    setLastActivity((prev) => {
+      if (prev[channelId] === ts) return prev;
+      const next = { ...prev, [channelId]: ts };
+      persistActivity(next);
+      return next;
+    });
+    if (channelId === activeChannelRef.current) return; // reading it now
+    setMentionCounts((prev) => ({ ...prev, [channelId]: (prev[channelId] || 0) + 1 }));
+  }, [persistActivity]);
 
   const registerChannels = useCallback((channels: ChannelMeta[]) => {
     setChannelMeta((prev) => {
@@ -375,6 +423,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       markChannelRead,
       registerChannels,
       setActiveChannel,
+      seedDmCounts,
+      notifyDmActivity,
     }),
     [
       isChannelUnread,
@@ -384,6 +434,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       markChannelRead,
       registerChannels,
       setActiveChannel,
+      seedDmCounts,
+      notifyDmActivity,
     ]
   );
 
@@ -401,6 +453,8 @@ const NOOP_UNREAD: UnreadContextValue = {
   markChannelRead: () => {},
   registerChannels: () => {},
   setActiveChannel: () => {},
+  seedDmCounts: () => {},
+  notifyDmActivity: () => {},
 };
 
 export function useUnread() {

@@ -16,6 +16,7 @@ import {
   Copy,
 } from "lucide-react";
 import { useAuth, type BadgeId } from "@/contexts/AuthContext";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -719,7 +720,7 @@ export default function DirectMessagesPage() {
                             ]}
                           >
                             {idx > 0 && <div className="mx-4 h-px bg-[var(--border-subtle)]" />}
-                            <div onContextMenu={(e) => { e.preventDefault(); setContextMenuFriendId(friend.id); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors rounded-lg mx-1">
+                            <div onContextMenu={(e) => { e.preventDefault(); setContextMenuFriendId(friend.id); }} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors rounded-lg mx-1">
                               <button
                                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
                                 onClick={() => startDM(friend.id)}

@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { BoundedMap } from '../utils/boundedMap';
 
 /**
  * Client for serika.moe's live "now watching" presence.
@@ -34,10 +35,10 @@ interface CacheEntry {
 
 const CACHE_TTL_MS = 20_000;
 const REQUEST_TIMEOUT_MS = 5_000;
-const cache = new Map<string, CacheEntry>();
+const cache = new BoundedMap<string, CacheEntry>(2000);
 
 // Cache the accounts service ID lookup (userId → accountsUserId)
-const connectionCache = new Map<string, { accountsUserId: string; expiresAt: number }>();
+const connectionCache = new BoundedMap<string, { accountsUserId: string; expiresAt: number }>(2000);
 const CONNECTION_CACHE_TTL_MS = 60_000;
 
 /**

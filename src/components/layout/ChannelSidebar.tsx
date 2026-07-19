@@ -86,6 +86,7 @@ interface DMChannel {
   }[];
   lastMessageId?: string;
   updatedAt?: string;
+  unreadCount?: number;
 }
 
 interface ChannelSidebarProps {
@@ -110,7 +111,7 @@ export function ChannelSidebar({
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
   const canManageAny = canManageChannels || canManageServer || isAdmin;
-  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel } = useUnread();
+  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmCounts, notifyDmActivity } = useUnread();
   const [activeVoiceChannelName, setActiveVoiceChannelName] = useState<string | undefined>(undefined);
   const [voiceParticipants, setVoiceParticipants] = useState<import("@/lib/services/voiceService").VoiceParticipant[]>([]);
 
@@ -898,11 +899,16 @@ export function ChannelSidebar({
           return bTime - aTime;
         });
         setDmChannels(channels);
+        // Seed authoritative per-DM unread counts into the unread engine so the
+        // accent mention badges show real numbers (not just a session tally).
+        const counts: Record<string, number> = {};
+        for (const c of channels) counts[c.id] = c.unreadCount || 0;
+        seedDmCounts(counts);
       }
     } catch (error) {
       console.error("Failed to fetch DM channels:", error);
     }
-  }, []);
+  }, [seedDmCounts]);
 
   useEffect(() => {
     if (!currentServer) {
@@ -951,7 +957,30 @@ export function ChannelSidebar({
       source.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "dm:list:update") void fetchDMChannels();
+          if (data.type === "dm:list:update") {
+            // Apply in place: bump the conversation to the top instantly. A
+            // full /api/dms refetch (recipients + decrypt) is only needed when
+            // the channel is one we've never seen (a brand-new conversation).
+            const channelId = String(data.channelId ?? "");
+            const createdAt = data.message?.createdAt;
+            // Live unread badge: count messages from the other participant only.
+            if (channelId && data.message?.authorId && data.message.authorId !== user?.id) {
+              notifyDmActivity(channelId, typeof createdAt === "string" ? createdAt : undefined);
+            }
+            setDmChannels((prev) => {
+              const idx = prev.findIndex((c) => c.id === channelId);
+              if (idx === -1) {
+                void fetchDMChannels();
+                return prev;
+              }
+              const updated: DMChannel = {
+                ...prev[idx],
+                lastMessageId: data.message?.id ?? prev[idx].lastMessageId,
+                updatedAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
+              };
+              return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+            });
+          }
         } catch {
           /* ignore malformed events */
         }
@@ -971,7 +1000,7 @@ export function ChannelSidebar({
       source?.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, [currentServer, fetchDMChannels]);
+  }, [currentServer, fetchDMChannels, notifyDmActivity, user?.id]);
 
   const statusColors: Record<string, string> = {
     online: "#23A559",
@@ -1037,11 +1066,13 @@ export function ChannelSidebar({
                   if (!recipient) return null;
                   const isActive = pathname === `/dm/${recipient.id}`;
                   const unread = !isActive && isChannelUnread(channel.id);
+                  const dmMentions = isActive ? 0 : getMentionCount(channel.id);
 
                   return (
                     <Link
                       key={channel.id}
                       href={`/dm/${recipient.id}`}
+                      onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${recipient.id}`); }}
                       className={cn(
                         "group relative flex items-center gap-2 px-2 py-[5px] rounded-md transition-colors min-w-0",
                         isActive
@@ -1081,6 +1112,11 @@ export function ChannelSidebar({
                           </span>
                         )}
                       </div>
+                      {dmMentions > 0 && (
+                        <span className="shrink-0 min-w-[18px] h-[18px] px-1.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-[11px] font-bold text-[var(--text-on-accent)] leading-none group-hover:hidden">
+                          {dmMentions > 99 ? "99+" : dmMentions}
+                        </span>
+                      )}
                       <button
                         className="p-1 opacity-0 group-hover:opacity-100 hover:text-[var(--text-primary)] transition-opacity shrink-0"
                         onClick={(e) => {

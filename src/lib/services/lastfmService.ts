@@ -17,6 +17,7 @@
  */
 
 import { config } from '../config';
+import { BoundedMap } from '../utils/boundedMap';
 
 // Last.fm serves this exact image hash as its "no cover art" placeholder.
 const LASTFM_PLACEHOLDER_HASH = '2a96cbd8b46e442fc41c2b86b821562f';
@@ -41,7 +42,7 @@ interface CacheEntry {
 const CACHE_TTL_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const COVER_ART_TIMEOUT_MS = 6_000;
-const cache = new Map<string, CacheEntry>();
+const cache = new BoundedMap<string, CacheEntry>(2000);
 
 /**
  * Fetch the front-cover thumbnail (500px) URL from the Cover Art Archive

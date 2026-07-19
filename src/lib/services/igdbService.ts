@@ -9,6 +9,7 @@
  */
 
 import { config } from '../config';
+import { BoundedMap } from '../utils/boundedMap';
 
 const TWITCH_TOKEN_URL = 'https://id.twitch.tv/oauth2/token';
 const IGDB_BASE = 'https://api.igdb.com/v4';
@@ -33,7 +34,7 @@ let inflightToken: Promise<string | null> | null = null;
 // Cache resolved lookups (by normalized query) so repeated presence heartbeats
 // for the same game don't hammer IGDB.
 const RESULT_TTL_MS = 60 * 60 * 1000; // 1 hour
-const resultCache = new Map<string, { value: IgdbGame | null; expiresAt: number }>();
+const resultCache = new BoundedMap<string, { value: IgdbGame | null; expiresAt: number }>(1000);
 
 function haveCredentials(): boolean {
   return Boolean(config.TWITCH_CLIENT_ID && config.TWITCH_CLIENT_SECRET);
@@ -190,7 +191,7 @@ export async function lookupGame(query: string): Promise<IgdbGame | null> {
 }
 
 // Cache Steam-AppId lookups separately from name lookups.
-const steamCache = new Map<string, { value: IgdbGame | null; expiresAt: number }>();
+const steamCache = new BoundedMap<string, { value: IgdbGame | null; expiresAt: number }>(1000);
 
 /** Fetch the canonical English store name + header image for a Steam AppId. */
 async function fetchSteamStoreEnglish(appId: string): Promise<{ name: string; headerImage: string | null } | null> {

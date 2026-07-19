@@ -23,6 +23,7 @@ import {
 import { cn, cdnImage } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { useMentions } from "@/hooks/useMentions";
+import { useUnread } from "@/contexts/UnreadContext";
 import { useServerMutes } from "@/hooks/useServerMutes";
 import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout";
 import { usePolling } from "@/hooks/usePolling";
@@ -76,6 +77,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
   const { serverMentionCounts, markServerRead } = useMentions();
+  const { isServerUnread } = useUnread();
   const { isMuted, toggleMute } = useServerMutes();
   const pathname = usePathname();
 
@@ -342,6 +344,8 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
     const mentionCount = serverMentionCounts.get(server.id) || 0;
     const muted = isMuted(server.id);
     const hasMention = mentionCount > 0 && !muted;
+    // Unread-without-mention: show the Discord-style short white pill.
+    const hasUnread = !muted && isServerUnread(server.id);
     const isActive = currentServer?.id === server.id;
     const folderOfServer = folders.find((f) => f.serverIds.includes(server.id));
 
@@ -383,12 +387,17 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                     // instead of animating `height`, which caused per-frame
                     // reflow and a visible stutter on hover.
                     "absolute left-0 w-1 h-10 bg-[var(--text-primary)] rounded-r-full origin-center transition-transform duration-200 will-change-transform",
-                    isActive ? "scale-y-100" : "scale-y-0 group-hover:scale-y-50"
+                    // Full bar when active; short pill when unread; grows on hover.
+                    isActive
+                      ? "scale-y-100"
+                      : hasUnread
+                        ? "scale-y-[0.2] group-hover:scale-y-50"
+                        : "scale-y-0 group-hover:scale-y-50"
                   )}
                 />
               )}
               {hasMention && !isActive && (
-                <span className="absolute bottom-0 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--accent-color)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
+                <span className="absolute bottom-0 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
                   {mentionCount > 99 ? "99+" : mentionCount}
                 </span>
               )}
@@ -531,7 +540,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                   </div>
                 )}
                 {!isOpen && folderMentions > 0 && (
-                  <span className="absolute bottom-0 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--accent-color)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
+                  <span className="absolute bottom-0 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
                     {folderMentions > 99 ? "99+" : folderMentions}
                   </span>
                 )}
@@ -636,7 +645,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
               />
               {/* DM unread badge on the inbox icon */}
               {totalDMUnread > 0 && (
-                <span className="absolute -bottom-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--accent-color)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
+                <span className="absolute -bottom-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
                   {totalDMUnread > 99 ? "99+" : totalDMUnread}
                 </span>
               )}
@@ -667,7 +676,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                         </AvatarFallback>
                       </Avatar>
                       <div className="absolute left-0 w-1 h-2.5 bg-[var(--text-primary)] rounded-r-full group-hover:h-5 transition-all duration-200" />
-                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 flex items-center justify-center rounded-full bg-[var(--accent-color)] border-[3px] border-[var(--app-bg)]" />
+                      <span className="absolute bottom-0 right-0 w-3.5 h-3.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)]" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">

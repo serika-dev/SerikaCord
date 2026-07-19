@@ -6,6 +6,7 @@ import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorag
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 import { randomUUID } from 'crypto';
 import { normalizeId } from '@/lib/db/normalizeId';
 
@@ -91,7 +92,7 @@ async function canPinMessagesInServer(
  */
 // In-memory cache for role permission checks: serverId+roleId -> permissions bigint string
 // TTL 60s — roles change rarely, but we don't want stale perms forever.
-const rolePermCache = new Map<string, string>();
+const rolePermCache = new BoundedMap<string, string>(10000);
 const ROLE_CACHE_TTL_MS = 60_000;
 
 async function getRolePermissions(roleIds: string[], serverId: string): Promise<Map<string, bigint>> {
@@ -371,6 +372,10 @@ async function extractMentionsFromContent(
 // Store active SSE connections for server channels
 const activeConnections = new Map<string, Set<ReadableStreamDefaultController>>();
 
+// Shared codecs for the SSE hot path (avoid per-event allocations).
+const sseEncoder = new TextEncoder();
+const sseDecoder = new TextDecoder();
+
 // Unique id for THIS process, so the Redis→SSE bridge can skip re-delivering
 // events this instance already delivered locally (prevents duplicates).
 const INSTANCE_ID = randomUUID();
@@ -381,10 +386,11 @@ const SSE_BUS = 'sse:channel';
 function deliverToLocalChannel(channelId: string, data: object) {
   const connections = activeConnections.get(channelId);
   if (connections) {
-    const encodedData = `data: ${JSON.stringify(data)}\n\n`;
+    // Encode once, deliver the same bytes to every connection.
+    const encoded = sseEncoder.encode(`data: ${JSON.stringify(data)}\n\n`);
     connections.forEach((controller) => {
       try {
-        controller.enqueue(new TextEncoder().encode(encodedData));
+        controller.enqueue(encoded);
       } catch {
         // Connection closed, will be cleaned up
       }
@@ -400,7 +406,7 @@ export function registerRawSSEConnection(
   write: (data: string) => void,
 ): () => void {
   const controller = {
-    enqueue: (data: Uint8Array) => { try { write(new TextDecoder().decode(data)); } catch { /* closed */ } },
+    enqueue: (data: Uint8Array) => { try { write(sseDecoder.decode(data)); } catch { /* closed */ } },
   } as unknown as ReadableStreamDefaultController;
 
   if (!activeConnections.has(channelId)) {
@@ -2805,7 +2811,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       // Return error as SSE event
       const errorStream = new ReadableStream({
         start(controller) {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}\n\n`));
           controller.close();
         },
       });
@@ -2820,7 +2826,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!hasAccess) {
       const errorStream = new ReadableStream({
         start(controller) {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: error || 'Access denied' })}\n\n`));
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: error || 'Access denied' })}\n\n`));
           controller.close();
         },
       });
@@ -2842,12 +2848,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         activeConnections.get(channelKey)!.add(controller);
 
         // Send initial ping
-        controller.enqueue(new TextEncoder().encode('data: {"type":"connected"}\n\n'));
+        controller.enqueue(sseEncoder.encode('data: {"type":"connected"}\n\n'));
 
         // Keep-alive ping every 15 seconds
         pingInterval = setInterval(() => {
           try {
-            controller.enqueue(new TextEncoder().encode('data: {"type":"ping"}\n\n'));
+            controller.enqueue(sseEncoder.encode('data: {"type":"ping"}\n\n'));
           } catch {
             if (pingInterval) {
               clearInterval(pingInterval);

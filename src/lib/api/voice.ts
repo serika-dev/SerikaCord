@@ -4,6 +4,8 @@ import { config } from '@/lib/config';
 import { getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
 
+const sseEncoder = new TextEncoder();
+
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
   const authHeader = headers.authorization ?? null;
   const authToken = cookie.auth_token?.value;
@@ -49,7 +51,7 @@ function getRoom(roomId: string) {
 
 // ── Local-only delivery ─────────────────────────────────────────────────────
 function deliverToRoomLocal(roomId: string, payload: object, excludeUserId?: string) {
-  const encoded = new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+  const encoded = sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
   const roomConnections = voiceSignalingConnections.get(roomId);
   if (!roomConnections) return;
   for (const [userId, controllers] of roomConnections.entries()) {
@@ -65,7 +67,7 @@ function deliverToRoomLocal(roomId: string, payload: object, excludeUserId?: str
 }
 
 function deliverToUserLocal(roomId: string, targetUserId: string, payload: object) {
-  const encoded = new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
+  const encoded = sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
   const roomConnections = voiceSignalingConnections.get(roomId);
   if (!roomConnections) return;
   const controllers = roomConnections.get(targetUserId);
@@ -319,7 +321,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     if (!user) {
       const errorStream = new ReadableStream({
         start(controller) {
-          controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: authError || 'Unauthorized' })}
 
 `));
           controller.close();
@@ -349,13 +351,13 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         // Send current room state (include self so client can identify itself)
         const room = roomState.get(roomId);
         const participants = room ? Array.from(room.values()) : [];
-        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'voice:state', participants, roomId, self: userId })}
+        controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'voice:state', participants, roomId, self: userId })}
 
 `));
 
         pingInterval = setInterval(() => {
           try {
-            controller.enqueue(new TextEncoder().encode('data: {"type":"ping"}\n\n'));
+            controller.enqueue(sseEncoder.encode('data: {"type":"ping"}\n\n'));
           } catch {
             if (pingInterval) clearInterval(pingInterval);
           }

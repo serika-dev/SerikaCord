@@ -1,4 +1,5 @@
 import { ServerEmoji, type IServerEmoji } from '@/lib/models/ServerEmoji';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 
 function isValidUUID(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -27,7 +28,7 @@ const CUSTOM_EMOJI_REGEX = /<?(a)?:([a-zA-Z0-9_]{2,32}):([0-9a-f]{8}-[0-9a-f]{4}
 const CUSTOM_EMOJI_REGEX_SINGLE = /<?(a)?:([a-zA-Z0-9_]{2,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?/i;
 
 // Cache for emoji lookups - expires after 5 minutes
-const emojiCache = new Map<string, { emoji: IServerEmoji | null; timestamp: number }>();
+const emojiCache = new BoundedMap<string, { emoji: IServerEmoji | null; timestamp: number }>(5000);
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 /**

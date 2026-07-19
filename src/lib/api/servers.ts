@@ -5,6 +5,7 @@ import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInva
 import { cache } from '@/lib/db';
 import { nanoid } from 'nanoid';
 import { config } from '@/lib/config';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
 import { resolveEffectiveStatus, PRESENCE_TIMEOUT_MS } from '@/lib/services/presence';
 import { parseCustomEmojis, batchParseCustomEmojis } from '@/lib/services/emoji';
@@ -58,7 +59,7 @@ const PERM_MANAGE_EMOJIS = 1n << 30n;
 
 // In-memory cache for role permission checks: serverId+roleId -> permissions bigint string
 // TTL 60s — roles change rarely, but we don't want stale perms forever.
-const rolePermCache = new Map<string, string>();
+const rolePermCache = new BoundedMap<string, string>(10000);
 const ROLE_CACHE_TTL_MS = 60_000;
 
 async function getRolePermissionsForServer(roleIds: string[], serverId: string): Promise<Map<string, bigint>> {
