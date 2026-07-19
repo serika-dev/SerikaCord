@@ -1,6 +1,46 @@
 # SerikaCord — Full Changelog
 
-**295 commits** · Jan 22 – Jul 18, 2026 · v0.0.1 → v1.2.4.
+**296 commits** · Jan 22 – Jul 19, 2026 · v0.0.1 → v1.2.5.
+
+---
+
+## v1.2.5 — 2026-07-19
+
+**Tag:** `v1.2.5` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Discord bridge consent system, real-time unread/badge infrastructure, chat performance optimizations, and user bio limit increase to 1000 characters.
+
+### Features — Discord Bridge
+- **Consent gating (both directions)** (`e8371fd`) — Inbound DiscordUser consent with DM buttons + weekly restriction; outbound Serika user opt-in. Bridge replies and embeds inbound; robust edit incl. embed-only updates. `/forgetme` slash command + page + `POST /api/discord/forget-me`. Block `@everyone`/`@here`/role pings on bridged webhooks (`allowed_mentions`). Copyable/maskable webhook URL field in channel settings. Hide friend button on bridged Discord users. `discord_users` consent columns (`manual_discord_consent.sql`). Terms/Privacy updated for Discord bridge compliance.
+- **Sync consent prompt** (`3db60e4`) — `GET /api/channels/:id/bridge-status` (boolean, no webhook secret). `DiscordBridgeConsentDialog` shown on first send in a bridged channel. Choice persisted to `dataPrivacy.discordBridgeOutbound` + `discordBridgePrompted`. Settings toggle also marks prompted to suppress popup.
+- **Per-server opt-in/opt-out** (`89bd516`) — `/opt-in` and `/opt-out` slash commands (usable in DMs and guilds). `restrictedGuildIds` array column on `discord_users` to track restricted guilds. `liftAllRestrictions()` reads `restrictedGuildIds` and lifts timeouts across all guilds on consent.
+- **Startup restriction sweep** (`ec6a5d2`) — Optional `server` parameter on `/opt-in`/`/opt-out` for per-guild consent. `applyRestrictionTimeouts()` applies 1-week timeouts across bridged guilds with `discordRestrictUnconsented` enabled. `startupRestrictionSweep()` re-applies restriction timeouts to all opted-out users on bot startup (skips bots and recent timeouts).
+
+### Features — Unread & Read Receipts
+- **Real-time DM badges & server unread pills** (`0e73f01`) — `seedDmCounts`/`notifyDmActivity` in UnreadContext for authoritative per-DM unread counts (from `/api/dms`) and live increments (from `dm:list:update` SSE). Accent count badges on DM sidebar entries and mobile messages view. Discord-style short white pill on server icons for unread-without-mention. Prefetch DM messages on hover.
+- **All-server channel activity seeding** (`d2ddabc`) — `GET /api/users/@me/channel-activity` fetches every visible channel's server ID + last-activity time in two queries (no joins). `channelMeta` seeded on mount so server-rail unread pills show for servers not yet opened. Auto-grant Discord bridge consent to bots.
+- **Cross-device read receipts** (`ab597fa`) — `read_state` and `unread_reset` SSE events over activity streams. Read receipts broadcast to user's other sessions on `POST /ack`. `unread_reset` broadcast on message deletion (recomputes newest remaining message time). Right-click context menu on DM sidebar rows with "Mark As Read" and "Copy User ID".
+- **markServerRead** (`2f60bb0`) — `markServerRead(serverId)` in UnreadContext marks all channels in a server as read. Wired into ServerSidebar context menu. "Mark As Read" enabled when mentions or unread pill present. `GET /servers/:id/activity` optimized by fetching roles upfront (parallel with channels) and computing admin permissions in-memory.
+- **Real-time DM activity events** (`34ce3bd`) — `dm_activity` SSE event through activity stream so DM unread badges appear instantly when viewing servers. Broadcast to recipient on `POST /dms/:recipientId/messages`. Skip re-seeding DM counts for channels already marked read locally. `initializeAPI()` made idempotent. Embed markdown and paste fix.
+
+### Performance
+- **Unread badge cap at 100** (`61be4af`) — `MAX_UNREAD_BADGE=100` constant shared between client/server. Mention counts clamped at 100 in UnreadContext. Skip state updates when already at cap. `Message.unreadCounts()` rewritten to use windowed `row_number()` subquery capped at 100 instead of full-backlog `count(*)`.
+- **Shared emoji/GIF favorites store** (`0e6eda5`) — `useEmojiFavorites` and `useGifFavorites` now back onto a single module-level store consumed through `useSyncExternalStore`: one fetch per auth state, one shared array, single set of subscribers. Eliminates dozens of identical `/emoji-favorites` and `/favorites` requests on busy channels.
+- **SSE encoder reuse & bounded caches** (`0e73f01`) — Reuse shared `TextEncoder`/`TextDecoder` instances across SSE streams.
+
+### Bug Fixes
+- **Gateway/SSE connection-set leaks** (`287c9ae`) — Prune empty `Set` entries from `activeConnections` maps in `channels.ts`/`dms.ts` when last SSE stream closes. Prune empty per-user `Set` and per-room `Map` in `voice.ts`; evict ghost participants from `roomState` when last signaling stream drops without clean `POST /leave` (remaining members get `participant_left`). Fixes unbounded ghost-participant growth and "stuck in voice" UI bug.
+
+### Database
+- **Migration 0002_organic_bromley** (`54fb428`) — Database schema updates.
+- **Discord consent columns** (`e8371fd`) — `manual_discord_consent.sql` adding consent columns to `discord_users`.
+
+### Changes
+- **Bio character limit → 1000** — Updated `maxBioLength` in `CUSTOMIZATION_OPTIONS` (both FREE and SERIKA_PLUS tiers) from 190/500 to 1000. Updated textarea `maxLength` and character counters in both the settings page (`[section]/page.tsx`) and `UserSettingsDialog.tsx`. Updated API validation `maxLength` in `/api/users/me` PUT endpoint.
+- **serika-accounts submodule** (`ff72a61`) — Updated to latest.
+- **Version bumps** — All platforms to 1.2.5; Android `versionCode` → 17.
 
 ---
 

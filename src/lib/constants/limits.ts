@@ -83,14 +83,14 @@ export const CUSTOMIZATION_OPTIONS = {
   FREE: {
     profileColors: false,
     customBio: true,
-    maxBioLength: 190,
+    maxBioLength: 1000,
     customStatus: true,
     maxStatusLength: 128,
   },
   SERIKA_PLUS: {
     profileColors: true,
     customBio: true,
-    maxBioLength: 500,
+    maxBioLength: 1000,
     customStatus: true,
     maxStatusLength: 256,
     profileThemes: true,

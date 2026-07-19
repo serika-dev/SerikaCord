@@ -2361,9 +2361,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 value={bio}
                                 onChange={(e) => setBio(e.target.value)}
                                 className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[100px] resize-y"
-                                maxLength={user?.isPremium ? 500 : 190}
+                                maxLength={1000}
                               />
-                              <p className="text-xs text-[var(--text-muted)] text-right mt-1">{bio.length}/{user?.isPremium ? 500 : 190}</p>
+                              <p className="text-xs text-[var(--text-muted)] text-right mt-1">{bio.length}/1000</p>
                             </div>
 
                             <div>

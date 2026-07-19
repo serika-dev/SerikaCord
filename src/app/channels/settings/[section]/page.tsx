@@ -845,11 +845,11 @@ export default function MobileSettingsSectionPage() {
                 <textarea
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  maxLength={user?.isPremium ? 500 : 190}
+                  maxLength={1000}
                   className="w-full min-h-[100px] rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] p-3 text-sm focus:outline-none focus:border-[var(--app-accent)] resize-y"
                   placeholder={gt("Tell us about yourself...")}
                 />
-                <p className="text-xs text-[var(--text-muted)] text-right mt-1">{bio.length}/{user?.isPremium ? 500 : 190}</p>
+                <p className="text-xs text-[var(--text-muted)] text-right mt-1">{bio.length}/1000</p>
               </div>
             </div>
 

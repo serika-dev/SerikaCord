@@ -264,7 +264,7 @@ export function MobileDrawer({
 
                         {/* App Version */}
                         <div className="text-center pt-4">
-                            <p className="text-xs text-[var(--text-muted)]">SerikaCord v1.1.3</p>
+                            <p className="text-xs text-[var(--text-muted)]">SerikaCord v1.2.5</p>
                         </div>
                     </div>
                 </ScrollArea>

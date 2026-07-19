@@ -1,6 +1,6 @@
 [package]
 name = "serikacord-desktop"
-version = "1.2.4"
+version = "1.2.5"
 description = "SerikaCord native desktop app"
 authors = ["SerikaCord Team"]
 license = "MIT"
