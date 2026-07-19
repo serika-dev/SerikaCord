@@ -17,6 +17,11 @@ export const DiscordUser = {
     return row || null;
   },
 
+  /** Find all Discord users with a specific consent status (e.g. 'denied' for startup restriction sweep). */
+  async findAllByConsent(status: 'pending' | 'granted' | 'denied') {
+    return db.select().from(schema.discordUsers).where(eq(schema.discordUsers.consentStatus, status));
+  },
+
   async findOne(filter: Record<string, unknown>) {
     const conditions: SQL[] = [];
     for (const [key, value] of Object.entries(filter)) {

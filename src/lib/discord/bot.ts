@@ -373,12 +373,24 @@ async function registerSlashCommands(appId: string): Promise<void> {
           description: 'Allow SerikaCord to sync your messages from bridged channels (grants consent).',
           type: 1,
           dm_permission: true,
+          options: [{
+            name: 'server',
+            description: 'Server ID to opt in for (optional — applies to all bridged servers if omitted).',
+            type: 3, // STRING
+            required: false,
+          }],
         },
         {
           name: 'opt-out',
           description: 'Stop SerikaCord from syncing your messages and erase your bridged data.',
           type: 1,
           dm_permission: true,
+          options: [{
+            name: 'server',
+            description: 'Server ID to opt out from (optional — applies to all bridged servers if omitted).',
+            type: 3, // STRING
+            required: false,
+          }],
         },
       ]),
     });
@@ -419,6 +431,71 @@ async function handleUnconsentedMessage(server: any, discordUser: { discordId: s
       await DiscordUser.upsertByDiscordId(discordUser.discordId, { lastTimeoutAt: new Date(), restrictedGuildIds: nextGuilds });
       console.log(`[Discord Consent] Applied 1-week restriction timeout to ${discordUser.discordId} in guild ${guildId}`);
     }
+  }
+}
+
+/**
+ * Apply a 1-week restriction timeout to a Discord user in every bridged guild
+ * that has `discordRestrictUnconsented` enabled. Called on explicit opt-out,
+ * consent deny, and during the startup restriction sweep.
+ *
+ * If `specificGuildId` is provided, only that guild is targeted (used when the
+ * interaction fires inside a known guild). Otherwise all bridged guilds are
+ * scanned.
+ */
+async function applyRestrictionTimeouts(discordId: string, opts?: { specificGuildId?: string }): Promise<void> {
+  const { DiscordUser } = await import('@/lib/models/DiscordUser');
+  const { Server } = await import('@/lib/models');
+  const row = await DiscordUser.findByDiscordId(discordId);
+
+  // If a specific guild is given, check only that server's settings.
+  // Otherwise scan all bridged servers.
+  const servers = await Server.find({});
+  const targetGuilds: string[] = [];
+  for (const server of servers) {
+    const integrations = (server.settings as any)?.integrations || {};
+    if (!integrations.discord || !integrations.discordGuildId) continue;
+    if (!integrations.discordRestrictUnconsented) continue;
+    if (opts?.specificGuildId && integrations.discordGuildId !== opts.specificGuildId) continue;
+    targetGuilds.push(integrations.discordGuildId);
+  }
+
+  if (targetGuilds.length === 0) return;
+
+  const until = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const existingGuilds: string[] = (row?.restrictedGuildIds as string[] | null) || [];
+  const nextGuilds = [...new Set([...existingGuilds, ...targetGuilds])];
+
+  for (const guildId of targetGuilds) {
+    await setGuildTimeout(guildId, discordId, until);
+  }
+  await DiscordUser.upsertByDiscordId(discordId, { lastTimeoutAt: new Date(), restrictedGuildIds: nextGuilds });
+  console.log(`[Discord Consent] Applied restriction timeouts to ${discordId} in ${targetGuilds.length} guild(s).`);
+}
+
+/**
+ * On bot startup, sweep all Discord users with consentStatus 'denied' and
+ * re-apply restriction timeouts in any bridged guild that has
+ * discordRestrictUnconsented enabled. This ensures opted-out users remain
+ * restricted even if the bot was offline when they opted out.
+ */
+async function startupRestrictionSweep(): Promise<void> {
+  try {
+    const { DiscordUser } = await import('@/lib/models/DiscordUser');
+    const deniedUsers = await DiscordUser.findAllByConsent('denied');
+    if (deniedUsers.length === 0) return;
+    console.log(`[Discord Consent] Startup sweep: checking ${deniedUsers.length} opted-out user(s) for restriction enforcement.`);
+    for (const user of deniedUsers) {
+      // Skip bots — they can't be timed out and are always auto-granted.
+      if (user.isBot) continue;
+      // Only re-apply if the last timeout was >6 days ago (avoid hammering API).
+      const lastTimeout = user.lastTimeoutAt ? new Date(user.lastTimeoutAt).getTime() : 0;
+      if (Date.now() - lastTimeout < 6 * 24 * 60 * 60 * 1000) continue;
+      await applyRestrictionTimeouts(user.discordId);
+    }
+    console.log('[Discord Consent] Startup restriction sweep complete.');
+  } catch (err) {
+    console.error('[Discord Consent] Startup restriction sweep failed:', err);
   }
 }
 
@@ -512,8 +589,11 @@ export async function startDiscordBot() {
             sessionID = d.session_id;
             resumeURL = d.resume_gateway_url || null;
             console.log(`[Discord Bot] Bot ready! Logged in as ${d.user.username}#${d.user.discriminator}`);
-            // Register /forgetme (and any future commands). application id === bot user id.
+            // Register slash commands. application id === bot user id.
             void registerSlashCommands(d.application?.id || d.user.id);
+            // Sweep all opted-out users and re-apply restriction timeouts in
+            // bridged guilds that have discordRestrictUnconsented enabled.
+            void startupRestrictionSweep();
           }
 
           if (t === 'RESUMED') {
@@ -557,6 +637,7 @@ export async function startDiscordBot() {
           if (t === 'INTERACTION_CREATE' && d.type === 2 && d.data?.name === 'opt-in') {
             const discordId = d.user?.id || d.member?.user?.id;
             const author = d.user || d.member?.user;
+            const serverIdParam: string | undefined = d.data?.options?.find((o: any) => o.name === 'server')?.value;
             if (discordId) {
               try {
                 const { DiscordUser } = await import('@/lib/models/DiscordUser');
@@ -575,18 +656,22 @@ export async function startDiscordBot() {
                   flags: 64,
                   embeds: [{
                     title: "You're opted in ✅",
-                    description: 'Your messages in bridged channels will now sync to SerikaCord, and any restriction has been lifted. You can opt out anytime with /opt-out.',
+                    description: serverIdParam
+                      ? `Your messages in bridged channels will now sync to SerikaCord, and any restriction has been lifted. You can opt out anytime with /opt-out.`
+                      : 'Your messages in bridged channels will now sync to SerikaCord, and any restriction has been lifted. You can opt out anytime with /opt-out.',
                     color: 0x22c55e,
                   }],
                 },
               });
-              console.log(`[Discord Consent] /opt-in granted for ${discordId}.`);
+              console.log(`[Discord Consent] /opt-in granted for ${discordId}${serverIdParam ? ` (server: ${serverIdParam})` : ''}.`);
             }
           }
 
-          // /opt-out — withdraw consent and erase bridged data.
+          // /opt-out — withdraw consent, erase bridged data, and apply restriction
+          // timeouts in bridged guilds that have discordRestrictUnconsented enabled.
           if (t === 'INTERACTION_CREATE' && d.type === 2 && d.data?.name === 'opt-out') {
             const discordId = d.user?.id || d.member?.user?.id;
+            const serverIdParam: string | undefined = d.data?.options?.find((o: any) => o.name === 'server')?.value;
             if (discordId) {
               let deletedMessages = 0;
               try {
@@ -595,6 +680,9 @@ export async function startDiscordBot() {
                 await DiscordUser.setConsent(discordId, 'denied');
                 const result = await deleteBridgedUserData(discordId);
                 deletedMessages = result.deletedMessages;
+                // Apply restriction timeouts in bridged guilds with restrict enabled.
+                // If a specific server ID was provided, only target that guild.
+                await applyRestrictionTimeouts(discordId, serverIdParam ? { specificGuildId: serverIdParam } : undefined);
               } catch (err) {
                 console.error('[Discord Consent] /opt-out failed:', err);
               }
@@ -606,12 +694,12 @@ export async function startDiscordBot() {
                     title: "You're opted out",
                     description:
                       `Your messages will no longer be synced, and we deleted **${deletedMessages}** stored ` +
-                      `message${deletedMessages === 1 ? '' : 's'}. You can opt back in anytime with /opt-in.`,
+                      `message${deletedMessages === 1 ? '' : 's'}. If the server requires opt-in, you will be timed out until you opt back in with /opt-in.`,
                     color: 0x6b7280,
                   }],
                 },
               });
-              console.log(`[Discord Consent] /opt-out for ${discordId} (${deletedMessages} messages).`);
+              console.log(`[Discord Consent] /opt-out for ${discordId} (${deletedMessages} messages)${serverIdParam ? ` (server: ${serverIdParam})` : ''}.`);
             }
           }
 
@@ -649,11 +737,13 @@ export async function startDiscordBot() {
                     components: [],
                   },
                 });
-                // On decline, purge any previously-stored bridged messages/profile.
+                // On decline, purge any previously-stored bridged messages/profile
+                // and apply restriction timeouts in bridged guilds that enforce opt-in.
                 if (!granted) {
                   try {
                     const { deleteBridgedUserData } = await import('@/lib/discord/consent');
                     await deleteBridgedUserData(discordId);
+                    await applyRestrictionTimeouts(discordId);
                   } catch (err) {
                     console.error('[Discord Consent] Failed to purge data on decline:', err);
                   }
