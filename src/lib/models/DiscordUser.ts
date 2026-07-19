@@ -1,4 +1,4 @@
-import { eq, and, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, or, inArray, isNull, type SQL } from 'drizzle-orm';
 import { normalizeId } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -20,6 +20,36 @@ export const DiscordUser = {
   /** Find all Discord users with a specific consent status (e.g. 'denied' for startup restriction sweep). */
   async findAllByConsent(status: 'pending' | 'granted' | 'denied') {
     return db.select().from(schema.discordUsers).where(eq(schema.discordUsers.consentStatus, status));
+  },
+
+  /**
+   * Find all Discord users whose consent status is in the given list, OR whose
+   * consentStatus is null (treated as 'pending'). Used by the startup restriction
+   * sweep to cover both 'pending' and 'denied' users in a single query.
+   */
+  async findAllByConsentStatuses(statuses: ('pending' | 'granted' | 'denied')[]) {
+    if (statuses.includes('pending')) {
+      // null consentStatus defaults to 'pending' per the schema, so include nulls.
+      const nonNull = statuses.filter((s) => s !== 'pending');
+      if (nonNull.length > 0) {
+        return db.select().from(schema.discordUsers).where(
+          or(
+            isNull(schema.discordUsers.consentStatus),
+            inArray(schema.discordUsers.consentStatus, nonNull),
+            eq(schema.discordUsers.consentStatus, 'pending'),
+          ),
+        );
+      }
+      return db.select().from(schema.discordUsers).where(
+        or(
+          isNull(schema.discordUsers.consentStatus),
+          eq(schema.discordUsers.consentStatus, 'pending'),
+        ),
+      );
+    }
+    return db.select().from(schema.discordUsers).where(
+      inArray(schema.discordUsers.consentStatus, statuses),
+    );
   },
 
   async findOne(filter: Record<string, unknown>) {

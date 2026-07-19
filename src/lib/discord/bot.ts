@@ -474,18 +474,18 @@ async function applyRestrictionTimeouts(discordId: string, opts?: { specificGuil
 }
 
 /**
- * On bot startup, sweep all Discord users with consentStatus 'denied' and
- * re-apply restriction timeouts in any bridged guild that has
- * discordRestrictUnconsented enabled. This ensures opted-out users remain
- * restricted even if the bot was offline when they opted out.
+ * On bot startup, sweep all Discord users with consentStatus 'pending' or
+ * 'denied' and re-apply restriction timeouts in any bridged guild that has
+ * discordRestrictUnconsented enabled. This ensures unconsented users remain
+ * restricted even if the bot was offline when they last messaged.
  */
 async function startupRestrictionSweep(): Promise<void> {
   try {
     const { DiscordUser } = await import('@/lib/models/DiscordUser');
-    const deniedUsers = await DiscordUser.findAllByConsent('denied');
-    if (deniedUsers.length === 0) return;
-    console.log(`[Discord Consent] Startup sweep: checking ${deniedUsers.length} opted-out user(s) for restriction enforcement.`);
-    for (const user of deniedUsers) {
+    const unconsentedUsers = await DiscordUser.findAllByConsentStatuses(['pending', 'denied']);
+    if (unconsentedUsers.length === 0) return;
+    console.log(`[Discord Consent] Startup sweep: checking ${unconsentedUsers.length} unconsented user(s) for restriction enforcement.`);
+    for (const user of unconsentedUsers) {
       // Skip bots — they can't be timed out and are always auto-granted.
       if (user.isBot) continue;
       // Only re-apply if the last timeout was >6 days ago (avoid hammering API).
