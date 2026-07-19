@@ -76,8 +76,8 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const gt = useGT();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
-  const { serverMentionCounts, markServerRead } = useMentions();
-  const { isServerUnread } = useUnread();
+  const { serverMentionCounts, markServerRead: markServerMentionsRead } = useMentions();
+  const { isServerUnread, markServerRead: markServerUnreadRead } = useUnread();
   const { isMuted, toggleMute } = useServerMutes();
   const pathname = usePathname();
 
@@ -438,7 +438,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
             <span className="absolute inset-0 pointer-events-none" aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="start" className="w-56">
-            <DropdownMenuItem disabled={mentionCount === 0} onClick={() => markServerRead(server.id)}>
+            <DropdownMenuItem disabled={mentionCount === 0 && !hasUnread} onClick={() => { markServerUnreadRead(server.id); markServerMentionsRead(server.id); }}>
               <Check className="w-4 h-4" />
               {gt("Mark As Read")}
             </DropdownMenuItem>

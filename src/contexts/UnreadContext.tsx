@@ -49,6 +49,8 @@ interface UnreadContextValue {
   isServerUnread: (serverId: string) => boolean;
   getServerMentionCount: (serverId: string) => number;
   markChannelRead: (channelId: string) => void;
+  /** Mark every channel in a server as read (clears unread pill + mention badges). */
+  markServerRead: (serverId: string) => void;
   /** Feed the sidebar's channel list so we know channel→server + last activity. */
   registerChannels: (channels: ChannelMeta[]) => void;
   /** Called when the user opens a channel — marks it read + preps preload. */
@@ -171,6 +173,16 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       });
     },
     [persistRead]
+  );
+
+  const markServerRead = useCallback(
+    (serverId: string) => {
+      if (!serverId) return;
+      for (const [channelId, meta] of Object.entries(channelMeta)) {
+        if (meta.serverId === serverId) markChannelRead(channelId);
+      }
+    },
+    [channelMeta, markChannelRead]
   );
 
   const setActiveChannel = useCallback(
@@ -520,6 +532,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       isServerUnread,
       getServerMentionCount,
       markChannelRead,
+      markServerRead,
       registerChannels,
       setActiveChannel,
       seedDmCounts,
@@ -531,6 +544,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       isServerUnread,
       getServerMentionCount,
       markChannelRead,
+      markServerRead,
       registerChannels,
       setActiveChannel,
       seedDmCounts,
@@ -550,6 +564,7 @@ const NOOP_UNREAD: UnreadContextValue = {
   isServerUnread: () => false,
   getServerMentionCount: () => 0,
   markChannelRead: () => {},
+  markServerRead: () => {},
   registerChannels: () => {},
   setActiveChannel: () => {},
   seedDmCounts: () => {},

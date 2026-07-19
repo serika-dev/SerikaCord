@@ -1754,11 +1754,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Invalid server ID' };
     }
 
-    // Check membership, fetch server, and channels in parallel — all independent
-    const [membership, server, allChannels] = await Promise.all([
+    // Check membership, fetch server, channels, and roles in parallel — all independent.
+    // Fetching roles here avoids a sequential getRolePermissionsForServer round-trip.
+    const [membership, server, allChannels, allRoles] = await Promise.all([
       ServerMember.findOne({ serverId: params.serverId, userId: user.id }),
       Server.findById(params.serverId),
       Channel.find({ serverId: params.serverId }),
+      Role.find({ serverId: params.serverId }),
     ]);
 
     if (!membership) {
@@ -1774,15 +1776,23 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // Check if user is server owner (bypasses all permission checks)
     const isOwner = server.ownerId === user.id;
 
-    // Get user's roles for permission checking — use cached role permissions
+    // Compute admin permissions from the already-fetched roles (no extra DB round-trip).
     const userRoleIds = (membership.roles || []) as string[];
-    const hasAdmin = isOwner || (userRoleIds.length > 0 && await (async () => {
-      const rolePerms = await getRolePermissionsForServer(userRoleIds, params.serverId);
-      for (const [, perms] of rolePerms) {
-        if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR || (perms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS) return true;
+    const userRoleSet = new Set(userRoleIds);
+    let hasAdmin = isOwner;
+    if (!hasAdmin && userRoleIds.length > 0) {
+      for (const role of allRoles as any[]) {
+        if (!userRoleSet.has(role.id)) continue;
+        // Warm the in-memory cache so subsequent calls in this request cycle hit.
+        const permsStr = role.permissions || '0';
+        rolePermCache.set(`${params.serverId}:${role.id}`, permsStr);
+        const perms = BigInt(permsStr);
+        if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR || (perms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS) {
+          hasAdmin = true;
+          break;
+        }
       }
-      return false;
-    })());
+    }
 
     const PERM_VIEW_CHANNEL = 1n << 10n;
 
