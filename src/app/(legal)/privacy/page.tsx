@@ -136,7 +136,7 @@ export default async function PrivacyPage() {
       <section>
         <H>{gt("8. Children's Privacy")}</H>
         <p>
-          {gt("The Services are not directed to children under 13. We do not knowingly collect personal information from children under 13. If we become aware of such collection, we will promptly delete the information.")}
+          {gt("The Services are not directed to children under 16. We do not knowingly collect personal information from children under 16. If we become aware of such collection, we will promptly delete the information.")}
         </p>
       </section>
 
@@ -307,7 +307,7 @@ export default async function PrivacyPage() {
       <section>
         <H>{gt("12. Children's Privacy")}</H>
         <p>
-          {gt("The Services are not directed to, and we do not knowingly collect personal information from, children under the age of 13 (or the higher minimum age required in your jurisdiction). If you are a parent or guardian and believe your child has provided us with personal information without appropriate consent, please contact us and we will take steps to delete such information. If we learn that we have collected personal data from a child in violation of applicable law, we will promptly delete it.")}
+          {gt("The Services are not directed to, and we do not knowingly collect personal information from, children under the age of 16 (or the higher minimum age required in your jurisdiction). If you are a parent or guardian and believe your child has provided us with personal information without appropriate consent, please contact us and we will take steps to delete such information. If we learn that we have collected personal data from a child in violation of applicable law, we will promptly delete it.")}
         </p>
       </section>
 
@@ -346,7 +346,7 @@ export default async function PrivacyPage() {
     <LegalDocument
       badge={gt("Legal")}
       title={gt("Privacy Policy")}
-      updated={gt("Last updated: June 29, 2026 · Effective: June 29, 2026")}
+      updated={gt("Last updated: July 19, 2026 · Effective: July 19, 2026")}
       navLink={{ href: "/terms", label: gt("Terms of Service") }}
       footerLink={{ href: "/terms", label: gt("Terms of Service") }}
       copyright={gt("© 2026 Serika Company. All rights reserved.")}

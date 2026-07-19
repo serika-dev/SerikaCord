@@ -36,7 +36,7 @@ export default async function TermsPage() {
           {gt("(\"Serika\", \"we\", \"us\", or \"our\"), governing your access to and use of SerikaCord, including our website, APIs, and all related services (collectively, the \"Services\").")}
         </p>
         <p className="mt-3">
-          {gt("By accessing or using the Services, you confirm that you are at least 13 years of age, have read and understood these Terms, and agree to be bound by them. If you do not agree, you must not use the Services.")}
+          {gt("By accessing or using the Services, you confirm that you are at least 16 years of age, have read and understood these Terms, and agree to be bound by them. If you do not agree, you must not use the Services.")}
         </p>
       </section>
 
@@ -148,14 +148,14 @@ export default async function TermsPage() {
           {gt("and its affiliates (collectively, \"Serika\", \"we\", \"us\", or \"our\"), governing your access to and use of SerikaCord, including our websites, applications, APIs, bots, and all related products, features, and services (collectively, the \"Services\").")}
         </p>
         <p className="mt-3">
-          {gt("By creating an account, or by accessing or using the Services, you represent and warrant that you are at least 13 years of age (or the higher minimum age required in your jurisdiction), that you have the legal capacity to enter into these Terms, and that you have read, understood, and agree to be bound by these Terms and our Privacy Policy, which is incorporated by reference. If you use the Services on behalf of an organization, you represent that you are authorized to bind that organization, and \"you\" refers to that organization. If you do not agree, you must not access or use the Services.")}
+          {gt("By creating an account, or by accessing or using the Services, you represent and warrant that you are at least 16 years of age (or the higher minimum age required in your jurisdiction), that you have the legal capacity to enter into these Terms, and that you have read, understood, and agree to be bound by these Terms and our Privacy Policy, which is incorporated by reference. If you use the Services on behalf of an organization, you represent that you are authorized to bind that organization, and \"you\" refers to that organization. If you do not agree, you must not access or use the Services.")}
         </p>
       </section>
 
       <section>
         <H>{gt("2. Eligibility and Age Requirements")}</H>
         <p>
-          {gt("The Services are not available to any User previously removed from the Services by Serika, or to any person barred from receiving the Services under applicable law. You must not use the Services if you are under 13 years of age. Where a community, feature, or applicable law imposes a higher minimum age, you must meet that requirement. You are responsible for ensuring that your use of the Services complies with all laws applicable to you.")}
+          {gt("The Services are not available to any User previously removed from the Services by Serika, or to any person barred from receiving the Services under applicable law. You must not use the Services if you are under 16 years of age. Where a community, feature, or applicable law imposes a higher minimum age, you must meet that requirement. You are responsible for ensuring that your use of the Services complies with all laws applicable to you.")}
         </p>
       </section>
 
@@ -319,7 +319,7 @@ export default async function TermsPage() {
     <LegalDocument
       badge={gt("Legal")}
       title={gt("Terms of Service")}
-      updated={gt("Last updated: June 29, 2026 · Effective: June 29, 2026")}
+      updated={gt("Last updated: July 19, 2026 · Effective: July 19, 2026")}
       navLink={{ href: "/privacy", label: gt("Privacy Policy") }}
       footerLink={{ href: "/privacy", label: gt("Privacy Policy") }}
       copyright={gt("© 2026 Serika Company. All rights reserved.")}
