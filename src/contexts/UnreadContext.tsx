@@ -69,6 +69,13 @@ interface UnreadContextValue {
 
 const UnreadContext = createContext<UnreadContextValue | undefined>(undefined);
 
+// Mirror of the server's MAX_UNREAD_BADGE (Message.ts). Kept as a local literal
+// so this client module doesn't pull the DB-backed model into the bundle. Past
+// this the UI shows "99+", so we never let a live count climb higher — a channel
+// spammed with 1000 messages stays a clean, cheap "99+" instead of re-rendering
+// on every increment up to 1000.
+const MAX_UNREAD_BADGE = 100;
+
 const LS_READ = "sc:unread:read";
 const LS_ACTIVITY = "sc:unread:activity";
 // Legacy per-channel read key used by useMentions (still powers the server rail's
@@ -207,7 +214,11 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       return next;
     });
     if (channelId === activeChannelRef.current) return; // reading it now
-    setMentionCounts((prev) => ({ ...prev, [channelId]: (prev[channelId] || 0) + 1 }));
+    setMentionCounts((prev) => {
+      const current = prev[channelId] || 0;
+      if (current >= MAX_UNREAD_BADGE) return prev; // already at "99+", skip re-render
+      return { ...prev, [channelId]: current + 1 };
+    });
   }, [persistActivity]);
 
   const registerChannels = useCallback((channels: ChannelMeta[]) => {
@@ -288,7 +299,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         for (const m of (data.mentions || []) as Array<{ channelId: string; createdAt: string }>) {
           const readTs = readMap[m.channelId] ? new Date(readMap[m.channelId]).getTime() : 0;
           if (new Date(m.createdAt).getTime() > readTs) {
-            counts[m.channelId] = (counts[m.channelId] || 0) + 1;
+            counts[m.channelId] = Math.min((counts[m.channelId] || 0) + 1, MAX_UNREAD_BADGE);
           }
         }
         if (!cancelled) setMentionCounts((prev) => ({ ...counts, ...prev }));
@@ -389,10 +400,11 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         });
 
         if (mentionsMe) {
-          setMentionCounts((prev) => ({
-            ...prev,
-            [event.channelId]: (prev[event.channelId] || 0) + 1,
-          }));
+          setMentionCounts((prev) => {
+            const current = prev[event.channelId] || 0;
+            if (current >= MAX_UNREAD_BADGE) return prev; // "99+" already; no re-render
+            return { ...prev, [event.channelId]: current + 1 };
+          });
           const label = event.channelName ? `#${event.channelName}` : "a channel";
           const who = event.authorName || "Someone";
           toast(`${who} mentioned you in ${label}`, {

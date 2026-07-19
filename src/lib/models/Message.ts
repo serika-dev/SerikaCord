@@ -13,6 +13,12 @@ export type MessageType =
 
 export type IMessage = typeof schema.messages.$inferSelect;
 
+// Unread badges never show an exact number past this — the UI renders "99+".
+// Counting (and carrying client-side) anything beyond it is wasted work, so the
+// count query, the live increment, and the display all clamp to this ceiling.
+// Kept a touch above 99 so "99+" is always reached before the cap bites.
+export const MAX_UNREAD_BADGE = 100;
+
 export const Message = {
   table: schema.messages,
 
@@ -106,6 +112,11 @@ export const Message = {
    * One round-trip regardless of channel count — used to seed DM unread badges
    * without N per-channel queries. Returns { channelId: count } (channels with
    * zero unread are omitted).
+   *
+   * Each channel is capped at MAX_UNREAD_BADGE: a windowed subquery numbers the
+   * matching rows per channel and we only count up to the cap, so a DM sitting
+   * on 1000+ unread never forces a full-backlog scan — we stop at the ceiling
+   * the UI would render as "99+" anyway.
    */
   async unreadCounts(
     entries: { channelId: string; after: Date | null }[],
@@ -116,10 +127,10 @@ export const Message = {
       const chan = buildCondition(schema.messages.channelId, e.channelId, true);
       return e.after ? and(chan, gt(schema.messages.createdAt, e.after)) : chan;
     });
-    const rows = await db
+    const ranked = db
       .select({
         channelId: schema.messages.channelId,
-        count: sql<number>`count(*)::int`,
+        rn: sql<number>`row_number() over (partition by ${schema.messages.channelId} order by ${schema.messages.createdAt} desc)`.as('rn'),
       })
       .from(schema.messages)
       .where(
@@ -129,7 +140,15 @@ export const Message = {
           or(...perChannel),
         ),
       )
-      .groupBy(schema.messages.channelId);
+      .as('ranked');
+    const rows = await db
+      .select({
+        channelId: ranked.channelId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(ranked)
+      .where(sql`${ranked.rn} <= ${MAX_UNREAD_BADGE}`)
+      .groupBy(ranked.channelId);
     const out: Record<string, number> = {};
     for (const r of rows) {
       if (r.count > 0) out[r.channelId] = r.count;
