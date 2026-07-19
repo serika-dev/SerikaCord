@@ -48,6 +48,12 @@ interface UnreadContextValue {
   getMentionCount: (channelId: string) => number;
   isServerUnread: (serverId: string) => boolean;
   getServerMentionCount: (serverId: string) => number;
+  /** Total unread DM messages across every DM/group channel (drives the mobile
+   *  Messages tab badge). Capped at MAX_UNREAD_BADGE per channel upstream. */
+  totalDmUnreadCount: number;
+  /** Total server mentions across every joined server (drives the mobile
+   *  Notifications tab badge). */
+  totalMentionCount: number;
   markChannelRead: (channelId: string) => void;
   /** Mark every channel in a server as read (clears unread pill + mention badges). */
   markServerRead: (serverId: string) => void;
@@ -565,12 +571,31 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     [serverMentionCounts]
   );
 
+  // App-wide aggregates for the mobile bottom-nav badges. DM channels register
+  // without a serverId, so "no serverId" == a DM/group conversation.
+  const totalDmUnreadCount = useMemo(() => {
+    let sum = 0;
+    for (const [channelId, meta] of Object.entries(channelMeta)) {
+      if (meta.serverId) continue;
+      sum += mentionCounts[channelId] || 0;
+    }
+    return sum;
+  }, [channelMeta, mentionCounts]);
+
+  const totalMentionCount = useMemo(() => {
+    let sum = 0;
+    for (const c of serverMentionCounts.values()) sum += c;
+    return sum;
+  }, [serverMentionCounts]);
+
   const value = useMemo<UnreadContextValue>(
     () => ({
       isChannelUnread,
       getMentionCount,
       isServerUnread,
       getServerMentionCount,
+      totalDmUnreadCount,
+      totalMentionCount,
       markChannelRead,
       markServerRead,
       registerChannels,
@@ -583,6 +608,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       getMentionCount,
       isServerUnread,
       getServerMentionCount,
+      totalDmUnreadCount,
+      totalMentionCount,
       markChannelRead,
       markServerRead,
       registerChannels,
@@ -603,6 +630,8 @@ const NOOP_UNREAD: UnreadContextValue = {
   getMentionCount: () => 0,
   isServerUnread: () => false,
   getServerMentionCount: () => 0,
+  totalDmUnreadCount: 0,
+  totalMentionCount: 0,
   markChannelRead: () => {},
   markServerRead: () => {},
   registerChannels: () => {},

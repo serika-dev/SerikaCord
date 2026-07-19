@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
+import { useUnread } from "@/contexts/UnreadContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Home, MessageSquare, Bell, User } from "lucide-react";
@@ -25,14 +26,20 @@ interface BottomNavigationProps {
 }
 
 export function BottomNavigation({
-  notificationCount = 0,
-  messageCount = 0
+  notificationCount,
+  messageCount
 }: BottomNavigationProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { setCurrentServer, setCurrentChannel } = useServer();
+  const { totalDmUnreadCount, totalMentionCount } = useUnread();
   const { user } = useAuth();
   const gt = useGT();
+
+  // Live badge counts come from the app-wide unread engine. Explicit props (if
+  // ever passed) win, so callers can still override.
+  const messages = messageCount ?? totalDmUnreadCount;
+  const notifications = notificationCount ?? totalMentionCount;
 
   // Hide inside an open conversation (channel chat or DM) so the composer
   // gets the full viewport and the keyboard doesn't fight the nav.
@@ -51,14 +58,14 @@ export function BottomNavigation({
       icon: MessageSquare,
       label: gt("Messages"),
       href: "/channels/messages",
-      badge: messageCount,
+      badge: messages,
       clearServer: true,
     },
     {
       icon: Bell,
       label: gt("Notifications"),
       href: "/channels/notifications",
-      badge: notificationCount,
+      badge: notifications,
       clearServer: true,
     },
     {

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useState } from "react";
+import { useInView } from "@/hooks/useInView";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
@@ -99,8 +100,14 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [isJoining, setIsJoining] = useState(false);
   const [joined, setJoined] = useState(false);
+  // Defer the invite lookup until the card is near the viewport. Without this,
+  // opening an invite-heavy channel (e.g. Partnerships) mounts every card at
+  // once and fires 50–200 concurrent /api/invites requests, spiking memory and
+  // the main thread hard enough to crash the tab.
+  const [cardRef, inView] = useInView<HTMLDivElement>();
 
   useEffect(() => {
+    if (!inView) return;
     let active = true;
     setStatus("loading");
     fetch(`/api/invites/${encodeURIComponent(code)}`)
@@ -118,7 +125,7 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
     return () => {
       active = false;
     };
-  }, [code]);
+  }, [code, inView]);
 
   const handleJoin = async () => {
     if (!data || isJoining) return;
@@ -146,7 +153,7 @@ export const InviteEmbed = memo(function InviteEmbed({ code }: InviteEmbedProps)
   if (status === "error") return null;
 
   return (
-    <div className="mt-2 w-full max-w-[420px] rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] p-4">
+    <div ref={cardRef} className="mt-2 w-full max-w-[420px] rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)] mb-3">
         {gt("You've been invited to join a server")}
       </p>

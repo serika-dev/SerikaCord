@@ -45,7 +45,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
+import dynamic from "next/dynamic";
+// Lazy-loaded: the emoji/GIF/sticker picker (+ its emoji dataset) is ~2k lines
+// that only matter once the user opens it, so it stays out of the initial chat
+// bundle. Radix only mounts PopoverContent on open, so this fetches on first use.
+const CustomEmojiPicker = dynamic(
+  () => import("@/components/chat/CustomEmojiPicker").then((m) => m.CustomEmojiPicker),
+  { ssr: false, loading: () => <div className="w-[440px] max-w-[calc(100vw-1rem)] h-[420px]" /> }
+);
 import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { onHotkey } from "@/lib/keybinds";

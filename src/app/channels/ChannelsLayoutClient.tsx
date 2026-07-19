@@ -148,7 +148,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showServerSettings, setShowServerSettings] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { currentServer } = useServer();
+  const { currentServer, setCurrentServer, setCurrentChannel } = useServer();
 
   // Global Discord-style keyboard shortcuts (navigation handled internally;
   // UI actions arrive as broadcast events, wired below).
@@ -277,9 +277,14 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
               </motion.main>
             </AnimatePresence>
           ) : mobileView === "servers" && currentServer ? (
-            <MobileServerView />
+            <MobileServerView
+              onBack={() => {
+                setCurrentChannel(null);
+                setCurrentServer(null);
+              }}
+            />
           ) : mobileView === "messages" ? (
-            <MobileMessagesView />
+            <MobileMessagesView onAddFriend={() => router.push("/channels/me")} />
           ) : mobileView === "notifications" ? (
             <MobileNotificationsView />
           ) : mobileView === "profile" ? (

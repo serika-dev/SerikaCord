@@ -2,6 +2,7 @@
 
 import { useEffect, useState, memo } from "react";
 import { ExternalLink, Play } from "lucide-react";
+import { useInView } from "@/hooks/useInView";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
@@ -1241,6 +1242,9 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
   const urls = extractUrls(decodeHtmlEntities(content));
   const url = urls[0] || "";
   const [preview, setPreview] = useState<OEmbedData | null>(null);
+  // Defer the link-preview fetch until the embed is near the viewport, so a
+  // link-heavy channel doesn't fire every oembed request at once on open.
+  const [genericRef, inView] = useInView<HTMLDivElement>();
 
   useEffect(() => {
     // Twitter/X is rendered by TwitterEmbed, which fetches its own richer data.
@@ -1248,6 +1252,7 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
       setPreview(null);
       return;
     }
+    if (!inView) return;
 
     let active = true;
     setPreview(null);
@@ -1282,7 +1287,7 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
     return () => {
       active = false;
     };
-  }, [url]);
+  }, [url, inView]);
 
   if (!url) return null;
 
@@ -1384,5 +1389,11 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick }: Link
     return <KlipyEmbed url={url} preview={preview || undefined} onMediaClick={onMediaClick} />;
   }
 
-  return <GenericEmbed url={url} preview={preview || undefined} />;
+  // Wrapper carries the visibility sensor so the oembed fetch above only fires
+  // once this generic card nears the viewport.
+  return (
+    <div ref={genericRef}>
+      <GenericEmbed url={url} preview={preview || undefined} />
+    </div>
+  );
 });

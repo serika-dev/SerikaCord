@@ -3,6 +3,7 @@
 import { useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
+import { useUnread } from "@/contexts/UnreadContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { 
   Hash, 
@@ -42,6 +43,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
   const router = useRouter();
   const gt = useGT();
   const { currentServer, channels, setCurrentChannel } = useServer();
+  const { isChannelUnread, getMentionCount } = useUnread();
   const { can, isAdmin } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -326,7 +328,9 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
                 {!collapsedCategories.has(category.id || 'uncategorized') && (
                   <div className="space-y-0.5 mt-1">
                     {category.channels.map((channel) => {
-                      const extChannel = channel as typeof channel & ExtendedChannel;
+                      const isVoice = channel.type === "voice";
+                      const unread = !isVoice && isChannelUnread(channel.id);
+                      const mentions = isVoice ? 0 : getMentionCount(channel.id);
                       return (
                         <button
                           key={channel.id}
@@ -334,23 +338,30 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
                           className={cn(
                             "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-150",
                             "hover:bg-[var(--bg-hover)]/80 active:bg-[var(--bg-hover)] active:scale-[0.98]",
-                            channel.type === "voice" && voiceService.currentRoomId === channel.id
+                            isVoice && voiceService.currentRoomId === channel.id
                               ? "bg-green-500/10 text-green-400"
-                              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                              : unread
+                                ? "text-[var(--text-primary)] font-semibold"
+                                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                           )}
                         >
                           {getChannelIcon(channel.type)}
-                          <span className="flex-1 text-left truncate font-medium text-[15px]">
+                          <span className={cn(
+                            "flex-1 text-left truncate text-[15px]",
+                            unread ? "font-semibold" : "font-medium"
+                          )}>
                             {channel.name}
                           </span>
-                          {channel.type === "voice" && voiceService.currentRoomId === channel.id && (
+                          {isVoice && voiceService.currentRoomId === channel.id && (
                             <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                           )}
-                          {extChannel.unreadCount != null && extChannel.unreadCount > 0 && channel.type !== "voice" && (
+                          {mentions > 0 ? (
                             <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-[#ED4245] text-white text-xs font-bold rounded-full shadow-lg">
-                              {extChannel.unreadCount > 99 ? "99+" : extChannel.unreadCount}
+                              {mentions > 99 ? "99+" : mentions}
                             </span>
-                          )}
+                          ) : unread ? (
+                            <span className="w-2.5 h-2.5 flex-shrink-0 rounded-full bg-[var(--text-primary)]" />
+                          ) : null}
                         </button>
                       );
                     })}

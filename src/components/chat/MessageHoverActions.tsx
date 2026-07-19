@@ -12,8 +12,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CustomEmojiPicker } from "@/components/chat/CustomEmojiPicker";
+import dynamic from "next/dynamic";
 import type { ChatMessage, MessageCustomEmoji } from "@/lib/chat/types";
+
+// Lazy-loaded so the reaction picker's code/data only load on first open,
+// keeping it out of every rendered message's bundle.
+const CustomEmojiPicker = dynamic(
+  () => import("@/components/chat/CustomEmojiPicker").then((m) => m.CustomEmojiPicker),
+  { ssr: false, loading: () => <div className="w-[440px] max-w-[calc(100vw-1rem)] h-[420px]" /> }
+);
 
 interface PickerEmoji {
   id: string;
