@@ -1054,9 +1054,11 @@ function TwitterEmbed({ url }: { url: string }) {
 function GenericEmbed({
   url,
   preview,
+  onSuppress,
 }: {
   url: string;
   preview?: OEmbedData;
+  onSuppress?: () => void;
 }) {
   let hostname = "link";
   let pathname = "";
@@ -1070,11 +1072,21 @@ function GenericEmbed({
   }
 
   return (
+    <div className="relative group/embed-card mt-2 max-w-[400px]">
+      {onSuppress && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSuppress(); }}
+          className="absolute top-1 right-1 z-10 opacity-0 group-hover/embed-card:opacity-100 transition-opacity p-1 text-white/70 hover:text-white"
+          title="Remove embed"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
     <a
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 block max-w-[400px] border-l-4 border-[#8B5CF6] bg-[#1a1a1a] rounded-r-lg overflow-hidden hover:bg-[#222222] transition-colors"
+      className="block border-l-4 border-[#8B5CF6] bg-[#1a1a1a] rounded-r-lg overflow-hidden hover:bg-[#222222] transition-colors"
     >
       {preview?.video ? (
         <video
@@ -1111,6 +1123,7 @@ function GenericEmbed({
         )}
       </div>
     </a>
+    </div>
   );
 }
 
@@ -1396,17 +1409,8 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
   // Wrapper carries the visibility sensor so the oembed fetch above only fires
   // once this generic card nears the viewport.
   return (
-    <div ref={genericRef} className="relative group/embed">
-      {onSuppress && (
-        <button
-          onClick={onSuppress}
-          className="absolute -top-2 -right-2 z-10 opacity-0 group-hover/embed:opacity-100 transition-opacity p-0.5 text-[var(--app-muted)] hover:text-[var(--app-text)]"
-          title="Remove embed"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
-      )}
-      <GenericEmbed url={url} preview={preview || undefined} />
+    <div ref={genericRef}>
+      <GenericEmbed url={url} preview={preview || undefined} onSuppress={onSuppress} />
     </div>
   );
 });
