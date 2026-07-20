@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { Application, ChannelWebhook } from '@/lib/models';
-import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage } from '@/lib/models';
-import { AppCommand } from '@/lib/models/AppCommand';
+import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
+import { AppCommand, type IAppCommand } from '@/lib/models/AppCommand';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
 import { isValidObjectId } from '@/lib/security';
@@ -495,7 +495,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = await Channel.findById(params.channelId);
   if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
 
-  const { content, embeds, tts, attachments, allowed_mentions, sticker_ids, components, flags } = body as Record<string, unknown>;
+  const { content, embeds, tts, attachments, allowed_mentions, sticker_ids, components, flags } = body as { content?: string; embeds?: unknown[]; tts?: boolean; attachments?: unknown[]; allowed_mentions?: unknown; sticker_ids?: unknown[]; components?: unknown[]; flags?: number };
   if (!content && !embeds?.length && !attachments?.length && !sticker_ids?.length) {
     set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
   }
@@ -555,7 +555,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       content: msg.content ?? '',
       channelId: params.channelId,
       serverId: channel.serverId ?? null,
-      createdAt: (populated as IMessage | undefined)?.createdAt,
+      createdAt: (populated as IMessage | undefined)?.createdAt ?? msg.createdAt ?? new Date(),
       author: author ? {
         id: author.id,
         username: author.username,
@@ -564,7 +564,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         isBot: author.isBot ?? undefined,
         isSystem: author.isSystem ?? undefined,
       } : null,
-      attachments: (msg.attachments ?? []),
+      attachments: (msg.attachments ?? []) as Array<Record<string, unknown>>,
     });
   } catch {}
 
@@ -583,7 +583,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 403; return { code: 50003, message: 'Cannot edit a message authored by another user' };
   }
 
-  const { content, embeds } = body as Record<string, unknown>;
+  const { content, embeds } = body as { content?: string; embeds?: unknown[] };
   const updates: Record<string, unknown> = { edited: true };
   if (content !== undefined) updates.content = content;
   if (embeds !== undefined) updates.embeds = embeds;
@@ -617,7 +617,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const { messages } = body as Record<string, unknown>;
+  const { messages } = body as { messages?: string[] };
   if (!messages || !Array.isArray(messages) || messages.length < 2 || messages.length > 100) {
     set.status = 400; return { code: 50016, message: 'Invalid number of messages (2-100)' };
   }
@@ -802,7 +802,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   const cmds = await AppCommand.find({ applicationId: params.appId, guildId: null });
-  return cmds.map((c: any) => ({
+  return cmds.map((c: IAppCommand) => ({
     id: c.id,
     application_id: params.appId,
     name: c.name,
@@ -817,17 +817,17 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   // Bulk overwrite global commands.
-  const commands = (body as unknown[]) ?? [];
+  const commands = (body as Array<{ name?: string; description?: string; options?: unknown[]; default_permission?: boolean; type?: number }>) ?? [];
   const existing = await AppCommand.find({ applicationId: params.appId, guildId: null });
   for (const cmd of existing) {
     await AppCommand.deleteById(cmd.id);
   }
-  const created: any[] = [];
+  const created: IAppCommand[] = [];
   for (const c of commands) {
     const row = await AppCommand.create({
       applicationId: params.appId,
       guildId: null,
-      name: c.name,
+      name: c.name ?? '',
       description: c.description ?? '',
       options: c.options ?? [],
       defaultPermission: c.default_permission ?? true,
@@ -835,7 +835,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     });
     created.push(row);
   }
-  return created.map((c: any) => ({
+  return created.map((c: IAppCommand) => ({
     id: c.id,
     application_id: params.appId,
     name: c.name,
@@ -889,7 +889,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     return { code: 30013, message: 'Maximum number of guild channels reached' };
   }
 
-  const { name, type, topic, nsfw, parent_id, rate_limit_per_user, position } = body as Record<string, unknown>;
+  const { name, type, topic, nsfw, parent_id, rate_limit_per_user, position } = body as { name?: string; type?: number; topic?: string; nsfw?: boolean; parent_id?: string; rate_limit_per_user?: number; position?: number };
   if (!name) { set.status = 400; return { code: 50035, message: 'Name is required' }; }
 
   const typeReverseMap: Record<number, 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum'> = {
@@ -900,7 +900,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = await Channel.create({
     serverId: params.guildId,
     name,
-    type: typeReverseMap[type] ?? 'text',
+    type: (type !== undefined ? typeReverseMap[type] : undefined) ?? 'text',
     topic: topic ?? '',
     nsfw: nsfw ?? false,
     parentId: parent_id ?? undefined,
@@ -946,7 +946,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const { name, color, hoist, permissions, mentionable, icon, unicode_emoji } = body as Record<string, unknown>;
+  const { name, color, hoist, permissions, mentionable, icon, unicode_emoji } = body as { name?: string; color?: number; hoist?: boolean; permissions?: string; mentionable?: boolean; icon?: string; unicode_emoji?: string };
 
   const role = await Role.create({
     serverId: params.guildId,
@@ -1005,7 +1005,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (patch.deaf !== undefined) updates.deaf = patch.deaf;
   if (patch.mute !== undefined) updates.mute = patch.mute;
   if (patch.communication_disabled_until !== undefined) {
-    updates.communicationDisabledUntil = patch.communication_disabled_until ? new Date(patch.communication_disabled_until) : undefined;
+    updates.communicationDisabledUntil = patch.communication_disabled_until ? new Date(patch.communication_disabled_until as string) : undefined;
   }
   const updated = await ServerMember.updateById(member.id, updates);
 
@@ -1019,7 +1019,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const member = await ServerMember.findOne({ serverId: params.guildId, userId: auth.botUser.id });
   if (!member) { set.status = 404; return { code: 10007, message: 'Unknown Member' }; }
 
-  const { nick } = body as Record<string, unknown>;
+  const { nick } = body as { nick?: string };
   await ServerMember.updateById(member.id, { nickname: nick });
   return nick;
 })
@@ -1046,7 +1046,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.guildId) || !isValidObjectId(params.userId)) {
     set.status = 404; return { code: 10004, message: 'Unknown Guild' };
   }
-  const { reason } = body as Record<string, unknown>;
+  const { reason } = body as { reason?: string };
 
   // Remove member if exists
   const member = await ServerMember.findOne({ serverId: params.guildId, userId: params.userId });
@@ -1105,7 +1105,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const { name, image, roles } = body as Record<string, unknown>;
+  const { name, image, roles } = body as { name?: string; image?: string; roles?: string[] };
   if (!name || !image) { set.status = 400; return { code: 50035, message: 'Name and image are required' }; }
 
   const emoji = await ServerEmoji.create({
@@ -1137,7 +1137,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const emoji = await ServerEmoji.findById(params.emojiId);
   if (!emoji) { set.status = 404; return { code: 10011, message: 'Unknown Emoji' }; }
 
-  const { name, roles } = body as Record<string, unknown>;
+  const { name, roles } = body as { name?: string; roles?: string[] };
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   const updated = await ServerEmoji.updateById(params.emojiId, updates);
@@ -1244,7 +1244,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = await Channel.findById(params.channelId);
   if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
 
-  const { name, avatar } = body as Record<string, unknown>;
+  const { name, avatar } = body as { name?: string; avatar?: string };
   if (!name) { set.status = 400; return { code: 50035, message: 'Name is required' }; }
 
   const token = crypto.randomBytes(24).toString('hex');
@@ -1336,7 +1336,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   const allChannels = await Channel.find({});
-  const dmChannels = allChannels.filter((c: any) =>
+  const dmChannels = allChannels.filter((c: IChannel) =>
     (c.type === 'dm' || c.type === 'group_dm') &&
     Array.isArray(c.recipientIds) &&
     c.recipientIds.includes(auth.botUser.id)
@@ -1347,14 +1347,14 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const { recipient_id } = body as Record<string, unknown>;
+  const { recipient_id } = body as { recipient_id?: string };
   if (!recipient_id || !isValidObjectId(recipient_id)) {
     set.status = 400; return { code: 50035, message: 'Invalid recipient_id' };
   }
 
   // Check if DM channel already exists
   const allChannels = await Channel.find({});
-  let dm = allChannels.find((c: any) =>
+  let dm = allChannels.find((c: IChannel) =>
     c.type === 'dm' &&
     Array.isArray(c.recipientIds) &&
     c.recipientIds.includes(auth.botUser.id) &&
@@ -1414,7 +1414,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const { name, description, options, default_permission, type } = body as Record<string, unknown>;
+  const { name, description, options, default_permission, type } = body as { name?: string; description?: string; options?: unknown[]; default_permission?: boolean; type?: number };
   if (!name || !description) { set.status = 400; return { code: 50035, message: 'Name and description are required' }; }
 
   const cmd = await AppCommand.create({
@@ -1443,7 +1443,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const cmd = await AppCommand.findById(params.commandId);
   if (!cmd) { set.status = 404; return { code: 10063, message: 'Unknown Command' }; }
 
-  const { name, description, options, default_permission } = body as Record<string, unknown>;
+  const { name, description, options, default_permission } = body as { name?: string; description?: string; options?: unknown[]; default_permission?: boolean };
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name;
   if (description !== undefined) updates.description = description;
@@ -1477,7 +1477,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   const cmds = await AppCommand.find({ applicationId: params.appId, guildId: params.guildId });
-  return cmds.map((c: any) => ({
+  return cmds.map((c: IAppCommand) => ({
     id: c.id,
     application_id: params.appId,
     guild_id: params.guildId,
@@ -1494,25 +1494,25 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   // Bulk overwrite guild commands
-  const commands = body as unknown[];
+  const commands = body as Array<{ name?: string; description?: string; options?: unknown[]; default_permission?: boolean; type?: number }>;
   const existing = await AppCommand.find({ applicationId: params.appId, guildId: params.guildId });
   for (const cmd of existing) {
     await AppCommand.deleteById(cmd.id);
   }
-  const created: any[] = [];
+  const created: IAppCommand[] = [];
   for (const c of commands) {
     const row = await AppCommand.create({
       applicationId: params.appId,
       guildId: params.guildId,
-      name: c.name,
-      description: c.description,
+      name: c.name ?? '',
+      description: c.description ?? '',
       options: c.options ?? [],
       defaultPermission: c.default_permission ?? true,
       type: c.type ?? 1,
     });
     created.push(row);
   }
-  return created.map((c: any) => ({
+  return created.map((c: IAppCommand) => ({
     id: c.id,
     application_id: params.appId,
     guild_id: params.guildId,

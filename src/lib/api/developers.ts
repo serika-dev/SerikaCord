@@ -199,7 +199,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
   if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-  const { name } = body as Record<string, unknown>;
+  const { name } = body as { name?: string };
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     set.status = 400; return { error: 'Name is required' };
   }
@@ -284,7 +284,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   if (!hasAccess && app.teamId) {
     const team = await DeveloperTeam.findById(app.teamId);
     const member = (team?.members as ITeamMember[] | undefined)?.find((m) => m.userId === user.id);
-    hasAccess = member && (member.role === 'owner' || member.role === 'admin' || member.role === 'developer');
+    hasAccess = Boolean(member && (member.role === 'owner' || member.role === 'admin' || member.role === 'developer'));
   }
   if (!hasAccess) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
@@ -296,7 +296,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     'interactionsEndpointUrl',
   ];
 
-  const updateData: Record<string, any> = {};
+  const updateData: Record<string, unknown> = {};
   for (const key of allowed) {
     if (patch[key] !== undefined) {
       updateData[key] = patch[key];
@@ -399,7 +399,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Only the owner can change the interactions endpoint' };
   }
 
-  (body as Record<string, unknown>)?.url?.trim() || null;
+  const url = ((body as Record<string, unknown>)?.url as string | undefined)?.trim() || null;
 
   if (!url) {
     await Application.updateById(app.id, { interactionsEndpointUrl: null });
@@ -477,7 +477,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const app = await Application.findById(params.id);
   if (!app) { set.status = 404; return { error: 'Application not found' }; }
 
-  const { name, image, animated } = body as Record<string, unknown>;
+  const { name, image, animated } = body as { name?: string; image?: string; animated?: boolean };
   if (!name || !image) { set.status = 400; return { error: 'Name and image are required' }; }
 
   const emoji = await AppEmoji.create({
@@ -534,7 +534,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   if (!params.id) { set.status = 404; return { error: 'Not found' }; }
 
-  const { name, url, events } = body as Record<string, unknown>;
+  const { name, url, events } = body as { name?: string; url?: string; events?: string[] };
   if (!name || !url) { set.status = 400; return { error: 'Name and URL are required' }; }
 
   try { new URL(url); } catch { set.status = 400; return { error: 'Invalid URL' }; }
@@ -642,7 +642,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Only the owner can invite members' };
   }
 
-  const { username, role } = body as Record<string, unknown>;
+  const { username, role } = body as { username?: string; role?: string };
   const invitee = await User.findOne({ username: username?.trim() });
   if (!invitee) { set.status = 404; return { error: 'User not found' }; }
 
@@ -670,7 +670,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 400; return { error: 'User is already a member' };
   }
 
-  ((team!.members as ITeamMember[]).push({
+  (team!.members as ITeamMember[]).push({
     userId: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
@@ -727,7 +727,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const allApps = teamIds.length > 0 ? await Application.find({ teamId: { in: teamIds } }) : [];
   const appCountByTeam = new Map<string, number>();
   for (const app of allApps as IApplication[]) {
-    appCountByTeam.set(app.teamId, (appCountByTeam.get(app.teamId) || 0) + 1);
+    const teamId = app.teamId || '';
+    appCountByTeam.set(teamId, (appCountByTeam.get(teamId) || 0) + 1);
   }
   const teamsWithCounts = teams.map((team: any) => ({
     ...sanitizeTeam(team),
@@ -741,7 +742,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
   if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-  const { name } = body as Record<string, unknown>;
+  const { name } = body as { name?: string };
   if (!name || name.trim().length === 0) { set.status = 400; return { error: 'Team name is required' }; }
 
   const team = await DeveloperTeam.create({
@@ -787,7 +788,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'You do not have permission to edit this team' };
   }
 
-  const { name, description, icon } = body as Record<string, unknown>;
+  const { name, description, icon } = body as { name?: string; description?: string; icon?: string };
   const updateData: Record<string, any> = {};
   if (name !== undefined) updateData.name = name.trim();
   if (description !== undefined) updateData.description = description;
@@ -833,7 +834,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'You do not have permission to invite members' };
   }
 
-  const { username, role } = body as Record<string, unknown>;
+  const { username, role } = body as { username?: string; role?: string };
   const invitee = await User.findOne({ username: username?.trim() });
   if (!invitee) { set.status = 404; return { error: 'User not found' }; }
 
@@ -841,7 +842,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 400; return { error: 'User is already a member' };
   }
 
-  ((team.members as ITeamMember[]).push({
+  (team.members as ITeamMember[]).push({
     userId: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
@@ -1280,12 +1281,11 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
 export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
   .post('/token', async ({ body, set }) => {
-    const formData = body as Record<string, unknown>;
+    const formData = body as { grant_type?: string; client_id?: string; client_secret?: string; refresh_token?: string; code?: string; redirect_uri?: string };
 
     const grantType = formData.grant_type;
     const clientId = formData.client_id;
     const clientSecret = formData.client_secret;
-
     const { Application } = await import('@/lib/models');
     const app = await Application.findOne({ clientId });
     if (!app) { set.status = 400; return { error: 'invalid_client' }; }
@@ -1372,7 +1372,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
   })
 
   .post('/token/revoke', async ({ body, set }) => {
-    const formData = body as Record<string, unknown>;
+    const formData = body as { token?: string };
     const token = formData.token;
     if (!token) { set.status = 400; return { error: 'invalid_request' }; }
     return {};
@@ -1385,11 +1385,11 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const payload = body as Record<string, unknown>;
+    const payload = body as { client_id?: string; serverId?: string; permissions?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string };
     const clientId = payload.client_id || (query.client_id as string);
     const serverId = payload.serverId;
     const permissions = BigInt(payload.permissions || '0');
-    const requestedScopes = (payload.scopes as string[]) || (query.scope as string || '').split(' ').filter(Boolean);
+    const requestedScopes = payload.scopes || (query.scope as string || '').split(' ').filter(Boolean);
     const redirectUri = payload.redirect_uri || (query.redirect_uri as string);
     const state = payload.state || (query.state as string);
     const responseType = payload.response_type || (query.response_type as string) || 'code';

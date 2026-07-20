@@ -965,7 +965,7 @@ export default function MobileSettingsSectionPage() {
                         <button
                           key={eff.value}
                           type="button"
-                          onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: eff.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold" }))}
+                          onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: eff.value as "solid" | "gradient" | "neon" | "toon" | "pop" }))}
                           className={cn(
                             "h-12 rounded-lg flex items-center justify-center transition-all border border-[var(--border-subtle)]",
                             isSelected
@@ -974,8 +974,8 @@ export default function MobileSettingsSectionPage() {
                           )}
                         >
                           <span
-                            className={cn("text-xs truncate px-1", getDisplayNameStyleClasses({ effect: eff.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold", color: eff.value !== "gradient" ? displayNameStyle.color : undefined, gradient: eff.value === "gradient" ? displayNameStyle.gradient : undefined }))}
-                            style={getDisplayNameStyleInline({ effect: eff.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold", color: displayNameStyle.color || "#fff", gradient: displayNameStyle.gradient?.length ? displayNameStyle.gradient : ["#8B5CF6", "#3B82F6"] })}
+                            className={cn("text-xs truncate px-1", getDisplayNameStyleClasses({ effect: eff.value as "solid" | "gradient" | "neon" | "toon" | "pop", color: eff.value !== "gradient" ? displayNameStyle.color : undefined, gradient: eff.value === "gradient" ? displayNameStyle.gradient : undefined }))}
+                            style={getDisplayNameStyleInline({ effect: eff.value as "solid" | "gradient" | "neon" | "toon" | "pop", color: displayNameStyle.color || "#fff", gradient: displayNameStyle.gradient?.length ? displayNameStyle.gradient : ["#8B5CF6", "#3B82F6"] })}
                           >
                             {eff.label}
                           </span>

@@ -7,8 +7,8 @@ export type IServer = typeof schema.servers.$inferSelect;
 export interface IServerSettings {
   widget?: { enabled: boolean; channelId: string | null };
   moderation?: {
-    verificationLevel?: number;
-    explicitContentFilter?: number;
+    verificationLevel?: string;
+    explicitContentFilter?: string;
     require2FA?: boolean;
   };
   safety?: {
@@ -23,6 +23,8 @@ export interface IServerSettings {
     webhooks?: boolean;
     discordGuildId?: string;
     discordMode?: string;
+    discordChannelsMap?: Record<string, string>;
+    discordBridgeOutbound?: boolean;
     twitchChannel?: string;
     twitchNotificationChannelId?: string;
     youtubeChannel?: string;

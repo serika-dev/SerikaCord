@@ -26,8 +26,8 @@ export const Instance = {
         case 'domain': conditions.push(eq(schema.instances.domain, value as string)); break;
         case 'instanceId': conditions.push(eq(schema.instances.instanceId, normalizeId(value as string))); break;
         case 'apiKeyPrefix': conditions.push(eq(schema.instances.apiKeyPrefix, value as string)); break;
-        case 'type': conditions.push(eq(schema.instances.type, value as string)); break;
-        case 'status': conditions.push(eq(schema.instances.status, value as string)); break;
+        case 'type': conditions.push(eq(schema.instances.type, value as typeof schema.instances.type.enumValues[number])); break;
+        case 'status': conditions.push(eq(schema.instances.status, value as typeof schema.instances.status.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.instances);
@@ -46,8 +46,8 @@ export const Instance = {
         case 'domain': conditions.push(eq(schema.instances.domain, value as string)); break;
         case 'instanceId': conditions.push(eq(schema.instances.instanceId, normalizeId(value as string))); break;
         case 'apiKeyPrefix': conditions.push(eq(schema.instances.apiKeyPrefix, value as string)); break;
-        case 'type': conditions.push(eq(schema.instances.type, value as string)); break;
-        case 'status': conditions.push(eq(schema.instances.status, value as string)); break;
+        case 'type': conditions.push(eq(schema.instances.type, value as typeof schema.instances.type.enumValues[number])); break;
+        case 'status': conditions.push(eq(schema.instances.status, value as typeof schema.instances.status.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.instances);

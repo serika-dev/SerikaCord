@@ -624,7 +624,7 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     }
 
     const guildId = integrations.discordGuildId;
-    const webhookUrl = integrations.discordWebhooks?.[channelId];
+    const webhookUrl = (integrations.discordWebhooks as Record<string, string> | undefined)?.[channelId];
 
     if (!webhookUrl) return;
 
@@ -1674,8 +1674,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
 
       // before/after: filter by created date
-      if (beforeDate && !(new Date(msg.createdAt) < beforeDate)) continue;
-      if (afterDate && !(new Date(msg.createdAt) > afterDate)) continue;
+      if (beforeDate && !(new Date(msg.createdAt ?? 0) < beforeDate)) continue;
+      if (afterDate && !(new Date(msg.createdAt ?? 0) > afterDate)) continue;
 
       const decrypted = await decryptFromStorage(msg.content || '');
       if (rawQuery.length >= 2 && !decrypted.toLowerCase().includes(lowered)) continue;
@@ -1999,7 +1999,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (message.referencedMessageId) {
       const reference = await Message.findById(message.referencedMessageId);
       if (reference) {
-        let refAuthor = reference.authorId ? await User.findById(reference.authorId) : null;
+        let refAuthor: { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null = reference.authorId ? (await User.findById(reference.authorId) as { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null) : null;
         // Fall back to DiscordUser if not found in User table
         if (!refAuthor && reference.authorId) {
           const { DiscordUser } = await import('@/lib/models/DiscordUser');
@@ -2010,9 +2010,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               username: da.username || `discord-${da.discordId}`,
               displayName: da.displayName,
               avatar: da.avatar,
-              isBot: da.isBot,
+              isBot: da.isBot ?? false,
               isVerified: false,
-            } as { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean; isVerified: boolean };
+            };
           }
         }
         const refDecrypted = reference.content ? await decryptFromStorage(reference.content) : '';
@@ -2902,7 +2902,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const server = await Server.findById(channel.serverId);
     const integrations = (server?.settings as IServerSettings | undefined)?.integrations || {};
-    const bridged = Boolean(integrations.discord) && Boolean(integrations.discordWebhooks?.[params.channelId]);
+    const bridged = Boolean(integrations.discord) && Boolean((integrations.discordWebhooks as Record<string, string> | undefined)?.[params.channelId]);
     return { bridged };
   }, {
     params: t.Object({

@@ -19,7 +19,7 @@ export const UserConnection = {
       switch (key) {
         case 'id': conditions.push(eq(schema.userConnections.id, normalizeId(value as string))); break;
         case 'userId': conditions.push(eq(schema.userConnections.userId, normalizeId(value as string))); break;
-        case 'provider': conditions.push(eq(schema.userConnections.provider, value as string)); break;
+        case 'provider': conditions.push(eq(schema.userConnections.provider, value as typeof schema.userConnections.provider.enumValues[number])); break;
         case 'accountId': conditions.push(eq(schema.userConnections.accountId, value as string)); break;
       }
     }
@@ -37,7 +37,7 @@ export const UserConnection = {
       if (value === undefined || value === null) continue;
       switch (key) {
         case 'userId': conditions.push(eq(schema.userConnections.userId, normalizeId(value as string))); break;
-        case 'provider': conditions.push(eq(schema.userConnections.provider, value as string)); break;
+        case 'provider': conditions.push(eq(schema.userConnections.provider, value as typeof schema.userConnections.provider.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.userConnections);

@@ -33,6 +33,15 @@ export interface LastFmTrack {
   nowPlaying: boolean;
 }
 
+interface LastFmApiTrack {
+  name?: string;
+  artist?: { '#text'?: string; name?: string };
+  album?: { '#text'?: string; mbid?: string };
+  image?: Array<{ '#text': string; size: string }>;
+  url?: string;
+  '@attr'?: { nowplaying?: string };
+}
+
 interface CacheEntry {
   value: LastFmTrack | null;
   expiresAt: number;
@@ -152,8 +161,8 @@ async function fetchTrackInfoImage(artist: string, trackName: string, signal: Ab
     const url = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(trackName)}&api_key=${apiKey}&format=json`;
     const res = await fetch(url, { signal, cache: 'no-store' });
     if (!res.ok) return null;
-    const data = await res.json() as Record<string, unknown>;
-    const images = (data as Record<string, unknown> as { track?: { album?: { image?: unknown[] } } })?.track?.album?.image;
+    const data = await res.json() as { track?: { album?: { image?: Array<{ '#text': string; size: string }> } } };
+    const images = data?.track?.album?.image;
     if (!Array.isArray(images)) return null;
     return pickLastFmImage(images);
   } catch {
@@ -220,8 +229,8 @@ async function refreshCache(key: string, username: string): Promise<LastFmTrack 
       return null;
     }
 
-    const data = await res.json() as Record<string, unknown>;
-    const tracks = (data as { recenttracks?: { track?: unknown[] } })?.recenttracks?.track;
+    const data = await res.json() as { recenttracks?: { track?: Array<LastFmApiTrack> | LastFmApiTrack } };
+    const tracks = data?.recenttracks?.track;
     if (!tracks) {
       cache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS, refreshing: false });
       return null;

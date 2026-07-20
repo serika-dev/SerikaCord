@@ -754,34 +754,35 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to edit this server' };
     }
 
-    const payload = body as Record<string, unknown>;
+    const payload = body as { settings?: Partial<IServerSettings> & { discoveryDescription?: string; discoveryCategories?: string[] }; isAgeGated?: boolean; [key: string]: unknown };
     const serverSettings = server.settings as IServerSettings | undefined || {};
+    const settingsPayload = payload.settings || {};
     const nextSettings = {
       ...serverSettings,
-      ...(payload.settings || {}),
+      ...settingsPayload,
       widget: {
         ...(serverSettings.widget || {}),
-        ...(payload.settings?.widget || {}),
+        ...(settingsPayload.widget || {}),
       },
       moderation: {
         ...(serverSettings.moderation || {}),
-        ...(payload.settings?.moderation || {}),
+        ...(settingsPayload.moderation || {}),
       },
       safety: {
         ...(serverSettings.safety || {}),
-        ...(payload.settings?.safety || {}),
+        ...(settingsPayload.safety || {}),
       },
       integrations: {
         ...(serverSettings.integrations || {}),
-        ...(payload.settings?.integrations || {}),
+        ...(settingsPayload.integrations || {}),
       },
       soundboard: {
         ...(serverSettings.soundboard || {}),
-        ...(payload.settings?.soundboard || {}),
+        ...(settingsPayload.soundboard || {}),
       },
       access: {
         ...(serverSettings.access || {}),
-        ...(payload.settings?.access || {}),
+        ...(settingsPayload.access || {}),
       },
     } as IServerSettings;
 
@@ -4115,7 +4116,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           headers: { Authorization: `Bot ${botToken}` },
         });
         if (res.ok) {
-          const channelsData = (await res.json()) as Record<string, unknown>[];
+          const channelsData = (await res.json()) as Array<{ id: string; name: string; type: number; position?: number; parent_id?: string | null; topic?: string | null; permission_overwrites?: unknown[] }>;
           const typeMap: Record<number, string> = {
             0: 'text',
             2: 'voice',
@@ -4123,8 +4124,8 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             5: 'announcement',
           };
           discordChannels = channelsData
-            .filter((c: any) => typeMap[c.type] !== undefined)
-            .map((c: any) => ({
+            .filter((c) => typeMap[c.type] !== undefined)
+            .map((c) => ({
               id: c.id,
               name: c.name,
               type: typeMap[c.type],
@@ -4206,7 +4207,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           headers: { Authorization: `Bot ${botToken}` },
         });
         if (rolesRes.ok) {
-          const rolesData = (await rolesRes.json()) as Record<string, unknown>[];
+          const rolesData = (await rolesRes.json()) as Array<{ id: string; name: string; color?: number; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number }>;
           const currentRoles = await Role.find({ serverId: server.id });
           const currentRoleNames = new Set(currentRoles.map(r => r.name.toLowerCase()));
           for (const dr of rolesData) {
@@ -4242,7 +4243,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             headers: { Authorization: `Bot ${botToken}` },
           });
           if (emojiRes.ok) {
-            const emojisData = (await emojiRes.json()) as Record<string, unknown>[];
+            const emojisData = (await emojiRes.json()) as Array<{ id: string; name: string; animated?: boolean; available?: boolean; managed?: boolean }>;
             const existingEmojis = await ServerEmoji.find({ serverId: server.id });
             const existingEmojiNames = new Set(existingEmojis.map(e => e.name.toLowerCase()));
             let syncedEmojis = 0;
@@ -4280,7 +4281,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             headers: { Authorization: `Bot ${botToken}` },
           });
           if (stickerRes.ok) {
-            const stickersData = (await stickerRes.json()) as Record<string, unknown>[];
+            const stickersData = (await stickerRes.json()) as Array<{ id: string; name: string; description?: string | null; tags?: string; format_type?: number }>;
             const existingStickers = await ServerSticker.find({ serverId: server.id });
             const existingStickerNames = new Set(existingStickers.map(s => s.name.toLowerCase()));
             let syncedStickers = 0;
@@ -4317,8 +4318,8 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           });
           if (soundRes.ok) {
             const rawSounds = await soundRes.json();
-            const soundsData: any[] = Array.isArray(rawSounds) ? rawSounds : (rawSounds?.soundboard_sounds ?? rawSounds?.sounds ?? []);
-            const existingSounds = (server.soundboardSounds as unknown[] | undefined) || [];
+            const soundsData: Array<{ name?: string; sound_id?: string; emoji_name?: string }> = Array.isArray(rawSounds) ? rawSounds : (rawSounds?.soundboard_sounds ?? rawSounds?.sounds ?? []);
+            const existingSounds = (server.soundboardSounds as Array<{ name?: string; url?: string; emoji?: string; uploadedBy?: string }> | undefined) || [];
             const existingSoundNames = new Set(existingSounds.map(s => s.name?.toLowerCase()));
             let syncedSounds = 0;
             const updatedSounds = [...existingSounds];
@@ -4397,7 +4398,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         const newChan = await Channel.create({
           serverId: server.id,
           name: dc.name,
-          type: dc.type as string,
+          type: dc.type as 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum' | 'public_thread' | 'private_thread' | 'dm' | 'group_dm',
           topic: dc.topic,
           position: dc.position,
           parentId,
@@ -4468,7 +4469,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           const newChan = await Channel.create({
             serverId: server.id,
             name: dc.name,
-            type: dc.type as string,
+            type: dc.type as 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum' | 'public_thread' | 'private_thread' | 'dm' | 'group_dm',
             topic: dc.topic,
             position: dc.position,
             parentId,
@@ -4525,7 +4526,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 404;
       return { error: 'Server not found' };
     }
-    const payload = body as Record<string, unknown>;
+    const payload = body as { channelId?: string; [key: string]: unknown };
     const channelId = payload.channelId;
     if (!channelId) {
       set.status = 400;

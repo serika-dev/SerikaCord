@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings } from '@/lib/models';
+import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings, type IMessage } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
@@ -254,7 +254,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // but this avoids interleaving with the channel mapping loop)
     const lastMsgsToDecrypt = channels
       .map(c => c.lastMessageId ? lastMessageMap.get(c.lastMessageId) : null)
-      .filter(Boolean) as unknown[];
+      .filter(Boolean) as IMessage[];
     const decryptedLastContents = await Promise.all(
       lastMsgsToDecrypt.map(m => decryptFromStorage(m.content || ''))
     );

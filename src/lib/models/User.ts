@@ -101,6 +101,7 @@ export interface IUserSettings {
     friendRequests: 'everyone' | 'friends' | 'none';
     showActivity: boolean;
     allowDataCollection: boolean;
+    storeActivityHistory?: boolean;
   };
   accessibility: {
     reducedMotion: boolean;
@@ -151,6 +152,7 @@ export interface IUserSettings {
   dataPrivacy: {
     allowPersonalization: boolean;
     allowCrashReports: boolean;
+    discordBridgeOutbound?: boolean;
   };
   advanced: {
     developerMode: boolean;

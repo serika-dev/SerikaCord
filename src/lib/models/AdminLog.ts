@@ -19,9 +19,9 @@ export const AdminLog = {
       if (value === undefined || value === null) continue;
       switch (key) {
         case 'adminId': conditions.push(eq(schema.adminLogs.adminId, normalizeId(value as string))); break;
-        case 'action': conditions.push(eq(schema.adminLogs.action, value as string)); break;
+        case 'action': conditions.push(eq(schema.adminLogs.action, value as typeof schema.adminLogs.action.enumValues[number])); break;
         case 'targetId': conditions.push(eq(schema.adminLogs.targetId, normalizeId(value as string))); break;
-        case 'targetType': conditions.push(eq(schema.adminLogs.targetType, value as string)); break;
+        case 'targetType': conditions.push(eq(schema.adminLogs.targetType, value as typeof schema.adminLogs.targetType.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.adminLogs);
@@ -38,9 +38,9 @@ export const AdminLog = {
       if (value === undefined || value === null) continue;
       switch (key) {
         case 'adminId': conditions.push(eq(schema.adminLogs.adminId, normalizeId(value as string))); break;
-        case 'action': conditions.push(eq(schema.adminLogs.action, value as string)); break;
+        case 'action': conditions.push(eq(schema.adminLogs.action, value as typeof schema.adminLogs.action.enumValues[number])); break;
         case 'targetId': conditions.push(eq(schema.adminLogs.targetId, normalizeId(value as string))); break;
-        case 'targetType': conditions.push(eq(schema.adminLogs.targetType, value as string)); break;
+        case 'targetType': conditions.push(eq(schema.adminLogs.targetType, value as typeof schema.adminLogs.targetType.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.adminLogs);

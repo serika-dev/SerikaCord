@@ -887,7 +887,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       timezone: timezone,
       showTimezone: showTimezone,
       customStatus: customStatus,
-      status: (status as string) || "online",
+      status: (status as "online" | "idle" | "dnd" | "offline") || "online",
       badges: user?.badges || [],
       createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       isPremium: user?.isPremium || false,

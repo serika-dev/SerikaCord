@@ -312,9 +312,9 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
       if (payload.serikaMoeUsername) {
         const connData = {
           userId,
-          provider: 'serika',
-          accountId: payload.serikaMoeUsername,
-          displayName: payload.serikaMoeUsername,
+          provider: 'serika' as const,
+          accountId: payload.serikaMoeUsername as string,
+          displayName: payload.serikaMoeUsername as string,
           visible: true,
           metadata: { serikaMoeId: payload.serikaMoeId || null },
         };
@@ -386,9 +386,9 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
         if (username) {
           const connData = {
             userId: user.id,
-            provider: 'serika',
-            accountId: username,
-            displayName: username,
+            provider: 'serika' as const,
+            accountId: username as string,
+            displayName: username as string,
             visible: true,
             metadata: { serikaMoeId: moeId },
           };
@@ -634,8 +634,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
           description: server.description,
           memberCount: server.memberCount,
           onlineCount,
-          isOfficial: server.isOfficial,
-          isVerified: server.isVerified,
+          isOfficial: false,
+          isVerified: Boolean(server.isPartnered),
           isPartnered: Boolean(server.isPartnered),
           vanityUrlCode: server.vanityUrlCode,
           ownerId: server.ownerId ?? null,
@@ -894,7 +894,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         : (await Message.find({ channelId, isDeleted: false, _limit: 1 }))[0]; // default order is newest-first
       if (target) {
         readMessageId = target.id;
-        readAt = target.createdAt instanceof Date ? target.createdAt : new Date(target.createdAt);
+        readAt = target.createdAt instanceof Date ? target.createdAt : new Date(target.createdAt ?? Date.now());
       }
 
       const row = await ChannelReadState.ack(user.id, channelId, readMessageId, readAt);
@@ -1092,7 +1092,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       }
       if (settings !== undefined) {
         const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
-        const normalizedPatch = normalizeSettingsPatch(settings);
+        const normalizedPatch = normalizeSettingsPatch(settings as Record<string, any>);
         if (normalizedPatch.error) {
           set.status = 400;
           return { error: normalizedPatch.error };
@@ -1100,7 +1100,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         updateFields.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {}));
       }
       if (customization !== undefined && typeof customization === 'object') {
-        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization);
+        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
       }
       if (gifFavorites !== undefined && Array.isArray(gifFavorites)) {
         updateFields.gifFavorites = gifFavorites.slice(0, 200).map((f: any) => ({
@@ -1232,13 +1232,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
       }
       if (settings !== undefined) {
         const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
-        const normalizedPatch = normalizeSettingsPatch(settings);
+        const normalizedPatch = normalizeSettingsPatch(settings as Record<string, any>);
         if (!normalizedPatch.error) {
           updateFields.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {}));
         }
       }
       if (customization !== undefined && typeof customization === 'object') {
-        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization);
+        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
       }
       if (gifFavorites !== undefined && Array.isArray(gifFavorites)) {
         updateFields.gifFavorites = gifFavorites.slice(0, 200).map((f: any) => ({
@@ -1554,7 +1554,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
           
           const connData = {
             userId,
-            provider: 'serika',
+            provider: 'serika' as const,
             accountId,
             displayName: accountId,
             visible: true,
@@ -2733,7 +2733,19 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { kind, title, description, category, stepsToReproduce, expectedBehavior, actualBehavior, attachments, browserInfo, osInfo, appVersion } = body as Record<string, unknown>;
+    const { kind, title, description, category, stepsToReproduce, expectedBehavior, actualBehavior, attachments, browserInfo, osInfo, appVersion } = body as {
+      kind?: string;
+      title: string;
+      description: string;
+      category?: string;
+      stepsToReproduce?: string;
+      expectedBehavior?: string;
+      actualBehavior?: string;
+      attachments?: unknown[];
+      browserInfo?: string;
+      osInfo?: string;
+      appVersion?: string;
+    };
 
     const reportKind = kind === 'feedback' ? 'feedback' : 'bug';
 
@@ -2765,7 +2777,7 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
       kind: reportKind,
       title: title.trim(),
       description: description.trim(),
-      category: category || (reportKind === 'feedback' ? 'general' : 'other'),
+      category: (category || (reportKind === 'feedback' ? 'general' : 'other')) as 'other' | 'crash' | 'visual' | 'functionality' | 'performance' | 'security' | 'audio' | 'network' | 'ui_ux' | 'feature_request' | 'improvement' | 'praise' | 'general',
       priority: 'low',
       status: 'open',
       // Repro/expected/actual are bug-only concepts; feedback ignores them.
@@ -3153,7 +3165,7 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     const targetId = params.userId === '@me' ? user.id : params.userId;
     const target = targetId === user.id ? user : await User.findById(targetId);
     if (!target) { set.status = 404; return { error: 'User not found' }; }
-    const placements = Array.isArray(target.profileWidgets) ? target.profileWidgets as Array<Record<string, unknown>> : [];
+    const placements = Array.isArray(target.profileWidgets) ? target.profileWidgets as Array<{ type?: string; applicationId?: string; [key: string]: unknown }> : [];
     const { WidgetConfig, WidgetUserData, Application } = await import('@/lib/models');
     const resolved = await Promise.all(placements.map(async (p) => {
       if (p.type !== 'application' || !p.applicationId) return { ...p };
@@ -3245,7 +3257,7 @@ const discordRoutes = new Elysia({ prefix: '/discord' })
 
     // Withdraw outbound consent so future Serika messages aren't forwarded either.
     const settings = { ...(fullUser?.settings as IUserSettings | undefined || {}) };
-    settings.dataPrivacy = { ...(settings.dataPrivacy || {}), discordBridgeOutbound: false };
+    settings.dataPrivacy = { allowPersonalization: settings.dataPrivacy?.allowPersonalization ?? true, allowCrashReports: settings.dataPrivacy?.allowCrashReports ?? true, discordBridgeOutbound: false };
     await User.updateById(user.id, { settings });
 
     return { success: true, deletedMessages, hadLinkedDiscord: Boolean(discordId) };
@@ -3327,7 +3339,7 @@ export const api = new Elysia({ prefix: '/api' })
       set.status = 404;
       return { error: 'Channel not found' };
     }
-    const payload = body as Record<string, unknown>;
+    const payload = body as { content?: string; username?: string; avatar_url?: string };
     const content = payload.content || '';
     const username = payload.username || webhook.name;
     const avatarUrl = payload.avatar_url || webhook.avatar;

@@ -20,7 +20,7 @@ export const ServerMemberApplication = {
         case 'id': conditions.push(eq(schema.serverMemberApplications.id, normalizeId(value as string))); break;
         case 'serverId': conditions.push(eq(schema.serverMemberApplications.serverId, normalizeId(value as string))); break;
         case 'userId': conditions.push(eq(schema.serverMemberApplications.userId, normalizeId(value as string))); break;
-        case 'status': conditions.push(eq(schema.serverMemberApplications.status, value as string)); break;
+        case 'status': conditions.push(eq(schema.serverMemberApplications.status, value as typeof schema.serverMemberApplications.status.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.serverMemberApplications);
@@ -39,7 +39,7 @@ export const ServerMemberApplication = {
         case 'id': conditions.push(eq(schema.serverMemberApplications.id, normalizeId(value as string))); break;
         case 'serverId': conditions.push(eq(schema.serverMemberApplications.serverId, normalizeId(value as string))); break;
         case 'userId': conditions.push(eq(schema.serverMemberApplications.userId, normalizeId(value as string))); break;
-        case 'status': conditions.push(eq(schema.serverMemberApplications.status, value as string)); break;
+        case 'status': conditions.push(eq(schema.serverMemberApplications.status, value as typeof schema.serverMemberApplications.status.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.serverMemberApplications);

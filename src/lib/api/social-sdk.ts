@@ -30,12 +30,12 @@ function layoutDefinitions() {
 }
 
 /** Validate + normalize an incoming array of Game Widget Objects. */
-function normalizeGameWidgets(input: unknown): { ok: true; widgets: any[] } | { ok: false; error: string } {
+function normalizeGameWidgets(input: unknown): { ok: true; widgets: Array<Record<string, unknown>> } | { ok: false; error: string } {
   const arr = Array.isArray(input) ? input : [];
   const seen = new Set<string>();
-  const widgets: any[] = [];
+  const widgets: Array<Record<string, unknown>> = [];
   for (const raw of arr) {
-    const data = (raw as Record<string, unknown>)?.data ?? {};
+    const data = ((raw as Record<string, unknown>)?.data ?? {}) as { type?: string; games?: Array<{ tags?: string[] }>; application_id?: string };
     const type = data.type as GameWidgetType;
     if (!GAME_WIDGET_TYPES.includes(type)) return { ok: false, error: `Invalid widget type: ${type}` };
     if (seen.has(type)) return { ok: false, error: `Duplicate widget type: ${type}` };
@@ -46,8 +46,8 @@ function normalizeGameWidgets(input: unknown): { ok: true; widgets: any[] } | { 
     }
     for (const g of games) {
       const tags: string[] = Array.isArray(g.tags) ? g.tags : [];
-      if (tags.some((tg) => !GAME_WIDGET_TAG_VALUES.includes(tg as string))) return { ok: false, error: 'Unknown game widget tag' };
-      if (tags.filter((tg) => GAME_WIDGET_SKILL_TAGS.includes(tg as string)).length > 1) {
+      if (tags.some((tg) => !(GAME_WIDGET_TAG_VALUES as string[]).includes(tg))) return { ok: false, error: 'Unknown game widget tag' };
+      if (tags.filter((tg) => (GAME_WIDGET_SKILL_TAGS as string[]).includes(tg)).length > 1) {
         return { ok: false, error: 'Only one skill tag is allowed per game' };
       }
     }
@@ -179,10 +179,12 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .post('/users/@me/games', async ({ headers, cookie, body, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const b = body as Record<string, unknown>;
-    if (!isValidCategory(b.category)) { set.status = 400; return { error: 'Invalid category' }; }
+    const b = body as { category?: string; igdbId?: number | null; steamAppId?: string | null; name: string; coverUrl?: string | null; tags?: string[]; note?: string | null };
+    const category = b.category;
+    if (!category || !isValidCategory(category)) { set.status = 400; return { error: 'Invalid category' }; }
     try {
-      return { game: await addGame(user.id, b.category as string, b) };
+      const { category: _, ...gameInput } = b;
+      return { game: await addGame(user.id, category, gameInput) };
     } catch (e) {
       const err = e as { status?: number; message?: string };
       set.status = err.status || 400;

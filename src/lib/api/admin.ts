@@ -2237,7 +2237,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: 'Bug report not found' };
     }
 
-    const { priority, status: newStatus, adminNotes, assignedTo } = body as Record<string, unknown>;
+    const { priority, status: newStatus, adminNotes, assignedTo } = body as { priority?: string; status?: string; adminNotes?: string; assignedTo?: string };
 
     const updates: Record<string, unknown> = {};
     if (priority && ['low', 'medium', 'high', 'critical'].includes(priority)) {

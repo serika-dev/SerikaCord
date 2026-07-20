@@ -312,10 +312,10 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 404;
       return { error: 'User not found' };
     }
-    const favorites = (dbUser.emojiFavorites as Array<{ customEmojiId?: string; emoji?: string }> | undefined) || [];
+    const favorites = (dbUser.emojiFavorites as Array<{ customEmojiId?: string; emoji?: string; name?: string; url?: string | null; addedAt?: number }> | undefined) || [];
     const key = customEmojiId || emoji;
     if (!favorites.some((f: { customEmojiId?: string; emoji?: string }) => (f.customEmojiId || f.emoji) === key)) {
-      favorites.push({ emoji, name: name || '', customEmojiId: customEmojiId || null, url: url || null, addedAt: Date.now() });
+      favorites.push({ emoji, name: name || '', customEmojiId: customEmojiId || undefined, url: url || null, addedAt: Date.now() });
       const updated = favorites.slice(-200);
       await User.updateById(userId, { emojiFavorites: updated });
       await invalidateUserCache(userId);
