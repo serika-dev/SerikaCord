@@ -1373,6 +1373,44 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     toast.success(gt("Logged out"));
   };
 
+  const buildInfo = useMemo(() => {
+    const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI__;
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+    const isCanary = hostname.includes("canary.");
+    const isProd = hostname === "serika.chat" || hostname === "www.serika.chat";
+    const environment = isCanary ? "canary" : isProd ? "prod" : "dev";
+
+    const lines: { label: string; value: string }[] = [];
+
+    lines.push({ label: "SerikaCord", value: `v1.2.7 ${environment}` });
+    lines.push({ label: "Build Override", value: "N/A" });
+
+    if (isTauri) {
+      lines.push({ label: "Runtime", value: "Tauri 2.x (SerikaCord Desktop v1.2.7)" });
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+      if (ua.includes("Windows")) {
+        lines.push({ label: "WebView", value: "WebView2 (Edge/Chromium)" });
+      } else if (ua.includes("Mac")) {
+        lines.push({ label: "WebView", value: "WKWebView (Safari/WebKit)" });
+      } else if (ua.includes("Linux")) {
+        lines.push({ label: "WebView", value: "WebKitGTK" });
+      } else {
+        lines.push({ label: "WebView", value: "Tauri WebView" });
+      }
+    } else {
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+      let browser = "Web Browser";
+      if (ua.includes("Edg/")) browser = "Edge";
+      else if (ua.includes("Chrome/")) browser = "Chrome";
+      else if (ua.includes("Firefox/")) browser = "Firefox";
+      else if (ua.includes("Safari/")) browser = "Safari";
+      lines.push({ label: "Runtime", value: `${browser} (Web)` });
+      lines.push({ label: "Host", value: hostname || "localhost" });
+    }
+
+    return { lines, isCanary, isProd, environment, isTauri };
+  }, []);
+
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -2121,6 +2159,33 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <LogOut className="w-5 h-5" />
                 {gt("Log Out")}
               </button>
+
+              {/* Version / build info */}
+              <div className="mt-3 px-2.5 space-y-0.5 select-text">
+                {buildInfo.lines.map((line, i) => (
+                  <p key={i} className="text-[11px] text-[var(--text-muted)] leading-tight">
+                    {line.label} {line.value}
+                  </p>
+                ))}
+                <div className="flex gap-2 pt-1">
+                  <a
+                    href="/terms"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2"
+                  >
+                    Terms of Service
+                  </a>
+                  <a
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2"
+                  >
+                    Privacy Policy
+                  </a>
+                </div>
+              </div>
             </div>
           </ScrollArea>
         </div>

@@ -1,6 +1,26 @@
 # SerikaCord — Full Changelog
 
-**297 commits** · Jan 22 – Jul 20, 2026 · v0.0.1 → v1.2.6.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v1.2.7.
+
+---
+
+## v1.2.7 — 2026-07-21
+
+**Tag:** `v1.2.7` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Major desktop app enhancement release — window state persistence, keyboard shortcuts, spellcheck, native download handling, dock badge support, mute toggle, and an enhanced tray menu.
+
+### Features — Desktop
+- **Window state persistence** — Window position, size, and maximized state are now saved and restored across launches via `tauri-plugin-window-state`.
+- **Keyboard shortcuts** — `Ctrl/Cmd +/-` for zoom in/out, `Ctrl/Cmd+0` to reset zoom, `F11` for fullscreen toggle, `F12` / `Ctrl+Shift+I` for DevTools.
+- **Spellcheck** — Native spellcheck is now enabled in the desktop webview.
+- **Native download handling** — File downloads from the web app are redirected to the system Downloads directory instead of being blocked or handled by the browser.
+- **Dock/taskbar badge** — The web app can now set a notification badge count on the dock/taskbar icon via `window.__serikaSetBadge(count)`.
+- **Mute toggle** — Tray menu "Mute Notifications" checkbox that mutes/unmutes all audio in the webview and syncs state across the app.
+- **Enhanced tray menu** — Added "Check for Updates…" and "Mute Notifications" items with separators to the system tray context menu.
+- **Dynamic window title** — The native window title now tracks the SPA page title via a `MutationObserver`, keeping the titlebar and taskbar label in sync with the current channel/DM.
 
 ---
 
@@ -17,6 +37,9 @@ Image spoiler marking on upload with CDN-level blur (`?blur=25`) and click-to-re
 
 ### Performance
 - **Smaller scroll-up pagination batch** — Scroll-up history loading now fetches 25 messages instead of 50, reducing the main-thread freeze during mid-scroll pagination. Initial channel load remains 50 to fill the viewport in one request.
+
+### Bug Fixes
+- **Clipboard image paste in desktop app** — Added `tauri-plugin-clipboard-manager` and a fallback paste handler that reads images natively via Tauri IPC when the webview's clipboard event doesn't expose files (common on WebKitGTK/WebView2). RGBA bytes are converted to PNG via canvas and attached as a file.
 
 ---
 

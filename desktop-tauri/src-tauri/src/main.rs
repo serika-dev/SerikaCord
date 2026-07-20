@@ -8,8 +8,10 @@
 mod presence;
 mod updater_window;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -17,6 +19,8 @@ use tauri_plugin_opener::OpenerExt;
 
 const APP_URL: &str = "https://serika.chat";
 const START_PATH: &str = "/channels/me";
+
+static MUTED: AtomicBool = AtomicBool::new(false);
 
 // Injected into the web app. Receives detected activities from Rust via
 // `window.__serikaSetActivities`, resolves games through the IGDB proxy, and
@@ -101,6 +105,129 @@ const PRESENCE_REPORTER_JS: &str = r#"
 })();
 "#;
 
+// ── Tauri IPC commands (invoked from the webview init script) ──────────────
+
+#[tauri::command]
+fn set_zoom(window: tauri::WebviewWindow, delta: f64) -> Result<(), String> {
+    let current = window.zoom().unwrap_or(1.0);
+    let new_zoom = if delta == 0.0 {
+        1.0
+    } else {
+        (current + delta).clamp(0.25, 5.0)
+    };
+    window.set_zoom(new_zoom).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn toggle_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.is_fullscreen().unwrap_or(false) {
+        window.unfullscreen().map_err(|e| e.to_string())
+    } else {
+        window.fullscreen().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+fn toggle_devtools(window: tauri::WebviewWindow) {
+    if window.is_devtools_open() {
+        window.close_devtools();
+    } else {
+        window.open_devtools();
+    }
+}
+
+#[tauri::command]
+fn set_window_title(window: tauri::WebviewWindow, title: String) {
+    let _ = window.set_title(if title.is_empty() { "SerikaCord" } else { &title });
+}
+
+#[tauri::command]
+fn set_badge_count(app: tauri::AppHandle, count: i64) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        window.set_badge_count(count).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn is_muted() -> bool {
+    MUTED.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn toggle_mute(app: tauri::AppHandle) -> bool {
+    let new = !MUTED.load(Ordering::SeqCst);
+    MUTED.store(new, Ordering::SeqCst);
+    if let Some(window) = app.get_webview_window("main") {
+        let js = if new {
+            "document.querySelectorAll('audio,video').forEach(function(e){e.muted=true;e.volume=0;});"
+        } else {
+            "document.querySelectorAll('audio,video').forEach(function(e){e.muted=false;e.volume=1;});"
+        };
+        let _ = window.eval(js);
+    }
+    new
+}
+
+// Injected into the web app alongside the presence reporter. Provides:
+//   • Spellcheck enable
+//   • Keyboard shortcuts (zoom, fullscreen, devtools, reload)
+//   • Window title tracking (SPA-aware via MutationObserver)
+//   • `window.__serikaSetBadge(count)` for the web app to set the dock/taskbar badge
+const DESKTOP_ENHANCEMENTS_JS: &str = r#"
+(function () {
+  if (window.__serikaDesktopInit) return;
+  window.__serikaDesktopInit = true;
+
+  // Enable spellcheck in the webview.
+  try { document.body.spellcheck = true; } catch (e) {}
+
+  // Keyboard shortcuts that integrate with the native window.
+  document.addEventListener('keydown', function (e) {
+    var t = window.__TAURI__;
+    if (!t || !t.core || !t.core.invoke) return;
+    var mod = e.ctrlKey || e.metaKey;
+
+    // Ctrl/Cmd + = or +  →  Zoom in
+    if (mod && (e.key === '=' || e.key === '+')) {
+      e.preventDefault(); t.core.invoke('set_zoom', { delta: 0.1 }); return;
+    }
+    // Ctrl/Cmd + -      →  Zoom out
+    if (mod && e.key === '-') {
+      e.preventDefault(); t.core.invoke('set_zoom', { delta: -0.1 }); return;
+    }
+    // Ctrl/Cmd + 0      →  Reset zoom
+    if (mod && e.key === '0') {
+      e.preventDefault(); t.core.invoke('set_zoom', { delta: 0 }); return;
+    }
+    // F11               →  Toggle fullscreen
+    if (e.key === 'F11') {
+      e.preventDefault(); t.core.invoke('toggle_fullscreen'); return;
+    }
+    // F12 / Ctrl+Shift+I →  Toggle DevTools
+    if (e.key === 'F12' || (mod && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
+      e.preventDefault(); t.core.invoke('toggle_devtools'); return;
+    }
+  });
+
+  // Track SPA title changes and sync them to the native window title.
+  function updateTitle() {
+    try { window.__TAURI__.core.invoke('set_window_title', { title: document.title }); } catch (e) {}
+  }
+  updateTitle();
+  if (document.head) {
+    new MutationObserver(updateTitle).observe(document.head, {
+      childList: true, subtree: true, characterData: true,
+    });
+  }
+
+  // Expose badge setter for the web app.
+  window.__serikaSetBadge = function (count) {
+    try { window.__TAURI__.core.invoke('set_badge_count', { count: count }); } catch (e) {}
+  };
+})();
+"#;
+
 /// Check for updates, showing progress in the updater splash window.
 /// Returns `true` if an update was installed and the app should relaunch
 /// (caller should not proceed to show the main window in that case).
@@ -117,10 +244,13 @@ async fn run_update_check(app: tauri::AppHandle) -> bool {
         }
     };
 
+    let current_version = app.package_info().version.to_string();
+
     match updater.check().await {
         Ok(Some(update)) => {
             let version = update.version.clone();
             eprintln!("[updater] update available: {version} — downloading");
+            updater_window::emit_version(&app, &current_version, Some(&version));
             updater_window::emit_progress(&app, &format!("Downloading v{version}…"), Some(0.0));
 
             let app_for_progress = app.clone();
@@ -166,6 +296,7 @@ async fn run_update_check(app: tauri::AppHandle) -> bool {
         }
         Ok(None) => {
             eprintln!("[updater] already up to date");
+            updater_window::emit_version(&app, &current_version, None);
             updater_window::emit_no_update(&app);
         }
         Err(e) => {
@@ -193,6 +324,23 @@ fn build_main_window(app: &tauri::AppHandle) {
         .inner_size(1280.0, 800.0)
         .min_inner_size(940.0, 500.0)
         .initialization_script(PRESENCE_REPORTER_JS)
+        .initialization_script(DESKTOP_ENHANCEMENTS_JS)
+        .on_download(|webview, event| {
+            // Redirect downloads to the system Downloads directory.
+            let app = webview.app_handle();
+            if let Some(download_dir) = app.path().download_dir() {
+                let filename = event
+                    .url()
+                    .split('?')
+                    .next()
+                    .and_then(|u| u.split('/').last())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or("download");
+                let dest = download_dir.join(filename);
+                event.set_destination(dest);
+            }
+            true
+        })
         .on_navigation(move |url| {
             let target = url.as_str();
             let allowed =
@@ -234,6 +382,17 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_window_state::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            set_zoom,
+            toggle_fullscreen,
+            toggle_devtools,
+            set_window_title,
+            set_badge_count,
+            is_muted,
+            toggle_mute
+        ])
         .setup(|app| {
             #[cfg(desktop)]
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -247,10 +406,20 @@ fn main() {
                 let _ = updater_window::create_updater_window(app.handle());
             }
 
-            // Tray icon with Open/Quit; left-click toggles the window.
+            // Tray icon with enhanced menu; left-click toggles the window.
             let show_item = MenuItem::with_id(app, "show", "Open SerikaCord", true, None::<&str>)?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let update_item = MenuItem::with_id(app, "update", "Check for Updates…", true, None::<&str>)?;
+            let mute_item = CheckMenuItem::with_id(app, "mute", "Mute Notifications", true, false)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let tray_menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let tray_menu = Menu::with_items(
+                app,
+                &[&show_item, &sep1, &update_item, &mute_item, &sep2, &quit_item],
+            )?;
+
+            // Store mute_item so we can toggle its checkmark from the handler.
+            app.manage(std::sync::Mutex::new(mute_item));
 
             TrayIconBuilder::with_id("main-tray")
                 .icon(app.default_window_icon().expect("bundled icon").clone())
@@ -259,6 +428,29 @@ fn main() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
                     "quit" => app.exit(0),
+                    "update" => {
+                        let _ = app
+                            .opener()
+                            .open_url("https://github.com/serika-dev/SerikaCord/releases", None::<&str>);
+                    }
+                    "mute" => {
+                        let new = !MUTED.load(Ordering::SeqCst);
+                        MUTED.store(new, Ordering::SeqCst);
+                        // Update the checkmark.
+                        let state = app.state::<std::sync::Mutex<CheckMenuItem>>();
+                        if let Ok(item) = state.lock() {
+                            let _ = item.set_checked(new);
+                        }
+                        // Mute/unmute all audio in the webview.
+                        if let Some(window) = app.get_webview_window("main") {
+                            let js = if new {
+                                "document.querySelectorAll('audio,video').forEach(function(e){e.muted=true;e.volume=0;});"
+                            } else {
+                                "document.querySelectorAll('audio,video').forEach(function(e){e.muted=false;e.volume=1;});"
+                            };
+                            let _ = window.eval(js);
+                        }
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {

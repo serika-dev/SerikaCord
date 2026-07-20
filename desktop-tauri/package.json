@@ -1,6 +1,6 @@
 {
   "name": "serikacord-desktop",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "SerikaCord native desktop app (Tauri)",
   "private": true,
   "scripts": {

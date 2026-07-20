@@ -277,7 +277,7 @@ export function MobileProfileView() {
 
             {/* App Info */}
             <div className="text-center py-6">
-              <p className="text-xs font-medium text-[var(--text-muted)]">SerikaCord v1.2.6 (Beta)</p>
+              <p className="text-xs font-medium text-[var(--text-muted)]">SerikaCord v1.2.7 (Beta)</p>
             </div>
           </div>
         </div>

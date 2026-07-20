@@ -426,6 +426,38 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       addFiles(files);
     }, [addFiles]);
 
+    // Tauri fallback: WebKitGTK/WebView2 webviews often don't expose pasted
+    // images through the standard clipboard event. When that happens, read the
+    // image natively via the Tauri clipboard-manager plugin and convert the
+    // RGBA bytes to a PNG File via canvas.
+    const readTauriClipboardImage = useCallback(async (): Promise<File | null> => {
+      const tauri = (window as any).__TAURI__;
+      if (!tauri?.core?.invoke) return null;
+      try {
+        const img = await tauri.core.invoke('plugin:clipboard-manager|read_image');
+        if (!img || !img.rgba || !img.width || !img.height) return null;
+        const byteStr = atob(img.rgba);
+        const bytes = new Uint8Array(byteStr.length);
+        for (let i = 0; i < byteStr.length; i++) bytes[i] = byteStr.charCodeAt(i);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        const imageData = ctx.createImageData(img.width, img.height);
+        imageData.data.set(bytes);
+        ctx.putImageData(imageData, 0, 0);
+        const blob: Blob = await new Promise((resolve) => {
+          canvas.toBlob((b) => resolve(b!), 'image/png');
+        });
+        if (!blob) return null;
+        const name = `clipboard-${Date.now()}.png`;
+        return new File([blob], name, { type: 'image/png' });
+      } catch {
+        return null;
+      }
+    }, []);
+
     // Paste-to-attach (screenshots, copied images)
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
       const dt = e.clipboardData;
@@ -444,8 +476,13 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       if (files.length > 0) {
         e.preventDefault();
         addFiles(files);
+      } else if ((window as any).__TAURI__) {
+        e.preventDefault();
+        readTauriClipboardImage().then((file) => {
+          if (file) addFiles([file]);
+        });
       }
-    }, [addFiles]);
+    }, [addFiles, readTauriClipboardImage]);
 
     // Global paste-to-attach: when the composer isn't focused, a Ctrl/Cmd+V of an
     // image (screenshot, copied file) still attaches it here — matching how the
@@ -484,11 +521,19 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           e.preventDefault();
           addFiles(files);
           composerRef.current?.focus();
+        } else if ((window as any).__TAURI__) {
+          e.preventDefault();
+          readTauriClipboardImage().then((file) => {
+            if (file) {
+              addFiles([file]);
+              composerRef.current?.focus();
+            }
+          });
         }
       };
       window.addEventListener("paste", onWindowPaste);
       return () => window.removeEventListener("paste", onWindowPaste);
-    }, [addFiles]);
+    }, [addFiles, readTauriClipboardImage]);
 
     // Drag & drop attach
     const [isDragOver, setIsDragOver] = useState(false);

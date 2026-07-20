@@ -38,6 +38,7 @@ const UPDATER_HTML: &str = r#"<!DOCTYPE html>
     box-shadow: 0 4px 24px rgba(139, 92, 246, 0.3);
   }
   .title { font-size: 15px; font-weight: 600; color: #e0e0e8; }
+  .version { font-size: 11px; color: #6b6b80; }
   .status { font-size: 12px; color: #9a9aad; text-align: center; min-height: 16px; }
   .bar-bg {
     width: 220px; height: 4px; border-radius: 2px;
@@ -61,6 +62,7 @@ const UPDATER_HTML: &str = r#"<!DOCTYPE html>
 <div class="container">
   <div class="logo">S</div>
   <div class="title" id="title">SerikaCord</div>
+  <div class="version" id="version"></div>
   <div class="status" id="status">Checking for updates…</div>
   <div class="bar-bg"><div class="bar-fill indeterminate" id="bar"></div></div>
 </div>
@@ -69,11 +71,20 @@ const UPDATER_HTML: &str = r#"<!DOCTYPE html>
   const statusEl = document.getElementById('status');
   const barEl = document.getElementById('bar');
   const titleEl = document.getElementById('title');
+  const versionEl = document.getElementById('version');
 
   // Listen for progress events from Rust.
   // We use the Tauri event listener if available, otherwise poll a global.
   function setupListener() {
     if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+      window.__TAURI__.event.listen('updater://version', (e) => {
+        const d = e.payload || {};
+        if (d.current && d.newVersion) {
+          versionEl.textContent = d.current + ' → ' + d.newVersion;
+        } else if (d.current) {
+          versionEl.textContent = 'v' + d.current;
+        }
+      });
       window.__TAURI__.event.listen('updater://progress', (e) => {
         const d = e.payload || {};
         if (d.message) statusEl.textContent = d.message;
@@ -104,6 +115,7 @@ const UPDATER_HTML: &str = r#"<!DOCTYPE html>
           barEl.classList.remove('indeterminate');
           barEl.style.width = s.percent + '%';
         }
+        if (s.versionText) versionEl.textContent = s.versionText;
       }, 200);
     }
   }
@@ -205,6 +217,27 @@ pub fn emit_error(app: &AppHandle, msg: &str) {
         let _msg = msg.replace('\'', "\\'");
         let _ = window.eval(&format!(
             "window.__serikaUpdaterState = {{ message: 'Starting SerikaCord…' }};"
+        ));
+    }
+}
+
+/// Emit version info to the updater splash window.
+pub fn emit_version(app: &AppHandle, current: &str, new_version: Option<&str>) {
+    let _ = app.emit("updater://version", serde_json::json!({
+        "current": current,
+        "newVersion": new_version,
+    }));
+    if let Some(window) = app.get_webview_window("updater") {
+        let cur = current.replace('\'', "\\'");
+        let text = if let Some(nv) = new_version {
+            let nv_escaped = nv.replace('\'', "\\'");
+            format!("{} → {}", cur, nv_escaped)
+        } else {
+            format!("v{}", cur)
+        };
+        let _ = window.eval(&format!(
+            "window.__serikaUpdaterState = window.__serikaUpdaterState || {{}}; window.__serikaUpdaterState.versionText = '{}';",
+            text
         ));
     }
 }

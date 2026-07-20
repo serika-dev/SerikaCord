@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Plus, Compass, MessageSquare, Check, BellOff, Bell, Copy, LogOut,
-  FolderPlus, FolderMinus, Folder as FolderIcon, Pencil, Users, UserPlus,
+  FolderPlus, FolderMinus, Folder as FolderIcon, Pencil, Users, UserPlus, Download,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -812,9 +812,26 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-            {gt("Explore Discoverable Servers")}
+            {gt("Explore DiscoverableServers")}
           </TooltipContent>
         </Tooltip>
+
+        {/* Download — only on web browser, hidden on Tauri & Capacitor */}
+        {typeof window !== "undefined" && !(window as any).__TAURI__ && !(window as any).Capacitor?.isNativePlatform?.() && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => router.push("/download")}
+                className="flex items-center justify-center w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] transition-all duration-200 hover:rounded-[16px] hover:bg-[var(--app-accent)] group"
+              >
+                <Download className="w-6 h-6 text-[var(--app-accent)] group-hover:text-[var(--text-on-accent)] transition-colors" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
+              {gt("Download App")}
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </TooltipProvider>
   );
