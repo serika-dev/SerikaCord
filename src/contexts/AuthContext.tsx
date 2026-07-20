@@ -1,8 +1,8 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
-import { upsertSavedAccount } from "@/lib/services/savedAccounts";
 import { clearMessageCache } from "@/hooks/useChatSession";
+import { upsertSavedAccount } from "@/lib/services/savedAccounts";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 export type BadgeId = 
   | 'staff' | 'admin' | 'moderator' 
@@ -24,6 +24,14 @@ interface User {
   showTimezone?: boolean;
   status: "online" | "idle" | "dnd" | "offline";
   customStatus?: string;
+  displayedTagServerId?: string | null;
+  displayedTag?: {
+    serverId: string;
+    serverName: string;
+    serverIcon?: string | null;
+    tagText: string;
+    tagIcon?: string | null;
+  } | null;
   isPremium?: boolean;
   premiumSince?: string;
   premiumTier?: 'monthly' | 'yearly' | 'lifetime';

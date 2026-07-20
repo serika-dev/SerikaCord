@@ -16,6 +16,8 @@
 
 # next.js
 /.next/
+/public/uploads/
+/CHANGES.md
 /out/
 
 # production

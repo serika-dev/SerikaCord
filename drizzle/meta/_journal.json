@@ -22,6 +22,20 @@
       "when": 1784400160416,
       "tag": "0002_organic_bromley",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784513185509,
+      "tag": "0003_suppress_embeds",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784513185510,
+      "tag": "0004_server_tags",
+      "breakpoints": true
     }
   ]
 }

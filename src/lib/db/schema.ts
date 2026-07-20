@@ -1,19 +1,16 @@
-import {
-  pgTable,
-  uuid,
-  text,
-  boolean,
-  integer,
-  bigint,
-  numeric,
-  timestamp,
-  jsonb,
-  pgEnum,
-  index,
-  uniqueIndex,
-  serial,
-} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import {
+    boolean,
+    index,
+    integer,
+    jsonb,
+    pgEnum,
+    pgTable,
+    text,
+    timestamp,
+    uniqueIndex,
+    uuid
+} from 'drizzle-orm/pg-core';
 
 // ─── Enums ────────────────────────────────────────────────
 
@@ -81,6 +78,7 @@ export const users = pgTable('users', {
   showTimezone: boolean('show_timezone').default(false),
   status: userStatusEnum('status').default('offline'),
   customStatus: text('custom_status'),
+  displayedTagServerId: uuid('displayed_tag_server_id'),
   presenceLastHeartbeatAt: timestamp('presence_last_heartbeat_at').defaultNow(),
   presenceLastDisconnectAt: timestamp('presence_last_disconnect_at'),
   badges: text('badges').array().default([]),
@@ -151,6 +149,9 @@ export const servers = pgTable('servers', {
   isTemplate: boolean('is_template').default(false),
   templateId: text('template_id'),
   welcomeScreen: jsonb('welcome_screen'),
+  tagText: text('tag_text'),
+  tagIcon: text('tag_icon'),
+  tagAllowJoin: boolean('tag_allow_join').default(true),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

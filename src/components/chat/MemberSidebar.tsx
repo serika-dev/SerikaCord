@@ -1,24 +1,25 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
-import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, Clock, UserPlus, UserPlus2, ShieldAlert, Phone, Video } from "lucide-react";
-import { hasPermissionBit } from "@/lib/roles/bitfield";
 import { InviteDialog } from "@/components/dialogs/InviteDialog";
-import { ModViewDialog } from "@/components/user/ModViewDialog";
-import { useServer, useServerMembers } from "@/contexts/ServerContext";
-import { useAuth } from "@/contexts/AuthContext";
-import { useUserActivity } from "@/hooks/useMoeActivity";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn, cdnImage } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ServerTagBadge } from "@/components/ui/ServerTagBadge";
+import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
+import { ModViewDialog } from "@/components/user/ModViewDialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { useServer, useServerMembers } from "@/contexts/ServerContext";
+import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
+import { hasPermissionBit } from "@/lib/roles/bitfield";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
+import { cdnImage, cn } from "@/lib/utils";
 import { T, useGT } from "gt-next";
-import { toast } from "sonner";
+import { Bot, Check, Clock, Code2, Copy, Crown, Gamepad2, MessageSquare, Music2, Pause, Phone, Play, ShieldAlert, UserPlus, UserPlus2, Video } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 interface MemberRole {
   id: string;
@@ -48,6 +49,13 @@ interface Member {
   isVerified?: boolean;
   joinedAt?: string | null;
   communicationDisabledUntil?: string | null;
+  displayedTag?: {
+    serverId: string;
+    serverName: string;
+    serverIcon?: string | null;
+    tagText: string;
+    tagIcon?: string | null;
+  } | null;
   roles: MemberRole[];
   highestRole?: MemberRole | null;
   highestHoistedRole?: MemberRole | null;
@@ -318,8 +326,18 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
             const styleInline = getDisplayNameStyleInline(member.customization?.displayNameStyle);
             const hasCustomStyle = Boolean(member.customization?.displayNameStyle && (member.customization.displayNameStyle.color || member.customization.displayNameStyle.gradient?.length || member.customization.displayNameStyle.effect !== 'solid' || member.customization.displayNameStyle.font !== 'default'));
             return (
-              <div className={cn("flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
-                <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
+              <div className="flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]">
+                <span className={cn("truncate", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
+                  {member.displayName || member.username || gt("Unknown")}
+                </span>
+                {member.displayedTag?.tagText && (
+                  <ServerTagBadge
+                    tagText={member.displayedTag.tagText}
+                    tagIcon={member.displayedTag.tagIcon}
+                    serverId={member.displayedTag.serverId}
+                    className="text-[10px] px-1 py-0"
+                  />
+                )}
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
                 )}

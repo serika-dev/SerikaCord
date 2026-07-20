@@ -1,15 +1,14 @@
-import { Elysia, t } from 'elysia';
-import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message, ServerMemberApplication } from '@/lib/models';
-import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
-import { cache } from '@/lib/db';
-import { nanoid } from 'nanoid';
 import { config } from '@/lib/config';
-import { BoundedMap } from '@/lib/utils/boundedMap';
 import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
-import { resolveEffectiveStatus, PRESENCE_TIMEOUT_MS } from '@/lib/services/presence';
-import { parseCustomEmojis, batchParseCustomEmojis } from '@/lib/services/emoji';
-import { User } from '@/lib/models';
+import { cache } from '@/lib/db';
+import { AdminLog, Channel, Invite, Message, Role, Server, ServerBan, ServerEmoji, ServerMember, ServerMemberApplication, ServerSticker, User } from '@/lib/models';
+import { checkRateLimit, decryptFromStorage, getClientIP, isValidObjectId, rejectInvalidObjectIdParams, sanitizeInput } from '@/lib/security';
+import { authenticateRequest } from '@/lib/services/auth';
+import { batchParseCustomEmojis } from '@/lib/services/emoji';
+import { PRESENCE_TIMEOUT_MS, resolveEffectiveStatus } from '@/lib/services/presence';
+import { BoundedMap } from '@/lib/utils/boundedMap';
+import { Elysia, t } from 'elysia';
+import { nanoid } from 'nanoid';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -89,7 +88,7 @@ async function getRolePermissionsForServer(roleIds: string[], serverId: string):
 }
 
 // Check if user can manage roles in a server (owner or has Manage Roles / Administrator)
-async function canManageRoles(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
+export async function canManageRoles(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
   if (server.ownerId === userId) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
@@ -216,6 +215,7 @@ interface PopulatedMemberUser {
   username: string;
   displayName?: string;
   avatar?: string;
+  displayedTagServerId?: string | null;
   status?: string;
   customStatus?: string;
   isPremium?: boolean;
@@ -1355,8 +1355,20 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       roleIds.length > 0 ? Role.find({ id: { in: roleIds }, serverId: params.serverId }) : [],
     ]);
 
+    const displayedTagServerIds = [
+      ...new Set(
+        users
+          .map((u: any) => u.displayedTagServerId)
+          .filter(Boolean)
+      ),
+    ] as string[];
+    const tagServers = displayedTagServerIds.length
+      ? await Server.find({ id: { in: displayedTagServerIds } })
+      : [];
+
     const userMap = new Map(users.map((u: any) => [u.id, u]));
     const roleMap = new Map(roles.map((r: any) => [r.id, r]));
+    const tagServerMap = new Map(tagServers.map((s: any) => [s.id, s]));
 
     let members = allMembers.map((m: any) => ({
       ...m,
@@ -1372,14 +1384,31 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     members = members.slice(0, limit);
 
     return {
-      members: members.map((member: any) =>
-        normalizeMemberDto(member as unknown as {
+      members: members.map((member: any) => {
+        const normalized = normalizeMemberDto(member as unknown as {
           id: string;
           userId?: PopulatedMemberUser | null;
           roles?: PopulatedRole[];
           joinedAt?: Date;
-        }, server?.ownerId)
-      ),
+        }, server?.ownerId);
+
+        const memberUser = member.userId as PopulatedMemberUser | null;
+        const displayedTagServerId = memberUser?.displayedTagServerId || null;
+        const tagServer = displayedTagServerId ? tagServerMap.get(displayedTagServerId) : null;
+
+        return {
+          ...normalized,
+          displayedTag: tagServer && tagServer.tagText
+            ? {
+                serverId: tagServer.id,
+                serverName: tagServer.name,
+                serverIcon: tagServer.icon ?? null,
+                tagText: tagServer.tagText,
+                tagIcon: tagServer.tagIcon ?? null,
+              }
+            : null,
+        };
+      }),
     };
   }, {
     params: t.Object({
@@ -3930,6 +3959,92 @@ function convertDiscordOverwrites(
     };
   });
 }
+
+// ── Server Tag routes ────────────────────────────────────────────────────────
+
+// Public server info — no auth needed, for tag click popup
+export const serverPublicRoutes = new Elysia({ prefix: '/servers' })
+  .get('/:serverId/public-info', async ({ params, set }) => {
+    const server = await Server.findById(params.serverId);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    return {
+      id: server.id,
+      name: server.name,
+      icon: server.icon ?? null,
+      banner: server.banner ?? null,
+      description: server.description ?? null,
+      memberCount: server.memberCount ?? 0,
+      tagText: (server as any).tagText ?? null,
+      tagIcon: (server as any).tagIcon ?? null,
+      tagAllowJoin: (server as any).tagAllowJoin ?? true,
+      vanityUrlCode: server.vanityUrlCode ?? null,
+    };
+  }, {
+    params: t.Object({ serverId: t.String() }),
+  });
+
+export const serverTagRoutes = new Elysia({ prefix: '/servers' })
+  .get('/:serverId/tag', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const server = await Server.findById(params.serverId);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    const membership = await ServerMember.findOne({ serverId: params.serverId, userId: user.id });
+    if (!membership) { set.status = 403; return { error: 'Not a member' }; }
+    return { tagText: (server as any).tagText ?? null, tagIcon: (server as any).tagIcon ?? null, tagAllowJoin: (server as any).tagAllowJoin ?? true };
+  }, { params: t.Object({ serverId: t.String() }) })
+
+  .patch('/:serverId/tag', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const server = await Server.findById(params.serverId);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    if (server.ownerId !== user.id && !(await canManageRoles(server, user.id))) {
+      set.status = 403; return { error: 'You do not have permission to manage this server tag' };
+    }
+    const b = body as { tagText?: string | null; tagIcon?: string | null; tagAllowJoin?: boolean };
+    const patch: Record<string, any> = {};
+    if (b.tagText !== undefined) {
+      if (!b.tagText) { patch.tagText = null; }
+      else {
+        const norm = String(b.tagText).trim().toUpperCase();
+        if (!/^[A-Z0-9]{1,5}$/.test(norm)) {
+          set.status = 400;
+          return { error: 'Tag must be 1-5 characters: A-Z and 0-9 only' };
+        }
+        patch.tagText = norm;
+      }
+    }
+    if (b.tagIcon !== undefined) patch.tagIcon = b.tagIcon ?? null;
+    if (b.tagAllowJoin !== undefined) patch.tagAllowJoin = b.tagAllowJoin;
+    if (Object.keys(patch).length) await Server.updateById(params.serverId, patch as any);
+    await cache.del(`server:${params.serverId}`);
+    const updated = await Server.findById(params.serverId);
+    return { success: true, tagText: (updated as any)?.tagText ?? null, tagIcon: (updated as any)?.tagIcon ?? null, tagAllowJoin: (updated as any)?.tagAllowJoin ?? true };
+  }, {
+    params: t.Object({ serverId: t.String() }),
+    body: t.Object({
+      tagText: t.Optional(t.Nullable(t.String({ maxLength: 5 }))),
+      tagIcon: t.Optional(t.Nullable(t.String())),
+      tagAllowJoin: t.Optional(t.Boolean()),
+    }),
+  })
+
+  .delete('/:serverId/tag/icon', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const server = await Server.findById(params.serverId);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    if (server.ownerId !== user.id && !(await canManageRoles(server, user.id))) {
+      set.status = 403; return { error: 'You do not have permission to manage this server tag' };
+    }
+    if ((server as any).tagIcon) {
+      try { const { storage } = await import('@/lib/services/storage'); await storage.deleteByUrl((server as any).tagIcon); } catch { /* best-effort */ }
+    }
+    await Server.updateById(params.serverId, { tagIcon: null } as any);
+    await cache.del(`server:${params.serverId}`);
+    return { success: true };
+  }, { params: t.Object({ serverId: t.String() }) });
 
 // Public partnered servers list (no auth required)
 export const partnerRoutes = new Elysia({ prefix: '/servers' })

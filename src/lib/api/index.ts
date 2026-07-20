@@ -1,31 +1,31 @@
-import { Elysia, t } from 'elysia';
+import { config } from '@/lib/config';
+import { cache, connectDB } from '@/lib/db';
+import { normalizeId } from '@/lib/db/normalizeId';
+import { AuthorizedApp, BugReport, Channel, Message, Role, Server, ServerEmoji, ServerMember, ServerSticker, User, UserConnection, UserDeviceSession } from '@/lib/models';
+import { ActivityHistory } from '@/lib/models/ActivityHistory';
+import { RichPresence } from '@/lib/models/RichPresence';
+import { checkRateLimit, decryptFromStorage, getClientIP, rejectInvalidObjectIdParams } from '@/lib/security';
+import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
+import { getLastFmNowPlaying } from '@/lib/services/lastfmService';
+import { getMoeActivity } from '@/lib/services/moeActivity';
+import { resolveEffectiveStatus } from '@/lib/services/presence';
+import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
-import { config } from '@/lib/config';
-import { connectDB, cache } from '@/lib/db';
-import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
-import { User, type IUser, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
-import { RichPresence } from '@/lib/models/RichPresence';
-import { ActivityHistory } from '@/lib/models/ActivityHistory';
-import { authRoutes } from './auth';
-import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCount } from './servers';
-import { channelRoutes } from './channels';
-import { uploadRoutes } from './uploads';
-import { dmRoutes } from './dms';
+import { Elysia, t } from 'elysia';
 import { adminRoutes } from './admin';
-import { oembedRoutes } from './oembed';
-import { experimentRoutes, instanceRoutes } from './experiments';
-import { voiceRoutes } from './voice';
-import { gifRoutes } from './gifs';
-import { developerRoutes, oauth2Routes } from './developers';
+import { authRoutes } from './auth';
 import { botApiRoutes } from './botApi';
+import { channelRoutes } from './channels';
+import { developerRoutes, oauth2Routes } from './developers';
+import { dmRoutes } from './dms';
+import { experimentRoutes, instanceRoutes } from './experiments';
+import { gifRoutes } from './gifs';
+import { oembedRoutes } from './oembed';
+import { computeOnlineCount, inviteRoutes, partnerRoutes, serverPublicRoutes, serverRoutes, serverTagRoutes } from './servers';
 import { socialSdkRoutes } from './social-sdk';
-import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
-import { resolveEffectiveStatus } from '@/lib/services/presence';
-import { getMoeActivity } from '@/lib/services/moeActivity';
-import { getLastFmNowPlaying } from '@/lib/services/lastfmService';
-import { normalizeId } from '@/lib/db/normalizeId';
+import { uploadRoutes } from './uploads';
+import { voiceRoutes } from './voice';
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -186,6 +186,22 @@ function getPublicPresenceStatus(user: { status?: string | null; presenceLastHea
     presenceLastHeartbeatAt: user.presenceLastHeartbeatAt ?? null,
     isSystem: user.isSystem,
   });
+}
+
+/** Resolve a user's displayed tag (tagText + server info) from their displayedTagServerId. */
+async function resolveDisplayedTag(displayedTagServerId?: string | null) {
+  if (!displayedTagServerId) return null;
+  try {
+    const server = await Server.findById(displayedTagServerId);
+    if (!server || !(server as any).tagText) return null;
+    return {
+      serverId: server.id,
+      serverName: server.name,
+      serverIcon: server.icon ?? null,
+      tagText: (server as any).tagText as string,
+      tagIcon: ((server as any).tagIcon ?? null) as string | null,
+    };
+  } catch { return null; }
 }
 
 // Which rich-presence types should surface first on a profile. Games always win
@@ -557,6 +573,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       showTimezone: user.showTimezone,
       status: user.status,
       customStatus: user.customStatus,
+      displayedTagServerId: (user as any).displayedTagServerId ?? null,
+      displayedTag: await resolveDisplayedTag((user as any).displayedTagServerId),
       isPremium: user.isPremium,
       premiumSince: user.premiumSince,
       premiumTier: user.premiumTier,
@@ -593,6 +611,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       showTimezone: user.showTimezone,
       status: user.status,
       customStatus: user.customStatus,
+      displayedTagServerId: (user as any).displayedTagServerId ?? null,
+      displayedTag: await resolveDisplayedTag((user as any).displayedTagServerId),
       isPremium: user.isPremium,
       premiumSince: user.premiumSince,
       premiumTier: user.premiumTier,
@@ -604,6 +624,26 @@ const userRoutes = new Elysia({ prefix: '/users' })
       emojiFavorites: user.emojiFavorites || [],
       createdAt: user.createdAt,
     };
+  })
+  .get('/@me/available-tags', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const { ServerMember, Server: Srv } = await import('@/lib/models');
+    const memberships = await ServerMember.find({ userId: user.id });
+    const serverIds = memberships.map((m: any) => m.serverId).filter(Boolean);
+    if (!serverIds.length) return { tags: [] };
+    const servers = await Srv.find({ id: { in: serverIds } });
+    const tags = servers
+      .filter((s: any) => s?.tagText)
+      .map((s: any) => ({
+        serverId: s.id,
+        serverName: s.name,
+        serverIcon: s.icon ?? null,
+        tagText: s.tagText,
+        tagIcon: s.tagIcon ?? null,
+        tagAllowJoin: s.tagAllowJoin ?? true,
+      }));
+    return { tags };
   })
   .get('/@me/servers', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -1070,7 +1110,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         return { error: 'User not found in local database' };
       }
 
-      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone } = body as Record<string, any>;
+      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone, displayedTagServerId } = body as Record<string, any>;
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
@@ -1080,6 +1120,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (timezone !== undefined) updateFields.timezone = timezone || null;
       if (showTimezone !== undefined) updateFields.showTimezone = Boolean(showTimezone);
       if (customStatus !== undefined) updateFields.customStatus = customStatus;
+      if (displayedTagServerId !== undefined) updateFields.displayedTagServerId = displayedTagServerId || null;
       if (status !== undefined) {
         updateFields.status = status;
         if (status === 'offline' || status === 'invisible') {
@@ -1167,6 +1208,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       timezone: t.Optional(t.Union([t.String(), t.Null()])),
       showTimezone: t.Optional(t.Boolean()),
       customStatus: t.Optional(t.Union([t.String({ maxLength: 128 }), t.Null()])),
+      displayedTagServerId: t.Optional(t.Nullable(t.String())),
       status: t.Optional(t.Union([
         t.Literal('online'),
         t.Literal('idle'),
@@ -1210,7 +1252,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         }
       }
 
-      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone } = data || {};
+      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone, displayedTagServerId } = data || {};
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
@@ -1220,6 +1262,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (timezone !== undefined) updateFields.timezone = timezone || null;
       if (showTimezone !== undefined) updateFields.showTimezone = Boolean(showTimezone);
       if (customStatus !== undefined) updateFields.customStatus = customStatus;
+      if (displayedTagServerId !== undefined) updateFields.displayedTagServerId = displayedTagServerId || null;
       if (status !== undefined) {
         updateFields.status = status;
         if (status === 'offline' || status === 'invisible') {
@@ -1733,6 +1776,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       badges: targetUser.badges || [],
       status: getPublicPresenceStatus(targetUser),
       customStatus: targetUser.customStatus,
+      displayedTag: await resolveDisplayedTag((targetUser as any).displayedTagServerId),
       isPremium: targetUser.isPremium,
       isSystem: targetUser.isSystem || false,
       isBot: Boolean(targetUser.isBot),
@@ -3575,6 +3619,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(notificationsRoutes)
   .use(friendsRoutes)
   .use(serverRoutes)
+  .use(serverTagRoutes)
+  .use(serverPublicRoutes)
   .use(inviteRoutes)
   .use(partnerRoutes)
   .use(channelRoutes)
@@ -3629,3 +3675,4 @@ export type API = typeof api;
 
 // Export the getAuth helper for other files
 export { getAuth };
+

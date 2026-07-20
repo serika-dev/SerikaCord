@@ -15,23 +15,23 @@
 // MUST be first: registers a Bun module shim so gt-next's runtime
 // require("gt-next/internal/_load-translations") resolves to our disk-backed
 // loader instead of the throwing placeholder stub. See gt-preload.ts.
-import './gt-preload';
-import { createServer } from 'node:http';
-import next from 'next';
-import type { ServerWebSocket } from 'bun';
-import { connectDB } from '@/lib/db';
 import { initializeAPI } from '@/lib/api';
-import { authenticateRequest } from '@/lib/services/auth';
+import { connectDB } from '@/lib/db';
 import {
-  GatewayHub,
-  subscribeHubToRedis,
-  newSession,
-  isHeartbeatExpired,
-  KEEPALIVE_SWEEP_INTERVAL,
-  GATEWAY_PATH,
-  type Conn,
-  type Session,
+    GATEWAY_PATH,
+    GatewayHub,
+    isHeartbeatExpired,
+    KEEPALIVE_SWEEP_INTERVAL,
+    newSession,
+    subscribeHubToRedis,
+    type Conn,
+    type Session,
 } from '@/lib/gateway/core';
+import { authenticateRequest } from '@/lib/services/auth';
+import type { ServerWebSocket } from 'bun';
+import next from 'next';
+import { createServer } from 'node:http';
+import './gt-preload';
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
@@ -127,7 +127,7 @@ async function main() {
     for (const ws of liveSockets) {
       const conn = ws.data.conn;
       if (!conn) continue;
-      if (ws.readyState !== ws.OPEN) continue;
+      if (ws.readyState !== 1 /* WebSocket.OPEN */) continue;
       if (conn.data.authenticated && isHeartbeatExpired(conn)) {
         try { ws.close(4009, 'Session timed out'); } catch { ws.terminate(); }
         continue;

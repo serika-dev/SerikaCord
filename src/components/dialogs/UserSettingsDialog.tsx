@@ -1,90 +1,88 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
-import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { useAuth } from "@/contexts/AuthContext";
-import { useTheme } from "@/contexts/ThemeContext";
-import { useServer } from "@/contexts/ServerContext";
+import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
+import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
+import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
+import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
+import { BugReportPanel } from "@/components/settings/BugReportPanel";
+import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ImageCropper } from "@/components/ui/image-cropper";
+import { Input } from "@/components/ui/input";
+import { Loader } from "@/components/ui/Loader";
+import { LocaleSelector } from "@/components/ui/LocaleSelector";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { ProfileCard } from "@/components/user/ProfileCard";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  X,
-  User,
-  Shield,
-  Bell,
-  Palette,
-  Mic,
-  Keyboard,
-  Languages,
-  Accessibility,
-  Crown,
-  LogOut,
-  Camera,
-  Check, 
-  ExternalLink,
-  Pencil,
-  Search,
-  Link2,
-  Smartphone,
-  MessageSquare,
-  Lock,
-  Volume2,
-  Image,
-  Plug,
-  ShieldCheck,
-  Users,
-  Settings,
-  Database,
-  Activity,
-  FlaskConical,
-  RotateCcw,
-  Clock,
-  BellRing,
-  MonitorSmartphone,
-  Target,
-  MinusCircle,
-  Award,
-  Megaphone,
-  Mic2,
-  ChevronDown,
-  Ban,
-  FileText,
-  Server,
-  Globe,
-  UserCog,
-  AlertTriangle,
-  Zap,
-  BarChart3,
-  Calendar,
-  Bot,
-  RefreshCw,
-  Bug,
-  ShieldAlert,
-  MessageSquareHeart,
-} from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useServer } from "@/contexts/ServerContext";
+import { useTheme } from "@/contexts/ThemeContext";
+import { BADGES, getBadgesByPriority, type BadgeId } from "@/lib/constants/badges";
+import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
-import { cn, cdnImage } from "@/lib/utils";
-import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badges";
-import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
-import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
-import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
-import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
-import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
-import { BugReportPanel } from "@/components/settings/BugReportPanel";
-import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
-import { toast } from "sonner";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
+import { cdnImage, cn } from "@/lib/utils";
+import { AnimatePresence, motion } from "framer-motion";
 import { T, useGT } from "gt-next";
-import { LocaleSelector } from "@/components/ui/LocaleSelector";
-import { Loader } from "@/components/ui/Loader";
+import {
+    Accessibility,
+    Activity,
+    AlertTriangle,
+    Award,
+    Ban,
+    BarChart3,
+    Bell,
+    BellRing,
+    Bot,
+    Calendar,
+    Camera,
+    Check,
+    ChevronDown,
+    Clock,
+    Crown,
+    Database,
+    ExternalLink,
+    FileText,
+    FlaskConical,
+    Globe,
+    Image,
+    Keyboard,
+    Languages,
+    Link2,
+    Lock,
+    LogOut,
+    Megaphone,
+    MessageSquare,
+    MessageSquareHeart,
+    Mic,
+    Mic2,
+    MinusCircle,
+    MonitorSmartphone,
+    Palette,
+    Pencil,
+    Plug,
+    RefreshCw,
+    RotateCcw,
+    Search,
+    Server,
+    Settings,
+    ShieldAlert,
+    ShieldCheck,
+    Smartphone,
+    Target,
+    User,
+    UserCog,
+    Users,
+    Volume2,
+    X,
+    Zap
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { toast } from "sonner";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -849,6 +847,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const [timezone, setTimezone] = useState("");
   const [showTimezone, setShowTimezone] = useState(false);
   const [customStatus, setCustomStatus] = useState("");
+  const [displayedTagServerId, setDisplayedTagServerId] = useState<string | null>(null);
+  const [availableTags, setAvailableTags] = useState<Array<{
+    serverId: string; serverName: string; serverIcon: string | null; tagText: string; tagIcon: string | null;
+  }>>([]);
   const [status, setStatus] = useState("online");
   const [displayNameStyle, setDisplayNameStyle] = useState<{
     font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';
@@ -874,6 +876,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     presetId?: string;
   }>({ type: 'none' });
 
+  const selectedPreviewTag = useMemo(
+    () => availableTags.find((t) => t.serverId === displayedTagServerId) ?? null,
+    [availableTags, displayedTagServerId]
+  );
+
   const previewUser = useMemo(() => {
     const isServer = profileTab === "server";
     return {
@@ -889,6 +896,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       customStatus: customStatus,
       status: (status as any) || "online",
       badges: user?.badges || [],
+      displayedTag: selectedPreviewTag
+        ? {
+            serverId: selectedPreviewTag.serverId,
+            serverName: selectedPreviewTag.serverName,
+            serverIcon: selectedPreviewTag.serverIcon,
+            tagText: selectedPreviewTag.tagText,
+            tagIcon: selectedPreviewTag.tagIcon,
+          }
+        : null,
       createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       isPremium: user?.isPremium || false,
       customization: {
@@ -920,6 +936,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     showTimezone,
     customStatus,
     status,
+    selectedPreviewTag,
     profileColor,
     profileGradient,
     displayNameStyle,
@@ -1066,6 +1083,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       setTimezone(user.timezone || "");
       setShowTimezone(user.showTimezone ?? false);
       setCustomStatus(user.customStatus || "");
+      setDisplayedTagServerId(user.displayedTagServerId ?? null);
       setStatus(user.status || "online");
       setDisplayNameStyle(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] });
       setProfileColor(user.customization?.profileColor || "");
@@ -1086,11 +1104,12 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const fetchUserSettings = async () => {
     setIsLoadingSettings(true);
     try {
-      const [settingsRes, appsRes, devicesRes, connectionsRes] = await Promise.all([
+      const [settingsRes, appsRes, devicesRes, connectionsRes, tagsRes] = await Promise.all([
         fetch("/api/users/me/settings"),
         fetch("/api/users/me/authorized-apps"),
         fetch("/api/users/me/devices"),
         fetch("/api/users/me/connections"),
+        fetch("/api/users/@me/available-tags"),
       ]);
 
       if (settingsRes.ok) {
@@ -1108,6 +1127,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       if (connectionsRes.ok) {
         const data = await connectionsRes.json();
         setUserConnections(data.connections || []);
+      }
+      if (tagsRes.ok) {
+        const data = await tagsRes.json();
+        setAvailableTags(data.tags || []);
       }
     } catch (error) {
       console.error("Failed to fetch user settings:", error);
@@ -1215,6 +1238,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         timezone !== (user.timezone || "") ||
         showTimezone !== (user.showTimezone ?? false) ||
         customStatus !== (user.customStatus || "") ||
+        displayedTagServerId !== (user.displayedTagServerId ?? null) ||
         status !== (user.status || "online") ||
         JSON.stringify(displayNameStyle) !== JSON.stringify(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] }) ||
         profileColor !== (user.customization?.profileColor || "") ||
@@ -1235,6 +1259,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     timezone,
     showTimezone,
     customStatus,
+    displayedTagServerId,
     status,
     displayNameStyle,
     profileColor,
@@ -1282,6 +1307,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             timezone: timezone || null,
             showTimezone,
             customStatus,
+            displayedTagServerId: displayedTagServerId || null,
             status,
             customization: {
               displayNameStyle,
@@ -2442,6 +2468,33 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 placeholder={gt("What's on your mind?")}
                                 maxLength={128}
                               />
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
+                                {gt("Server Tag")}
+                              </label>
+                              {availableTags.length === 0 ? (
+                                <p className="text-xs text-[var(--text-muted)] bg-[var(--bg-app)] rounded-lg px-3 py-2.5">
+                                  {gt("No servers with tags found. Ask a server admin to set up a tag.")}
+                                </p>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  <select
+                                    value={displayedTagServerId ?? ""}
+                                    onChange={(e) => setDisplayedTagServerId(e.target.value || null)}
+                                    className="w-full h-10 px-3 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm focus:outline-none"
+                                  >
+                                    <option value="">{gt("None — don't display a tag")}</option>
+                                    {availableTags.map((t) => (
+                                      <option key={t.serverId} value={t.serverId}>
+                                        {t.tagText}  ·  {t.serverName}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                              <p className="text-xs text-[var(--text-muted)] mt-1">{gt("Shows on your profile and in chat everywhere.")}</p>
                             </div>
                           </div>
 

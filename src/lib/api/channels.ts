@@ -1,18 +1,38 @@
-import { Elysia, t } from 'elysia';
-import { Channel, Message, Role, Server, ServerMember, ServerSticker, User } from '@/lib/models';
-import { authenticateRequest } from '@/lib/services/auth';
-import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
-import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage } from '@/lib/security';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
-import { cache, getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
+import { cache, getPublisher } from '@/lib/db';
+import { normalizeId } from '@/lib/db/normalizeId';
+import { Channel, Message, Role, Server, ServerMember, ServerSticker, User } from '@/lib/models';
+import { checkRateLimit, decryptFromStorage, encryptForStorage, sanitizeInput, validateMessageContent } from '@/lib/security';
+import { authenticateRequest } from '@/lib/services/auth';
+import { batchParseCustomEmojis, getReactionEmoji, normalizeEmojiFormat, parseCustomEmojis } from '@/lib/services/emoji';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { randomUUID } from 'crypto';
-import { normalizeId } from '@/lib/db/normalizeId';
+import { Elysia, t } from 'elysia';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
+}
+
+type ResolvedTag = { serverId: string; serverName: string; serverIcon: string | null; tagText: string; tagIcon: string | null };
+
+/** Batch-resolve displayedTag for a set of author IDs — two queries total. */
+async function batchResolveAuthorTags(authorIds: string[], prefetchedUsers?: Array<any>): Promise<Map<string, ResolvedTag | null>> {
+  const result = new Map<string, ResolvedTag | null>();
+  if (!authorIds.length) return result;
+  const users = prefetchedUsers ?? (await User.find({ id: { in: authorIds } }));
+  const tagServerIds = [...new Set(users.map((u: any) => u.displayedTagServerId).filter(Boolean))] as string[];
+  const servers = tagServerIds.length ? await Server.find({ id: { in: tagServerIds } }) : [];
+  const serverMap = new Map(servers.map((s: any) => [s.id, s]));
+  for (const u of users as any[]) {
+    const srv = u.displayedTagServerId ? serverMap.get(u.displayedTagServerId) : null;
+    result.set(u.id, srv?.tagText ? {
+      serverId: srv.id, serverName: srv.name, serverIcon: srv.icon ?? null,
+      tagText: srv.tagText, tagIcon: srv.tagIcon ?? null,
+    } : null);
+  }
+  return result;
 }
 
 // Permission bits
@@ -1409,6 +1429,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const authorIds = Array.from(new Set(messages.map((m: any) => m.authorId).filter(Boolean))) as string[];
     const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
     const authorMap = new Map(authors.map((a: any) => [a.id, a]));
+    // Authors are already fetched above, so resolving tags only needs the server lookup.
+    const authorTagMap = await batchResolveAuthorTags(authorIds, authors as any[]);
 
     // Fetch Discord users for author IDs not found in the User table
     const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
@@ -1561,6 +1583,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           isVerified: populatedAuthor.isVerified,
           isDiscord: populatedAuthor.isDiscord || false,
           customization: populatedAuthor.customization || null,
+          displayedTag: authorTagMap.get(populatedAuthor.id) ?? null,
         } : null,
         channelId: msg.channelId,
         serverId: msg.serverId,
@@ -2032,6 +2055,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
+    const senderTagMap = await batchResolveAuthorTags(author ? [author.id] : []);
+
     const messageResponse = {
       id: message.id,
       content: sanitizedContent, // Return original content, not encrypted
@@ -2049,6 +2074,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isVerified: Boolean(author.isVerified),
         isDiscord: author.username?.startsWith('discord-') || false,
         customization: author.customization || null,
+        displayedTag: author ? (senderTagMap.get(author.id) ?? null) : null,
       } : null,
       channelId: message.channelId,
       serverId: message.serverId,

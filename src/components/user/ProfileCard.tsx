@@ -1,42 +1,43 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  MessageSquare,
-  UserPlus,
-  Copy,
-  Check,
-  CalendarDays,
-  Plus,
-  X,
-  Clock,
-  ShieldAlert,
-} from "lucide-react";
-import { toast } from "sonner";
-import { cn, cdnImage } from "@/lib/utils";
-import { getBadgesByPriority } from "@/lib/constants/badges";
-import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
-import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { hasPermissionBit } from "@/lib/roles/bitfield";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
-import { useUserActivity } from "@/hooks/useMoeActivity";
-import { NowWatchingCard } from "@/components/user/NowWatchingCard";
-import { MusicActivityCard } from "@/components/user/MusicActivityCard";
-import { GameActivityCard } from "@/components/user/GameActivityCard";
-import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { ServerTagBadge } from "@/components/ui/ServerTagBadge";
+import { getConnectionColor, getConnectionHref, getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
+import { GameActivityCard } from "@/components/user/GameActivityCard";
+import { MusicActivityCard } from "@/components/user/MusicActivityCard";
+import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { useAuth } from "@/contexts/AuthContext";
-import { ExternalLink } from "lucide-react";
-import { useGT } from "gt-next";
+import { useCurrentTime } from "@/hooks/useCurrentTime";
+import { useUserActivity } from "@/hooks/useMoeActivity";
+import { getBadgesByPriority } from "@/lib/constants/badges";
+import { hasPermissionBit } from "@/lib/roles/bitfield";
 import { statusLabel } from "@/lib/statusLabels";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
+import { cdnImage, cn } from "@/lib/utils";
+import { useGT } from "gt-next";
+import {
+    CalendarDays,
+    Check,
+    Clock,
+    Copy,
+    ExternalLink,
+    MessageSquare,
+    Plus,
+    ShieldAlert,
+    UserPlus,
+    X,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 export interface ProfileCardUser {
   id: string;
@@ -61,6 +62,13 @@ export interface ProfileCardUser {
   isSystem?: boolean;
   isFriend?: boolean;
   friendRequestSent?: boolean;
+  displayedTag?: {
+    serverId: string;
+    serverName: string;
+    serverIcon?: string | null;
+    tagText: string;
+    tagIcon?: string | null;
+  } | null;
   isBot?: boolean;
   isVerified?: boolean;
   /** Bridged Discord user (no real SerikaCord account) — hides friend actions. */
@@ -364,7 +372,7 @@ export function ProfileCard({
         {/* Avatar overlapping the banner */}
         <div className="absolute -top-11 left-4">
           <div className="relative">
-            <Avatar className="w-[88px] h-[88px] border-[5px] border-[#0c0c10] shadow-lg">
+            <Avatar className="w-[88px] h-[88px] shadow-lg">
               <AvatarImage src={cdnImage(user.avatar || undefined)} />
               <AvatarFallback className="bg-[#8B5CF6] text-white text-3xl">
                 {displayName.charAt(0).toUpperCase()}
@@ -424,6 +432,13 @@ export function ProfileCard({
             >
               {displayName}
             </h3>
+            {user.displayedTag?.tagText && (
+              <ServerTagBadge
+                tagText={user.displayedTag.tagText}
+                tagIcon={user.displayedTag.tagIcon}
+                serverId={user.displayedTag.serverId}
+              />
+            )}
             {user.isBot && !user.isSystem && (
               <span className={cn(
                 "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",

@@ -1,28 +1,32 @@
-import { Elysia, t } from 'elysia';
 import { createHash, randomBytes } from 'crypto';
+import { Elysia, t } from 'elysia';
 import { config } from '../config';
-import {
-  verifyEmail,
-  resetPassword,
-  deleteSession,
-  verifyToken,
-  handleDiscordOAuth,
-  authenticateRequest,
-  createSession,
-} from '../services/auth';
 import { cache } from '../db/redis';
-import { UserConnection, User } from '../models';
+import { User, UserConnection } from '../models';
 import { getPlatformSettings } from '../models/PlatformSettings';
 import {
-  accountsRegister,
-  accountsLogin,
-  accountsRefresh,
-  accountsVerifyEmail,
-  accountsResendVerification,
-  accountsForgotPassword,
-  accountsResetPassword,
-  accountsInternalGetUser,
+    accountsForgotPassword,
+    accountsInternalGetUser,
+    accountsLogin,
+    accountsRefresh,
+    accountsRegister,
+    accountsResendVerification,
+    accountsResetPassword,
+    accountsVerifyEmail,
 } from '../services/accountsClient';
+import {
+    authenticateRequest,
+    createSession,
+    deleteSession,
+    handleDiscordOAuth,
+    login as localLogin,
+    registerUser,
+    resetPassword,
+    verifyEmail,
+    verifyToken,
+} from '../services/auth';
+
+const isDev = config.NODE_ENV !== 'production';
 
 interface SavedAccountEntry {
   email: string;
@@ -269,7 +273,7 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
 };
 
 export const authRoutes = new Elysia({ prefix: '/auth' })
-  // Register - proxies to accounts.serika.dev
+  // Register - uses local DB in dev, proxies to accounts.serika.dev in production
   .post('/register', async ({ body, set }) => {
     const { email, username, password, displayName } = body;
 
@@ -283,6 +287,13 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     if (!/^[a-zA-Z0-9_]+$/.test(username)) {
       set.status = 400;
       return { error: 'Username can only contain letters, numbers, and underscores' };
+    }
+
+    if (isDev) {
+      const result = await registerUser({ email, username, password, displayName });
+      if (result.error) { set.status = 400; return { error: result.error }; }
+      set.status = 201;
+      return { success: true, message: 'Account created. (Dev mode: email verification skipped)', user: result.user };
     }
 
     try {
@@ -313,9 +324,22 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }),
   })
 
-  // Login - proxies to accounts.serika.dev
+  // Login - uses local DB in dev, proxies to accounts.serika.dev in production
   .post('/login', async ({ body, set, headers, cookie }) => {
     const { email, password } = body;
+
+    if (isDev) {
+      const result = await localLogin(email, password, {
+        userAgent: headers['user-agent'],
+        ipAddress: (headers['x-forwarded-for'] || headers['x-real-ip']) as string | undefined,
+      });
+      if (result.error || !result.tokens) { set.status = 401; return { error: result.error || 'Authentication failed' }; }
+      set.headers['Set-Cookie'] = [
+        `auth_token=${result.tokens.accessToken}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
+        `refresh_token=${result.tokens.refreshToken}; HttpOnly; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
+      ].join(', ');
+      return { success: true, user: result.user, tokens: result.tokens };
+    }
 
     try {
       const { ok, status, data } = await accountsLogin(

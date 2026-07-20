@@ -15,6 +15,11 @@ export interface MessageAuthor {
   isBot?: boolean;
   isVerified?: boolean;
   isDiscord?: boolean;
+  displayedTag?: {
+    serverId: string;
+    tagText: string;
+    tagIcon?: string | null;
+  } | null;
   customization?: {
     profileColor?: string;
     profileAccentColor?: string;

@@ -1,20 +1,51 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { config } from '../config';
-import { nanoid } from 'nanoid';
 import crypto from 'crypto';
+import fs from 'fs';
+import { nanoid } from 'nanoid';
+import path from 'path';
+import { config } from '../config';
 import { sanitizeSvgBuffer } from '../security/svgSanitizer';
 
+// Use local disk when B2 credentials are not configured (dev-only fallback).
+const missingB2Credentials = !config.B2_KEY_ID || !config.B2_APPLICATION_KEY;
+const useLocalStorage = config.NODE_ENV !== 'production' && missingB2Credentials;
+if (useLocalStorage) {
+  console.warn('⚠️ B2 credentials not configured — using local disk storage (dev only). Files will be saved to public/uploads/');
+}
+
+if (config.NODE_ENV === 'production' && missingB2Credentials) {
+  throw new Error('B2 storage credentials are required in production');
+}
+
 // Initialize S3 client for Backblaze B2
-const s3Client = new S3Client({
-  endpoint: `https://${config.B2_ENDPOINT}`,
-  region: config.B2_REGION,
-  credentials: {
-    accessKeyId: config.B2_KEY_ID,
-    secretAccessKey: config.B2_APPLICATION_KEY,
-  },
-  forcePathStyle: true,
-});
+const s3Client = useLocalStorage
+  ? null
+  : new S3Client({
+      endpoint: `https://${config.B2_ENDPOINT}`,
+      region: config.B2_REGION,
+      credentials: {
+        accessKeyId: config.B2_KEY_ID as string,
+        secretAccessKey: config.B2_APPLICATION_KEY as string,
+      },
+      forcePathStyle: true,
+    });
+
+function getS3Client(): S3Client {
+  if (!s3Client) {
+    throw new Error('B2 storage client is not available');
+  }
+  return s3Client;
+}
+
+function getSafeLocalPath(key: string): string {
+  const uploadsRoot = path.join(process.cwd(), 'public', 'uploads');
+  const keyParts = key.split('/');
+  if (keyParts.some((part) => !part || part === '.' || part === '..')) {
+    throw new Error('Invalid storage key');
+  }
+  return path.join(uploadsRoot, ...keyParts);
+}
 
 export type UploadCategory = 
   | 'avatars' 
@@ -187,10 +218,17 @@ export class StorageService {
 
     const hash = await calculateHash(buffer);
 
-    // Sanitize SVGs server-side to strip <script>, event handlers, etc.
-    // This makes SVG uploads safe even if opened directly in a browser tab.
+    // Sanitize SVGs server-side
     if (contentType === 'image/svg+xml') {
       buffer = sanitizeSvgBuffer(buffer);
+    }
+
+    // ----- Local disk fallback (no B2 credentials) -----
+    if (useLocalStorage) {
+      const filePath = getSafeLocalPath(key);
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, buffer);
+      return { url: `/uploads/${key}`, key, size, contentType, hash };
     }
 
     // S3 metadata values must be ASCII — encode non-ASCII filenames
@@ -199,7 +237,7 @@ export class StorageService {
     // Upload using multipart for larger files
     if (size > 5 * 1024 * 1024) { // 5MB threshold
       const upload = new Upload({
-        client: s3Client,
+        client: getS3Client(),
         params: {
           Bucket: config.B2_BUCKET_NAME,
           Key: key,
@@ -215,7 +253,7 @@ export class StorageService {
 
       await upload.done();
     } else {
-      await s3Client.send(new PutObjectCommand({
+      await getS3Client().send(new PutObjectCommand({
         Bucket: config.B2_BUCKET_NAME,
         Key: key,
         Body: buffer,
@@ -239,7 +277,15 @@ export class StorageService {
 
   // Delete a file
   async delete(key: string): Promise<void> {
-    await s3Client.send(new DeleteObjectCommand({
+    if (useLocalStorage) {
+      try {
+        await fs.promises.unlink(getSafeLocalPath(key));
+      } catch {
+        /* best-effort */
+      }
+      return;
+    }
+    await getS3Client().send(new DeleteObjectCommand({
       Bucket: config.B2_BUCKET_NAME,
       Key: key,
     }));
@@ -253,7 +299,7 @@ export class StorageService {
   // Check if file exists
   async exists(key: string): Promise<boolean> {
     try {
-      await s3Client.send(new HeadObjectCommand({
+      await getS3Client().send(new HeadObjectCommand({
         Bucket: config.B2_BUCKET_NAME,
         Key: key,
       }));
@@ -270,7 +316,7 @@ export class StorageService {
     lastModified: Date | undefined;
   } | null> {
     try {
-      const response = await s3Client.send(new HeadObjectCommand({
+      const response = await getS3Client().send(new HeadObjectCommand({
         Bucket: config.B2_BUCKET_NAME,
         Key: key,
       }));

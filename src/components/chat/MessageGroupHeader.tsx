@@ -1,19 +1,20 @@
 "use client";
 
-import { memo } from "react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Crown, Check, Clock } from "lucide-react";
-import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { StaffPill } from "@/components/chat/StaffPill";
 import { SystemPill } from "@/components/chat/SystemPill";
-import { useTheme } from "@/contexts/ThemeContext";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ServerTagBadge } from "@/components/ui/ServerTagBadge";
+import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useServerMembers } from "@/contexts/ServerContext";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
-import { cn, cdnImage } from "@/lib/utils";
+import { useTheme } from "@/contexts/ThemeContext";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
-import { useChatGt } from "./ChatGtContext";
-import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
+import { cdnImage, cn } from "@/lib/utils";
+import { Check, Clock, Crown } from "lucide-react";
+import type { CSSProperties } from 'react';
+import { memo } from "react";
+import { useChatGt } from "./ChatGtContext";
 
 interface GroupAvatarProps {
   author: MessageAuthor;
@@ -106,6 +107,9 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
         >
           <button onContextMenu={(e) => e.stopPropagation()} className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
             <span>{name}</span>
+            {author.displayedTag?.tagText && (
+              <ServerTagBadge tagText={author.displayedTag.tagText} tagIcon={author.displayedTag.tagIcon} serverId={author.displayedTag.serverId} />
+            )}
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
             )}
