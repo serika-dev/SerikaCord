@@ -20,9 +20,14 @@
 #include "MainWindow.h"
 #include "SingleInstance.h"
 #include "UpdaterWindow.h"
+#include "Updater.h"
 #include "DeepLinkHandler.h"
 #include "TrayIcon.h"
 #include "PresenceDetector.h"
+
+#include <QProcess>
+#include <QDesktopServices>
+#include <QFileInfo>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -126,21 +131,67 @@ int main(int argc, char *argv[]) {
         mainWindow.showAndFocus();
     });
 
-    // ── Simulate update check, then show main window ─────────────────────────
-    // In a real build this would hit the GitHub releases endpoint and download
-    // an update. For now we just show the splash briefly, then proceed.
-    QTimer::singleShot(1500, [&]() {
-        updater.setVersionText("v1.2.7");
-        updater.setIndeterminate("Starting SerikaCord…");
-    });
+    updater.setVersionText(QStringLiteral("v%1").arg(app.applicationVersion()));
 
-    QTimer::singleShot(2200, [&]() {
+    // Shared launcher: closes the splash and loads the web app.
+    auto launchApp = [&]() {
         updater.closeSplash();
-
-        // Load the main URL
         QString startUrl = QString("%1%2").arg(SerikaConfig::APP_URL, SerikaConfig::START_PATH);
         mainWindow.loadUrl(startUrl);
         mainWindow.showAndFocus();
+    };
+
+    // ── Real auto-update check (Tauri parity) ────────────────────────────────
+    // Hits the GitHub releases latest.json, and if a newer build exists for this
+    // platform downloads it with progress and installs on quit. Any failure just
+    // starts the app normally — updates never block launch.
+    Updater updateChecker(app.applicationVersion());
+    QObject::connect(&updateChecker, &Updater::indeterminate,
+                     &updater, &UpdaterWindow::setIndeterminate);
+    QObject::connect(&updateChecker, &Updater::progressChanged,
+                     &updater, &UpdaterWindow::setProgress);
+    QObject::connect(&updateChecker, &Updater::statusChanged,
+                     &updater, &UpdaterWindow::setIndeterminate);
+
+    QObject::connect(&updateChecker, &Updater::noUpdate, &mainWindow, launchApp);
+
+    QObject::connect(&updateChecker, &Updater::readyToInstall, &mainWindow,
+                     [&](const QString &installerPath, const QString &newVersion) {
+        updater.setDone(QStringLiteral("Installing %1…").arg(newVersion));
+
+        // Hand the downloaded artifact to the OS, then quit so it can replace us.
+#if defined(Q_OS_WIN)
+        // Run the installer (.msi via msiexec, .exe directly), then exit.
+        if (installerPath.endsWith(".msi", Qt::CaseInsensitive)) {
+            QProcess::startDetached("msiexec", {"/i", installerPath});
+        } else {
+            QProcess::startDetached(installerPath, {});
+        }
+        QApplication::quit();
+#elif defined(Q_OS_MACOS)
+        // Open the .dmg for the user to drag-install, then exit.
+        QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
+        QApplication::quit();
+#else
+        // Linux: relaunch the new AppImage directly; otherwise open the package
+        // (.deb) in the system installer. Then exit.
+        if (installerPath.endsWith(".AppImage", Qt::CaseInsensitive)) {
+            QProcess::startDetached(installerPath, {});
+        } else {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
+        }
+        QApplication::quit();
+#endif
+    });
+
+    // Give the splash a brief beat so it's visible, then check.
+    QTimer::singleShot(600, &updateChecker, [&updateChecker]() {
+        updateChecker.checkForUpdates();
+    });
+
+    // Safety net: never let a hung network keep the splash up forever.
+    QTimer::singleShot(15000, &mainWindow, [&, launchApp]() {
+        if (!mainWindow.isVisible()) launchApp();
     });
 
     return app.exec();

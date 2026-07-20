@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff, QrCode, KeyRound } from "lucide-react";
+import { Eye, EyeOff } from "lucide-react";
 import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader } from "@/components/ui/Loader";
@@ -20,7 +20,6 @@ function LoginForm() {
   const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [mode, setMode] = useState<"password" | "qr">("password");
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
@@ -52,54 +51,21 @@ function LoginForm() {
 
   return (
     <div className="bg-[#0a0a0a]/90 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-8 shadow-2xl shadow-black/60">
-      {/* Header */}
-      <div className="text-center mb-8">
-        <h1 className="text-2xl font-semibold text-white mb-2">
-          <T>Welcome back</T>
-        </h1>
-        <p className="text-[#888888] text-sm">
-          <T>Sign in to your account to continue</T>
-        </p>
-      </div>
+      <div className="flex flex-col md:flex-row md:items-stretch gap-8">
+        {/* ── Left column: password login ─────────────────────────────── */}
+        <div className="flex-1 min-w-0">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-semibold text-white mb-2">
+              <T>Welcome back</T>
+            </h1>
+            <p className="text-[#888888] text-sm">
+              <T>Sign in to your account to continue</T>
+            </p>
+          </div>
 
-      {/* Mode toggle: password vs QR */}
-      <div className="grid grid-cols-2 gap-1 p-1 mb-6 rounded-xl bg-[#111111] border border-white/[0.06]">
-        <button
-          type="button"
-          onClick={() => setMode("password")}
-          className={`flex items-center justify-center gap-2 h-9 rounded-lg text-sm font-medium transition-colors ${
-            mode === "password"
-              ? "bg-[#8B5CF6] text-white"
-              : "text-[#888888] hover:text-white"
-          }`}
-        >
-          <KeyRound className="w-4 h-4" />
-          {gt("Password")}
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("qr")}
-          className={`flex items-center justify-center gap-2 h-9 rounded-lg text-sm font-medium transition-colors ${
-            mode === "qr"
-              ? "bg-[#8B5CF6] text-white"
-              : "text-[#888888] hover:text-white"
-          }`}
-        >
-          <QrCode className="w-4 h-4" />
-          {gt("QR Code")}
-        </button>
-      </div>
-
-      {mode === "qr" ? (
-        <div className="py-2">
-          <QRLoginPanel
-            redirectTo={redirectTo}
-            onApproved={(to) => router.replace(to)}
-          />
-        </div>
-      ) : (
-      /* Form */
-      <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
           <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
             {error}
@@ -176,8 +142,22 @@ function LoginForm() {
             <T>Sign up</T>
           </Link>
         </p>
-      </form>
-      )}
+          </form>
+        </div>
+
+        {/* ── Divider ──────────────────────────────────────────────────── */}
+        <div className="hidden md:flex flex-col items-center px-1">
+          <div className="w-px flex-1 bg-white/[0.08]" />
+        </div>
+
+        {/* ── Right column: QR login (desktop only) ───────────────────── */}
+        <div className="hidden md:flex md:w-[280px] flex-col items-center justify-center">
+          <QRLoginPanel
+            redirectTo={redirectTo}
+            onApproved={(to) => router.replace(to)}
+          />
+        </div>
+      </div>
     </div>
   );
 }

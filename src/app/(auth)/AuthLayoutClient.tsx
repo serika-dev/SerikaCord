@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { T } from "gt-next";
 import { Logo } from "@/components/ui/Logo";
 
@@ -10,6 +11,10 @@ export default function AuthLayoutClient({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  // The login page uses a wide two-column layout (form + QR); other auth pages
+  // (register, forgot/reset password) stay in the narrow single column.
+  const isLogin = pathname === "/login";
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#000000] overflow-hidden">
       {/* Radial glow */}
@@ -39,8 +44,8 @@ export default function AuthLayoutClient({
       </motion.div>
 
       {/* Main content */}
-      <motion.div 
-        className="relative z-10 w-full max-w-md mx-4"
+      <motion.div
+        className={`relative z-10 w-full mx-4 ${isLogin ? "max-w-3xl" : "max-w-md"}`}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
