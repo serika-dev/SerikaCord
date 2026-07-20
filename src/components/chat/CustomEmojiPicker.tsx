@@ -1125,7 +1125,7 @@ export function CustomEmojiPicker({
 
       {typeof document !== "undefined" && ctxMenu && createPortal(
         <div
-          className="fixed z-[9999] min-w-[160px] bg-[#1a1a2e] border border-[#2a2a40] rounded-lg shadow-xl py-1"
+          className="ctx-menu fixed z-[9999] min-w-[168px]"
           style={{ 
             left: Math.min(ctxMenu.x, window.innerWidth - 168), 
             top: Math.min(ctxMenu.y, window.innerHeight - 88) 
@@ -1134,7 +1134,7 @@ export function CustomEmojiPicker({
         >
           <button
             onClick={handleToggleFav}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[#ccccee] hover:bg-[#2a2a40] transition-colors"
+            className="ctx-item"
           >
             {isEmojiFavorite(ctxMenu.emoji, ctxMenu.customEmojiId) ? (
               <>
@@ -1150,7 +1150,7 @@ export function CustomEmojiPicker({
           </button>
           <button
             onClick={handleCopyEmojiId}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[#ccccee] hover:bg-[#2a2a40] transition-colors"
+            className="ctx-item"
           >
             <Copy className="w-4 h-4" />
             {gt("Copy ID")}

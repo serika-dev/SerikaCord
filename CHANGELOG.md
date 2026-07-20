@@ -1,6 +1,22 @@
 # SerikaCord — Full Changelog
 
-**296 commits** · Jan 22 – Jul 19, 2026 · v0.0.1 → v1.2.5.
+**297 commits** · Jan 22 – Jul 20, 2026 · v0.0.1 → v1.2.6.
+
+---
+
+## v1.2.6 — 2026-07-20
+
+**Tag:** `v1.2.6` · **Build:** GitHub Actions (Tauri desktop + Android APK)
+
+### Release Notes
+
+Image spoiler marking on upload with CDN-level blur (`?blur=25`) and click-to-reveal in chat.
+
+### Features — Attachments
+- **Spoiler marking on upload** — Eye toggle button on image/video attachment previews in the message bar. Marked attachments are sent with `spoiler: true` and stored on the message. Spoilered images render with `?blur=25` on the CDN URL and a click-to-reveal overlay in chat.
+
+### Performance
+- **Smaller scroll-up pagination batch** — Scroll-up history loading now fetches 25 messages instead of 50, reducing the main-thread freeze during mid-scroll pagination. Initial channel load remains 50 to fill the viewport in one request.
 
 ---
 

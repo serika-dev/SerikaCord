@@ -878,6 +878,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         filename: t.String(),
         contentType: t.String(),
         size: t.Optional(t.Number()),
+        spoiler: t.Optional(t.Boolean()),
       }))),
       replyTo: t.Optional(t.String()),
     }),

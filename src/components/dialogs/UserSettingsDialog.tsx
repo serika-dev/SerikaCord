@@ -2339,11 +2339,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 ))}
                               </select>
                               <label className="flex items-center gap-2 mt-2.5 cursor-pointer">
-                                <input
-                                  type="checkbox"
+                                <ToggleSwitch
+                                  size="sm"
                                   checked={showTimezone}
-                                  onChange={(e) => setShowTimezone(e.target.checked)}
-                                  className="w-4 h-4 rounded accent-[var(--app-accent)]"
+                                  onCheckedChange={setShowTimezone}
+                                  aria-label={gt("Display my current time on my profile")}
                                 />
                                 <span className="text-sm text-[var(--text-secondary)]">{gt("Display my current time on my profile")}</span>
                               </label>

@@ -680,13 +680,13 @@ export function ProfileCard({
 
       {roleCtx && (
         <div
-          className="fixed z-[100] min-w-[180px] py-1 rounded-lg bg-[#1e1f22] border border-[#2b2d31] shadow-xl text-sm"
+          className="ctx-menu fixed z-[100] min-w-[188px]"
           style={{ top: roleCtx.y, left: roleCtx.x }}
           onClick={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
           <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[#dbdee1] hover:bg-[#2b2d31] transition-colors"
+            className="ctx-item"
             onClick={() => {
               navigator.clipboard?.writeText(roleCtx.role.id);
               toast.success(gt("Role ID copied"));
@@ -697,7 +697,7 @@ export function ProfileCard({
             {gt("Copy Role ID")}
           </button>
           <button
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-[#dbdee1] hover:bg-[#2b2d31] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="ctx-item"
             disabled={!roleCtx.role.color}
             onClick={() => {
               if (!roleCtx.role.color) return;

@@ -637,10 +637,120 @@ textarea::selection,
   animation: msg-list-fade-in 0.15s ease-out both;
 }
 
+/* ─── Context menus (shared) ───
+   One look for every right-click menu: Discord-style inset rounded items that
+   highlight with the accent color, a fast ease-out-expo pop-in, and consistent
+   danger/disabled states. Apply .ctx-menu to the container, .ctx-item to rows. */
+@keyframes ctx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+.ctx-menu {
+  background: var(--bg-card, #1e1f22);
+  border: 1px solid var(--border-subtle, #2b2d31);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.3);
+  animation: ctx-pop 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top left;
+}
+.ctx-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 0.875rem;
+  text-align: left;
+  color: var(--text-secondary, #b5bac1);
+  cursor: pointer;
+  transition: background-color 60ms ease, color 60ms ease;
+}
+.ctx-item:hover,
+.ctx-item:focus-visible {
+  background: var(--app-accent, #8b5cf6);
+  color: var(--text-on-accent, #fff);
+  outline: none;
+}
+.ctx-item:hover svg,
+.ctx-item:focus-visible svg {
+  color: inherit;
+}
+.ctx-item:active {
+  filter: brightness(0.92);
+}
+.ctx-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--text-secondary, #b5bac1);
+}
+.ctx-item-danger {
+  color: #f23f43;
+}
+.ctx-item-danger:hover,
+.ctx-item-danger:focus-visible {
+  background: #f23f43;
+  color: #fff;
+}
+.ctx-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border-subtle, #2b2d31);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctx-menu {
+    animation: none;
+  }
+}
+
+/* Premium easing for Radix dropdowns/popovers/dialogs: the tw-animate default
+   is a flat ease that reads as cheap. Ease-out-expo with a touch more duration
+   makes every menu/popover open feel intentional. */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="popover-content"],
+[data-slot="dialog-content"],
+[data-slot="tooltip-content"] {
+  animation-duration: 180ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Instant tactile press feedback: a tiny scale-down on :active makes clicks
+   feel acknowledged the same frame, before any navigation/data work lands.
+   Transform-only → compositor-driven, no layout/paint cost. */
+.press-feedback {
+  /* Includes color/background so this shorthand doesn't clobber Tailwind's
+     transition-colors on the same element (this rule is unlayered and wins). */
+  transition: transform 80ms ease-out, color 150ms ease, background-color 150ms ease;
+}
+.press-feedback:active {
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  .press-feedback,
+  .press-feedback:active {
+    transition: none;
+    transform: none;
+  }
+}
+
 /* Render optimization: skip layout/paint for off-screen message groups */
 .msg-group-cv {
-  /* content-visibility: auto; */
-  /* contain-intrinsic-size: auto 88px; */
+  /* Off-screen groups skip style/layout/paint entirely — with 200 messages
+     loaded this cuts render work to roughly the visible viewport. The `auto`
+     keyword remembers each group's last rendered height, so scrollbar and
+     scroll-restore estimates stay accurate after first render (88px is only
+     the pre-first-render guess). */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 88px;
   /* content-visibility forces paint containment, which clips anything drawn
      outside the box — including the hover toolbar floated above the first row
      (-top-3). Reserve headroom + a matching negative margin so the toolbar

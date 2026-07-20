@@ -511,7 +511,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter };
     }
 
-    const { file, channelId } = body;
+    const { file, channelId, spoiler } = body;
 
     if (!file) {
       set.status = 400;
@@ -553,6 +553,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
           contentType: file.type,
           size: file.size,
           url: result.url,
+          spoiler: spoiler === 'true',
         },
       };
     } catch (error: unknown) {
@@ -565,6 +566,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     body: t.Object({
       file: t.File(),
       channelId: t.Optional(t.String()),
+      spoiler: t.Optional(t.String()),
     }),
   })
   // Upload sticker

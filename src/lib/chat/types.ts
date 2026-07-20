@@ -34,6 +34,7 @@ export interface MessageAttachment {
   filename: string;
   contentType: string;
   size?: number;
+  spoiler?: boolean;
 }
 
 export interface MessageReaction {

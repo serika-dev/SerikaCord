@@ -25,6 +25,7 @@ import { motion } from "framer-motion";
 import { useMentions } from "@/hooks/useMentions";
 import { useUnread } from "@/contexts/UnreadContext";
 import { useServerMutes } from "@/hooks/useServerMutes";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout";
 import { usePolling } from "@/hooks/usePolling";
 import { useGT } from "gt-next";
@@ -318,9 +319,23 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const totalDMUnread = unreadDMs.length;
 
   // ── handlers ──────────────────────────────────────────────────────────────
+  /**
+   * Resolve the deep link for a server: jump straight to the last-visited
+   * channel when we know it. Going through /channels/{id} first costs a second
+   * navigation (that page just redirects to this same channel) with a visible
+   * "Loading channels…" flash in between.
+   */
+  const serverHref = (server: Server): string => {
+    try {
+      const last = localStorage.getItem(`sc:last_channel:${server.id}`);
+      if (last) return `/channels/${server.id}/${last}`;
+    } catch { /* SSR / storage disabled */ }
+    return `/channels/${server.id}`;
+  };
+
   const handleServerClick = (server: Server) => {
     setCurrentServer(server);
-    router.push(`/channels/${server.id}`);
+    router.push(serverHref(server));
   };
   const handleCopyServerId = (serverId: string) => void navigator.clipboard?.writeText(serverId);
   const handleHomeClick = () => { setCurrentServer(null); router.push("/channels/me"); };
@@ -358,7 +373,17 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
           <TooltipTrigger asChild>
             <motion.button
               onClick={() => handleServerClick(server)}
-              onMouseEnter={() => prefetchServer(server.id)}
+              onMouseEnter={() => {
+                prefetchServer(server.id);
+                // Route warm-up: programmatic router.push doesn't prefetch, so
+                // without this the server switch pays an RSC round-trip on click.
+                // Warm the same deep link the click will use, plus that
+                // channel's messages so the chat paints instantly.
+                const href = serverHref(server);
+                router.prefetch(href);
+                const channelId = href.split("/")[3];
+                if (channelId) void prefetchChannelMessages(`/api/channels/${channelId}`);
+              }}
               whileTap={{ scale: 0.88 }}
               transition={{ type: "spring", stiffness: 500, damping: 30 }}
               className={cn(
@@ -667,6 +692,10 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => { markDmSeen(channel); router.push(`/dm/${recipient.id}`); }}
+                      onMouseEnter={() => {
+                        void prefetchChannelMessages(`/api/dms/${recipient.id}`);
+                        router.prefetch(`/dm/${recipient.id}`);
+                      }}
                       className="relative flex items-center justify-center w-12 h-12 rounded-[24px] transition-[border-radius] duration-200 hover:rounded-[16px] group overflow-hidden"
                     >
                       <Avatar className="w-12 h-12">

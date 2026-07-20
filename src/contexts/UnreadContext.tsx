@@ -347,56 +347,91 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     };
   }, [user]);
 
-  // Cross-device read state: pull the DB read markers on login and merge them
-  // into the local read map (newest wins per channel). This is what makes a
-  // channel you read on your phone show as read on desktop, and vice-versa.
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/users/@me/read-states");
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as {
-          readStates?: Array<{ channelId: string; lastReadAt: string | null }>;
-        };
-        if (cancelled || !data.readStates?.length) return;
-        setLastRead((prev) => {
-          const next = { ...prev };
-          let changed = false;
-          for (const rs of data.readStates!) {
-            if (!rs.lastReadAt) continue;
-            const localTs = next[rs.channelId] ? new Date(next[rs.channelId]).getTime() : 0;
-            const dbTs = new Date(rs.lastReadAt).getTime();
-            if (dbTs > localTs) {
-              next[rs.channelId] = rs.lastReadAt;
-              changed = true;
-              // Keep the legacy mention-read key in sync so server-rail badges agree.
-              if (typeof localStorage !== "undefined") {
-                try {
-                  localStorage.setItem(`${LEGACY_READ_PREFIX}${rs.channelId}`, String(dbTs));
-                } catch {
-                  /* ignore */
-                }
+  // Cross-device read state: pull the DB read markers and merge them into the
+  // local read map (newest wins per channel). This is what makes a channel you
+  // read on your phone show as read on desktop, and vice-versa.
+  //
+  // We run this not just on login but on every SSE (re)connect and whenever the
+  // tab becomes visible again. The live `read_state` event only reaches a client
+  // that's connected at the instant another device reads — a backgrounded tab or
+  // a dropped connection misses it and would otherwise stay "unread" until a full
+  // reload. Re-reconciling on reconnect/visibility closes that gap so read state
+  // FULLY converges across devices without a manual refresh.
+  const syncReadStates = useCallback(async () => {
+    try {
+      const res = await fetch("/api/users/@me/read-states");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        readStates?: Array<{ channelId: string; lastReadAt: string | null }>;
+      };
+      if (!data.readStates?.length) return;
+      setLastRead((prev) => {
+        const next = { ...prev };
+        let changed = false;
+        for (const rs of data.readStates!) {
+          if (!rs.lastReadAt) continue;
+          const localTs = next[rs.channelId] ? new Date(next[rs.channelId]).getTime() : 0;
+          const dbTs = new Date(rs.lastReadAt).getTime();
+          if (dbTs > localTs) {
+            next[rs.channelId] = rs.lastReadAt;
+            changed = true;
+            // Keep the legacy mention-read key in sync so server-rail badges agree.
+            if (typeof localStorage !== "undefined") {
+              try {
+                localStorage.setItem(`${LEGACY_READ_PREFIX}${rs.channelId}`, String(dbTs));
+              } catch {
+                /* ignore */
               }
             }
           }
-          if (changed) persistRead(next);
-          return changed ? next : prev;
-        });
-      } catch {
-        /* best-effort — localStorage remains the fallback */
-      }
-    })();
-    return () => {
-      cancelled = true;
+        }
+        if (changed) persistRead(next);
+        return changed ? next : prev;
+      });
+      // Any channel whose DB read marker now covers its latest activity should
+      // shed a stale mention badge left behind by a missed live event.
+      setMentionCounts((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const rs of data.readStates!) {
+          if (!rs.lastReadAt || !next[rs.channelId]) continue;
+          const act = lastActivityRef.current[rs.channelId];
+          if (act && new Date(rs.lastReadAt).getTime() >= new Date(act).getTime()) {
+            delete next[rs.channelId];
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    } catch {
+      /* best-effort — localStorage remains the fallback */
+    }
+  }, [persistRead]);
+
+  useEffect(() => {
+    if (!user) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void syncReadStates();
     };
-  }, [user, persistRead]);
+    void (async () => { await syncReadStates(); })();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [user, syncReadStates]);
 
   // Live activity stream.
   useEffect(() => {
     if (!user) return;
     const es = new EventSource("/api/users/@me/activity", { withCredentials: true });
+
+    // On every (re)connect, reconcile against the DB. The initial mount seed is
+    // handled separately, but a reconnect after a drop is exactly when we may
+    // have missed a live `read_state` event — pull the authoritative markers so
+    // read state converges instead of lingering stale until reload.
+    let firstOpen = true;
+    es.onopen = () => {
+      if (firstOpen) { firstOpen = false; return; } // mount effect already seeded
+      void syncReadStates();
+    };
 
     es.onmessage = (ev) => {
       let data: ActivityEvent | { type: string };
@@ -525,7 +560,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     };
 
     return () => es.close();
-  }, [user, persistActivity, persistRead]);
+  }, [user, persistActivity, persistRead, syncReadStates]);
 
   const isChannelUnread = useCallback(
     (channelId: string) => {
