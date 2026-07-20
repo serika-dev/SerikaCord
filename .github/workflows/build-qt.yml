@@ -1,0 +1,232 @@
+name: Release Build (Qt)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Desktop (Qt) — Windows (.zip/.exe), macOS (.dmg), Linux (AppImage/.deb)
+  # Same release pipeline and signing as the Tauri build.
+  # ---------------------------------------------------------------------------
+  build-qt-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qt6-base-dev \
+            qt6-webengine-dev \
+            qt6-webchannel-dev \
+            qt6-webengine-dev-tools \
+            qt6-base-dev-tools \
+            cmake \
+            build-essential \
+            patchelf \
+            file \
+            librsvg2-dev
+
+      - name: Install Qt (Windows & macOS)
+        if: matrix.name != 'linux'
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+          modules: 'qtwebengine qtwebchannel'
+
+      - name: Configure
+        working-directory: desktop-QT
+        run: |
+          mkdir build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Linux)
+        if: matrix.name == 'linux'
+        working-directory: desktop-QT/build
+        run: cmake --build . --config Release --parallel $(nproc)
+
+      - name: Build (Windows)
+        if: matrix.name == 'windows'
+        working-directory: desktop-QT/build
+        run: cmake --build . --config Release --parallel
+
+      - name: Build (macOS)
+        if: matrix.name == 'macos'
+        working-directory: desktop-QT/build
+        run: cmake --build . --config Release --parallel $(sysctl -n hw.ncpu)
+
+      # ── Linux packaging ──────────────────────────────────────────────────────
+      - name: Create Linux AppImage
+        if: matrix.name == 'linux'
+        working-directory: desktop-QT
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp build/SerikaCord AppDir/usr/bin/
+          cp serikacord.desktop AppDir/usr/share/applications/
+          cp src/resources/icons/app-icon.png AppDir/usr/share/icons/hicolor/256x256/apps/serikacord.png
+
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir "SerikaCord-${VERSION}-qt.AppImage" || true
+
+      - name: Create Linux .deb
+        if: matrix.name == 'linux'
+        working-directory: desktop-QT
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          mkdir -p deb-pkg/serikacord-qt_${VERSION}_amd64/DEBIAN
+          mkdir -p deb-pkg/serikacord-qt_${VERSION}_amd64/usr/bin
+          mkdir -p deb-pkg/serikacord-qt_${VERSION}_amd64/usr/share/applications
+          mkdir -p deb-pkg/serikacord-qt_${VERSION}_amd64/usr/share/icons/hicolor/256x256/apps
+          cp build/SerikaCord deb-pkg/serikacord-qt_${VERSION}_amd64/usr/bin/
+          cp serikacord.desktop deb-pkg/serikacord-qt_${VERSION}_amd64/usr/share/applications/
+          cp src/resources/icons/app-icon.png deb-pkg/serikacord-qt_${VERSION}_amd64/usr/share/icons/hicolor/256x256/apps/serikacord.png
+          cat > deb-pkg/serikacord-qt_${VERSION}_amd64/DEBIAN/control << EOF
+          Package: serikacord-qt
+          Version: ${VERSION}
+          Architecture: amd64
+          Maintainer: SerikaCord <dev@serika.chat>
+          Description: SerikaCord Qt desktop client
+          Depends: libqt6webengine6, libqt6webchannel6, libqt6widgets6
+          EOF
+          dpkg-deb --build deb-pkg/serikacord-qt_${VERSION}_amd64
+
+      - name: Sign AppImage (GPG)
+        if: matrix.name == 'linux'
+        env:
+          APPIMAGE_GPG_KEY: ${{ secrets.APPIMAGE_GPG_KEY }}
+          APPIMAGE_GPG_PASSPHRASE: ${{ secrets.APPIMAGE_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$APPIMAGE_GPG_KEY" ]; then
+            echo "APPIMAGE_GPG_KEY secret not set — skipping AppImage signing"
+            exit 0
+          fi
+          echo "$APPIMAGE_GPG_KEY" | gpg --batch --import --pinentry-mode loopback --passphrase "$APPIMAGE_GPG_PASSPHRASE" 2>/dev/null
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          APPIMAGE="desktop-QT/SerikaCord-${VERSION}-qt.AppImage"
+          if [ ! -f "$APPIMAGE" ]; then
+            echo "No AppImage found — skipping signing"
+            exit 0
+          fi
+          echo "Signing: $APPIMAGE"
+          gpg --batch --yes --pinentry-mode loopback --passphrase "$APPIMAGE_GPG_PASSPHRASE" \
+            --detach-sign --armor "$APPIMAGE"
+          gpg --verify "${APPIMAGE}.asc" "$APPIMAGE" && echo "Signature verified OK"
+
+      # ── Windows packaging ────────────────────────────────────────────────────
+      - name: Package Windows
+        if: matrix.name == 'windows'
+        working-directory: desktop-QT/build
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          mkdir package
+          cp Release/SerikaCord.exe package/
+          windeployqt Release/SerikaCord.exe --dir package/ --release --no-translations
+          cd package
+          7z a "SerikaCord-${VERSION}-qt-windows.zip" .
+
+      # ── macOS packaging ──────────────────────────────────────────────────────
+      - name: Package macOS
+        if: matrix.name == 'macos'
+        working-directory: desktop-QT/build
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          mkdir -p SerikaCord.app/Contents/MacOS
+          mkdir -p SerikaCord.app/Contents/Resources
+          cp SerikaCord SerikaCord.app/Contents/MacOS/
+          cp ../src/resources/icons/app-icon.png SerikaCord.app/Contents/Resources/
+          cp ../Info.plist SerikaCord.app/Contents/
+          macdeployqt SerikaCord.app
+          hdiutil create -volname "SerikaCord" -srcfolder SerikaCord.app -ov -format UDZO "SerikaCord-${VERSION}-qt.dmg"
+
+      # ── Upload artifacts ──────────────────────────────────────────────────────
+      - name: Upload Linux artifacts
+        if: matrix.name == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-desktop-linux
+          path: |
+            desktop-QT/SerikaCord-*-qt.AppImage
+            desktop-QT/SerikaCord-*-qt.AppImage.asc
+            desktop-QT/deb-pkg/*.deb
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload Windows artifacts
+        if: matrix.name == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-desktop-windows
+          path: desktop-QT/build/package/*.zip
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload macOS artifacts
+        if: matrix.name == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-desktop-macos
+          path: desktop-QT/build/*.dmg
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  # Publish GitHub Release with Qt artifacts
+  # ---------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    needs: [build-qt-desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded files
+        run: ls -R artifacts || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          name: SerikaCord Qt ${{ inputs.tag || github.ref_name }}
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(inputs.tag || github.ref_name, 'beta') || contains(inputs.tag || github.ref_name, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
