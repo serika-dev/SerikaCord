@@ -5,6 +5,10 @@
   "windows": ["main", "updater"],
   "permissions": [
     "core:default",
-    "updater:default"
+    "updater:default",
+    "core:window:allow-set-title",
+    "core:window:allow-set-badge-count",
+    "core:webview:allow-internal-toggle-devtools",
+    "core:webview:allow-set-webview-zoom"
   ]
 }

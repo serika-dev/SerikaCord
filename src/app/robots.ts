@@ -35,6 +35,6 @@ export default function robots(): MetadataRoute.Robots {
         ],
       },
     ],
-    sitemap: "https://serika.cc/sitemap.xml",
+    sitemap: "https://serika.chat/sitemap.xml",
   };
 }

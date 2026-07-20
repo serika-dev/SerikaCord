@@ -184,6 +184,11 @@ function MessageListInner<M extends ChatMessage>(
   useEffect(() => {
     if (wasLoadingRef.current && !isLoading && groups.length > 0) {
       wasLoadingRef.current = false;
+      // Arm older-history pagination as soon as a context finishes loading.
+      // The auto-scroll effect also sets this, but it's keyed on messageCount
+      // and can miss when switching into a cached channel of identical count,
+      // leaving scroll-up permanently disabled ("history won't come back").
+      readyForPaginationRef.current = true;
       setShowContentFade(true);
       const t = setTimeout(() => setShowContentFade(false), 200);
       return () => clearTimeout(t);

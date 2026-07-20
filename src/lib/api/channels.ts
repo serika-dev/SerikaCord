@@ -679,7 +679,11 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     }
     const discordContent = `${replyPrefix}${formatSerikaContentForDiscord(message.content || '')}`;
 
-    // Build embeds from attachments — handle images, videos, and other files
+    // Build embeds from attachments — handle images, videos, and other files.
+    // Spoilered images are returned as URLs to be appended to the content as
+    // ||url|| (Discord renders this as a spoilered image), since embeds don't
+    // support spoiler tags.
+    const spoileredImageUrls: string[] = [];
     const buildAttachmentEmbeds = (attachments: any[]): any[] => {
       if (!attachments || !Array.isArray(attachments)) return [];
       const embeds: any[] = [];
@@ -687,8 +691,13 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
         const url = att.url || att;
         const contentType = att.contentType || '';
         const filename = att.filename || '';
+        const isSpoiler = att.spoiler === true;
         if (contentType.startsWith('image/')) {
-          embeds.push({ image: { url } });
+          if (isSpoiler) {
+            spoileredImageUrls.push(url);
+          } else {
+            embeds.push({ image: { url } });
+          }
         } else if (contentType.startsWith('video/')) {
           embeds.push({ video: { url } });
         } else if (contentType.startsWith('audio/')) {
@@ -710,8 +719,11 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     };
 
     if (action === 'create') {
+      const spoilerSuffix = spoileredImageUrls.length > 0
+        ? '\n' + spoileredImageUrls.map(u => `||${u}||`).join('\n')
+        : '';
       const body: any = {
-        content: discordContent,
+        content: discordContent + spoilerSuffix,
         ...webhookUserPart,
       };
       const embeds = buildAttachmentEmbeds(message.attachments);
@@ -732,7 +744,9 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
       if (res && res.ok) {
         const discordMsg = await res.json().catch(() => null);
         if (discordMsg?.id && message.id) {
-          await Message.updateById(message.id, { discordMessageId: discordMsg.id }).catch(() => {});
+          await Message.updateById(message.id, { discordMessageId: discordMsg.id }).catch(err => {
+            console.error(`[Discord Bridge] Failed to store Discord message ID ${discordMsg.id} for Serika message ${message.id}:`, err);
+          });
           console.log(`[Discord Bridge] Stored Discord message ID ${discordMsg.id} for Serika message ${message.id}`);
         }
       }
@@ -746,8 +760,11 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
       if (discordMsgId) {
         // Edit the existing webhook message via PATCH
         const editUrl = `${webhookUrl}/messages/${discordMsgId}`;
+        const editSpoilerSuffix = spoileredImageUrls.length > 0
+          ? '\n' + spoileredImageUrls.map(u => `||${u}||`).join('\n')
+          : '';
         const body: any = {
-          content: discordContent,
+          content: discordContent + editSpoilerSuffix,
           allowed_mentions: { parse: ['users'] },
         };
         const embeds = buildAttachmentEmbeds(message.attachments);
@@ -765,7 +782,7 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
           await fetch(editUrl, { method: 'DELETE' }).catch(() => {});
           // Post a new message
           const repostBody: any = {
-            content: discordContent,
+            content: discordContent + editSpoilerSuffix,
             ...webhookUserPart,
           };
           if (embeds.length > 0) repostBody.embeds = embeds;
@@ -783,8 +800,11 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
         }
       } else {
         // No Discord message ID stored — post as new message with edit indicator
+        const editFallbackSpoilerSuffix = spoileredImageUrls.length > 0
+          ? '\n' + spoileredImageUrls.map(u => `||${u}||`).join('\n')
+          : '';
         const body: any = {
-          content: `*(edited)* ${discordContent}`,
+          content: `*(edited)* ${discordContent}${editFallbackSpoilerSuffix}`,
           ...webhookUserPart,
         };
         const embeds = buildAttachmentEmbeds(message.attachments);
@@ -804,10 +824,14 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
 
       if (discordMsgId) {
         const deleteUrl = `${webhookUrl}/messages/${discordMsgId}`;
-        await fetch(deleteUrl, {
+        const res = await fetch(deleteUrl, {
           method: 'DELETE',
         }).catch(err => console.error('[Discord Bridge] Failed to delete webhook message:', err));
-        console.log(`[Discord Bridge] Deleted Discord message ${discordMsgId} for Serika message ${message.id}`);
+        if (res && !res.ok) {
+          console.error(`[Discord Bridge] Delete webhook message returned ${res.status}: ${await res.text().catch(() => '')}`);
+        } else {
+          console.log(`[Discord Bridge] Deleted Discord message ${discordMsgId} for Serika message ${message.id}`);
+        }
       } else {
         console.log(`[Discord Bridge] No Discord message ID stored for Serika message ${message.id} — cannot delete on Discord.`);
       }
@@ -2130,6 +2154,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         url: t.String(),
         width: t.Optional(t.Number()),
         height: t.Optional(t.Number()),
+        spoiler: t.Optional(t.Boolean()),
       }))),
       sticker: t.Optional(t.Object({
         id: t.String(),
@@ -2642,6 +2667,22 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           messageId: msg.id,
         }));
       }
+    }
+
+    // Roll back stale unread badges for members not currently viewing the
+    // channel: the per-message `delete` events above only reach clients with the
+    // channel open, so without this a bulk /clear leaves an unread badge behind
+    // with no messages behind it. Recompute the newest remaining message and
+    // broadcast one reset. Fire-and-forget.
+    if (deleted > 0) {
+      void (async () => {
+        const [latest] = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: 1 });
+        const lastMessageAt = latest?.createdAt
+          ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
+          : null;
+        const { notifyUnreadReset } = await import('@/lib/api/activity');
+        notifyUnreadReset({ serverId: channel.serverId || undefined }, params.channelId, lastMessageAt);
+      })().catch(() => { /* best-effort */ });
     }
 
     return { deleted };

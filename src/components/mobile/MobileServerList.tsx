@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Plus, Compass } from "lucide-react";
+import { Plus, Compass, Download } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 
 interface MobileServerListProps {
@@ -139,6 +139,16 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
           >
             <Plus className="w-6 h-6" />
           </button>
+
+          {/* Download — only on web browser, hidden on Tauri & Capacitor */}
+          {typeof window !== "undefined" && !(window as any).__TAURI__ && !(window as any).Capacitor?.isNativePlatform?.() && (
+            <button
+              onClick={() => router.push("/download")}
+              className="w-[52px] h-[52px] rounded-[24px] bg-[var(--bg-sidebar-elevated)] flex items-center justify-center text-[#23A559] hover:bg-[#23A559] hover:text-white hover:rounded-[18px] transition-all duration-200 active:scale-95"
+            >
+              <Download className="w-6 h-6" />
+            </button>
+          )}
         </div>
       </div>
     </div>

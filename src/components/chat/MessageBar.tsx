@@ -37,6 +37,8 @@ import {
   Gauge,
   Megaphone,
   Bot,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
@@ -91,11 +93,13 @@ export interface MessageBarAttachment {
   filename: string;
   contentType: string;
   size?: number;
+  spoiler?: boolean;
 }
 
 export interface MessageBarHandle {
   getAttachments: () => File[];
   clearAttachments: () => void;
+  removeLatestAttachment: () => void;
   uploadAttachments: () => Promise<MessageBarAttachment[]>;
   getComposer: () => RichComposerHandle | null;
   focus: () => void;
@@ -278,6 +282,9 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const [attachments, setAttachments] = useState<File[]>([]);
     const [attachmentPreviews, setAttachmentPreviews] = useState<string[]>([]);
     const [isUploading, setIsUploading] = useState(false);
+    const [spoilerFlags, setSpoilerFlags] = useState<Set<number>>(new Set());
+    const spoilerFlagsRef = useRef(spoilerFlags);
+    spoilerFlagsRef.current = spoilerFlags;
     /** Per-attachment upload progress (0-100), keyed by attachment index. */
     const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -422,6 +429,38 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       addFiles(files);
     }, [addFiles]);
 
+    // Tauri fallback: WebKitGTK/WebView2 webviews often don't expose pasted
+    // images through the standard clipboard event. When that happens, read the
+    // image natively via the Tauri clipboard-manager plugin and convert the
+    // RGBA bytes to a PNG File via canvas.
+    const readTauriClipboardImage = useCallback(async (): Promise<File | null> => {
+      const tauri = (window as any).__TAURI__;
+      if (!tauri?.core?.invoke) return null;
+      try {
+        const img = await tauri.core.invoke('plugin:clipboard-manager|read_image');
+        if (!img || !img.rgba || !img.width || !img.height) return null;
+        const byteStr = atob(img.rgba);
+        const bytes = new Uint8Array(byteStr.length);
+        for (let i = 0; i < byteStr.length; i++) bytes[i] = byteStr.charCodeAt(i);
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return null;
+        const imageData = ctx.createImageData(img.width, img.height);
+        imageData.data.set(bytes);
+        ctx.putImageData(imageData, 0, 0);
+        const blob: Blob = await new Promise((resolve) => {
+          canvas.toBlob((b) => resolve(b!), 'image/png');
+        });
+        if (!blob) return null;
+        const name = `clipboard-${Date.now()}.png`;
+        return new File([blob], name, { type: 'image/png' });
+      } catch {
+        return null;
+      }
+    }, []);
+
     // Paste-to-attach (screenshots, copied images)
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
       const dt = e.clipboardData;
@@ -440,8 +479,64 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       if (files.length > 0) {
         e.preventDefault();
         addFiles(files);
+      } else if ((window as any).__TAURI__) {
+        e.preventDefault();
+        readTauriClipboardImage().then((file) => {
+          if (file) addFiles([file]);
+        });
       }
-    }, [addFiles]);
+    }, [addFiles, readTauriClipboardImage]);
+
+    // Global paste-to-attach: when the composer isn't focused, a Ctrl/Cmd+V of an
+    // image (screenshot, copied file) still attaches it here — matching how the
+    // focused composer behaves. Skips when another editable element is focused
+    // (let it handle its own paste) or a modal/menu is open.
+    useEffect(() => {
+      const onWindowPaste = (e: ClipboardEvent) => {
+        const active = document.activeElement as HTMLElement | null;
+        if (active) {
+          const tagName = active.tagName.toLowerCase();
+          const isEditable =
+            tagName === "input" ||
+            tagName === "textarea" ||
+            tagName === "select" ||
+            active.getAttribute("contenteditable") === "true" ||
+            active.isContentEditable;
+          // Any focused editable (including the composer, a contenteditable) handles
+          // its own paste — the composer's React onPaste covers the focused case.
+          if (isEditable) return;
+        }
+        if (document.querySelector('[role="dialog"], [role="menu"]') !== null) return;
+
+        const dt = e.clipboardData;
+        if (!dt) return;
+        const files: File[] = Array.from(dt.files || []);
+        if (files.length === 0 && dt.items) {
+          for (const item of Array.from(dt.items)) {
+            if (item.kind === "file") {
+              const f = item.getAsFile();
+              if (f) files.push(f);
+            }
+          }
+        }
+        // Only intercept actual files; plain-text pastes should focus + type.
+        if (files.length > 0) {
+          e.preventDefault();
+          addFiles(files);
+          composerRef.current?.focus();
+        } else if ((window as any).__TAURI__) {
+          e.preventDefault();
+          readTauriClipboardImage().then((file) => {
+            if (file) {
+              addFiles([file]);
+              composerRef.current?.focus();
+            }
+          });
+        }
+      };
+      window.addEventListener("paste", onWindowPaste);
+      return () => window.removeEventListener("paste", onWindowPaste);
+    }, [addFiles, readTauriClipboardImage]);
 
     // Drag & drop attach
     const [isDragOver, setIsDragOver] = useState(false);
@@ -458,7 +553,24 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       }
       setAttachments((prev) => prev.filter((_, i) => i !== index));
       setAttachmentPreviews((prev) => prev.filter((_, i) => i !== index));
+      setSpoilerFlags((prev) => {
+        const next = new Set<number>();
+        for (const idx of prev) {
+          if (idx < index) next.add(idx);
+          else if (idx > index) next.add(idx - 1);
+        }
+        return next;
+      });
     }, [attachmentPreviews]);
+
+    const toggleSpoiler = useCallback((index: number) => {
+      setSpoilerFlags((prev) => {
+        const next = new Set(prev);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
+    }, []);
 
     // ---- Upload attachments to server (XHR for real progress events) ----
     const uploadSingleFile = useCallback(
@@ -469,6 +581,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           if (channelId) {
             formData.append("channelId", channelId);
           }
+          formData.append("spoiler", spoilerFlagsRef.current.has(index) ? "true" : "false");
 
           const xhr = new XMLHttpRequest();
           xhr.open("POST", uploadEndpoint);
@@ -527,6 +640,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     // We store it on a ref so the parent can call it
     const uploadRef = useRef(uploadAttachments);
     uploadRef.current = uploadAttachments;
+    const removeAttachmentRef = useRef(removeAttachment);
+    removeAttachmentRef.current = removeAttachment;
 
     // Override the ref to include uploadAttachments
     useImperativeHandle(ref, () => ({
@@ -537,11 +652,16 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         });
         setAttachments([]);
         setAttachmentPreviews([]);
+        setSpoilerFlags(new Set());
+      },
+      removeLatestAttachment: () => {
+        const count = attachments.length;
+        if (count > 0) removeAttachmentRef.current(count - 1);
       },
       getComposer: () => composerRef.current,
       focus: () => composerRef.current?.focus(),
       uploadAttachments: () => uploadRef.current(),
-    }), [attachments]);
+    }), [attachments, spoilerFlags]);
 
     // ---- Handlers ----
     const handleComposerChange = useCallback((value: string, caret: number) => {
@@ -588,13 +708,16 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         {attachments.length > 0 && (
           <div className="px-1 sm:px-2 pb-1">
             <div className="flex flex-wrap gap-2 p-2 bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)]">
-              {attachments.map((file, index) => (
+              {attachments.map((file, index) => {
+                const isSpoiler = spoilerFlags.has(index);
+                const isMedia = file.type.startsWith("image/") || file.type.startsWith("video/");
+                return (
                 <div key={index} className="relative group">
                   {file.type.startsWith("image/") && attachmentPreviews[index] ? (
-                    <img src={attachmentPreviews[index]} alt={file.name} className="w-20 h-20 object-cover rounded-md" />
+                    <img src={attachmentPreviews[index]} alt={file.name} className={cn("w-20 h-20 object-cover rounded-md", isSpoiler && "blur-[6px]")} />
                   ) : file.type.startsWith("video/") && attachmentPreviews[index] ? (
                     <div className="relative w-20 h-20 rounded-md overflow-hidden bg-black">
-                      <video src={attachmentPreviews[index]} className="w-full h-full object-cover" preload="metadata" muted />
+                      <video src={attachmentPreviews[index]} className={cn("w-full h-full object-cover", isSpoiler && "blur-[6px]")} preload="metadata" muted />
                       <div className="absolute inset-0 flex items-center justify-center">
                         <div className="w-6 h-6 bg-black/60 rounded-full flex items-center justify-center">
                           <div className="w-0 h-0 border-l-[8px] border-l-white border-y-[5px] border-y-transparent ml-0.5" />
@@ -627,17 +750,36 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     </div>
                   )}
                   {!isUploading && (
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(index)}
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                      aria-label={`${gt("Remove")} ${file.name}`}
-                    >
-                      <X className="w-3 h-3 text-white" />
-                    </button>
+                    <div className="absolute -top-1 -right-1 flex gap-1 z-10">
+                      {isMedia && (
+                        <button
+                          type="button"
+                          onClick={() => toggleSpoiler(index)}
+                          className={cn(
+                            "w-5 h-5 rounded-full flex items-center justify-center transition-opacity",
+                            isSpoiler
+                              ? "bg-[#8B5CF6] opacity-100"
+                              : "bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                          )}
+                          aria-label={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
+                          title={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
+                        >
+                          {isSpoiler ? <EyeOff className="w-3 h-3 text-white" /> : <Eye className="w-3 h-3 text-white" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(index)}
+                        className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                        aria-label={`${gt("Remove")} ${file.name}`}
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

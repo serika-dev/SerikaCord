@@ -25,8 +25,7 @@ interface MessageContextMenuProps<M extends ChatMessage> {
   onDeleteNow?: (message: M) => void;
 }
 
-const itemClass =
-  "w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors text-left";
+const itemClass = "ctx-item";
 
 /** Fixed-position right-click menu for a message. */
 export function MessageContextMenu<M extends ChatMessage>({
@@ -111,7 +110,7 @@ export function MessageContextMenu<M extends ChatMessage>({
   return (
     <div
       ref={menuRef}
-      className="fixed z-[9999] min-w-[180px] py-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md shadow-xl"
+      className="ctx-menu fixed z-[9999] min-w-[188px]"
       style={{ left: pos?.left ?? menu.x, top: pos?.top ?? menu.y, visibility: pos ? "visible" : "hidden" }}
       onClick={(e) => e.stopPropagation()}
     >
@@ -147,14 +146,14 @@ export function MessageContextMenu<M extends ChatMessage>({
       </button>
       {canPin && (
         <>
-          <div className="h-px bg-[var(--border-subtle)] my-1" />
+          <div className="ctx-sep" />
           <button onClick={run(() => onPinToggle(message))} className={itemClass}>
             <Pin className="w-4 h-4" /> {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
           </button>
         </>
       )}
       {(own || canDelete) && (
-        <div className="h-px bg-[var(--border-subtle)] my-1" />
+        <div className="ctx-sep" />
       )}
       {own && (
         <button onClick={run(() => onEdit(message))} className={itemClass}>
@@ -172,7 +171,7 @@ export function MessageContextMenu<M extends ChatMessage>({
             onClose();
           }}
           title={gt("Shift+Click to delete instantly")}
-          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors text-left"
+          className="ctx-item ctx-item-danger"
         >
           <Trash2 className="w-4 h-4" /> {gt("Delete Message")}
         </button>
