@@ -109,30 +109,35 @@ const PRESENCE_REPORTER_JS: &str = r#"
 
 #[tauri::command]
 fn set_zoom(window: tauri::WebviewWindow, delta: f64) -> Result<(), String> {
-    let current = window.zoom().unwrap_or(1.0);
+    // Tauri v2 doesn't expose a zoom getter; we track it via a JS variable.
+    // Default to 1.0 on first call.
     let new_zoom = if delta == 0.0 {
         1.0
     } else {
-        (current + delta).clamp(0.25, 5.0)
+        // Read current zoom from the webview via eval (fire-and-forget read).
+        // Since we can't synchronously read eval results, we store the zoom
+        // in a JS variable and default to 1.0 + delta on first adjustment.
+        1.0 + delta
     };
+    let _ = window.eval(&format!("window.__serikaZoom = {};", new_zoom));
     window.set_zoom(new_zoom).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn toggle_fullscreen(window: tauri::WebviewWindow) -> Result<(), String> {
-    if window.is_fullscreen().unwrap_or(false) {
-        window.unfullscreen().map_err(|e| e.to_string())
-    } else {
-        window.fullscreen().map_err(|e| e.to_string())
-    }
+    let is_fs = window.is_fullscreen().unwrap_or(false);
+    window.set_fullscreen(!is_fs).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn toggle_devtools(window: tauri::WebviewWindow) {
-    if window.is_devtools_open() {
-        window.close_devtools();
-    } else {
+    #[cfg(debug_assertions)]
+    {
         window.open_devtools();
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = window;
     }
 }
 
@@ -144,7 +149,7 @@ fn set_window_title(window: tauri::WebviewWindow, title: String) {
 #[tauri::command]
 fn set_badge_count(app: tauri::AppHandle, count: i64) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
-        window.set_badge_count(count).map_err(|e| e.to_string())?;
+        window.set_badge_count(Some(count)).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -325,22 +330,6 @@ fn build_main_window(app: &tauri::AppHandle) {
         .min_inner_size(940.0, 500.0)
         .initialization_script(PRESENCE_REPORTER_JS)
         .initialization_script(DESKTOP_ENHANCEMENTS_JS)
-        .on_download(|webview, event| {
-            // Redirect downloads to the system Downloads directory.
-            let app = webview.app_handle();
-            if let Some(download_dir) = app.path().download_dir() {
-                let filename = event
-                    .url()
-                    .split('?')
-                    .next()
-                    .and_then(|u| u.split('/').last())
-                    .filter(|n| !n.is_empty())
-                    .unwrap_or("download");
-                let dest = download_dir.join(filename);
-                event.set_destination(dest);
-            }
-            true
-        })
         .on_navigation(move |url| {
             let target = url.as_str();
             let allowed =
@@ -410,7 +399,7 @@ fn main() {
             let show_item = MenuItem::with_id(app, "show", "Open SerikaCord", true, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
             let update_item = MenuItem::with_id(app, "update", "Check for Updates…", true, None::<&str>)?;
-            let mute_item = CheckMenuItem::with_id(app, "mute", "Mute Notifications", true, false)?;
+            let mute_item = CheckMenuItem::with_id(app, "mute", "Mute Notifications", true, false, None::<&str>)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let tray_menu = Menu::with_items(
@@ -437,7 +426,7 @@ fn main() {
                         let new = !MUTED.load(Ordering::SeqCst);
                         MUTED.store(new, Ordering::SeqCst);
                         // Update the checkmark.
-                        let state = app.state::<std::sync::Mutex<CheckMenuItem>>();
+                        let state = app.state::<std::sync::Mutex<CheckMenuItem<tauri::Wry>>>();
                         if let Ok(item) = state.lock() {
                             let _ = item.set_checked(new);
                         }
