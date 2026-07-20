@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
-import { Application, DeveloperTeam, AppWebhook, AppEmoji, User, WidgetConfig } from '@/lib/models';
+import { Application, DeveloperTeam, AppWebhook, AppEmoji, User, WidgetConfig, type ITeamMember, type IApplication } from '@/lib/models';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
 import { storage } from '@/lib/services/storage';
@@ -84,7 +84,7 @@ async function requireAppAccess(
   let hasAccess = app.ownerId === user.id;
   if (!hasAccess && app.teamId) {
     const team = await DeveloperTeam.findById(app.teamId);
-    hasAccess = (team?.members as any[])?.some((m: any) => m.userId === user.id) ?? false;
+    hasAccess = (team?.members as ITeamMember[] | undefined)?.some((m) => m.userId === user.id) ?? false;
   }
   if (!hasAccess) { set.status = 403; return { error: { error: 'You do not have access to this application' } }; }
   return { app, user };
@@ -164,7 +164,7 @@ function sanitizeTeam(team: any) {
 async function isTeamMember(teamId: string, userId: string): Promise<boolean> {
   const team = await DeveloperTeam.findById(teamId);
   if (!team) return false;
-  return (team.members as any[])?.some((m: any) => m.userId === userId) ?? false;
+  return (team.members as ITeamMember[] | undefined)?.some((m) => m.userId === userId) ?? false;
 }
 
 // ─── Developer Routes ──────────────────────────────────────
@@ -199,7 +199,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
   if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-  const { name } = body as any;
+  const { name } = body as Record<string, unknown>;
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     set.status = 400; return { error: 'Name is required' };
   }
@@ -248,7 +248,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   let hasAccess = isOwner;
   if (!hasAccess && app.teamId) {
     const team = await DeveloperTeam.findById(app.teamId);
-    hasAccess = (team?.members as any[])?.some((m: any) => m.userId === user.id) ?? false;
+    hasAccess = (team?.members as ITeamMember[] | undefined)?.some((m) => m.userId === user.id) ?? false;
   }
   if (!hasAccess) { set.status = 403; return { error: 'You do not have access to this application' }; }
 
@@ -283,12 +283,12 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   let hasAccess = isOwner;
   if (!hasAccess && app.teamId) {
     const team = await DeveloperTeam.findById(app.teamId);
-    const member = (team?.members as any[])?.find((m: any) => m.userId === user.id);
+    const member = (team?.members as ITeamMember[] | undefined)?.find((m) => m.userId === user.id);
     hasAccess = member && (member.role === 'owner' || member.role === 'admin' || member.role === 'developer');
   }
   if (!hasAccess) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
-  const patch = body as any;
+  const patch = body as Record<string, unknown>;
   const allowed: string[] = [
     'name', 'description', 'icon', 'coverImage', 'botPublic', 'botRequireCodeGrant',
     'redirectUris', 'scopes', 'installParams', 'customInstallUrl', 'tags',
@@ -358,7 +358,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   // Ensure the bot User + keypair exist so the new token actually authenticates.
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
   const updatedApp = await Application.findById(app.id);
-  await ensureBotProvisioned(updatedApp as any);
+  await ensureBotProvisioned(updatedApp);
 
   return { token: newToken };
 })
@@ -380,7 +380,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   // Provision the backing bot User, token, and Ed25519 keypair. Without the bot
   // User, gateway/REST authentication would fail (botId would stay null).
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-  await ensureBotProvisioned(app as any);
+  await ensureBotProvisioned(app);
 
   const updatedApp = await Application.findById(app.id);
   return { application: sanitizeApp(updatedApp) };
@@ -399,7 +399,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Only the owner can change the interactions endpoint' };
   }
 
-  const url = (body as any)?.url?.trim() || null;
+  (body as Record<string, unknown>)?.url?.trim() || null;
 
   if (!url) {
     await Application.updateById(app.id, { interactionsEndpointUrl: null });
@@ -410,7 +410,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   // Make sure the app has a keypair to sign with.
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-  await ensureBotProvisioned(app as any);
+  await ensureBotProvisioned(app);
 
   const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
   const ok = await verifyInteractionEndpoint({
@@ -477,7 +477,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const app = await Application.findById(params.id);
   if (!app) { set.status = 404; return { error: 'Application not found' }; }
 
-  const { name, image, animated } = body as any;
+  const { name, image, animated } = body as Record<string, unknown>;
   if (!name || !image) { set.status = 400; return { error: 'Name and image are required' }; }
 
   const emoji = await AppEmoji.create({
@@ -534,7 +534,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   if (!params.id) { set.status = 404; return { error: 'Not found' }; }
 
-  const { name, url, events } = body as any;
+  const { name, url, events } = body as Record<string, unknown>;
   if (!name || !url) { set.status = 400; return { error: 'Name and URL are required' }; }
 
   try { new URL(url); } catch { set.status = 400; return { error: 'Invalid URL' }; }
@@ -567,7 +567,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 404; return { error: 'Webhook not found' };
   }
 
-  const patch = body as any;
+  const patch = body as Record<string, unknown>;
   const updateData: Record<string, any> = {};
   if (patch.active !== undefined) updateData.active = patch.active;
   if (patch.events !== undefined) updateData.events = patch.events;
@@ -621,7 +621,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   }
 
   const team = await DeveloperTeam.findById(app.teamId);
-  return { members: (team?.members as any[])?.map((m: any) => ({
+  return { members: (team?.members as ITeamMember[] | undefined)?.map((m) => ({
     id: m.userId,
     username: m.username,
     avatar: m.avatar,
@@ -642,7 +642,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Only the owner can invite members' };
   }
 
-  const { username, role } = body as any;
+  const { username, role } = body as Record<string, unknown>;
   const invitee = await User.findOne({ username: username?.trim() });
   if (!invitee) { set.status = 404; return { error: 'User not found' }; }
 
@@ -666,11 +666,11 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   }
 
   const team = await DeveloperTeam.findById(app.teamId);
-  if ((team?.members as any[])?.some((m: any) => m.userId === invitee.id)) {
+  if ((team?.members as ITeamMember[] | undefined)?.some((m) => m.userId === invitee.id)) {
     set.status = 400; return { error: 'User is already a member' };
   }
 
-  (team!.members as any[]).push({
+  ((team!.members as ITeamMember[]).push({
     userId: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
@@ -701,12 +701,12 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   if (!team) { set.status = 404; return { error: 'Team not found' }; }
 
   // Only owner or admin can remove
-  const requester = (team.members as any[]).find((m: any) => m.userId === user.id);
+  const requester = (team.members as ITeamMember[]).find((m) => m.userId === user.id);
   if (!requester || (requester.role !== 'owner' && requester.role !== 'admin')) {
     set.status = 403; return { error: 'You do not have permission to remove members' };
   }
 
-  team.members = (team.members as any[]).filter((m: any) => m.userId !== params.memberId);
+  team.members = (team.members as ITeamMember[]).filter((m) => m.userId !== params.memberId);
   await DeveloperTeam.updateById(team.id, { members: team.members });
   return { success: true };
 })
@@ -726,7 +726,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const teamIds = teams.map((t: any) => t.id);
   const allApps = teamIds.length > 0 ? await Application.find({ teamId: { in: teamIds } }) : [];
   const appCountByTeam = new Map<string, number>();
-  for (const app of allApps as any[]) {
+  for (const app of allApps as IApplication[]) {
     appCountByTeam.set(app.teamId, (appCountByTeam.get(app.teamId) || 0) + 1);
   }
   const teamsWithCounts = teams.map((team: any) => ({
@@ -741,7 +741,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
   if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-  const { name } = body as any;
+  const { name } = body as Record<string, unknown>;
   if (!name || name.trim().length === 0) { set.status = 400; return { error: 'Team name is required' }; }
 
   const team = await DeveloperTeam.create({
@@ -767,7 +767,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const team = await DeveloperTeam.findById(params.id);
   if (!team) { set.status = 404; return { error: 'Team not found' }; }
 
-  const isMember = (team.members as any[]).some((m: any) => m.userId === user.id);
+  const isMember = (team.members as ITeamMember[]).some((m) => m.userId === user.id);
   if (!isMember) { set.status = 403; return { error: 'You are not a member of this team' }; }
 
   return { team: sanitizeTeam(team) };
@@ -782,12 +782,12 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const team = await DeveloperTeam.findById(params.id);
   if (!team) { set.status = 404; return { error: 'Team not found' }; }
 
-  const member = (team.members as any[]).find((m: any) => m.userId === user.id);
+  const member = (team.members as ITeamMember[]).find((m) => m.userId === user.id);
   if (!member || (member.role !== 'owner' && member.role !== 'admin')) {
     set.status = 403; return { error: 'You do not have permission to edit this team' };
   }
 
-  const { name, description, icon } = body as any;
+  const { name, description, icon } = body as Record<string, unknown>;
   const updateData: Record<string, any> = {};
   if (name !== undefined) updateData.name = name.trim();
   if (description !== undefined) updateData.description = description;
@@ -828,20 +828,20 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const team = await DeveloperTeam.findById(params.id);
   if (!team) { set.status = 404; return { error: 'Team not found' }; }
 
-  const requester = (team.members as any[]).find((m: any) => m.userId === user.id);
+  const requester = (team.members as ITeamMember[]).find((m) => m.userId === user.id);
   if (!requester || (requester.role !== 'owner' && requester.role !== 'admin')) {
     set.status = 403; return { error: 'You do not have permission to invite members' };
   }
 
-  const { username, role } = body as any;
+  const { username, role } = body as Record<string, unknown>;
   const invitee = await User.findOne({ username: username?.trim() });
   if (!invitee) { set.status = 404; return { error: 'User not found' }; }
 
-  if ((team.members as any[]).some((m: any) => m.userId === invitee.id)) {
+  if ((team.members as ITeamMember[]).some((m) => m.userId === invitee.id)) {
     set.status = 400; return { error: 'User is already a member' };
   }
 
-  (team.members as any[]).push({
+  ((team.members as ITeamMember[]).push({
     userId: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
@@ -867,15 +867,15 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const team = await DeveloperTeam.findById(params.id);
   if (!team) { set.status = 404; return { error: 'Team not found' }; }
 
-  const requester = (team.members as any[]).find((m: any) => m.userId === user.id);
+  const requester = (team.members as ITeamMember[]).find((m) => m.userId === user.id);
   if (!requester || (requester.role !== 'owner' && requester.role !== 'admin')) {
     set.status = 403; return { error: 'You do not have permission to remove members' };
   }
 
-  const target = (team.members as any[]).find((m: any) => m.userId === params.memberId);
+  const target = (team.members as ITeamMember[]).find((m) => m.userId === params.memberId);
   if (target?.role === 'owner') { set.status = 400; return { error: 'Cannot remove the team owner' }; }
 
-  team.members = (team.members as any[]).filter((m: any) => m.userId !== params.memberId);
+  team.members = (team.members as ITeamMember[]).filter((m) => m.userId !== params.memberId);
   await DeveloperTeam.updateById(team.id, { members: team.members });
   return { success: true };
 })
@@ -981,7 +981,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Forbidden' };
   }
 
-  const patch = body as any;
+  const patch = body as Record<string, unknown>;
   const updateData: Record<string, any> = {};
   if (patch.categories !== undefined) updateData.tags = patch.categories;
   if (patch.summary !== undefined) updateData.description = patch.summary;
@@ -1280,7 +1280,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
 export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
   .post('/token', async ({ body, set }) => {
-    const formData = body as any;
+    const formData = body as Record<string, unknown>;
 
     const grantType = formData.grant_type;
     const clientId = formData.client_id;
@@ -1372,7 +1372,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
   })
 
   .post('/token/revoke', async ({ body, set }) => {
-    const formData = body as any;
+    const formData = body as Record<string, unknown>;
     const token = formData.token;
     if (!token) { set.status = 400; return { error: 'invalid_request' }; }
     return {};
@@ -1385,7 +1385,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const payload = body as any;
+    const payload = body as Record<string, unknown>;
     const clientId = payload.client_id || (query.client_id as string);
     const serverId = payload.serverId;
     const permissions = BigInt(payload.permissions || '0');

@@ -141,7 +141,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
           </button>
 
           {/* Download — only on web browser, hidden on Tauri & Capacitor */}
-          {typeof window !== "undefined" && !(window as any).__TAURI__ && !(window as any).Capacitor?.isNativePlatform?.() && (
+          {typeof window !== "undefined" && !window.__TAURI__ && !window.Capacitor?.isNativePlatform?.() && (
             <button
               onClick={() => router.push("/download")}
               className="w-[52px] h-[52px] rounded-[24px] bg-[var(--bg-sidebar-elevated)] flex items-center justify-center text-[#23A559] hover:bg-[#23A559] hover:text-white hover:rounded-[18px] transition-all duration-200 active:scale-95"

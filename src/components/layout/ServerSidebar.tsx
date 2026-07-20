@@ -817,7 +817,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
         </Tooltip>
 
         {/* Download — only on web browser, hidden on Tauri & Capacitor */}
-        {typeof window !== "undefined" && !(window as any).__TAURI__ && !(window as any).Capacitor?.isNativePlatform?.() && (
+        {typeof window !== "undefined" && !window.__TAURI__ && !window.Capacitor?.isNativePlatform?.() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button

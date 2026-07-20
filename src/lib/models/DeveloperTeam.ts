@@ -4,6 +4,13 @@ import { db, schema } from '../db/postgres';
 
 export type IDeveloperTeam = typeof schema.developerTeams.$inferSelect;
 
+export interface ITeamMember {
+  userId: string;
+  username: string;
+  role: string;
+  addedAt?: string;
+}
+
 export const DeveloperTeam = {
   table: schema.developerTeams,
 

@@ -657,7 +657,7 @@ export function BugReportPanel() {
           <div className="flex items-center gap-2">
             <select
               value={kindFilter}
-              onChange={(e) => setKindFilter(e.target.value as any)}
+              onChange={(e) => setKindFilter(e.target.value as "all" | "bug" | "feedback")}
               className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors cursor-pointer"
             >
               {KIND_TABS.map((t) => (
@@ -666,7 +666,7 @@ export function BugReportPanel() {
             </select>
             <select
               value={filter}
-              onChange={(e) => setFilter(e.target.value as any)}
+              onChange={(e) => setFilter(e.target.value as "all" | "open" | "resolved")}
               className="px-3 py-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)] transition-colors cursor-pointer"
             >
               {FILTER_TABS.map((t) => (

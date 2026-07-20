@@ -349,7 +349,7 @@ export default function MobileSettingsSectionPage() {
                 body: JSON.stringify({ status }),
               });
               if (response.ok) {
-                updateUser({ status: status as any });
+                updateUser({ status: status as "online" | "idle" | "dnd" | "offline" });
                 toast.success(gt("Status set to {status}", { status }));
               } else {
                 toast.error(gt("Failed to update status"));
@@ -932,7 +932,7 @@ export default function MobileSettingsSectionPage() {
                         <button
                           key={f.value}
                           type="button"
-                          onClick={() => setDisplayNameStyle((s) => ({ ...s, font: f.value as any }))}
+                          onClick={() => setDisplayNameStyle((s) => ({ ...s, font: f.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold" }))}
                           className={cn(
                             "h-12 rounded-lg flex flex-col items-center justify-center transition-all border border-[var(--border-subtle)]",
                             isSelected
@@ -940,7 +940,7 @@ export default function MobileSettingsSectionPage() {
                               : "bg-[var(--bg-app)] text-[var(--text-secondary)]"
                           )}
                         >
-                          <span className={cn("text-sm", getDisplayNameStyleClasses({ font: f.value as any }))} style={getDisplayNameStyleInline({ font: f.value as any })}>
+                          <span className={cn("text-sm", getDisplayNameStyleClasses({ font: f.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold" }))} style={getDisplayNameStyleInline({ font: f.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold" })}>
                             {f.label}
                           </span>
                         </button>
@@ -965,7 +965,7 @@ export default function MobileSettingsSectionPage() {
                         <button
                           key={eff.value}
                           type="button"
-                          onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: eff.value as any }))}
+                          onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: eff.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold" }))}
                           className={cn(
                             "h-12 rounded-lg flex items-center justify-center transition-all border border-[var(--border-subtle)]",
                             isSelected
@@ -974,8 +974,8 @@ export default function MobileSettingsSectionPage() {
                           )}
                         >
                           <span
-                            className={cn("text-xs truncate px-1", getDisplayNameStyleClasses({ effect: eff.value as any, color: eff.value !== "gradient" ? displayNameStyle.color : undefined, gradient: eff.value === "gradient" ? displayNameStyle.gradient : undefined }))}
-                            style={getDisplayNameStyleInline({ effect: eff.value as any, color: displayNameStyle.color || "#fff", gradient: displayNameStyle.gradient?.length ? displayNameStyle.gradient : ["#8B5CF6", "#3B82F6"] })}
+                            className={cn("text-xs truncate px-1", getDisplayNameStyleClasses({ effect: eff.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold", color: eff.value !== "gradient" ? displayNameStyle.color : undefined, gradient: eff.value === "gradient" ? displayNameStyle.gradient : undefined }))}
+                            style={getDisplayNameStyleInline({ effect: eff.value as "default" | "serif" | "mono" | "rounded" | "cursive" | "bold", color: displayNameStyle.color || "#fff", gradient: displayNameStyle.gradient?.length ? displayNameStyle.gradient : ["#8B5CF6", "#3B82F6"] })}
                           >
                             {eff.label}
                           </span>
@@ -1341,7 +1341,7 @@ export default function MobileSettingsSectionPage() {
                         <button
                           key={effect.id}
                           type="button"
-                          onClick={() => setProfileCardEffect(effect.id as any)}
+                          onClick={() => setProfileCardEffect(effect.id as "normal" | "glassmorphism" | "glow" | "holographic" | "neon")}
                           className={cn(
                             "p-3 rounded-lg border text-left transition-all relative overflow-hidden",
                             isSelected 

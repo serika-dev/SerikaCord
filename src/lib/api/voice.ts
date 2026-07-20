@@ -3,6 +3,7 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { config } from '@/lib/config';
 import { getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
+import type { IServerSettings } from '@/lib/models';
 
 const sseEncoder = new TextEncoder();
 
@@ -465,13 +466,13 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       const server = await Server.findById(channel.serverId);
       if (!server) { set.status = 404; return { error: 'Server not found' }; }
 
-      if ((server.settings as any)?.soundboard?.enabled === false) {
+      if ((server.settings as IServerSettings | undefined)?.soundboard?.enabled === false) {
         set.status = 403;
         return { error: 'Soundboard is disabled in this server' };
       }
-      volume = (server.settings as any)?.soundboard?.volume ?? 100;
+      volume = (server.settings as IServerSettings | undefined)?.soundboard?.volume ?? 100;
 
-      const sound = ((server.soundboardSounds as any[]) || []).find(
+      const sound = ((server.soundboardSounds as Array<{ name: string; soundId: string; url: string }> | undefined) || []).find(
         (s: { url: string }) => s.url === body.soundUrl
       );
       if (!sound) {

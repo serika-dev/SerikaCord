@@ -103,7 +103,7 @@ export async function ensureSystemUsers(): Promise<void> {
               },
               privacy: {
                 directMessages: 'everyone',
-                friendRequests: 'none' as any,
+                friendRequests: 'none',
               },
             },
           });

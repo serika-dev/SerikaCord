@@ -38,7 +38,7 @@ export function ImageLightbox({
   const [isTauri, setIsTauri] = useState(false);
 
   useEffect(() => {
-    setIsTauri(typeof window !== "undefined" && Boolean((window as any).__TAURI__));
+    setIsTauri(typeof window !== "undefined" && Boolean(window.__TAURI__));
   }, []);
   const fallbackItems: ImageLightboxItem[] = src ? [{ src, alt }] : [];
   const galleryItems = items && items.length > 0 ? items : fallbackItems;

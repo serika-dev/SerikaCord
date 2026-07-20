@@ -153,7 +153,7 @@ async function fetchTrackInfoImage(artist: string, trackName: string, signal: Ab
     const res = await fetch(url, { signal, cache: 'no-store' });
     if (!res.ok) return null;
     const data = await res.json() as Record<string, unknown>;
-    const images = (data as any)?.track?.album?.image;
+    const images = (data as Record<string, unknown> as { track?: { album?: { image?: unknown[] } } })?.track?.album?.image;
     if (!Array.isArray(images)) return null;
     return pickLastFmImage(images);
   } catch {
@@ -221,7 +221,7 @@ async function refreshCache(key: string, username: string): Promise<LastFmTrack 
     }
 
     const data = await res.json() as Record<string, unknown>;
-    const tracks = (data as any)?.recenttracks?.track;
+    const tracks = (data as { recenttracks?: { track?: unknown[] } })?.recenttracks?.track;
     if (!tracks) {
       cache.set(key, { value: null, expiresAt: Date.now() + CACHE_TTL_MS, refreshing: false });
       return null;

@@ -115,7 +115,7 @@ export async function batchParseCustomEmojis(
   if (uncachedIds.length > 0) {
     const dbEmojis = await ServerEmoji.find({ id: { in: uncachedIds } });
     const dbMap = new Map<string, IServerEmoji>();
-    for (const e of dbEmojis as any[]) {
+    for (const e of dbEmojis) {
       dbMap.set(e.id, e);
     }
     for (const id of uncachedIds) {

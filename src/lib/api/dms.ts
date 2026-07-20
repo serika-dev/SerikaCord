@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { Channel, Message, User, ServerMember, ServerSticker } from '@/lib/models';
+import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
@@ -254,7 +254,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // but this avoids interleaving with the channel mapping loop)
     const lastMsgsToDecrypt = channels
       .map(c => c.lastMessageId ? lastMessageMap.get(c.lastMessageId) : null)
-      .filter(Boolean) as any[];
+      .filter(Boolean) as unknown[];
     const decryptedLastContents = await Promise.all(
       lastMsgsToDecrypt.map(m => decryptFromStorage(m.content || ''))
     );
@@ -294,7 +294,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
                 const decryptedContent = lastContentMap.get(msg.id) || '';
                 let displayContent = decryptedContent;
                 if (!displayContent) {
-                  if (msg.attachments && (msg.attachments as any[]).length > 0) {
+                  if (msg.attachments && (msg.attachments as unknown[]).length > 0) {
                     displayContent = 'Sent an attachment';
                   } else if (msg.sticker) {
                     displayContent = 'Sent a sticker';
@@ -431,7 +431,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // Also skip if a DM channel already exists (e.g. created by broadcast system)
     const isFriend = (user.friends || []).some((f: string) => compareIds(f, recipient.id));
     const recipientIsSystem = recipient.isSystem || isSystemUser(recipient.id);
-    if (!isFriend && !recipientIsSystem && (recipient.settings as any)?.privacy?.directMessages !== 'everyone') {
+    if (!isFriend && !recipientIsSystem && (recipient.settings as IUserSettings | undefined)?.privacy?.directMessages !== 'everyone') {
       // Check if a DM channel already exists — if so, allow viewing messages
       const existingChannels = await Channel.find({ type: 'dm', recipientId: user.id });
       const hasExistingChannel = existingChannels.some(c =>
@@ -574,8 +574,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         referencedMessageId: typeof msg.referencedMessageId === 'string' ? msg.referencedMessageId : undefined,
         referencedMessage,
         sticker: msg.sticker || undefined,
-        interaction: (msg as any).interaction ?? undefined,
-        suppressEmbeds: Boolean((msg as any).suppressEmbeds),
+        interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
+        suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
       };
     });
 
@@ -629,7 +629,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // Check DM permissions (skip for system users)
     const isFriend = (user.friends || []).some((f: string) => compareIds(f, recipient.id));
     const recipientIsSystem = recipient.isSystem || isSystemUser(recipient.id);
-    if (!isFriend && !recipientIsSystem && (recipient.settings as any)?.privacy?.directMessages !== 'everyone') {
+    if (!isFriend && !recipientIsSystem && (recipient.settings as IUserSettings | undefined)?.privacy?.directMessages !== 'everyone') {
       set.status = 403;
       return { error: 'You cannot message this user' };
     }

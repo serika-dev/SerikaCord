@@ -262,7 +262,7 @@ export async function maybeDispatchSlashInteraction(
 
   // Find every command registered under this name. Filter by name in-process too,
   // in case the model's find doesn't apply the name filter.
-  const allCmds = (await AppCommand.find({ name })) as any[];
+  const allCmds = await AppCommand.find({ name });
   const matching = allCmds.filter((c) => (c.name ?? '').toLowerCase() === name);
   if (matching.length === 0) return false;
 
@@ -392,9 +392,9 @@ async function sendBotResponse(
   const botUser = await User.findById(botId);
   const authorObj = botUser ? {
     id: botId,
-    username: (botUser as any).username,
-    displayName: (botUser as any).displayName || (botUser as any).username,
-    avatar: (botUser as any).avatar,
+    username: botUser.username,
+    displayName: botUser.displayName || botUser.username,
+    avatar: botUser.avatar,
     isBot: true,
   } : null;
 

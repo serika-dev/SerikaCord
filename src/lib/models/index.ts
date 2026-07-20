@@ -1,5 +1,5 @@
 export { User, type IUser, type BadgeId, type IUserCustomization, type IUserSettings, type IGifFavorite, type IPendingFriendRequests } from './User';
-export { Server, type IServer } from './Server';
+export { Server, type IServer, type IServerSettings } from './Server';
 export { Channel, type IChannel, type ChannelType, type ForumMode } from './Channel';
 export { Message, type IMessage, type MessageType } from './Message';
 export { Role, type IRole } from './Role';
@@ -18,7 +18,7 @@ export { PlatformSettings, getPlatformSettings, updatePlatformSettings, getEncry
 export { Experiment, getUserVariant, type IExperiment, type IExperimentVariant, type ExperimentType, type ExperimentStatus } from './Experiment';
 export { Instance, isHostDomain, getCurrentInstance, verifyInstanceApiKey, generateInstanceApiKey, generateSecretKey, type IInstance, type InstanceType, type InstanceStatus } from './Instance';
 export { Application, type IApplication } from './Application';
-export { DeveloperTeam, type IDeveloperTeam } from './DeveloperTeam';
+export { DeveloperTeam, type IDeveloperTeam, type ITeamMember } from './DeveloperTeam';
 export { AppWebhook, type IAppWebhook } from './AppWebhook';
 export { AppEmoji, type IAppEmoji } from './AppEmoji';
 export { AppCommand, type IAppCommand } from './AppCommand';

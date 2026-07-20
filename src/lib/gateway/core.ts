@@ -275,7 +275,7 @@ export class GatewayHub {
 
       if (dispatch.guildId) {
         // If this is a GUILD_CREATE for this bot, or a GUILD_MEMBER_ADD for this bot, add to guildIds
-        const isBotJoin = (dispatch.t === 'GUILD_MEMBER_ADD' && (dispatch.d as any)?.user?.id === conn.data.botId) ||
+        const isBotJoin = (dispatch.t === 'GUILD_MEMBER_ADD' && (dispatch.d as { user?: { id?: string } })?.user?.id === conn.data.botId) ||
                           (dispatch.t === 'GUILD_CREATE' && dispatch.targetBotId === conn.data.botId);
         if (isBotJoin) {
           conn.data.guildIds.add(dispatch.guildId);
