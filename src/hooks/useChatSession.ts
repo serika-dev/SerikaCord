@@ -16,6 +16,12 @@ import { buildGalleryFromMessages } from "@/lib/chat/media";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 
 const PAGE_SIZE = 50;
+// Scroll-up pagination fetches a smaller batch than the initial load. Mounting
+// 50 fresh message subtrees in one commit (markdown parse + embeds + avatars)
+// is a single long main-thread task that freezes the whole app mid-scroll;
+// a smaller batch keeps each spike short. Initial load stays PAGE_SIZE so a
+// freshly-opened channel fills the viewport in one request.
+const OLDER_PAGE_SIZE = 25;
 // Keeps the DOM light (no virtualization needed) while allowing deep scrollback.
 const MAX_LOADED_MESSAGES = 200;
 
@@ -32,7 +38,7 @@ const messageCache = new Map<string, ChatMessage[]>();
 // (in-memory cache alone is lost on reload). We persist only a small tail of
 // recent messages for a bounded set of contexts to stay well under quota.
 const LS_MSG_PREFIX = "sc:msgcache:";
-const LS_PERSIST_TAIL = 30;
+const LS_PERSIST_TAIL = 50;
 const LS_MAX_PERSISTED = 30;
 const LS_INDEX_KEY = "sc:msgcache:index";
 
@@ -262,6 +268,16 @@ export function useChatSession<M extends ChatMessage>({
   // on a cold open. fetchMessages then revalidates in the background.
   const [renderedContext, setRenderedContext] = useState<string | null>(apiBase);
   if (apiBase !== renderedContext) {
+    // Memory: the context we're leaving no longer needs deep scrollback in the
+    // cache — trim its entry to one page. Only the active context can grow to
+    // MAX_LOADED_MESSAGES; without this, 50 cached contexts × 200 messages of
+    // authors/embeds/reactions stay retained on the heap for the tab lifetime.
+    if (renderedContext) {
+      const departing = messageCache.get(renderedContext);
+      if (departing && departing.length > PAGE_SIZE) {
+        messageCache.set(renderedContext, departing.slice(-PAGE_SIZE));
+      }
+    }
     setRenderedContext(apiBase);
     activeFetchContextRef.current = apiBase;
     fetchedUnknownAuthorsRef.current.clear();
@@ -443,7 +459,7 @@ export function useChatSession<M extends ChatMessage>({
 
     setIsLoadingMore(true);
     try {
-      const response = await fetch(`${apiBase}/messages?before=${oldestId}&limit=${PAGE_SIZE}`);
+      const response = await fetch(`${apiBase}/messages?before=${oldestId}&limit=${OLDER_PAGE_SIZE}`);
       if (response.ok) {
         const data = await response.json();
         const raw = Array.isArray(data) ? data : data.messages || [];
@@ -468,7 +484,7 @@ export function useChatSession<M extends ChatMessage>({
             }
             return combined;
           });
-          setHasMoreOlder(raw.length >= PAGE_SIZE);
+          setHasMoreOlder(raw.length >= OLDER_PAGE_SIZE);
           return true;
         }
         setHasMoreOlder(false);
@@ -823,7 +839,7 @@ export function useChatSession<M extends ChatMessage>({
       };
 
       try {
-        let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string }> = [];
+        let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string; spoiler?: boolean }> = [];
         if (pendingAttachments.length > 0) {
           uploadedAttachments = (await messageBarRef.current?.uploadAttachments()) ?? [];
           messageBarRef.current?.clearAttachments();

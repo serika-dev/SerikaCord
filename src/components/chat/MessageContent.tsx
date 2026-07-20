@@ -579,7 +579,7 @@ export const MessageContent = memo(function MessageContent({
       })}
       {typeof document !== "undefined" && emojiCtxMenu && createPortal(
         <div
-          className="fixed z-[9999] min-w-[180px] bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg shadow-xl py-1"
+          className="ctx-menu fixed z-[9999] min-w-[188px]"
           style={{ 
             left: Math.min(emojiCtxMenu.x, window.innerWidth - 188), 
             top: Math.min(emojiCtxMenu.y, window.innerHeight - 148) 
@@ -604,7 +604,7 @@ export const MessageContent = memo(function MessageContent({
           </div>
           <button
             onClick={handleToggleEmojiFav}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            className="ctx-item"
           >
             {isFavorite(
               emojiCtxMenu.isCustom ? `:${emojiCtxMenu.emoji.name}:` : emojiCtxMenu.emoji.id,
@@ -623,7 +623,7 @@ export const MessageContent = memo(function MessageContent({
           </button>
           <button
             onClick={handleCopyEmojiId}
-            className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+            className="ctx-item"
           >
             <Copy className="w-4 h-4" />
             {emojiCtxMenu.isCustom ? gt("Copy Emoji ID") : gt("Copy Emoji")}

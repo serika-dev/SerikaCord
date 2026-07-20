@@ -7,6 +7,7 @@ import { Shield, Check, Server, Info, AlertTriangle, Bot } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 
 interface Guild {
   id: string;
@@ -364,11 +365,12 @@ function AuthorizeForm() {
 
                     return (
                       <label key={perm.name} className="flex items-start gap-3 cursor-pointer group">
-                        <input
-                          type="checkbox"
+                        <ToggleSwitch
+                          size="sm"
                           checked={isChecked}
-                          onChange={() => handlePermissionToggle(perm.bit)}
-                          className="mt-1 rounded border-white/[0.1] bg-[#1a1b1e] text-[#8B5CF6] focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                          onCheckedChange={() => handlePermissionToggle(perm.bit)}
+                          aria-label={permLabel(perm.bit, gt).name}
+                          className="mt-0.5"
                         />
                         <div>
                           <span className="text-xs font-semibold text-white group-hover:text-[#8B5CF6] transition-colors">

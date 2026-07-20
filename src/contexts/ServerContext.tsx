@@ -422,8 +422,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   }, [fetchServers]);
 
   const leaveServer = useCallback(async (serverId: string) => {
-    const response = await fetch(`/api/servers/${serverId}/leave`, {
-      method: "POST",
+    const response = await fetch(`/api/servers/${serverId}/members/@me`, {
+      method: "DELETE",
     });
 
     if (!response.ok) {

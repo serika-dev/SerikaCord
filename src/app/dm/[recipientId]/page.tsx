@@ -54,6 +54,10 @@ interface Recipient extends MessageAuthor {
   pronouns?: string;
 }
 
+// Tab-lifetime profile cache so switching between DMs paints the header
+// (name/avatar/status) instantly instead of flashing empty while refetching.
+const recipientCache = new Map<string, Recipient>();
+
 export default function DMConversationPage() {
   const gt = useGT();
   const params = useParams();
@@ -63,7 +67,12 @@ export default function DMConversationPage() {
   const { clearContext } = useServer();
   const isMobile = useIsMobile();
 
-  const [recipient, setRecipient] = useState<Recipient | null>(null);
+  // Paint the header instantly on revisit from the tab-lifetime profile cache;
+  // the fetch below revalidates. Without this the name/avatar flash empty on
+  // every DM open even though the messages paint from cache.
+  const [recipient, setRecipient] = useState<Recipient | null>(
+    () => recipientCache.get(recipientId) ?? null
+  );
   // Derived: loading until the fetched recipient matches the current route.
   const recipientLoading = !recipient || recipient.id !== recipientId;
   const [showUserProfile, setShowUserProfile] = useState(true);
@@ -259,12 +268,20 @@ export default function DMConversationPage() {
     }
   }, [user, authLoading, router, refresh]);
 
-  // Fetch recipient info
+  // Fetch recipient info. Cached profile paints first (DM→DM switches don't
+  // remount this page, so the useState initializer alone isn't enough); the
+  // fetch then revalidates.
   useEffect(() => {
     if (!recipientId) return;
+    const cached = recipientCache.get(recipientId);
+    if (cached) setRecipient(cached);
     fetch(`/api/users/${recipientId}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setRecipient(data))
+      .then((data) => {
+        if (!data) return;
+        recipientCache.set(recipientId, data);
+        setRecipient(data);
+      })
       .catch((error) => console.error("Failed to fetch recipient:", error));
   }, [recipientId]);
 

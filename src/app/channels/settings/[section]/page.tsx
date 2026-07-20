@@ -826,11 +826,11 @@ export default function MobileSettingsSectionPage() {
                     ))}
                   </select>
                   <label className="flex items-center gap-3 mt-3 cursor-pointer">
-                    <input
-                      type="checkbox"
+                    <ToggleSwitch
+                      size="sm"
                       checked={showTimezone}
-                      onChange={(e) => setShowTimezone(e.target.checked)}
-                      className="w-4 h-4 rounded accent-[var(--app-accent)] bg-[var(--bg-app)] border-[var(--border-subtle)]"
+                      onCheckedChange={setShowTimezone}
+                      aria-label={gt("Display my current time on my profile")}
                     />
                     <span className="text-xs text-[var(--text-secondary)]">{gt("Display my current time on my profile")}</span>
                   </label>
@@ -1396,18 +1396,17 @@ export default function MobileSettingsSectionPage() {
                   {/* Custom Border Styling */}
                   <div className="bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-lg p-4">
                     <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <input 
-                          type="checkbox"
-                          id="borderGlow"
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <ToggleSwitch
+                          size="sm"
                           checked={profileCardBorderGlow}
-                          onChange={(e) => setProfileCardBorderGlow(e.target.checked)}
-                          className="rounded border-[var(--border-subtle)] text-[var(--app-accent)] focus:ring-[var(--app-accent)] bg-transparent"
+                          onCheckedChange={setProfileCardBorderGlow}
+                          aria-label={gt("Enable Border Glow")}
                         />
-                        <label htmlFor="borderGlow" className="text-xs font-bold text-[var(--text-primary)] cursor-pointer">
+                        <span className="text-xs font-bold text-[var(--text-primary)]">
                           {gt("Enable Border Glow")}
-                        </label>
-                      </div>
+                        </span>
+                      </label>
                       {profileCardBorderColor && (
                         <button 
                           type="button"

@@ -65,7 +65,7 @@ function validateFileType(category: UploadCategory, contentType: string): boolea
     'server-icons': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'server-banners': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     emojis: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-    stickers: ['image/png', 'image/apng', 'application/json'], // JSON for Lottie
+    stickers: ['image/png', 'image/apng', 'image/gif', 'application/json'], // JSON for Lottie
     audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm'],
   };
 

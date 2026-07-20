@@ -7,6 +7,7 @@ import { Copy, Check, Save, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 
 const allScopes = [
   "bot", "applications.commands", "applications.commands.permissions.update",
@@ -261,11 +262,11 @@ export default function InstallationPage() {
               key={scope}
               className="flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 cursor-pointer hover:bg-white/[0.04] transition-colors"
             >
-              <input
-                type="checkbox"
+              <ToggleSwitch
+                size="sm"
                 checked={selectedScopes.includes(scope)}
-                onChange={() => toggleScope(scope)}
-                className="accent-[#8B5CF6]"
+                onCheckedChange={() => toggleScope(scope)}
+                aria-label={scope}
               />
               <span className="text-xs font-mono text-[#ccc]">{scope}</span>
             </label>
@@ -285,11 +286,11 @@ export default function InstallationPage() {
               key={perm.value}
               className="flex items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 cursor-pointer hover:bg-white/[0.04] transition-colors"
             >
-              <input
-                type="checkbox"
+              <ToggleSwitch
+                size="sm"
                 checked={selectedPerms.includes(perm.value)}
-                onChange={() => togglePerm(perm.value)}
-                className="accent-[#8B5CF6]"
+                onCheckedChange={() => togglePerm(perm.value)}
+                aria-label={permNameLabel(perm.value, gt)}
               />
               <span className="text-xs text-[#ccc]">{permNameLabel(perm.value, gt)}</span>
             </label>
