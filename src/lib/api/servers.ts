@@ -3971,6 +3971,7 @@ export const serverPublicRoutes = new Elysia({ prefix: '/servers' })
       id: server.id,
       name: server.name,
       icon: server.icon ?? null,
+      banner: server.banner ?? null,
       description: server.description ?? null,
       memberCount: server.memberCount ?? 0,
       tagText: (server as any).tagText ?? null,
@@ -4006,8 +4007,8 @@ export const serverTagRoutes = new Elysia({ prefix: '/servers' })
     if (b.tagText !== undefined) {
       if (!b.tagText) { patch.tagText = null; }
       else {
-        const norm = b.tagText.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 5);
-        if (!norm) { set.status = 400; return { error: 'Tag must contain at least one letter or number' }; }
+        const norm = String(b.tagText).trim().slice(0, 5);
+        if (!norm) { set.status = 400; return { error: 'Tag must contain at least one visible character' }; }
         patch.tagText = norm;
       }
     }

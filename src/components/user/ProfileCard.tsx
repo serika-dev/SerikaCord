@@ -432,6 +432,13 @@ export function ProfileCard({
             >
               {displayName}
             </h3>
+            {user.displayedTag?.tagText && (
+              <ServerTagBadge
+                tagText={user.displayedTag.tagText}
+                tagIcon={user.displayedTag.tagIcon}
+                serverId={user.displayedTag.serverId}
+              />
+            )}
             {user.isBot && !user.isSystem && (
               <span className={cn(
                 "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",
@@ -456,11 +463,6 @@ export function ProfileCard({
               <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
             )}
           </button>
-          {user.displayedTag?.tagText && (
-            <div className="mt-1.5">
-              <ServerTagBadge tagText={user.displayedTag.tagText} tagIcon={user.displayedTag.tagIcon} serverId={user.displayedTag.serverId} />
-            </div>
-          )}
           {user.pronouns && (
             <div className="text-xs text-[#9a9aad] mt-0.5">{user.pronouns}</div>
           )}

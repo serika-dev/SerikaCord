@@ -326,8 +326,10 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
             const styleInline = getDisplayNameStyleInline(member.customization?.displayNameStyle);
             const hasCustomStyle = Boolean(member.customization?.displayNameStyle && (member.customization.displayNameStyle.color || member.customization.displayNameStyle.gradient?.length || member.customization.displayNameStyle.effect !== 'solid' || member.customization.displayNameStyle.font !== 'default'));
             return (
-              <div className={cn("flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
-                <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
+              <div className="flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]">
+                <span className={cn("truncate", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
+                  {member.displayName || member.username || gt("Unknown")}
+                </span>
                 {member.displayedTag?.tagText && (
                   <ServerTagBadge
                     tagText={member.displayedTag.tagText}

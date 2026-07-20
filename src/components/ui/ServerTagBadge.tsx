@@ -2,7 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { cn } from "@/lib/utils";
+import { cdnImage, cn } from "@/lib/utils";
 import { ArrowRight, Loader2, LogIn, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -12,6 +12,7 @@ interface ServerInfo {
   id: string;
   name: string;
   icon: string | null;
+  banner: string | null;
   description: string | null;
   memberCount: number;
   tagText: string | null;
@@ -105,7 +106,16 @@ function ServerTagPopupContent({ serverId, onClose }: { serverId: string; onClos
   return (
     <div className="w-72">
       {/* Banner area */}
-      <div className="h-16 bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] rounded-t-xl" />
+      <div className="relative h-16 rounded-t-xl overflow-hidden bg-gradient-to-r from-[#8B5CF6] to-[#6366F1]">
+        {info.banner && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={cdnImage(info.banner)}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover"
+          />
+        )}
+      </div>
 
       <div className="px-4 pb-4 -mt-8">
         {/* Server icon */}
