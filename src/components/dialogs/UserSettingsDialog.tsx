@@ -1083,7 +1083,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       setTimezone(user.timezone || "");
       setShowTimezone(user.showTimezone ?? false);
       setCustomStatus(user.customStatus || "");
-      setDisplayedTagServerId((user as any).displayedTagServerId ?? null);
+      setDisplayedTagServerId(user.displayedTagServerId ?? null);
       setStatus(user.status || "online");
       setDisplayNameStyle(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] });
       setProfileColor(user.customization?.profileColor || "");
@@ -1238,7 +1238,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         timezone !== (user.timezone || "") ||
         showTimezone !== (user.showTimezone ?? false) ||
         customStatus !== (user.customStatus || "") ||
-        displayedTagServerId !== ((user as any).displayedTagServerId ?? null) ||
+        displayedTagServerId !== (user.displayedTagServerId ?? null) ||
         status !== (user.status || "online") ||
         JSON.stringify(displayNameStyle) !== JSON.stringify(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] }) ||
         profileColor !== (user.customization?.profileColor || "") ||

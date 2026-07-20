@@ -3805,7 +3805,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       if (!currentServer) return;
       setIsSavingTag(true);
       try {
-        const normalized = tagText.slice(0, 5).trim();
+        const normalized = tagText.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5).trim();
         const res = await fetch(`/api/servers/${currentServer.id}/tag`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
@@ -3870,10 +3870,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div>
           <label className="block text-sm font-medium text-[#888888] mb-2 uppercase">{gt("Tag Text")}</label>
           <input type="text" value={tagText} maxLength={5}
-            onChange={(e) => setTagText(e.target.value.slice(0, 5))}
+            onChange={(e) => setTagText(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 5))}
             placeholder="e.g. ALPHA"
             className="w-40 h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white font-mono tracking-widest focus:border-[#8B5CF6] focus:outline-none transition-colors" />
-          <p className="text-xs text-[#555] mt-1">{gt("Up to 5 characters")}</p>
+          <p className="text-xs text-[#555] mt-1">{gt("Up to 5 characters · letters and numbers only")}</p>
         </div>
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] flex items-center justify-between gap-4">
           <div>

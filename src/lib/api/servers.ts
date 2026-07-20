@@ -4007,8 +4007,11 @@ export const serverTagRoutes = new Elysia({ prefix: '/servers' })
     if (b.tagText !== undefined) {
       if (!b.tagText) { patch.tagText = null; }
       else {
-        const norm = String(b.tagText).trim().slice(0, 5);
-        if (!norm) { set.status = 400; return { error: 'Tag must contain at least one visible character' }; }
+        const norm = String(b.tagText).trim().toUpperCase();
+        if (!/^[A-Z0-9]{1,5}$/.test(norm)) {
+          set.status = 400;
+          return { error: 'Tag must be 1-5 characters: A-Z and 0-9 only' };
+        }
         patch.tagText = norm;
       }
     }

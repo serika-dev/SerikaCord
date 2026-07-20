@@ -179,11 +179,11 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
                 <h3 className={cn("font-bold text-white leading-tight", isMobile ? "text-2xl" : "text-lg")}>
                   {user.displayName || user.username}
                 </h3>
-                {(user as any).displayedTag?.tagText && (
+                {user.displayedTag?.tagText && (
                   <ServerTagBadge
-                    tagText={(user as any).displayedTag.tagText}
-                    tagIcon={(user as any).displayedTag.tagIcon}
-                    serverId={(user as any).displayedTag.serverId}
+                    tagText={user.displayedTag.tagText}
+                    tagIcon={user.displayedTag.tagIcon}
+                    serverId={user.displayedTag.serverId}
                   />
                 )}
               </div>

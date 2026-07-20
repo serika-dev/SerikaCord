@@ -632,7 +632,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const memberships = await ServerMember.find({ userId: user.id });
     const serverIds = memberships.map((m: any) => m.serverId).filter(Boolean);
     if (!serverIds.length) return { tags: [] };
-    const servers = await Promise.all(serverIds.map((id: string) => Srv.findById(id)));
+    const servers = await Srv.find({ id: { in: serverIds } });
     const tags = servers
       .filter((s: any) => s?.tagText)
       .map((s: any) => ({

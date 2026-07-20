@@ -18,10 +18,10 @@ function compareIds(id1: string, id2: string): boolean {
 type ResolvedTag = { serverId: string; serverName: string; serverIcon: string | null; tagText: string; tagIcon: string | null };
 
 /** Batch-resolve displayedTag for a set of author IDs — two queries total. */
-async function batchResolveAuthorTags(authorIds: string[]): Promise<Map<string, ResolvedTag | null>> {
+async function batchResolveAuthorTags(authorIds: string[], prefetchedUsers?: Array<any>): Promise<Map<string, ResolvedTag | null>> {
   const result = new Map<string, ResolvedTag | null>();
   if (!authorIds.length) return result;
-  const users = await User.find({ id: { in: authorIds } });
+  const users = prefetchedUsers ?? (await User.find({ id: { in: authorIds } }));
   const tagServerIds = [...new Set(users.map((u: any) => u.displayedTagServerId).filter(Boolean))] as string[];
   const servers = tagServerIds.length ? await Server.find({ id: { in: tagServerIds } }) : [];
   const serverMap = new Map(servers.map((s: any) => [s.id, s]));
@@ -1429,8 +1429,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const authorIds = Array.from(new Set(messages.map((m: any) => m.authorId).filter(Boolean))) as string[];
     const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
     const authorMap = new Map(authors.map((a: any) => [a.id, a]));
-    // Batch-resolve author tags (two queries for all authors)
-    const authorTagMap = await batchResolveAuthorTags(authorIds);
+    // Authors are already fetched above, so resolving tags only needs the server lookup.
+    const authorTagMap = await batchResolveAuthorTags(authorIds, authors as any[]);
 
     // Fetch Discord users for author IDs not found in the User table
     const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));

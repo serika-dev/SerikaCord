@@ -24,6 +24,14 @@ interface User {
   showTimezone?: boolean;
   status: "online" | "idle" | "dnd" | "offline";
   customStatus?: string;
+  displayedTagServerId?: string | null;
+  displayedTag?: {
+    serverId: string;
+    serverName: string;
+    serverIcon?: string | null;
+    tagText: string;
+    tagIcon?: string | null;
+  } | null;
   isPremium?: boolean;
   premiumSince?: string;
   premiumTier?: 'monthly' | 'yearly' | 'lifetime';
