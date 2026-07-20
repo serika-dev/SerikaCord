@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SerikaCord
+Comment=Chat with friends and communities
+Exec=SerikaCord %u
+Icon=serikacord
+Terminal=false
+Categories=Network;InstantMessaging;
+MimeType=x-scheme-handler/serikacord;

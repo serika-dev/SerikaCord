@@ -34,6 +34,7 @@ function mapAttachments(d: any): any[] {
     size: att.size,
     width: att.width || null,
     height: att.height || null,
+    spoiler: att.filename?.startsWith('SPOILER_') || false,
   }));
 }
 

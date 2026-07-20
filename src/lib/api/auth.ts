@@ -1,7 +1,17 @@
-import { createHash } from 'crypto';
 import { Elysia, t } from 'elysia';
+import { createHash, randomBytes } from 'crypto';
 import { config } from '../config';
-import { User, UserConnection } from '../models';
+import {
+  verifyEmail,
+  resetPassword,
+  deleteSession,
+  verifyToken,
+  handleDiscordOAuth,
+  authenticateRequest,
+  createSession,
+} from '../services/auth';
+import { cache } from '../db/redis';
+import { UserConnection, User } from '../models';
 import { getPlatformSettings } from '../models/PlatformSettings';
 import {
     accountsForgotPassword,
@@ -519,6 +529,138 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       email: t.String({ format: 'email' }),
       password: t.String(),
     }),
+  })
+
+  // ── QR login ───────────────────────────────────────────────────────────────
+  // Log a device in by scanning/opening a QR code from an already-authenticated
+  // device (Discord-style). Flow:
+  //   1. The unauthenticated device calls POST /qr/create and renders the token
+  //      as a QR code pointing at https://serika.chat/qr/<token>.
+  //   2. It polls GET /qr/:token/status.
+  //   3. An authenticated device opens that URL, sees a confirmation screen, and
+  //      calls POST /qr/:token/approve. We mint a FRESH session for that user and
+  //      stash the new tokens against the QR token.
+  //   4. The waiting device's next poll returns "approved", we set its auth
+  //      cookies from the stashed tokens, and burn the QR token (single-use).
+  .post('/qr/create', async ({ set }) => {
+    const token = randomBytes(32).toString('hex');
+    const now = Date.now();
+    const ttlSeconds = 120; // QR codes are short-lived
+    await cache.set(`qrlogin:${token}`, {
+      status: 'pending',
+      createdAt: now,
+    }, ttlSeconds);
+    set.status = 201;
+    return {
+      token,
+      // Absolute URL the approving device should open.
+      url: `${config.FRONTEND_URL || config.API_BASE_URL}/qr/${token}`,
+      expiresAt: now + ttlSeconds * 1000,
+      pollIntervalMs: 2000,
+    };
+  })
+
+  // Poll the QR token status. Called by the WAITING (unauthenticated) device.
+  // On "approved" this sets the auth cookies and consumes the token.
+  .get('/qr/:token/status', async ({ params, set }) => {
+    const entry = await cache.get<any>(`qrlogin:${params.token}`);
+    if (!entry) {
+      set.status = 404;
+      return { status: 'expired' };
+    }
+
+    if (entry.status === 'approved' && entry.tokens) {
+      // Hand the freshly-minted session to this device, then burn the token so
+      // it can never be replayed.
+      await cache.del(`qrlogin:${params.token}`);
+      (set.headers as any)['Set-Cookie'] = [
+        `auth_token=${entry.tokens.accessToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
+        `refresh_token=${entry.tokens.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
+      ];
+      return {
+        status: 'approved',
+        user: entry.user ?? null,
+        tokens: {
+          accessToken: entry.tokens.accessToken,
+          refreshToken: entry.tokens.refreshToken,
+        },
+      };
+    }
+
+    return { status: entry.status };
+  })
+
+  // Mark the QR token as "scanned" (optional UX ping so the waiting device can
+  // show "Scanned — confirm on your other device"). No auth required; it only
+  // moves pending → scanned and never leaks anything.
+  .post('/qr/:token/scan', async ({ params, set }) => {
+    const key = `qrlogin:${params.token}`;
+    const entry = await cache.get<any>(key);
+    if (!entry) {
+      set.status = 404;
+      return { status: 'expired' };
+    }
+    if (entry.status === 'pending') {
+      const ttl = Math.max(1, Math.ceil((entry.createdAt + 120000 - Date.now()) / 1000));
+      await cache.set(key, { ...entry, status: 'scanned' }, ttl);
+    }
+    return { status: entry.status === 'pending' ? 'scanned' : entry.status };
+  })
+
+  // Approve a QR login. Called by the AUTHENTICATED device. Mints a fresh
+  // session for the approving user and stashes it against the QR token.
+  .post('/qr/:token/approve', async ({ params, headers, cookie, set }) => {
+    const authHeader = headers.authorization ?? null;
+    const cookieToken = cookie.auth_token?.value;
+    const auth = await authenticateRequest(
+      authHeader,
+      typeof cookieToken === 'string' ? { auth_token: cookieToken } : {}
+    );
+    if (!auth.user) {
+      set.status = 401;
+      return { error: 'Not authenticated' };
+    }
+
+    const key = `qrlogin:${params.token}`;
+    const entry = await cache.get<any>(key);
+    if (!entry) {
+      set.status = 404;
+      return { error: 'This QR code has expired. Generate a new one.' };
+    }
+    if (entry.status === 'approved') {
+      set.status = 409;
+      return { error: 'This QR code was already used.' };
+    }
+
+    // Mint a fresh, independent session for the new device.
+    const { tokens } = await createSession(auth.user.id, {
+      userAgent: headers['user-agent'],
+      ipAddress: headers['x-forwarded-for'] || headers['x-real-ip'],
+    });
+
+    const ttl = Math.max(1, Math.ceil((entry.createdAt + 120000 - Date.now()) / 1000));
+    await cache.set(key, {
+      ...entry,
+      status: 'approved',
+      user: {
+        id: auth.user.id,
+        username: auth.user.username,
+        displayName: auth.user.displayName ?? null,
+        avatar: auth.user.avatar ?? null,
+      },
+      tokens: {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      },
+    }, ttl);
+
+    return { success: true };
+  })
+
+  // Reject a QR login from the authenticated device (user tapped "This wasn't me").
+  .post('/qr/:token/deny', async ({ params }) => {
+    await cache.del(`qrlogin:${params.token}`);
+    return { success: true };
   })
 
   // Save current account to saved_accounts cookie

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 const SITE_NAME = "SerikaCord";
-const SITE_URL = "https://serika.cc";
-const DEFAULT_DESCRIPTION = "A modern Discord-like chat application";
+const SITE_URL = "https://serika.chat";
+const DEFAULT_DESCRIPTION = "SerikaCord is a free, modern community chat platform with voice, video, text, and server discovery. Create or join communities, chat with friends, and build your space online.";
 const DEFAULT_OG_IMAGE = "/opengraph-image.png";
 
 export interface SEOPageOptions {
@@ -49,8 +49,11 @@ export function buildMetadata(options: SEOPageOptions): Metadata {
       "messaging",
       "voice chat",
       "servers",
+      "free chat platform",
+      "online communities",
+      "group chat",
     ],
-    authors: [{ name: "Serika Company" }],
+    authors: [{ name: "Serika Company", url: SITE_URL }],
     creator: "Serika Company",
     publisher: "Serika Company",
     metadataBase: new URL(SITE_URL),
@@ -83,18 +86,27 @@ export function buildMetadata(options: SEOPageOptions): Metadata {
     },
     robots: options.noIndex
       ? { index: false, follow: false }
-      : { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 },
+      : {
+          index: true,
+          follow: true,
+          "max-image-preview": "large",
+          "max-snippet": -1,
+          "max-video-preview": -1,
+        },
     other: {
       "application-name": SITE_NAME,
       "theme-color": "#8B5CF6",
       "msapplication-TileColor": "#8B5CF6",
+      "og:site_name": SITE_NAME,
+      "og:locale": "en_US",
+      "format-detection": "telephone=no",
     },
   };
 }
 
 export function buildRootMetadata(): Metadata {
   return buildMetadata({
-    title: SITE_NAME,
+    title: "SerikaCord — Free Community Chat & Voice Platform",
     description: DEFAULT_DESCRIPTION,
     path: "/",
     keywords: [
@@ -107,6 +119,11 @@ export function buildRootMetadata(): Metadata {
       "voice chat",
       "group chat",
       "online communities",
+      "free chat platform",
+      "server discovery",
+      "chat with friends",
+      "create server",
+      "join community",
     ],
   });
 }

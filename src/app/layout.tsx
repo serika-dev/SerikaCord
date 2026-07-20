@@ -95,6 +95,54 @@ export default function RootLayout({
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: rtlBootstrapScript }} />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "document.addEventListener('contextmenu',function(e){e.preventDefault();},false);" }} />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "if(window.__TAURI__){var _f=window.fetch;window.fetch=function(u,o){o=o||{};o.headers=o.headers||{};if(o.headers instanceof Headers){o.headers.set('x-serika-client','tauri');}else{o.headers['x-serika-client']='tauri';}return _f.call(window,u,o);};}" }} />
+        <script
+          type="application/ld+json"
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@graph": [
+                {
+                  "@type": "WebSite",
+                  "@id": "https://serika.chat/#website",
+                  url: "https://serika.chat/",
+                  name: "SerikaCord",
+                  description: "Free community chat and voice platform with server discovery, voice, video, and text messaging.",
+                  publisher: { "@id": "https://serika.chat/#organization" },
+                  potentialAction: {
+                    "@type": "SearchAction",
+                    target: "https://serika.chat/channels/explore?q={search_term_string}",
+                    "query-input": "required name=search_term_string",
+                  },
+                },
+                {
+                  "@type": "Organization",
+                  "@id": "https://serika.chat/#organization",
+                  name: "Serika Company",
+                  url: "https://serika.chat/",
+                  logo: "https://serika.chat/logo-icon.svg",
+                  sameAs: [
+                    "https://serika.chat/",
+                  ],
+                },
+                {
+                  "@type": "SoftwareApplication",
+                  name: "SerikaCord",
+                  applicationCategory: "CommunicationApplication",
+                  operatingSystem: "Windows, macOS, Linux, Android, Web",
+                  url: "https://serika.chat/",
+                  downloadUrl: "https://serika.chat/download",
+                  offers: {
+                    "@type": "Offer",
+                    price: "0",
+                    priceCurrency: "USD",
+                  },
+                  description: "SerikaCord is a free, modern community chat platform with voice, video, text, and server discovery.",
+                },
+              ],
+            }),
+          }}
+        />
       </head>
       <body
         className={`${inter.variable} ${notoKufi.variable} font-sans antialiased`}

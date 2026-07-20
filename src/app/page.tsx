@@ -17,8 +17,8 @@ import {
 } from "lucide-react";
 
 export const metadata = buildMetadata({
-  title: "SerikaCord",
-  description: "A modern Discord-like chat application",
+  title: "SerikaCord — Free Community Chat & Voice Platform",
+  description: "SerikaCord is a free, modern community chat platform with voice, video, text, and server discovery. Create or join communities, chat with friends, and build your space online.",
   path: "/",
   keywords: [
     "SerikaCord",
@@ -29,6 +29,10 @@ export const metadata = buildMetadata({
     "group chat",
     "online communities",
     "free chat platform",
+    "server discovery",
+    "chat with friends",
+    "create server",
+    "join community",
   ],
 });
 

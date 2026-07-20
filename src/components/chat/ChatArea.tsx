@@ -1453,6 +1453,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
     // Escape clears the active reply, then falls back to blurring the composer.
     if (e.key === "Escape") {
+      if (messageBarRef.current?.getAttachments().length) {
+        e.preventDefault();
+        messageBarRef.current?.removeLatestAttachment();
+        return;
+      }
       if (chat.actions.replyToMessage) {
         e.preventDefault();
         chat.actions.setReplyToMessage(null);
