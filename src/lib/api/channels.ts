@@ -2618,6 +2618,22 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
+    // Roll back stale unread badges for members not currently viewing the
+    // channel: the per-message `delete` events above only reach clients with the
+    // channel open, so without this a bulk /clear leaves an unread badge behind
+    // with no messages behind it. Recompute the newest remaining message and
+    // broadcast one reset. Fire-and-forget.
+    if (deleted > 0) {
+      void (async () => {
+        const [latest] = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: 1 });
+        const lastMessageAt = latest?.createdAt
+          ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
+          : null;
+        const { notifyUnreadReset } = await import('@/lib/api/activity');
+        notifyUnreadReset({ serverId: channel.serverId || undefined }, params.channelId, lastMessageAt);
+      })().catch(() => { /* best-effort */ });
+    }
+
     return { deleted };
   }, {
     params: t.Object({

@@ -32,7 +32,7 @@ const messageCache = new Map<string, ChatMessage[]>();
 // (in-memory cache alone is lost on reload). We persist only a small tail of
 // recent messages for a bounded set of contexts to stay well under quota.
 const LS_MSG_PREFIX = "sc:msgcache:";
-const LS_PERSIST_TAIL = 30;
+const LS_PERSIST_TAIL = 50;
 const LS_MAX_PERSISTED = 30;
 const LS_INDEX_KEY = "sc:msgcache:index";
 
@@ -262,6 +262,16 @@ export function useChatSession<M extends ChatMessage>({
   // on a cold open. fetchMessages then revalidates in the background.
   const [renderedContext, setRenderedContext] = useState<string | null>(apiBase);
   if (apiBase !== renderedContext) {
+    // Memory: the context we're leaving no longer needs deep scrollback in the
+    // cache — trim its entry to one page. Only the active context can grow to
+    // MAX_LOADED_MESSAGES; without this, 50 cached contexts × 200 messages of
+    // authors/embeds/reactions stay retained on the heap for the tab lifetime.
+    if (renderedContext) {
+      const departing = messageCache.get(renderedContext);
+      if (departing && departing.length > PAGE_SIZE) {
+        messageCache.set(renderedContext, departing.slice(-PAGE_SIZE));
+      }
+    }
     setRenderedContext(apiBase);
     activeFetchContextRef.current = apiBase;
     fetchedUnknownAuthorsRef.current.clear();

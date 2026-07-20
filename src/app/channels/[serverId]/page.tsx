@@ -41,13 +41,15 @@ export default function ServerPage() {
       
       if (lastChannel && lastChannel.id) {
         setCurrentChannel(lastChannel);
-        router.push(`/channels/${serverId}/${lastChannel.id}`);
+        // replace, not push: this page is a transient redirector — leaving it
+        // in history makes Back bounce through the "Loading channels…" flash.
+        router.replace(`/channels/${serverId}/${lastChannel.id}`);
       } else {
         // Fallback to first text channel
         const firstTextChannel = channels.find((c) => c.type === "text");
         if (firstTextChannel && firstTextChannel.id) {
           setCurrentChannel(firstTextChannel);
-          router.push(`/channels/${serverId}/${firstTextChannel.id}`);
+          router.replace(`/channels/${serverId}/${firstTextChannel.id}`);
         }
       }
     }

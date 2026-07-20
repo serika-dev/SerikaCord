@@ -600,6 +600,15 @@ export function ChannelSidebar({
       if (queue.length >= 12) break;
     }
 
+    // Warm the routes as well as the messages: router.push doesn't prefetch,
+    // so the RSC payload for each channel page would otherwise be fetched at
+    // click time. Next dedupes repeat prefetches, so this is cheap.
+    if (currentServer) {
+      for (const id of queue) {
+        router.prefetch(`/channels/${currentServer.id}/${id}`);
+      }
+    }
+
     // Concurrency-limited worker pool (3 at a time).
     let cursor = 0;
     const runWorker = async () => {
@@ -744,10 +753,16 @@ export function ChannelSidebar({
         )}
         <button
           onClick={() => { navigateToChannel(channel); setActiveChannel(channel.id); }}
-          onMouseEnter={() => { void prefetchChannelMessages(`/api/channels/${channel.id}`); }}
+          onMouseEnter={() => {
+            void prefetchChannelMessages(`/api/channels/${channel.id}`);
+            // Warm the route too: programmatic router.push does NOT prefetch,
+            // so without this every click pays an RSC round-trip before the
+            // page can mount. Hover-prefetching makes the push commit instantly.
+            if (currentServer) router.prefetch(`/channels/${currentServer.id}/${channel.id}`);
+          }}
           onContextMenu={(e) => handleContextMenu(e, channel)}
           className={cn(
-            "w-full px-2 py-1.5 mx-2 rounded flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group min-w-0 overflow-hidden",
+            "w-full px-2 py-1.5 mx-2 rounded press-feedback flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group min-w-0 overflow-hidden",
             isActive && "bg-[var(--bg-active)] text-[var(--app-accent)]",
             !isActive && unread && "text-white font-semibold"
           )}
@@ -795,10 +810,13 @@ export function ChannelSidebar({
 
         <button
           onClick={() => { navigateToChannel(thread); setActiveChannel(thread.id); }}
-          onMouseEnter={() => { void prefetchChannelMessages(`/api/channels/${thread.id}`); }}
+          onMouseEnter={() => {
+            void prefetchChannelMessages(`/api/channels/${thread.id}`);
+            if (currentServer) router.prefetch(`/channels/${currentServer.id}/${thread.id}`);
+          }}
           onContextMenu={(e) => handleContextMenu(e, thread)}
           className={cn(
-            "w-full pl-7 pr-2 py-1 rounded flex items-center gap-1.5 text-xs text-[#888888] hover:text-[#d5d9e8] hover:bg-[var(--bg-sidebar-elevated)] transition-all min-w-0 overflow-hidden",
+            "w-full pl-7 pr-2 py-1 rounded press-feedback flex items-center gap-1.5 text-xs text-[#888888] hover:text-[#d5d9e8] hover:bg-[var(--bg-sidebar-elevated)] transition-all min-w-0 overflow-hidden",
             isActive && "bg-[var(--bg-active)] text-[var(--app-accent)] font-medium",
             !isActive && unread && "text-white font-semibold"
           )}
@@ -1081,7 +1099,7 @@ export function ChannelSidebar({
                       onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${recipient.id}`); }}
                       onContextMenu={(e) => { e.preventDefault(); setDmContextMenu({ x: e.clientX, y: e.clientY, channel }); }}
                       className={cn(
-                        "group relative flex items-center gap-2 px-2 py-[5px] rounded-md transition-colors min-w-0",
+                        "group relative flex items-center gap-2 px-2 py-[5px] rounded-md press-feedback transition-colors min-w-0",
                         isActive
                           ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
                           : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]",

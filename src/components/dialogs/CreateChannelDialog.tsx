@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import {
   Select,
   SelectContent,
@@ -330,12 +331,10 @@ export function CreateChannelDialog({
                   <T>Users will need to confirm they are of legal age to view this channel.</T>
                 </div>
               </div>
-              <input
-                id="nsfw-toggle"
-                type="checkbox"
+              <ToggleSwitch
                 checked={nsfw}
-                onChange={(e) => setNsfw(e.target.checked)}
-                className="w-4 h-4 rounded accent-[#8B5CF6] cursor-pointer"
+                onCheckedChange={setNsfw}
+                aria-label="Age-restricted channel"
               />
             </div>
           )}
@@ -351,12 +350,10 @@ export function CreateChannelDialog({
                   <T>Each new post becomes a private ticket, visible only to its creator and your configured support roles.</T>
                 </div>
               </div>
-              <input
-                id="ticket-toggle"
-                type="checkbox"
+              <ToggleSwitch
                 checked={forumTickets}
-                onChange={(e) => setForumTickets(e.target.checked)}
-                className="w-4 h-4 rounded accent-[#8B5CF6] cursor-pointer"
+                onCheckedChange={setForumTickets}
+                aria-label="Ticket system"
               />
             </div>
           )}

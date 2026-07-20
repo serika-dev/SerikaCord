@@ -637,10 +637,34 @@ textarea::selection,
   animation: msg-list-fade-in 0.15s ease-out both;
 }
 
+/* Instant tactile press feedback: a tiny scale-down on :active makes clicks
+   feel acknowledged the same frame, before any navigation/data work lands.
+   Transform-only → compositor-driven, no layout/paint cost. */
+.press-feedback {
+  /* Includes color/background so this shorthand doesn't clobber Tailwind's
+     transition-colors on the same element (this rule is unlayered and wins). */
+  transition: transform 80ms ease-out, color 150ms ease, background-color 150ms ease;
+}
+.press-feedback:active {
+  transform: scale(0.985);
+}
+@media (prefers-reduced-motion: reduce) {
+  .press-feedback,
+  .press-feedback:active {
+    transition: none;
+    transform: none;
+  }
+}
+
 /* Render optimization: skip layout/paint for off-screen message groups */
 .msg-group-cv {
-  /* content-visibility: auto; */
-  /* contain-intrinsic-size: auto 88px; */
+  /* Off-screen groups skip style/layout/paint entirely — with 200 messages
+     loaded this cuts render work to roughly the visible viewport. The `auto`
+     keyword remembers each group's last rendered height, so scrollbar and
+     scroll-restore estimates stay accurate after first render (88px is only
+     the pre-first-render guess). */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 88px;
   /* content-visibility forces paint containment, which clips anything drawn
      outside the box — including the hover toolbar floated above the first row
      (-top-3). Reserve headroom + a matching negative margin so the toolbar
