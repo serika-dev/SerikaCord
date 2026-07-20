@@ -1,39 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { SwitchAccountsDialog } from "@/components/dialogs/SwitchAccountsDialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import {
+    Dialog,
+    DialogContent,
+    DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { ServerTagBadge } from "@/components/ui/ServerTagBadge";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { SwitchAccountsDialog } from "@/components/dialogs/SwitchAccountsDialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  ChevronRight,
-  Pencil,
-  Circle,
-  Moon,
-  MinusCircle,
-  EyeOff,
-  Copy,
-  Users,
-  Check,
-  Clock,
-} from "lucide-react";
-import { cn, cdnImage } from "@/lib/utils";
-import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
-import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
-import { getProfileBannerStyle, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
-import { useGT } from "gt-next";
 import { statusLabelInvisible } from "@/lib/statusLabels";
+import { getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
+import { cdnImage, cn } from "@/lib/utils";
+import { useGT } from "gt-next";
+import {
+    Check,
+    ChevronRight,
+    Circle,
+    Clock,
+    Copy,
+    EyeOff,
+    MinusCircle,
+    Moon,
+    Pencil,
+    Users,
+} from "lucide-react";
+import { useState } from "react";
 
 interface UserProfilePopupProps {
   children: React.ReactNode;
@@ -141,7 +142,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
     <>
       {/* Banner */}
       <div
-        className={cn("relative", isMobile ? "h-28" : "h-[60px]")}
+        className={cn("relative", isMobile ? "h-28" : "h-[120px]")}
         style={
           user.banner
             ? { background: `url(${user.banner}) center/cover` }
@@ -174,9 +175,18 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
           <div className="bg-[#0a0a0a] rounded-lg p-3">
             {/* Name */}
             <div className="mb-2">
-              <h3 className={cn("font-bold text-white leading-tight", isMobile ? "text-2xl" : "text-lg")}>
-                {user.displayName || user.username}
-              </h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className={cn("font-bold text-white leading-tight", isMobile ? "text-2xl" : "text-lg")}>
+                  {user.displayName || user.username}
+                </h3>
+                {(user as any).displayedTag?.tagText && (
+                  <ServerTagBadge
+                    tagText={(user as any).displayedTag.tagText}
+                    tagIcon={(user as any).displayedTag.tagIcon}
+                    serverId={(user as any).displayedTag.serverId}
+                  />
+                )}
+              </div>
               <span className="text-sm text-[#888888]">{user.username}</span>
               {user.pronouns && (
                 <div className="text-xs text-[#888888] mt-0.5">{user.pronouns}</div>

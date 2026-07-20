@@ -1,28 +1,28 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
-import { getBadgesByPriority } from "@/lib/constants/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
-import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
-import { MusicActivityCard } from "@/components/user/MusicActivityCard";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { getConnectionColor, getConnectionHref, getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
+import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
-import { ProfileGameWidgets, type GameCategory } from "@/components/user/ProfileGameWidgets";
 import { ProfileAppWidgets } from "@/components/user/ProfileAppWidgets";
-import { useUserActivity } from "@/hooks/useMoeActivity";
-import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
-import { cn, cdnImage } from "@/lib/utils";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
+import { ProfileGameWidgets, type GameCategory } from "@/components/user/ProfileGameWidgets";
 import { useAuth } from "@/contexts/AuthContext";
-import { useGT } from "gt-next";
+import { useCurrentTime } from "@/hooks/useCurrentTime";
+import { useUserActivity } from "@/hooks/useMoeActivity";
+import { getBadgesByPriority } from "@/lib/constants/badges";
 import { statusLabel } from "@/lib/statusLabels";
+import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
+import { cdnImage, cn } from "@/lib/utils";
+import { useGT } from "gt-next";
+import { CalendarDays, Check, Clock, Copy, ExternalLink, MessageSquare, ShieldAlert, UserPlus } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 interface FullProfileDialogProps {
   user: ProfileCardUser;
