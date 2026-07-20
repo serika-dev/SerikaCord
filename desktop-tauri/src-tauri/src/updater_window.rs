@@ -126,17 +126,33 @@ pub fn create_updater_window(app: &AppHandle) -> tauri::Result<()> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(app, "updater", WebviewUrl::App(updater_data_url().into()))
-        .title("SerikaCord")
-        .inner_size(360.0, 220.0)
-        .resizable(false)
-        .minimizable(false)
-        .maximizable(false)
-        .decorations(false)
-        .center()
-        .always_on_top(true)
-        .visible(true)
-        .build()?;
+    let window = WebviewWindowBuilder::new(
+        app,
+        "updater",
+        WebviewUrl::App(updater_data_url().into()),
+    )
+    .title("SerikaCord")
+    .inner_size(360.0, 220.0)
+    .resizable(false)
+    .minimizable(false)
+    .maximizable(false)
+    .decorations(false)
+    .center()
+    .always_on_top(true)
+    // Keep it in the taskbar/dock and give it focus so Linux window managers
+    // (which frequently ignore `always_on_top` for a decorationless, unfocused
+    // window) actually raise it above every other app instead of hiding it.
+    .skip_taskbar(false)
+    .focused(true)
+    .visible(true)
+    .build()?;
+
+    // Belt-and-braces raise for Linux: `always_on_top` alone doesn't guarantee
+    // the splash is brought to the front on X11/Wayland — explicitly show, raise
+    // via a momentary always-on-top toggle, and grab focus.
+    let _ = window.show();
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_focus();
 
     Ok(())
 }

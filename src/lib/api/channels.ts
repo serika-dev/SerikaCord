@@ -2104,6 +2104,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         url: t.String(),
         width: t.Optional(t.Number()),
         height: t.Optional(t.Number()),
+        spoiler: t.Optional(t.Boolean()),
       }))),
       sticker: t.Optional(t.Object({
         id: t.String(),

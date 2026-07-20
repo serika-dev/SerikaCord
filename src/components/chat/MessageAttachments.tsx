@@ -1,6 +1,7 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import { useState } from "react";
+import { FileText, Eye } from "lucide-react";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { formatFileSize } from "@/lib/chat/messages";
 import { useChatGt } from "./ChatGtContext";
@@ -12,9 +13,17 @@ interface MessageAttachmentsProps {
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
 }
 
+/** Appends ?blur=25 to a CDN URL for spoilered image previews. */
+function blurUrl(url: string): string {
+  if (!url) return url;
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}blur=25`;
+}
+
 /** Renders a message's attachments: images, video/audio players, and file cards. */
 export function MessageAttachments({ attachments, messageId, onMediaClick }: MessageAttachmentsProps) {
   const gt = useChatGt();
+  const [revealedSpoilers, setRevealedSpoilers] = useState<Set<string>>(new Set());
   if (!attachments?.length) return null;
 
   const imageAttachments = attachments.filter((a) => a.contentType.startsWith("image/"));
@@ -22,6 +31,15 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
   const otherAttachments = attachments.filter(
     (a) => !a.contentType.startsWith("image/") && !a.contentType.startsWith("video/")
   );
+
+  const toggleReveal = (id: string) => {
+    setRevealedSpoilers((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   return (
     <>
@@ -39,21 +57,54 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
                     : " grid-cols-2")
           }
         >
-          {imageAttachments.map((attachment) => (
-            <img
-              key={attachment.id}
-              src={attachment.url}
-              alt={attachment.filename}
-              loading="lazy"
-              decoding="async"
-              className={
-                imageAttachments.length === 1
-                  ? "chat-media cursor-pointer hover:opacity-90 max-w-[280px] max-h-[240px] object-contain rounded-md"
-                  : "cursor-pointer hover:opacity-90 w-full h-24 object-cover rounded-md"
-              }
-              onClick={() => onMediaClick(attachment.url, attachment.filename, messageId)}
-            />
-          ))}
+          {imageAttachments.map((attachment) => {
+            const isSpoiler = attachment.spoiler && !revealedSpoilers.has(attachment.id);
+            if (isSpoiler) {
+              return (
+                <div
+                  key={attachment.id}
+                  className={
+                    imageAttachments.length === 1
+                      ? "relative mt-2 cursor-pointer inline-block group"
+                      : "relative cursor-pointer group"
+                  }
+                  onClick={() => toggleReveal(attachment.id)}
+                >
+                  <img
+                    src={blurUrl(attachment.url)}
+                    alt={attachment.filename}
+                    loading="lazy"
+                    decoding="async"
+                    className={
+                      imageAttachments.length === 1
+                        ? "chat-media max-w-[280px] max-h-[240px] object-contain rounded-md blur-[6px]"
+                        : "w-full h-24 object-cover rounded-md blur-[6px]"
+                    }
+                  />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-black/40">
+                    <Eye className="w-5 h-5 text-white/80" />
+                    <span className="text-xs font-medium text-white/80">{gt("Spoiler")}</span>
+                    <span className="text-[10px] text-white/50">{gt("Click to reveal")}</span>
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <img
+                key={attachment.id}
+                src={attachment.url}
+                alt={attachment.filename}
+                loading="lazy"
+                decoding="async"
+                className={
+                  imageAttachments.length === 1
+                    ? "chat-media cursor-pointer hover:opacity-90 max-w-[280px] max-h-[240px] object-contain rounded-md"
+                    : "cursor-pointer hover:opacity-90 w-full h-24 object-cover rounded-md"
+                }
+                onClick={() => onMediaClick(attachment.url, attachment.filename, messageId)}
+              />
+            );
+          })}
         </div>
       )}
 
