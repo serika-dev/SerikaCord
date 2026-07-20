@@ -99,6 +99,7 @@ export interface MessageBarAttachment {
 export interface MessageBarHandle {
   getAttachments: () => File[];
   clearAttachments: () => void;
+  removeLatestAttachment: () => void;
   uploadAttachments: () => Promise<MessageBarAttachment[]>;
   getComposer: () => RichComposerHandle | null;
   focus: () => void;
@@ -282,6 +283,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const [attachmentPreviews, setAttachmentPreviews] = useState<string[]>([]);
     const [isUploading, setIsUploading] = useState(false);
     const [spoilerFlags, setSpoilerFlags] = useState<Set<number>>(new Set());
+    const spoilerFlagsRef = useRef(spoilerFlags);
+    spoilerFlagsRef.current = spoilerFlags;
     /** Per-attachment upload progress (0-100), keyed by attachment index. */
     const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -578,7 +581,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           if (channelId) {
             formData.append("channelId", channelId);
           }
-          formData.append("spoiler", spoilerFlags.has(index) ? "true" : "false");
+          formData.append("spoiler", spoilerFlagsRef.current.has(index) ? "true" : "false");
 
           const xhr = new XMLHttpRequest();
           xhr.open("POST", uploadEndpoint);
@@ -637,6 +640,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     // We store it on a ref so the parent can call it
     const uploadRef = useRef(uploadAttachments);
     uploadRef.current = uploadAttachments;
+    const removeAttachmentRef = useRef(removeAttachment);
+    removeAttachmentRef.current = removeAttachment;
 
     // Override the ref to include uploadAttachments
     useImperativeHandle(ref, () => ({
@@ -648,6 +653,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         setAttachments([]);
         setAttachmentPreviews([]);
         setSpoilerFlags(new Set());
+      },
+      removeLatestAttachment: () => {
+        const count = attachments.length;
+        if (count > 0) removeAttachmentRef.current(count - 1);
       },
       getComposer: () => composerRef.current,
       focus: () => composerRef.current?.focus(),
@@ -740,31 +749,33 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       </div>
                     </div>
                   )}
-                  {!isUploading && isMedia && (
-                    <button
-                      type="button"
-                      onClick={() => toggleSpoiler(index)}
-                      className={cn(
-                        "absolute -top-1 -left-1 w-5 h-5 rounded-full flex items-center justify-center transition-opacity z-10",
-                        isSpoiler
-                          ? "bg-[#8B5CF6] opacity-100"
-                          : "bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                      )}
-                      aria-label={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
-                      title={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
-                    >
-                      {isSpoiler ? <EyeOff className="w-3 h-3 text-white" /> : <Eye className="w-3 h-3 text-white" />}
-                    </button>
-                  )}
                   {!isUploading && (
-                    <button
-                      type="button"
-                      onClick={() => removeAttachment(index)}
-                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                      aria-label={`${gt("Remove")} ${file.name}`}
-                    >
-                      <X className="w-3 h-3 text-white" />
-                    </button>
+                    <div className="absolute -top-1 -right-1 flex gap-1 z-10">
+                      {isMedia && (
+                        <button
+                          type="button"
+                          onClick={() => toggleSpoiler(index)}
+                          className={cn(
+                            "w-5 h-5 rounded-full flex items-center justify-center transition-opacity",
+                            isSpoiler
+                              ? "bg-[#8B5CF6] opacity-100"
+                              : "bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                          )}
+                          aria-label={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
+                          title={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
+                        >
+                          {isSpoiler ? <EyeOff className="w-3 h-3 text-white" /> : <Eye className="w-3 h-3 text-white" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(index)}
+                        className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                        aria-label={`${gt("Remove")} ${file.name}`}
+                      >
+                        <X className="w-3 h-3 text-white" />
+                      </button>
+                    </div>
                   )}
                 </div>
                 );

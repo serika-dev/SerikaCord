@@ -6,10 +6,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, QrCode, KeyRound } from "lucide-react";
 import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader } from "@/components/ui/Loader";
+import { QRLoginPanel } from "@/components/auth/QRLoginPanel";
 
 function LoginForm() {
   const gt = useGT();
@@ -19,6 +20,7 @@ function LoginForm() {
   const redirectTo = searchParams.get("redirect") || "/channels/me";
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [mode, setMode] = useState<"password" | "qr">("password");
   const [error, setError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
@@ -60,7 +62,43 @@ function LoginForm() {
         </p>
       </div>
 
-      {/* Form */}
+      {/* Mode toggle: password vs QR */}
+      <div className="grid grid-cols-2 gap-1 p-1 mb-6 rounded-xl bg-[#111111] border border-white/[0.06]">
+        <button
+          type="button"
+          onClick={() => setMode("password")}
+          className={`flex items-center justify-center gap-2 h-9 rounded-lg text-sm font-medium transition-colors ${
+            mode === "password"
+              ? "bg-[#8B5CF6] text-white"
+              : "text-[#888888] hover:text-white"
+          }`}
+        >
+          <KeyRound className="w-4 h-4" />
+          {gt("Password")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("qr")}
+          className={`flex items-center justify-center gap-2 h-9 rounded-lg text-sm font-medium transition-colors ${
+            mode === "qr"
+              ? "bg-[#8B5CF6] text-white"
+              : "text-[#888888] hover:text-white"
+          }`}
+        >
+          <QrCode className="w-4 h-4" />
+          {gt("QR Code")}
+        </button>
+      </div>
+
+      {mode === "qr" ? (
+        <div className="py-2">
+          <QRLoginPanel
+            redirectTo={redirectTo}
+            onApproved={(to) => router.replace(to)}
+          />
+        </div>
+      ) : (
+      /* Form */
       <form onSubmit={handleSubmit} className="space-y-5">
         {error && (
           <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
@@ -139,6 +177,7 @@ function LoginForm() {
           </Link>
         </p>
       </form>
+      )}
     </div>
   );
 }
