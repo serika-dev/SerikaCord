@@ -1,6 +1,6 @@
 {
-  "id": "a3c5b0db-0dd4-4c4d-8fbe-2ec7d1d0d003",
-  "prevId": "7b19ec2c-2f49-4464-a491-cf9c5c014fde",
+  "id": "7b3000dd-defe-467a-aaf6-019ccbfcbdd0",
+  "prevId": "a3c5b0db-0dd4-4c4d-8fbe-2ec7d1d0d003",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4439,6 +4439,25 @@
           "primaryKey": false,
           "notNull": false
         },
+        "tag_text": {
+          "name": "tag_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tag_icon": {
+          "name": "tag_icon",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tag_allow_join": {
+          "name": "tag_allow_join",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": true
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -5243,6 +5262,12 @@
         "custom_status": {
           "name": "custom_status",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "displayed_tag_server_id": {
+          "name": "displayed_tag_server_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": false
         },
