@@ -747,7 +747,7 @@ function playSingleSound(path: string, volume: number = 1, bassBoost: boolean = 
     // Web Audio API path: fetch → decode → AudioBufferSourceNode → filters → destination
     (async () => {
       try {
-        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const AudioCtx = window.AudioContext || (window as { webkitAudioContext?: typeof window.AudioContext }).webkitAudioContext;
         const ctx = new AudioCtx();
         if (ctx.state === "suspended") {
           await ctx.resume().catch(() => {});

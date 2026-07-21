@@ -51,8 +51,8 @@ export const Experiment = {
       if (value === undefined || value === null) continue;
       switch (key) {
         case 'key': conditions.push(eq(schema.experiments.key, value as string)); break;
-        case 'status': conditions.push(eq(schema.experiments.status, value as any)); break;
-        case 'type': conditions.push(eq(schema.experiments.type, value as any)); break;
+        case 'status': conditions.push(eq(schema.experiments.status, value as typeof schema.experiments.status.enumValues[number])); break;
+        case 'type': conditions.push(eq(schema.experiments.type, value as typeof schema.experiments.type.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.experiments);
@@ -68,8 +68,8 @@ export const Experiment = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
-        case 'status': conditions.push(eq(schema.experiments.status, value as any)); break;
-        case 'type': conditions.push(eq(schema.experiments.type, value as any)); break;
+        case 'status': conditions.push(eq(schema.experiments.status, value as typeof schema.experiments.status.enumValues[number])); break;
+        case 'type': conditions.push(eq(schema.experiments.type, value as typeof schema.experiments.type.enumValues[number])); break;
       }
     }
     let query = db.select().from(schema.experiments);

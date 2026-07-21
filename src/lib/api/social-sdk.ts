@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
-import { User, RichPresence, WidgetConfig, WidgetUserData, Application } from '@/lib/models';
+import { User, RichPresence, WidgetConfig, WidgetUserData, Application, type IUser, type IRichPresence } from '@/lib/models';
 import {
   getUserLibrary, getUserCategory, isValidCategory, addGame, removeGame, updateGame,
 } from '@/lib/services/gamesLibrary';
@@ -30,12 +30,12 @@ function layoutDefinitions() {
 }
 
 /** Validate + normalize an incoming array of Game Widget Objects. */
-function normalizeGameWidgets(input: unknown): { ok: true; widgets: any[] } | { ok: false; error: string } {
+function normalizeGameWidgets(input: unknown): { ok: true; widgets: Array<Record<string, unknown>> } | { ok: false; error: string } {
   const arr = Array.isArray(input) ? input : [];
   const seen = new Set<string>();
-  const widgets: any[] = [];
+  const widgets: Array<Record<string, unknown>> = [];
   for (const raw of arr) {
-    const data = (raw as any)?.data ?? {};
+    const data = ((raw as Record<string, unknown>)?.data ?? {}) as { type?: string; games?: Array<{ tags?: string[] }>; application_id?: string };
     const type = data.type as GameWidgetType;
     if (!GAME_WIDGET_TYPES.includes(type)) return { ok: false, error: `Invalid widget type: ${type}` };
     if (seen.has(type)) return { ok: false, error: `Duplicate widget type: ${type}` };
@@ -46,13 +46,13 @@ function normalizeGameWidgets(input: unknown): { ok: true; widgets: any[] } | { 
     }
     for (const g of games) {
       const tags: string[] = Array.isArray(g.tags) ? g.tags : [];
-      if (tags.some((tg) => !GAME_WIDGET_TAG_VALUES.includes(tg as any))) return { ok: false, error: 'Unknown game widget tag' };
-      if (tags.filter((tg) => GAME_WIDGET_SKILL_TAGS.includes(tg as any)).length > 1) {
+      if (tags.some((tg) => !(GAME_WIDGET_TAG_VALUES as string[]).includes(tg))) return { ok: false, error: 'Unknown game widget tag' };
+      if (tags.filter((tg) => (GAME_WIDGET_SKILL_TAGS as string[]).includes(tg)).length > 1) {
         return { ok: false, error: 'Only one skill tag is allowed per game' };
       }
     }
     widgets.push({
-      id: (raw as any)?.id ?? `${type}:${Date.now()}`,
+      id: (raw as Record<string, unknown>)?.id ?? `${type}:${Date.now()}`,
       updated_at: new Date().toISOString(),
       data: {
         type,
@@ -138,7 +138,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .get('/users/@me/relationships', async ({ headers, cookie, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const u = user as any;
+    const u = user as IUser;
     const friendIds: string[] = u.friends ?? [];
     const blockedIds: string[] = u.blockedUsers ?? [];
     const [friends, blocked] = await Promise.all([
@@ -157,10 +157,10 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .get('/users/:id/presences', async ({ headers, cookie, params, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const targetId = params.id === '@me' ? (user as any).id : params.id;
+    const targetId = params.id === '@me' ? user.id : params.id;
     const docs = await RichPresence.find({ userId: targetId });
     const now = Date.now();
-    const active = (docs as any[]).filter((d) => d.expiresAt && new Date(d.expiresAt).getTime() > now);
+    const active = (docs as IRichPresence[]).filter((d) => d.expiresAt && new Date(d.expiresAt).getTime() > now);
     return { presences: active.map(serializePresence) };
   })
 
@@ -168,7 +168,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .get('/users/:id/games', async ({ headers, cookie, params, query, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const targetId = params.id === '@me' ? (user as any).id : params.id;
+    const targetId = params.id === '@me' ? user.id : params.id;
     const category = (query as Record<string, string | undefined>).category;
     if (category) {
       if (!isValidCategory(category)) { set.status = 400; return { error: 'Invalid category' }; }
@@ -179,10 +179,12 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .post('/users/@me/games', async ({ headers, cookie, body, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const b = body as any;
-    if (!isValidCategory(b.category)) { set.status = 400; return { error: 'Invalid category' }; }
+    const b = body as { category?: string; igdbId?: number | null; steamAppId?: string | null; name: string; coverUrl?: string | null; tags?: string[]; note?: string | null };
+    const category = b.category;
+    if (!category || !isValidCategory(category)) { set.status = 400; return { error: 'Invalid category' }; }
     try {
-      return { game: await addGame((user as any).id, b.category, b) };
+      const { category: _, ...gameInput } = b;
+      return { game: await addGame(user.id, category, gameInput) };
     } catch (e) {
       const err = e as { status?: number; message?: string };
       set.status = err.status || 400;
@@ -203,7 +205,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     try {
-      return { game: await updateGame((user as any).id, params.id, body as any) };
+      return { game: await updateGame(user.id, params.id, body as Record<string, unknown>) };
     } catch (e) {
       const err = e as { status?: number; message?: string };
       set.status = err.status || 400;
@@ -220,7 +222,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     try {
-      await removeGame((user as any).id, params.id);
+      await removeGame(user.id, params.id);
       return { success: true };
     } catch (e) {
       const err = e as { status?: number; message?: string };
@@ -247,7 +249,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const app = await Application.findById(params.id);
     if (!app) { set.status = 404; return { error: 'Application not found' }; }
-    const saved = await WidgetUserData.upsert(params.id, (user as any).id, (body as any).data ?? body);
+    const saved = await WidgetUserData.upsert(params.id, user.id, (body as Record<string, unknown>).data ?? body);
     return { ok: true, updated_at: saved?.updatedAt ?? null };
   }, {
     body: t.Object({
@@ -257,7 +259,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .get('/applications/:id/users/:uid/widget-data', async ({ headers, cookie, params, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const targetId = params.uid === '@me' ? (user as any).id : params.uid;
+    const targetId = params.uid === '@me' ? user.id : params.uid;
     const row = await WidgetUserData.findOne({ applicationId: params.id, userId: targetId });
     return { data: row?.data ?? null, updated_at: row?.updatedAt ?? null };
   })
@@ -287,12 +289,12 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .put('/users/@me/widgets', async ({ headers, cookie, body, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const result = normalizeGameWidgets((body as any).widgets);
+    const result = normalizeGameWidgets((body as Record<string, unknown>).widgets);
     if (!result.ok) { set.status = 400; return { error: result.error }; }
     // Preserve existing application placements; replace game-widget entries.
-    const existing: any[] = Array.isArray((user as any).profileWidgets) ? (user as any).profileWidgets : [];
+    const existing = Array.isArray(user.profileWidgets) ? user.profileWidgets as Array<Record<string, unknown>> : [];
     const appPlacements = existing.filter((p) => p.type === 'application');
-    await User.updateById((user as any).id, { profileWidgets: [...result.widgets, ...appPlacements] });
+    await User.updateById(user.id, { profileWidgets: [...result.widgets, ...appPlacements] });
     return { widgets: result.widgets };
   }, {
     body: t.Object({ widgets: t.Array(t.Any(), { maxItems: GAME_WIDGET_TYPES.length }) }),
@@ -302,7 +304,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
   .get('/users/@me/widgets/suggested-games', async ({ headers, cookie, set }) => {
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const lib = await getUserLibrary((user as any).id) as Record<string, any[]>;
+    const lib = await getUserLibrary(user.id) as Record<string, unknown[]>;
     const idOf = (g: any) => String(g.igdbId ?? g.gameId ?? g.id ?? '');
     const suggested = [...(lib.favorite ?? []), ...(lib.liked ?? []), ...(lib.rotation ?? [])].map(idOf).filter(Boolean);
     const wishlist = (lib.wishlist ?? []).map(idOf).filter(Boolean);
@@ -314,7 +316,7 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     // Identity data is provider-issued; we currently surface widget-data owners.
-    const targetId = params.id === '@me' ? (user as any).id : params.id;
+    const targetId = params.id === '@me' ? user.id : params.id;
     const { db, schema } = await import('@/lib/db/postgres');
     const { eq } = await import('drizzle-orm');
     const rows = await db.select({ applicationId: schema.widgetUserData.applicationId })

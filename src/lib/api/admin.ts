@@ -7,6 +7,7 @@ import { AdminLog, type AdminActionType } from '@/lib/models/AdminLog';
 import { getPlatformSettings, updatePlatformSettings } from '@/lib/models/PlatformSettings';
 import { TtsSound } from '@/lib/models/TtsSound';
 import { BugReport } from '@/lib/models/BugReport';
+import type { IInstance } from '@/lib/models/Instance';
 import { checkRateLimit } from '@/lib/security';
 
 // System user ID for Serika Broadcast
@@ -1425,7 +1426,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
     const skip = (pageNum - 1) * limitNum;
 
-    const allInstances = await Instance.find({}) as any[];
+    const allInstances = await Instance.find({}) as IInstance[];
     let filtered = allInstances;
     if (instStatus) {
       filtered = allInstances.filter((i: any) => i.status === instStatus);
@@ -2145,7 +2146,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: error || 'Admin access required' };
     }
 
-    const { status: filterStatus, priority, category, page = '1', limit = '20' } = query as any;
+    const { status: filterStatus, priority, category, page = '1', limit = '20' } = query as Record<string, string>;
     const pageNum = Math.max(1, parseInt(page));
     const limitNum = Math.min(100, Math.max(1, parseInt(limit)));
     const offset = (pageNum - 1) * limitNum;
@@ -2236,7 +2237,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: 'Bug report not found' };
     }
 
-    const { priority, status: newStatus, adminNotes, assignedTo } = body as any;
+    const { priority, status: newStatus, adminNotes, assignedTo } = body as { priority?: string; status?: string; adminNotes?: string; assignedTo?: string };
 
     const updates: Record<string, unknown> = {};
     if (priority && ['low', 'medium', 'high', 'critical'].includes(priority)) {
@@ -2369,7 +2370,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       });
 
       if (changed) {
-        await BugReport.updateById(report.id, { attachments: normalized } as any);
+        await BugReport.updateById(report.id, { attachments: normalized });
         fixed++;
       }
     }

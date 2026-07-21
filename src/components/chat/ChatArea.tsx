@@ -418,7 +418,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // permission overwrites. Admin/owner bypass all overwrites.
   const canSendInCurrentChannel = useMemo(() => {
     return canSendInChannelClient(
-      currentChannel as any,
+      currentChannel,
       currentUserRoleIds,
       currentUserRolePerms,
       perms.isOwner,

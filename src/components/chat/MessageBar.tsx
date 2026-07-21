@@ -434,10 +434,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     // image natively via the Tauri clipboard-manager plugin and convert the
     // RGBA bytes to a PNG File via canvas.
     const readTauriClipboardImage = useCallback(async (): Promise<File | null> => {
-      const tauri = (window as any).__TAURI__;
+      const tauri = window.__TAURI__;
       if (!tauri?.core?.invoke) return null;
       try {
-        const img = await tauri.core.invoke('plugin:clipboard-manager|read_image');
+        const img = await tauri.core.invoke('plugin:clipboard-manager|read_image') as { rgba: string; width: number; height: number } | null;
         if (!img || !img.rgba || !img.width || !img.height) return null;
         const byteStr = atob(img.rgba);
         const bytes = new Uint8Array(byteStr.length);
@@ -479,7 +479,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       if (files.length > 0) {
         e.preventDefault();
         addFiles(files);
-      } else if ((window as any).__TAURI__) {
+      } else if (window.__TAURI__) {
         e.preventDefault();
         readTauriClipboardImage().then((file) => {
           if (file) addFiles([file]);
@@ -524,7 +524,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           e.preventDefault();
           addFiles(files);
           composerRef.current?.focus();
-        } else if ((window as any).__TAURI__) {
+        } else if (window.__TAURI__) {
           e.preventDefault();
           readTauriClipboardImage().then((file) => {
             if (file) {

@@ -104,7 +104,7 @@ export async function ensureAllBotsProvisioned() {
   const apps = await Application.find({});
   for (const app of apps) {
     if (!app.botId || !app.botToken) {
-      await ensureBotProvisioned(app as any);
+      await ensureBotProvisioned(app);
     }
   }
 }

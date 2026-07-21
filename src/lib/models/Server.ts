@@ -4,6 +4,37 @@ import { db, schema } from '../db/postgres';
 
 export type IServer = typeof schema.servers.$inferSelect;
 
+export interface IServerSettings {
+  widget?: { enabled: boolean; channelId: string | null };
+  moderation?: {
+    verificationLevel?: string;
+    explicitContentFilter?: string;
+    require2FA?: boolean;
+  };
+  safety?: {
+    raidProtection?: boolean;
+    antiSpam?: boolean;
+    mentionSpamLimit?: number;
+  };
+  integrations?: Record<string, unknown> & {
+    discord?: boolean;
+    twitch?: boolean;
+    youtube?: boolean;
+    webhooks?: boolean;
+    discordGuildId?: string;
+    discordMode?: string;
+    discordChannelsMap?: Record<string, string>;
+    discordBridgeOutbound?: boolean;
+    twitchChannel?: string;
+    twitchNotificationChannelId?: string;
+    youtubeChannel?: string;
+    youtubeNotificationChannelId?: string;
+  };
+  soundboard?: { enabled: boolean; volume: number };
+  access?: { joinMode?: string };
+  invites?: { lockToVanity?: boolean };
+}
+
 export const Server = {
   table: schema.servers,
 

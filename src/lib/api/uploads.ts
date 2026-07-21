@@ -45,7 +45,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     // Fetch the actual user document
-    const userId = (authUser as any).id || (authUser as any)._id;
+    const userId = authUser.id;
     const user = await User.findById(userId);
     if (!user) {
       set.status = 404;
@@ -122,7 +122,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     // Fetch the actual user document
-    const userId = (authUser as any).id || (authUser as any)._id;
+    const userId = authUser.id;
     const user = await User.findById(userId);
     if (!user) {
       set.status = 404;
@@ -520,7 +520,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     // Validate file type (use platform settings whitelist if configured)
     const platformSettings = await getPlatformSettings();
-    const customWhitelist = platformSettings.allowedFileTypes as any[] | undefined;
+    const customWhitelist = platformSettings.allowedFileTypes as IAllowedFileType[] | undefined;
     const fileCheck = isValidFileType(file.type, customWhitelist);
     if (!fileCheck.allowed) {
       const shouldWarn = platformSettings.warnOnUnknownFileTypes !== false;

@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
-import { User } from '@/lib/models';
+import { User, type IGifFavorite } from '@/lib/models';
 
 type GifItem = {
   id: string;
@@ -223,7 +223,7 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 401;
       return { error: error || 'Unauthorized' };
     }
-    const dbUser = await User.findById((user as any).id || (user as any)._id);
+    const dbUser = await User.findById(user.id);
     return { favorites: dbUser?.gifFavorites || [] };
   })
   .post('/favorites', async ({ headers, cookie, body, set }) => {
@@ -237,13 +237,13 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 400;
       return { error: 'GIF URL is required' };
     }
-    const userId = (user as any).id || (user as any)._id;
+    const userId = user.id;
     const dbUser = await User.findById(userId);
     if (!dbUser) {
       set.status = 404;
       return { error: 'User not found' };
     }
-    const favorites = (dbUser.gifFavorites as any[]) || [];
+    const favorites = (dbUser.gifFavorites as IGifFavorite[] | undefined) || [];
     if (!favorites.some((f: { url: string }) => f.url === url)) {
       favorites.push({ url, title: title || '', source: source || '', addedAt: Date.now() });
       const updatedFavorites = favorites.slice(-200);
@@ -270,13 +270,13 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 400;
       return { error: 'GIF URL is required' };
     }
-    const userId = (user as any).id || (user as any)._id;
+    const userId = user.id;
     const dbUser = await User.findById(userId);
     if (!dbUser) {
       set.status = 404;
       return { error: 'User not found' };
     }
-    const updatedFavorites = ((dbUser.gifFavorites as any[]) || []).filter((f: { url: string }) => f.url !== url);
+    const updatedFavorites = ((dbUser.gifFavorites as IGifFavorite[] | undefined) || []).filter((f: { url: string }) => f.url !== url);
     await User.updateById(userId, { gifFavorites: updatedFavorites });
     await invalidateUserCache(userId);
     return { favorites: updatedFavorites };
@@ -292,7 +292,7 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 401;
       return { error: error || 'Unauthorized' };
     }
-    const dbUser = await User.findById((user as any).id || (user as any)._id);
+    const dbUser = await User.findById(user.id);
     return { favorites: dbUser?.emojiFavorites || [] };
   })
   .post('/emoji-favorites', async ({ headers, cookie, body, set }) => {
@@ -306,16 +306,16 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 400;
       return { error: 'Emoji is required' };
     }
-    const userId = (user as any).id || (user as any)._id;
+    const userId = user.id;
     const dbUser = await User.findById(userId);
     if (!dbUser) {
       set.status = 404;
       return { error: 'User not found' };
     }
-    const favorites = (dbUser.emojiFavorites as any[]) || [];
+    const favorites = (dbUser.emojiFavorites as Array<{ customEmojiId?: string; emoji?: string; name?: string; url?: string | null; addedAt?: number }> | undefined) || [];
     const key = customEmojiId || emoji;
-    if (!favorites.some((f: any) => (f.customEmojiId || f.emoji) === key)) {
-      favorites.push({ emoji, name: name || '', customEmojiId: customEmojiId || null, url: url || null, addedAt: Date.now() });
+    if (!favorites.some((f: { customEmojiId?: string; emoji?: string }) => (f.customEmojiId || f.emoji) === key)) {
+      favorites.push({ emoji, name: name || '', customEmojiId: customEmojiId || undefined, url: url || null, addedAt: Date.now() });
       const updated = favorites.slice(-200);
       await User.updateById(userId, { emojiFavorites: updated });
       await invalidateUserCache(userId);
@@ -337,7 +337,7 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       return { error: error || 'Unauthorized' };
     }
     const { emoji, customEmojiId } = body as { emoji?: string; customEmojiId?: string };
-    const userId = (user as any).id || (user as any)._id;
+    const userId = user.id;
     const dbUser = await User.findById(userId);
     if (!dbUser) {
       set.status = 404;
@@ -348,7 +348,7 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
       set.status = 400;
       return { error: 'Emoji or customEmojiId is required' };
     }
-    const updated = ((dbUser.emojiFavorites as any[]) || []).filter((f: any) => (f.customEmojiId || f.emoji) !== key);
+    const updated = ((dbUser.emojiFavorites as Array<{ customEmojiId?: string; emoji?: string }> | undefined) || []).filter((f: { customEmojiId?: string; emoji?: string }) => (f.customEmojiId || f.emoji) !== key);
     await User.updateById(userId, { emojiFavorites: updated });
     await invalidateUserCache(userId);
     return { favorites: updated };

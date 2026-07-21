@@ -9,7 +9,7 @@ export function TauriUpdater() {
   const dismissedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (typeof window === "undefined" || !(window as any).__TAURI__) return;
+    if (typeof window === "undefined" || !window.__TAURI__) return;
 
     let cancelled = false;
 

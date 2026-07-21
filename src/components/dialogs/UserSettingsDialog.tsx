@@ -266,7 +266,7 @@ function ConnectionsTabContent({
         setConnectingValue("");
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error((err as any).error || gt("Failed to connect"));
+        toast.error((err as { error?: string }).error || gt("Failed to connect"));
       }
     } catch {
       toast.error(gt("Failed to connect"));
@@ -887,7 +887,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
       timezone: timezone,
       showTimezone: showTimezone,
       customStatus: customStatus,
-      status: (status as any) || "online",
+      status: (status as "online" | "idle" | "dnd" | "offline") || "online",
       badges: user?.badges || [],
       createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : new Date().toISOString(),
       isPremium: user?.isPremium || false,
@@ -1374,7 +1374,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   };
 
   const buildInfo = useMemo(() => {
-    const isTauri = typeof window !== "undefined" && !!(window as any).__TAURI__;
+    const isTauri = typeof window !== "undefined" && !!window.__TAURI__;
     const hostname = typeof window !== "undefined" ? window.location.hostname : "";
     const isCanary = hostname.includes("canary.");
     const isProd = hostname === "serika.chat" || hostname === "www.serika.chat";
@@ -3891,7 +3891,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     language: navigator.language,
                                     screenResolution: `${screen.width}x${screen.height}`,
                                     windowSize: `${window.innerWidth}x${window.innerHeight}`,
-                                    isTauri: Boolean((window as any).__TAURI__),
+                                    isTauri: Boolean(window.__TAURI__),
                                     localStorage: Object.keys(localStorage).length,
                                     timestamp: new Date().toISOString(),
                                   };
@@ -3905,8 +3905,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               </button>
                               <button
                                 onClick={() => {
-                                  if (typeof window !== "undefined" && (window as any).__TAURI__) {
-                                    const { open } = (window as any).__TAURI__?.core?.invoke ?? {};
+                                  if (typeof window !== "undefined" && window.__TAURI__) {
                                     toast.info(gt("Tauri devtools available via F12 or Ctrl+Shift+I"));
                                   } else {
                                     toast.info(gt("Browser devtools: F12 or Ctrl+Shift+I"));

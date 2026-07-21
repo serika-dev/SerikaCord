@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message, ServerMemberApplication } from '@/lib/models';
+import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { cache } from '@/lib/db';
@@ -693,13 +693,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     return {
       settings: {
-        widget: (server.settings as any)?.widget || { enabled: true, channelId: null },
+        widget: (server.settings as IServerSettings | undefined)?.widget || { enabled: true, channelId: null },
         moderation: {
-          verificationLevel: (server.settings as any)?.moderation?.verificationLevel || server.verificationLevel,
-          explicitContentFilter: (server.settings as any)?.moderation?.explicitContentFilter || server.explicitContentFilter,
-          require2FA: (server.settings as any)?.moderation?.require2FA || false,
+          verificationLevel: (server.settings as IServerSettings | undefined)?.moderation?.verificationLevel || server.verificationLevel,
+          explicitContentFilter: (server.settings as IServerSettings | undefined)?.moderation?.explicitContentFilter || server.explicitContentFilter,
+          require2FA: (server.settings as IServerSettings | undefined)?.moderation?.require2FA || false,
         },
-        safety: (server.settings as any)?.safety || { raidProtection: false, antiSpam: true, mentionSpamLimit: 5 },
+        safety: (server.settings as IServerSettings | undefined)?.safety || { raidProtection: false, antiSpam: true, mentionSpamLimit: 5 },
         integrations: {
           discord: false,
           twitch: false,
@@ -711,14 +711,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           twitchNotificationChannelId: '',
           youtubeChannel: '',
           youtubeNotificationChannelId: '',
-          ...((server.settings as any)?.integrations || {}),
+          ...((server.settings as IServerSettings | undefined)?.integrations || {}),
         },
-        soundboard: (server.settings as any)?.soundboard || {
+        soundboard: (server.settings as IServerSettings | undefined)?.soundboard || {
           enabled: true,
           volume: 100,
         },
         access: {
-          joinMode: (server.settings as any)?.access?.joinMode || server.joinMode || 'invite_only',
+          joinMode: (server.settings as IServerSettings | undefined)?.access?.joinMode || server.joinMode || 'invite_only',
         },
         isAgeGated: Boolean(server.isAgeGated),
         discoveryDescription: server.discoveryDescription || '',
@@ -754,36 +754,37 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to edit this server' };
     }
 
-    const payload = body as any;
-    const serverSettings = server.settings as any || {};
+    const payload = body as { settings?: Partial<IServerSettings> & { discoveryDescription?: string; discoveryCategories?: string[] }; isAgeGated?: boolean; [key: string]: unknown };
+    const serverSettings = server.settings as IServerSettings | undefined || {};
+    const settingsPayload = payload.settings || {};
     const nextSettings = {
       ...serverSettings,
-      ...(payload.settings || {}),
+      ...settingsPayload,
       widget: {
         ...(serverSettings.widget || {}),
-        ...(payload.settings?.widget || {}),
+        ...(settingsPayload.widget || {}),
       },
       moderation: {
         ...(serverSettings.moderation || {}),
-        ...(payload.settings?.moderation || {}),
+        ...(settingsPayload.moderation || {}),
       },
       safety: {
         ...(serverSettings.safety || {}),
-        ...(payload.settings?.safety || {}),
+        ...(settingsPayload.safety || {}),
       },
       integrations: {
         ...(serverSettings.integrations || {}),
-        ...(payload.settings?.integrations || {}),
+        ...(settingsPayload.integrations || {}),
       },
       soundboard: {
         ...(serverSettings.soundboard || {}),
-        ...(payload.settings?.soundboard || {}),
+        ...(settingsPayload.soundboard || {}),
       },
       access: {
         ...(serverSettings.access || {}),
-        ...(payload.settings?.access || {}),
+        ...(settingsPayload.access || {}),
       },
-    } as any;
+    } as IServerSettings;
 
     if (nextSettings.moderation?.verificationLevel) {
       server.verificationLevel = nextSettings.moderation.verificationLevel;
@@ -820,7 +821,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     await Server.updateById(server.id, {
-      settings: nextSettings as any,
+      settings: nextSettings,
       joinMode: server.joinMode,
       isDiscoverable: server.isDiscoverable,
       discoverableAt: server.discoverableAt,
@@ -1135,7 +1136,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // All valid: apply everything, then persist
     for (const apply of staged) apply();
     const { id: _sid, ...serverUpdates } = server;
-    await Server.updateById(server.id, serverUpdates as any);
+    await Server.updateById(server.id, serverUpdates);
     await cache.del(`server:${server.id}`);
 
     return {
@@ -1208,7 +1209,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     // Keep extended settings document in sync with legacy fields
-    const serverSettings2 = server.settings as any || {};
+    const serverSettings2 = server.settings as IServerSettings | undefined || {};
     server.settings = {
       ...serverSettings2,
       moderation: {
@@ -1236,10 +1237,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         enabled: serverSettings2.soundboard?.enabled ?? true,
         volume: serverSettings2.soundboard?.volume ?? 100,
       },
-    } as any;
+    } as IServerSettings;
 
     const { id: _updateId, ...serverFields } = server;
-    await Server.updateById(server.id, serverFields as any);
+    await Server.updateById(server.id, serverFields);
 
     // Invalidate cache
     await cache.del(`server:${server.id}`);
@@ -1654,7 +1655,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     let effective = 0n;
     for (const role of roles) {
-      effective |= BigInt((role as any).permissions || '0');
+      effective |= BigInt((role as { permissions?: string }).permissions || '0');
     }
 
     return { isOwner: false, permissions: effective.toString() };
@@ -1683,7 +1684,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // If server is locked to vanity URL, only the vanity URL can be used
     const server = await Server.findById(params.serverId);
-    if (server && (server.settings as any)?.invites?.lockToVanity && server.vanityUrlCode) {
+    if (server && (server.settings as IServerSettings | undefined)?.invites?.lockToVanity && server.vanityUrlCode) {
       set.status = 403;
       return { error: 'This server only allows invites through its custom invite link' };
     }
@@ -1781,7 +1782,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const userRoleSet = new Set(userRoleIds);
     let hasAdmin = isOwner;
     if (!hasAdmin && userRoleIds.length > 0) {
-      for (const role of allRoles as any[]) {
+      for (const role of allRoles as IRole[]) {
         if (!userRoleSet.has(role.id)) continue;
         // Warm the in-memory cache so subsequent calls in this request cycle hit.
         const permsStr = role.permissions || '0';
@@ -1851,7 +1852,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const lastMessageAtById = new Map<string, string>();
     if (lastMessageIds.length > 0) {
       const lastMsgs = await Message.find({ id: { in: lastMessageIds } });
-      for (const m of lastMsgs as any[]) {
+      for (const m of lastMsgs as IMessage[]) {
         if (m.createdAt) lastMessageAtById.set(m.id, new Date(m.createdAt).toISOString());
       }
     }
@@ -2172,7 +2173,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if ((server.settings as any)?.widget?.enabled === false) {
+    if ((server.settings as IServerSettings | undefined)?.widget?.enabled === false) {
       set.status = 403;
       return { error: 'Server widget is disabled' };
     }
@@ -2203,7 +2204,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
       .slice(0, 50);
 
-    const rawWidgetChannelId = (server.settings as any)?.widget?.channelId as string | undefined;
+    const rawWidgetChannelId = (server.settings as IServerSettings | undefined)?.widget?.channelId as string | undefined;
     // Only honour the configured widget channel if it survived the public
     // (non-nsfw, no-overwrite) filter above — never leak a gated channel.
     const textChannels = channels.filter((c: any) => c.type === 'text' || c.type === 'announcement');
@@ -2862,12 +2863,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Name and URL are required' };
     }
 
-    if (((server.soundboardSounds as any[] | undefined)?.length ?? 0) >= 500) {
+    if (((server.soundboardSounds as unknown[] | undefined)?.length ?? 0) >= 500) {
       set.status = 400;
       return { error: 'Maximum of 500 soundboard sounds reached' };
     }
 
-    const sounds = (server.soundboardSounds as any[]) || [];
+    const sounds = (server.soundboardSounds as unknown[] | undefined) || [];
     sounds.push({
       name: name.substring(0, 32),
       url,
@@ -2875,7 +2876,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       uploadedBy: user.id,
     });
 
-    await Server.updateById(server.id, { soundboardSounds: sounds as any });
+    await Server.updateById(server.id, { soundboardSounds: sounds });
 
     return {
       sound: sounds[sounds.length - 1],
@@ -2911,7 +2912,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Only the server owner can delete soundboard sounds' };
     }
 
-    const sounds = (server.soundboardSounds as any[]) || [];
+    const sounds = (server.soundboardSounds as unknown[] | undefined) || [];
     const idx = sounds.findIndex(
       (s: any) => s.id === params.soundId
     );
@@ -2921,7 +2922,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     sounds.splice(idx, 1);
-    await Server.updateById(server.id, { soundboardSounds: sounds as any });
+    await Server.updateById(server.id, { soundboardSounds: sounds });
 
     return { success: true };
   }, {
@@ -2967,7 +2968,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       code: server.vanityUrlCode ?? null,
       uses: isManager ? (server.vanityUrlUses ?? 0) : 0,
       isPartnered: Boolean(server.isPartnered),
-      lockToVanity: Boolean((server.settings as any)?.invites?.lockToVanity),
+      lockToVanity: Boolean((server.settings as IServerSettings | undefined)?.invites?.lockToVanity),
     };
   }, {
     params: t.Object({
@@ -3007,7 +3008,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // null / empty clears the vanity URL
     if (rawCode === null || rawCode === undefined || rawCode.trim() === '') {
-      await Server.updateById(server.id, { vanityUrlCode: null as any });
+      await Server.updateById(server.id, { vanityUrlCode: null });
       return { code: null, uses: server.vanityUrlUses ?? 0, lockToVanity: false };
     }
 
@@ -3037,7 +3038,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await Server.updateById(server.id, { vanityUrlCode: code, vanityUrlUses: 0 });
 
-    return { code, uses: 0, lockToVanity: Boolean((server.settings as any)?.invites?.lockToVanity) };
+    return { code, uses: 0, lockToVanity: Boolean((server.settings as IServerSettings | undefined)?.invites?.lockToVanity) };
   }, {
     params: t.Object({
       serverId: t.String(),
@@ -3076,13 +3077,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'A custom invite link is required before locking' };
     }
 
-    const currentSettings = (server.settings as any) || {};
+    const currentSettings = (server.settings as IServerSettings | undefined) || {};
     const currentInvites = currentSettings.invites || {};
     await Server.updateById(server.id, {
       settings: {
         ...currentSettings,
         invites: { ...currentInvites, lockToVanity: Boolean(body.locked) },
-      } as any,
+      } as IServerSettings,
     });
 
     return { lockToVanity: Boolean(body.locked) };
@@ -4023,7 +4024,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       // Get category counts for sidebar badges
       const allDiscoverable = await Server.find({ isDiscoverable: true });
       const categoryCounts: Record<string, number> = {};
-      for (const s of allDiscoverable as any[]) {
+      for (const s of allDiscoverable as IServer[]) {
         const cats = s.discoveryCategories || [];
         for (const c of cats) {
           categoryCounts[c] = (categoryCounts[c] || 0) + 1;
@@ -4098,11 +4099,11 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 403;
       return { error: 'Forbidden' };
     }
-    const payload = body as any;
+    const payload = body as Record<string, unknown>;
     const mode = payload.mode || 'add';
     const currentChannels = await Channel.find({ serverId: server.id });
     const botToken = process.env.SERIKA_DISCORD_TOKEN;
-    const integrations = (server.settings as any)?.integrations || {};
+    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     const guildId = integrations.discordGuildId;
     let discordChannels: Array<{ id: string; name: string; type: string; position: number; parentId: string | null; topic?: string; permissionOverwrites?: any[] }> = [];
     const discordChannelWebhookMap: Record<string, string> = {};
@@ -4115,7 +4116,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           headers: { Authorization: `Bot ${botToken}` },
         });
         if (res.ok) {
-          const channelsData = (await res.json()) as any[];
+          const channelsData = (await res.json()) as Array<{ id: string; name: string; type: number; position?: number; parent_id?: string | null; topic?: string | null; permission_overwrites?: unknown[] }>;
           const typeMap: Record<number, string> = {
             0: 'text',
             2: 'voice',
@@ -4123,8 +4124,8 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             5: 'announcement',
           };
           discordChannels = channelsData
-            .filter((c: any) => typeMap[c.type] !== undefined)
-            .map((c: any) => ({
+            .filter((c) => typeMap[c.type] !== undefined)
+            .map((c) => ({
               id: c.id,
               name: c.name,
               type: typeMap[c.type],
@@ -4150,7 +4151,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
                 }
                 let webhookUrl = '';
                 if (whRes.ok) {
-                  const webhooksList = (await whRes.json()) as any[];
+                  const webhooksList = (await whRes.json()) as Record<string, unknown>[];
                   const existingWh = webhooksList.find(w => w.name === 'SerikaBridge' && w.token);
                   if (existingWh) {
                     webhookUrl = `https://discord.com/api/webhooks/${existingWh.id}/${existingWh.token}`;
@@ -4206,7 +4207,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           headers: { Authorization: `Bot ${botToken}` },
         });
         if (rolesRes.ok) {
-          const rolesData = (await rolesRes.json()) as any[];
+          const rolesData = (await rolesRes.json()) as Array<{ id: string; name: string; color?: number; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number }>;
           const currentRoles = await Role.find({ serverId: server.id });
           const currentRoleNames = new Set(currentRoles.map(r => r.name.toLowerCase()));
           for (const dr of rolesData) {
@@ -4242,7 +4243,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             headers: { Authorization: `Bot ${botToken}` },
           });
           if (emojiRes.ok) {
-            const emojisData = (await emojiRes.json()) as any[];
+            const emojisData = (await emojiRes.json()) as Array<{ id: string; name: string; animated?: boolean; available?: boolean; managed?: boolean }>;
             const existingEmojis = await ServerEmoji.find({ serverId: server.id });
             const existingEmojiNames = new Set(existingEmojis.map(e => e.name.toLowerCase()));
             let syncedEmojis = 0;
@@ -4280,7 +4281,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             headers: { Authorization: `Bot ${botToken}` },
           });
           if (stickerRes.ok) {
-            const stickersData = (await stickerRes.json()) as any[];
+            const stickersData = (await stickerRes.json()) as Array<{ id: string; name: string; description?: string | null; tags?: string; format_type?: number }>;
             const existingStickers = await ServerSticker.find({ serverId: server.id });
             const existingStickerNames = new Set(existingStickers.map(s => s.name.toLowerCase()));
             let syncedStickers = 0;
@@ -4317,8 +4318,8 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           });
           if (soundRes.ok) {
             const rawSounds = await soundRes.json();
-            const soundsData: any[] = Array.isArray(rawSounds) ? rawSounds : (rawSounds?.soundboard_sounds ?? rawSounds?.sounds ?? []);
-            const existingSounds = (server.soundboardSounds as any[]) || [];
+            const soundsData: Array<{ name?: string; sound_id?: string; emoji_name?: string }> = Array.isArray(rawSounds) ? rawSounds : (rawSounds?.soundboard_sounds ?? rawSounds?.sounds ?? []);
+            const existingSounds = (server.soundboardSounds as Array<{ name?: string; url?: string; emoji?: string; uploadedBy?: string }> | undefined) || [];
             const existingSoundNames = new Set(existingSounds.map(s => s.name?.toLowerCase()));
             let syncedSounds = 0;
             const updatedSounds = [...existingSounds];
@@ -4333,7 +4334,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
               syncedSounds++;
             }
             if (syncedSounds > 0) {
-              await Server.updateById(server.id, { soundboardSounds: updatedSounds as any });
+              await Server.updateById(server.id, { soundboardSounds: updatedSounds });
               console.log(`[Discord Bridge] Synced ${syncedSounds} soundboard sounds from Discord`);
             }
           }
@@ -4397,7 +4398,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         const newChan = await Channel.create({
           serverId: server.id,
           name: dc.name,
-          type: dc.type as any,
+          type: dc.type as 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum' | 'public_thread' | 'private_thread' | 'dm' | 'group_dm',
           topic: dc.topic,
           position: dc.position,
           parentId,
@@ -4468,7 +4469,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           const newChan = await Channel.create({
             serverId: server.id,
             name: dc.name,
-            type: dc.type as any,
+            type: dc.type as 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum' | 'public_thread' | 'private_thread' | 'dm' | 'group_dm',
             topic: dc.topic,
             position: dc.position,
             parentId,
@@ -4489,14 +4490,14 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const nextSettings = {
-      ...(server.settings as any || {}),
+      ...(server.settings as IServerSettings | undefined || {}),
       integrations: {
-        ...(server.settings as any)?.integrations || {},
+        ...(server.settings as IServerSettings | undefined)?.integrations || {},
         discordWebhooks,
         discordChannelsMap,
       }
     };
-    await Server.updateById(server.id, { settings: nextSettings as any });
+    await Server.updateById(server.id, { settings: nextSettings });
     await cache.del(`server:${server.id}`);
 
     return {
@@ -4525,7 +4526,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 404;
       return { error: 'Server not found' };
     }
-    const payload = body as any;
+    const payload = body as { channelId?: string; [key: string]: unknown };
     const channelId = payload.channelId;
     if (!channelId) {
       set.status = 400;
@@ -4536,7 +4537,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 404;
       return { error: 'Target channel not found in this server' };
     }
-    const integrations = (server.settings as any)?.integrations || {};
+    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     let senderUsername = '';
     let senderAvatar = '';
     let notificationText = '';

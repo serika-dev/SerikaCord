@@ -33,10 +33,19 @@ interface CapacitorGlobal {
   getPlatform: () => string;
 }
 
+interface TauriCore {
+  invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+}
+
+interface TauriGlobal {
+  core: TauriCore;
+}
+
 declare global {
   interface Window {
     electron?: ElectronAPI;
     Capacitor?: CapacitorGlobal;
+    __TAURI__?: TauriGlobal;
   }
 }
 

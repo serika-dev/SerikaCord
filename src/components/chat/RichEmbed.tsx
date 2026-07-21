@@ -4,6 +4,7 @@ import { memo } from "react";
 import { ExternalLink } from "lucide-react";
 import type { MessageEmbed } from "@/lib/chat/types";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { isGifUrl } from "@/lib/chat/media";
 
 interface RichEmbedProps {
   embeds?: MessageEmbed[];
@@ -234,7 +235,18 @@ function isGifProviderEmbed(embed: MessageEmbed): boolean {
   const url = embed.url || embed.video?.url || embed.image?.url || '';
   if (GIF_PROVIDER_RE.test(url)) return true;
   const provider = embed.provider?.name || '';
-  return /tenor|giphy|klipy/i.test(provider);
+  if (/tenor|giphy|klipy/i.test(provider)) return true;
+
+  // Bare-link unfurls of a direct GIF (no title/description/fields/author) —
+  // MessageContent already renders the GIF inline, so this empty thumbnail
+  // card would just duplicate it. Skip any gif-link embed with no real body.
+  const hasBody = embed.title || embed.description || embed.author?.name ||
+    (embed.fields && embed.fields.length > 0) || embed.footer?.text;
+  if (!hasBody) {
+    const mediaUrl = embed.url || embed.thumbnail?.url || embed.image?.url || embed.video?.url || '';
+    if (isGifUrl(mediaUrl)) return true;
+  }
+  return false;
 }
 
 /** Renders bot-authored rich embeds (Discord embed format) below a message. */

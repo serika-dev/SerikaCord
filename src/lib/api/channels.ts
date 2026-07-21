@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { Channel, Message, Role, Server, ServerMember, ServerSticker, User } from '@/lib/models';
+import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings, type IUserSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage } from '@/lib/security';
@@ -363,9 +363,9 @@ async function extractMentionsFromContent(
 
   return {
     mentionEveryone,
-    mentionedUserIds: (memberRows as any[]).map((row) => row.userId),
-    mentionedRoleIds: (roleRows as any[]).map((row) => row.id),
-    mentionedChannelIds: (channelRows as any[]).map((row) => row.id),
+    mentionedUserIds: (memberRows as IServerMember[]).map((row) => row.userId),
+    mentionedRoleIds: (roleRows as IRole[]).map((row) => row.id),
+    mentionedChannelIds: (channelRows as IChannel[]).map((row) => row.id),
   };
 }
 
@@ -538,7 +538,7 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
     // Check channel permission overwrites for VIEW_CHANNEL
     const serverOwnerId = server?.ownerId ?? null;
     const canView = await canViewChannel(
-      { permissionOverwrites: (channel.permissionOverwrites || []) as any[], serverId: channel.serverId },
+      { permissionOverwrites: (channel.permissionOverwrites || []) as Array<{ id: string; type: string; allow: string; deny: string }>, serverId: channel.serverId },
       userId,
       membership,
       serverOwnerId,
@@ -599,7 +599,7 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     if (!channel || !channel.serverId) return;
     const server = await Server.findById(channel.serverId);
     if (!server) return;
-    const integrations = (server.settings as any)?.integrations || {};
+    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     if (!integrations.discord) return;
 
     // Avoid feedback loops from Discord-bridged users
@@ -615,7 +615,7 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
       const authorId = message.authorId || message.author?.id;
       if (authorId) {
         const author = await User.findById(authorId);
-        const consented = Boolean((author?.settings as any)?.dataPrivacy?.discordBridgeOutbound);
+        const consented = Boolean((author?.settings as IUserSettings | undefined)?.dataPrivacy?.discordBridgeOutbound);
         if (!consented) {
           console.log(`[Discord Bridge] Author ${authorId} has not consented to Discord processing — skipping outbound sync.`);
           return;
@@ -624,7 +624,7 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     }
 
     const guildId = integrations.discordGuildId;
-    const webhookUrl = integrations.discordWebhooks?.[channelId];
+    const webhookUrl = (integrations.discordWebhooks as Record<string, string> | undefined)?.[channelId];
 
     if (!webhookUrl) return;
 
@@ -1186,7 +1186,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           const first = threadMsgs[0];
           const rawContent = first.content || '';
           const content = rawContent ? await decryptFromStorage(rawContent) : '';
-          const reactions = (first.reactions as any[]) || [];
+          const reactions = (first.reactions as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }> | undefined) || [];
           const reactionCount = reactions.reduce((sum: number, r: { count?: number }) => sum + (r.count || 0), 0);
           firstMessageMap.set(threadIds[i], { content, reactionCount, createdAt: first.createdAt ?? new Date() });
         }
@@ -1398,7 +1398,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         serverOwnerId = server.ownerId;
         void cache.set(`server:owner:${serverId}`, server.ownerId, 3600);
       }
-      for (const m of authorMembers as any[]) {
+      for (const m of authorMembers as IServerMember[]) {
         if (m.nickname) {
           nicknameMap.set(m.userId, m.nickname);
         }
@@ -1459,7 +1459,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Transform for frontend - return array directly and map id
     // Phase 1: Decrypt all message contents in parallel
     const decryptedContents = await Promise.all(
-      (messages as any[]).map((msg) => decryptFromStorage(msg.content || ''))
+      (messages as IMessage[]).map((msg) => decryptFromStorage(msg.content || ''))
     );
 
     // Phase 2: Batch-parse custom emojis across all decrypted contents in a
@@ -1470,7 +1470,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const emojiResults = await batchParseCustomEmojis(decryptedContents);
 
     // Phase 3: Decrypt referenced message contents (batch, parallel)
-    const refDecryptEntries = (messages as any[])
+    const refDecryptEntries = (messages as IMessage[])
       .filter((msg) => msg.referencedMessageId && refMap.get(msg.referencedMessageId))
       .map((msg) => {
         const refMsg = refMap.get(msg.referencedMessageId!)!;
@@ -1483,7 +1483,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     refDecryptEntries.forEach((entry, i) => refContentMap.set(entry.refId, refDecrypted[i]));
 
     // Phase 4: Assemble final response objects (synchronous, no DB/await)
-    const decryptedMessages = (messages as any[]).map((msg, idx) => {
+    const decryptedMessages = (messages as IMessage[]).map((msg, idx) => {
       const decryptedContent = decryptedContents[idx];
       const authorData = msg.authorId ? authorMap.get(msg.authorId) : null;
       const populatedAuthor = authorData ? {
@@ -1497,7 +1497,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isSystem: authorData.isSystem,
         isBot: Boolean(authorData.isBot),
         isVerified: Boolean(authorData.isVerified),
-        isDiscord: (authorData as any).isDiscord || authorData.username?.startsWith('discord-') || false,
+        isDiscord: (authorData as { isDiscord?: boolean }).isDiscord || authorData.username?.startsWith('discord-') || false,
       } : null;
 
       const customEmojis = emojiResults[idx].emojis.map(e => ({
@@ -1580,8 +1580,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         mentionedChannelIds: msg.mentionedChannelIds || [],
         customEmojis: customEmojis.length > 0 ? customEmojis : undefined,
         sticker: msg.sticker || undefined,
-        interaction: (msg as any).interaction ?? undefined,
-        suppressEmbeds: Boolean((msg as any).suppressEmbeds),
+        interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
+        suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
       };
     });
 
@@ -1661,7 +1661,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const videoExtRegex = /\.(mp4|webm|mov|mkv|avi)(\?|$)/i;
     const results: Array<Record<string, unknown>> = [];
 
-    for (const msg of sortedCandidates as any[]) {
+    for (const msg of sortedCandidates as IMessage[]) {
       const authorData = msg.authorId ? authorMap.get(msg.authorId) : null;
 
       // from: match author id, username, or display name
@@ -1674,8 +1674,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
 
       // before/after: filter by created date
-      if (beforeDate && !(new Date(msg.createdAt) < beforeDate)) continue;
-      if (afterDate && !(new Date(msg.createdAt) > afterDate)) continue;
+      if (beforeDate && !(new Date(msg.createdAt ?? 0) < beforeDate)) continue;
+      if (afterDate && !(new Date(msg.createdAt ?? 0) > afterDate)) continue;
 
       const decrypted = await decryptFromStorage(msg.content || '');
       if (rawQuery.length >= 2 && !decrypted.toLowerCase().includes(lowered)) continue;
@@ -1751,7 +1751,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Enforce timeout (communication disabled) on server channels
     if (channel.serverId && membership) {
-      const disabledUntil = (membership as any).communicationDisabledUntil;
+      const disabledUntil = (membership as { communicationDisabledUntil?: Date | null }).communicationDisabledUntil;
       if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
         set.status = 403;
         return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
@@ -1766,7 +1766,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         const srv = await Server.findById(channel.serverId);
         return srv?.ownerId ?? null;
       })();
-      const canSend = await canSendInChannel(channel, user.id, membership as any, serverOwnerId);
+      const canSend = await canSendInChannel(channel, user.id, membership as IServerMember, serverOwnerId);
       if (!canSend) {
         set.status = 403;
         return { error: 'You do not have permission to send messages in this channel' };
@@ -1999,7 +1999,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (message.referencedMessageId) {
       const reference = await Message.findById(message.referencedMessageId);
       if (reference) {
-        let refAuthor = reference.authorId ? await User.findById(reference.authorId) : null;
+        let refAuthor: { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null = reference.authorId ? (await User.findById(reference.authorId) as { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null) : null;
         // Fall back to DiscordUser if not found in User table
         if (!refAuthor && reference.authorId) {
           const { DiscordUser } = await import('@/lib/models/DiscordUser');
@@ -2010,9 +2010,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               username: da.username || `discord-${da.discordId}`,
               displayName: da.displayName,
               avatar: da.avatar,
-              isBot: da.isBot,
+              isBot: da.isBot ?? false,
               isVerified: false,
-            } as any;
+            };
           }
         }
         const refDecrypted = reference.content ? await decryptFromStorage(reference.content) : '';
@@ -2192,11 +2192,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Batch decrypt + batch parse emojis for pinned messages
     const pinnedContents = await Promise.all(
-      (pinnedMessages as any[]).map((msg) => decryptFromStorage(msg.content || ''))
+      (pinnedMessages as IMessage[]).map((msg) => decryptFromStorage(msg.content || ''))
     );
     const pinnedEmojiResults = await batchParseCustomEmojis(pinnedContents);
 
-    const messages = (pinnedMessages as any[]).map((msg, idx) => {
+    const messages = (pinnedMessages as IMessage[]).map((msg, idx) => {
       const authorData = msg.authorId ? authorMap.get(msg.authorId) : null;
       const decryptedContent = pinnedContents[idx];
       const customEmojis = pinnedEmojiResults[idx].emojis.map(e => ({
@@ -2630,7 +2630,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const publisher = getPublisher();
     let deleted = 0;
-    for (const msg of candidates as any[]) {
+    for (const msg of candidates as IMessage[]) {
       await Message.updateById(msg.id, { isDeleted: true, deletedAt: new Date() });
       deleted++;
       publishToChannel(params.channelId, { type: 'delete', messageId: msg.id });
@@ -2901,8 +2901,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!hasAccess || !channel || !channel.serverId) return { bridged: false };
 
     const server = await Server.findById(channel.serverId);
-    const integrations = (server?.settings as any)?.integrations || {};
-    const bridged = Boolean(integrations.discord) && Boolean(integrations.discordWebhooks?.[params.channelId]);
+    const integrations = (server?.settings as IServerSettings | undefined)?.integrations || {};
+    const bridged = Boolean(integrations.discord) && Boolean((integrations.discordWebhooks as Record<string, string> | undefined)?.[params.channelId]);
     return { bridged };
   }, {
     params: t.Object({
@@ -3089,7 +3089,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       const canManage = await canManageMessagesInServer(channel.serverId, user.id, membership);
       if (!isOwner && !canManage) { set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' }; }
     }
-    const { name, avatar } = body as any;
+    const { name, avatar } = body as { name: string; avatar?: string };
     if (!name || typeof name !== 'string') { set.status = 400; return { error: 'Name is required' }; }
     const { ChannelWebhook } = await import('@/lib/models');
     const token = randomUUID().replace(/-/g, '');

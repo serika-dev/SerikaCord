@@ -22,6 +22,7 @@ import {
   accountsForgotPassword,
   accountsResetPassword,
   accountsInternalGetUser,
+  type AccountsUser,
 } from '../services/accountsClient';
 
 interface SavedAccountEntry {
@@ -114,16 +115,16 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ client_id: _clientId, client_secret: clientSecret, code, redirect_uri: redirectUri }),
       });
-      const data = await resp.json() as any;
-      return { access_token: data.access_token, refreshToken: data.refresh_token };
+      const data = await resp.json() as { access_token?: string; refresh_token?: string };
+      return { access_token: data.access_token || '', refreshToken: data.refresh_token };
     },
     fetchUser: async (accessToken) => {
       const resp = await fetch('https://api.github.com/user', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const data = await resp.json() as any;
+      const data = await resp.json() as { id?: number; login?: string; name?: string; avatar_url?: string };
       return {
-        accountId: String(data.id),
+        accountId: String(data.id || ''),
         username: data.login,
         displayName: data.name || data.login,
         avatar: data.avatar_url,
@@ -149,16 +150,16 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
           client_secret: clientSecret,
         }),
       });
-      const data = await resp.json() as any;
-      return { access_token: data.access_token, refreshToken: data.refresh_token };
+      const data = await resp.json() as { access_token?: string; refresh_token?: string };
+      return { access_token: data.access_token || '', refreshToken: data.refresh_token };
     },
     fetchUser: async (accessToken) => {
       const resp = await fetch('https://api.spotify.com/v1/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const data = await resp.json() as any;
+      const data = await resp.json() as { id?: string; display_name?: string; email?: string; images?: Array<{ url?: string }> };
       return {
-        accountId: data.id,
+        accountId: data.id || '',
         username: data.id,
         displayName: data.display_name || data.id,
         avatar: data.images?.[0]?.url,
@@ -184,18 +185,18 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
           redirect_uri: redirectUri,
         }),
       });
-      const data = await resp.json() as any;
-      return { access_token: data.access_token, refreshToken: data.refresh_token };
+      const data = await resp.json() as { access_token?: string; refresh_token?: string };
+      return { access_token: data.access_token || '', refreshToken: data.refresh_token };
     },
     fetchUser: async (accessToken) => {
       const resp = await fetch('https://api.twitch.tv/helix/users', {
         headers: { Authorization: `Bearer ${accessToken}`, 'Client-Id': process.env.TWITCH_CLIENT_ID || '' },
       });
-      const data = await resp.json() as any;
+      const data = await resp.json() as { data?: Array<{ id?: string; login?: string; display_name?: string; profile_image_url?: string }> };
       const u = data.data?.[0];
       if (!u) return { accountId: '' };
       return {
-        accountId: u.id,
+        accountId: u.id || '',
         username: u.login,
         displayName: u.display_name || u.login,
         avatar: u.profile_image_url,
@@ -217,7 +218,7 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     fetchUser: async (steamId: string) => {
       const apiKey = process.env.STEAM_API_KEY || '';
       const resp = await fetch(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${apiKey}&steamids=${steamId}`);
-      const data = await resp.json() as any;
+      const data = await resp.json() as { response?: { players?: Array<{ personaname?: string; avatarfull?: string }> } };
       const p = data.response?.players?.[0];
       if (!p) return { accountId: steamId };
       return {
@@ -247,19 +248,19 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
           redirect_uri: redirectUri,
         }),
       });
-      const data = await resp.json() as any;
-      return { access_token: data.access_token, refreshToken: data.refresh_token };
+      const data = await resp.json() as { access_token?: string; refresh_token?: string };
+      return { access_token: data.access_token || '', refreshToken: data.refresh_token };
     },
     fetchUser: async (accessToken) => {
       const resp = await fetch('https://discord.com/api/users/@me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      const data = await resp.json() as any;
+      const data = await resp.json() as { id?: string; username?: string; avatar?: string; discriminator?: string; global_name?: string };
       const avatar = data.avatar
         ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith('a_') ? 'gif' : 'png'}`
         : `https://cdn.discordapp.com/embed/avatars/${parseInt(data.discriminator || '0') % 5}.png`;
       return {
-        accountId: data.id,
+        accountId: data.id || '',
         username: data.username,
         displayName: data.global_name || data.username,
         avatar,
@@ -368,7 +369,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           // Fetch full accounts profile if login response is missing serikaMoe/discord fields.
           // The accounts /internal/get-user endpoint already returns serikaMoeUsername/serikaMoeId
           // and (after redeployment) discordId/discordUsername.
-          let accountsUser = data.user as any;
+          let accountsUser = data.user as AccountsUser & Record<string, unknown>;
           if (!accountsUser?.serikaMoeUsername || !accountsUser?.discordId) {
             try {
               const lookupKey = accountsUser?.id || email || '';
@@ -432,11 +433,11 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
                     headers: { Authorization: `Bot ${botToken}` },
                   });
                   if (dUser.ok) {
-                    const dData = await dUser.json() as any;
+                    const dData = await dUser.json() as { username?: string; global_name?: string; avatar?: string };
                     // Use the actual Discord username (not global_name) for the connection username
                     if (dData.username) discordUsername = dData.username;
                     // Use global_name (display name) if available, otherwise the username
-                    discordDisplayName = dData.global_name || dData.username || discordUsername;
+                    discordDisplayName = dData.global_name || dData.username || discordUsername || '';
                     if (dData.avatar) {
                       const ext = dData.avatar.startsWith('a_') ? 'gif' : 'png';
                       discordAvatar = `https://cdn.discordapp.com/avatars/${discordId}/${dData.avatar}.${ext}?size=64`;
@@ -472,7 +473,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
       // Set cookies from accounts response (accounts returns token/refreshToken directly)
       if (data.token) {
-        (set.headers as any)['Set-Cookie'] = [
+        (set.headers as Record<string, string | string[]>)['Set-Cookie'] = [
           `auth_token=${data.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
           `refresh_token=${data.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
           encodeSavedAccountsCookie(savedAccounts),
@@ -541,7 +542,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       // Hand the freshly-minted session to this device, then burn the token so
       // it can never be replayed.
       await cache.del(`qrlogin:${params.token}`);
-      (set.headers as any)['Set-Cookie'] = [
+      (set.headers as Record<string, string | string[]>)['Set-Cookie'] = [
         `auth_token=${entry.tokens.accessToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
         `refresh_token=${entry.tokens.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
       ];
@@ -698,7 +699,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }
 
     // Set the new auth_token cookie and update saved_accounts
-    (set.headers as any)['Set-Cookie'] = [
+    (set.headers as Record<string, string | string[]>)['Set-Cookie'] = [
       `auth_token=${targetAccount.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
       targetAccount.refreshToken
         ? `refresh_token=${targetAccount.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`
@@ -905,7 +906,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
     if (discordError || !code) {
       // Check if this was a connection attempt
-      const state = (cookie as any).oauth2_state?.value as string | undefined;
+      const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
       if (state && state.startsWith('discord:')) {
         return oauthRedirect(`${redirectBase}&error=discord_denied`, 'oauth2_state=; Path=/; Max-Age=0');
       }
@@ -957,7 +958,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       };
 
       // ── Check if this is a CONNECTION request (via oauth2_state cookie) ──
-      const state = (cookie as any).oauth2_state?.value as string | undefined;
+      const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
       if (state && state.startsWith('discord:')) {
         const userId = state.split(':')[1];
         const avatar = discordUser.avatar
@@ -1115,7 +1116,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     // ── Last.fm callback ─────────────────────────────────────────────────────
     if (provider === 'lastfm') {
       const { token } = query as { token?: string };
-      const userId = (cookie as any).lastfm_state?.value;
+      const userId = (cookie as Record<string, { value?: string }>).lastfm_state?.value;
 
       if (!token) {
         return oauthRedirect(`${redirectBase}&error=lastfm_denied`);
@@ -1151,7 +1152,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         url.searchParams.set('format', 'json');
 
         const resp = await fetch(url.toString());
-        const data = await resp.json() as any;
+        const data = await resp.json() as { error?: string; session?: { name: string; key: string } };
 
         if (data.error || !data.session) {
           return oauthRedirect(`${redirectBase}&error=lastfm_session_failed`);
@@ -1166,8 +1167,8 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         infoUrl.searchParams.set('api_key', apiKey);
         infoUrl.searchParams.set('format', 'json');
         const infoResp = await fetch(infoUrl.toString());
-        const infoData = await infoResp.json() as any;
-        const avatar: string | undefined = infoData.user?.image?.find((img: any) => img.size === 'large')?.['#text'] || undefined;
+        const infoData = await infoResp.json() as { user?: { image?: Array<{ size?: string; '#text'?: string }> } };
+        const avatar: string | undefined = infoData.user?.image?.find((img) => img.size === 'large')?.['#text'] || undefined;
 
         const existingConn = await UserConnection.findOne({ userId, provider: 'lastfm' });
         if (existingConn) {
@@ -1201,7 +1202,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
     // Steam uses OpenID — extract SteamID from openid.identity
     if (provider === 'steam') {
-      const state = (cookie as any).oauth2_state?.value as string | undefined;
+      const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
       if (!state || !state.startsWith('steam:')) {
         return oauthRedirect(`${redirectBase}&error=steam_state_missing`);
       }
@@ -1210,7 +1211,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       if (!prov.clientId) {
         return oauthRedirect(`${redirectBase}&error=steam_not_configured`);
       }
-      const openidIdentity = (query as any)['openid.identity'] as string | undefined;
+      const openidIdentity = (query as Record<string, string>)['openid.identity'] as string | undefined;
       if (!openidIdentity) {
         return oauthRedirect(`${redirectBase}&error=steam_denied`);
       }
@@ -1248,8 +1249,8 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       }
     }
 
-    const code = (query as any).code as string | undefined;
-    const state = (cookie as any).oauth2_state?.value as string | undefined;
+    const code = (query as Record<string, string>).code as string | undefined;
+    const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
 
     if (!code) {
       return oauthRedirect(`${redirectBase}&error=${provider}_denied`);

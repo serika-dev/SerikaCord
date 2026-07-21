@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import type { IServerSettings } from '@/lib/models';
 
 const BOT_ID = process.env.SERIKA_DISCORD_ID || '1524469730256355421';
 const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://serika.chat').replace(/\/$/, '');
@@ -137,7 +138,7 @@ async function findBridgedChannel(guildId: string, discordChannelId: string): Pr
   const { Server } = await import('@/lib/models');
   const servers = await Server.find({});
   for (const server of servers) {
-    const integrations = (server.settings as any)?.integrations || {};
+    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     if (!integrations.discord || integrations.discordGuildId !== guildId) continue;
     const channelsMap = integrations.discordChannelsMap || {};
     const serikaChannelId = channelsMap[discordChannelId];
@@ -454,7 +455,7 @@ async function applyRestrictionTimeouts(discordId: string, opts?: { specificGuil
   const servers = await Server.find({});
   const targetGuilds: string[] = [];
   for (const server of servers) {
-    const integrations = (server.settings as any)?.integrations || {};
+    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     if (!integrations.discord || !integrations.discordGuildId) continue;
     if (!integrations.discordRestrictUnconsented) continue;
     if (opts?.specificGuildId && integrations.discordGuildId !== opts.specificGuildId) continue;

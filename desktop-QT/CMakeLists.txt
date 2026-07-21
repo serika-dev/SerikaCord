@@ -16,10 +16,14 @@ find_package(Qt6 REQUIRED COMPONENTS
     WebChannel
 )
 
+# OpenSSL provides Ed25519 + BLAKE2b for verifying minisign update signatures.
+find_package(OpenSSL REQUIRED)
+
 # ── Sources ──────────────────────────────────────────────────────────────────
 set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
+    src/Updater.cpp
     src/TrayIcon.cpp
     src/SingleInstance.cpp
     src/UpdaterWindow.cpp
@@ -30,6 +34,7 @@ set(SOURCES
 
 set(HEADERS
     src/MainWindow.h
+    src/Updater.h
     src/SerikaWebPage.h
     src/TrayIcon.h
     src/SingleInstance.h
@@ -56,6 +61,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::WebEngineCore
     Qt6::Network
     Qt6::WebChannel
+    OpenSSL::Crypto
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE src)

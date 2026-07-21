@@ -221,7 +221,7 @@ export function ChannelSettingsDialog({
         forumMode,
         ticketAccessRoleIds: ticketRoleIds,
         availableTags: forumTags.map((t) => ({ id: t.id, name: t.name })),
-      } as any);
+      });
       toast.success(gt("Forum settings saved"));
       setForumChanges(false);
     } catch (err) {
@@ -507,7 +507,7 @@ export function ChannelSettingsDialog({
     if (!channel || !hasPermChanges) return;
     setIsSaving(true);
     try {
-      await updateChannel(channel.id, { permissionOverwrites: overwrites } as any);
+      await updateChannel(channel.id, { permissionOverwrites: overwrites });
       toast.success(gt("Channel permissions saved"));
       setHasPermChanges(false);
     } catch (err) {
@@ -536,7 +536,7 @@ export function ChannelSettingsDialog({
       if (parentId !== (channel.parentId || null)) updates.parentId = parentId;
       if (slowmode !== (channel.rateLimitPerUser || 0)) updates.rateLimitPerUser = slowmode;
 
-      await updateChannel(channel.id, updates as any);
+      await updateChannel(channel.id, updates);
       toast.success(gt("Channel settings saved"));
       setHasChanges(false);
     } catch (err) {
