@@ -7,7 +7,7 @@ SerikaCord is under active development. **Only the latest version** receives sec
 | Version | Supported          |
 | ------- | ------------------ |
 | Latest  | :white_check_mark: |
-| < 1.2.7 | :x:                |
+| < 2.0.0 | :x:                |
 
 If you are running an older version, upgrade to the latest release before reporting a vulnerability.
 

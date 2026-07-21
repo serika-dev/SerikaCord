@@ -3,7 +3,7 @@
 Fully native desktop app for SerikaCord, built with [Qt6](https://www.qt.io/)
 and [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html). This is a
 complete alternative to the Tauri app in `../desktop-tauri`, with **full feature
-parity**. The Tauri app is **not** deprecated.
+parity**. This is now the **default** desktop client — the Tauri app is deprecated.
 
 ## Why Qt?
 

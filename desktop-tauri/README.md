@@ -1,4 +1,8 @@
-# SerikaCord Desktop (Tauri)
+# SerikaCord Desktop (Tauri) — DEPRECATED
+
+> **⚠️ DEPRECATED:** This Tauri build is no longer maintained. The Qt-based
+> desktop client in [`../desktop-QT`](../desktop-QT) is now the default and
+> actively developed. Use that for all desktop builds going forward.
 
 Native desktop app for SerikaCord, replacing the previous Electron wrapper in
 `../desktop`. Built with [Tauri v2](https://v2.tauri.app) — it uses the OS

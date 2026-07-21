@@ -69,7 +69,7 @@ int main(int argc, char *argv[]) {
 
     QApplication app(argc, argv);
     app.setApplicationName("SerikaCord");
-    app.setApplicationVersion("1.2.7");
+    app.setApplicationVersion("2.0.0");
     app.setOrganizationName("SerikaCord");
     app.setQuitOnLastWindowClosed(false); // keep running in tray
 
