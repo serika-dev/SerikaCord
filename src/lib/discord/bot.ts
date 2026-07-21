@@ -271,13 +271,13 @@ async function openDMChannel(discordUserId: string): Promise<string | null> {
  * Includes Agree / Decline buttons handled via the INTERACTION_CREATE gateway
  * event. Rate-limited to once per 24h per user via `lastConsentDmAt`.
  */
-async function sendConsentDM(discordUser: { discordId: string; lastConsentDmAt?: Date | null }, serverName: string): Promise<void> {
+async function sendConsentDM(discordUser: { discordId: string; lastConsentDmAt?: Date | null }, serverName: string): Promise<boolean> {
   const last = discordUser.lastConsentDmAt ? new Date(discordUser.lastConsentDmAt).getTime() : 0;
-  if (Date.now() - last < 24 * 60 * 60 * 1000) return; // already asked recently
+  if (Date.now() - last < 24 * 60 * 60 * 1000) return false; // already asked recently
 
   const { DiscordUser } = await import('@/lib/models/DiscordUser');
   const channelId = await openDMChannel(discordUser.discordId);
-  if (!channelId) return;
+  if (!channelId) return false;
 
   try {
     await fetch(`${DISCORD_API}/channels/${channelId}/messages`, {
@@ -305,8 +305,10 @@ async function sendConsentDM(discordUser: { discordId: string; lastConsentDmAt?:
       }),
     });
     await DiscordUser.upsertByDiscordId(discordUser.discordId, { lastConsentDmAt: new Date() });
+    return true;
   } catch (err) {
     console.error('[Discord Consent] Failed to send consent DM:', err);
+    return false;
   }
 }
 
@@ -408,7 +410,7 @@ async function registerSlashCommands(appId: string): Promise<void> {
  * Never syncs their message. DMs a consent request (rate-limited), and — if the
  * server opted into restriction — applies a 1-week timeout, re-applied weekly.
  */
-async function handleUnconsentedMessage(server: any, discordUser: { discordId: string; consentStatus: ConsentStatus }): Promise<void> {
+async function handleUnconsentedMessage(server: any, discordUser: { discordId: string; consentStatus: ConsentStatus }, discordChannelId?: string): Promise<void> {
   const integrations = server.settings?.integrations || {};
   const guildId: string | undefined = integrations.discordGuildId;
 
@@ -417,8 +419,37 @@ async function handleUnconsentedMessage(server: any, discordUser: { discordId: s
 
   // A prior explicit "Decline" is respected; we don't re-DM decliners, but the
   // server may still choose to restrict them below.
+  let dmSent = false;
   if (row?.consentStatus !== 'denied') {
-    await sendConsentDM({ discordId: discordUser.discordId, lastConsentDmAt: row?.lastConsentDmAt }, server.name || 'this server');
+    dmSent = await sendConsentDM({ discordId: discordUser.discordId, lastConsentDmAt: row?.lastConsentDmAt }, server.name || 'this server');
+  }
+
+  // Post a brief notice in the bridged channel and auto-delete it after 1 min.
+  if (discordChannelId) {
+    try {
+      const noticeRes = await fetch(`${DISCORD_API}/channels/${discordChannelId}/messages`, {
+        method: 'POST',
+        headers: botHeaders(),
+        body: JSON.stringify({
+          content: `<@${discordUser.discordId}>, ${dmSent ? "I've sent you a DM with instructions to opt in. Please check your DMs!" : "Please opt in using `/opt-in` to chat in bridged channels."}`,
+        }),
+      });
+      if (noticeRes.ok) {
+        const noticeMsg = await noticeRes.json().catch(() => null);
+        if (noticeMsg?.id) {
+          setTimeout(async () => {
+            try {
+              await fetch(`${DISCORD_API}/channels/${discordChannelId}/messages/${noticeMsg.id}`, {
+                method: 'DELETE',
+                headers: botHeaders(),
+              });
+            } catch { /* best-effort */ }
+          }, 60_000);
+        }
+      }
+    } catch (err) {
+      console.error('[Discord Consent] Failed to post channel notice:', err);
+    }
   }
 
   if (integrations.discordRestrictUnconsented && guildId) {
@@ -649,6 +680,12 @@ export async function startDiscordBot() {
                   avatar: author ? getAvatarUrl(author) : undefined,
                 });
                 await liftAllRestrictions(discordId);
+                // If /opt-in was used inside a guild, also clear the timeout
+                // in that guild directly (covers edge cases where the guild
+                // wasn't recorded in restrictedGuildIds).
+                if (d.guild_id) {
+                  await setGuildTimeout(d.guild_id, discordId, null);
+                }
               } catch (err) {
                 console.error('[Discord Consent] /opt-in failed:', err);
               }
@@ -780,7 +817,7 @@ export async function startDiscordBot() {
             // optionally restrict them) instead.
             if (serikaUser.consentStatus !== 'granted') {
               console.log(`[Discord Consent] Skipping message from unconsented user ${d.author.username} (${d.author.id}).`);
-              await handleUnconsentedMessage(server, { discordId: serikaUser.discordId, consentStatus: serikaUser.consentStatus });
+              await handleUnconsentedMessage(server, { discordId: serikaUser.discordId, consentStatus: serikaUser.consentStatus }, d.channel_id);
               return;
             }
 
