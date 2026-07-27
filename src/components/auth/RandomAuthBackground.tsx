@@ -8,13 +8,16 @@ import { Brush } from "lucide-react";
  * serika.art via the SerikaCord `/api/auth/random-bg` proxy (which forwards to
  * accounts.serika.dev so the art API key never leaves that service).
  *
- * Mirrors the accounts.serika.dev prefetch pipeline: on load it instantly shows
- * the image prefetched into localStorage last time, then quietly fetches the
- * NEXT one and warms the browser cache so the following visit is instant.
+ * Fast-loading strategy:
+ *   • A tiny blurred placeholder (~a few KB) is shown almost instantly, then the
+ *     full-resolution image fades in over it — no black flash on cold loads.
+ *   • The NEXT image is prefetched into the browser cache at the EXACT size this
+ *     viewport will request, and its raw URL is stored in localStorage. On the
+ *     next visit we recompute the same URL, so it's a cache hit → instant.
  */
 
 interface BgPost {
-  url: string;
+  rawUrl: string;
   artist: string;
   id?: number | string;
   origW?: number;
@@ -22,6 +25,10 @@ interface BgPost {
 }
 
 const STORAGE_KEY = "next_serika_bg_post";
+
+function buildUrl(rawUrl: string, params: string): string {
+  return rawUrl + (rawUrl.includes("?") ? "&" : "?") + params;
+}
 
 function getWsrvParams(origW?: number, origH?: number): string {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -43,6 +50,9 @@ function getWsrvParams(origW?: number, origH?: number): string {
   }
   return `output=webp&w=${w}&h=${h}&fit=cover&a=${align}`;
 }
+
+// Tiny, heavily-compressed placeholder for an instant blur-up.
+const PLACEHOLDER_PARAMS = "output=webp&w=48&q=30&fit=cover&a=entropy";
 
 function isAspectMismatch(origW?: number, origH?: number): boolean {
   if (!origW || !origH) return false;
@@ -67,8 +77,9 @@ interface RandomBg {
 }
 
 export function RandomAuthBackground() {
-  const [src, setSrc] = useState("");
-  const [loaded, setLoaded] = useState(false);
+  const [placeholderSrc, setPlaceholderSrc] = useState("");
+  const [fullSrc, setFullSrc] = useState("");
+  const [fullLoaded, setFullLoaded] = useState(false);
   const [mismatch, setMismatch] = useState(false);
   const [artist, setArtist] = useState("");
   const [postId, setPostId] = useState<number | string | undefined>();
@@ -77,13 +88,34 @@ export function RandomAuthBackground() {
   useEffect(() => {
     let cancelled = false;
 
+    // Warm the TLS connection to the image origin so the full download starts
+    // without a fresh DNS/TLS handshake on cold loads.
+    const preconnect = (url: string) => {
+      try {
+        const origin = new URL(url).origin;
+        if (document.querySelector(`link[data-bg-preconnect="${origin}"]`)) return;
+        const link = document.createElement("link");
+        link.rel = "preconnect";
+        link.href = origin;
+        link.crossOrigin = "anonymous";
+        link.dataset.bgPreconnect = origin;
+        document.head.appendChild(link);
+      } catch {
+        /* ignore */
+      }
+    };
+
     const apply = (post: BgPost) => {
       if (cancelled) return;
       dims.current = { w: post.origW, h: post.origH };
+      preconnect(post.rawUrl);
       setMismatch(isAspectMismatch(post.origW, post.origH));
       setArtist(post.artist);
       setPostId(post.id);
-      setSrc(post.url);
+      setFullLoaded(false);
+      // Show the placeholder immediately, then let the full image fade in.
+      setPlaceholderSrc(buildUrl(post.rawUrl, PLACEHOLDER_PARAMS));
+      setFullSrc(buildUrl(post.rawUrl, getWsrvParams(post.origW, post.origH)));
     };
 
     const toPost = (res: RandomBg | null): BgPost | null => {
@@ -91,12 +123,12 @@ export function RandomAuthBackground() {
       const d = res.data;
       const artistTag = d.tags?.find((t) => t.type === "artist");
       const name = artistTag ? artistTag.name : d.user?.username || "Unknown Artist";
-      const wsrv = getWsrvParams(d.width, d.height);
-      const url = d.url + (d.url.includes("?") ? "&" : "?") + wsrv;
-      return { url, artist: name, id: d.post_id, origW: d.width, origH: d.height };
+      return { rawUrl: d.url, artist: name, id: d.post_id, origW: d.width, origH: d.height };
     };
 
-    // Prefetch the NEXT background and warm the browser cache.
+    // Prefetch the NEXT background: store its raw URL and warm the browser cache
+    // with BOTH the placeholder and the exact full-size URL this viewport uses,
+    // so the next visit is a pure cache hit.
     const prefetchNext = async () => {
       try {
         const res = (await fetch("/api/auth/random-bg").then((r) =>
@@ -104,39 +136,23 @@ export function RandomAuthBackground() {
         )) as RandomBg | null;
         const post = toPost(res);
         if (!post) return;
-        // Store a wide, generic variant; dimensions get corrected on next load.
-        const wide =
-          res!.data!.url! +
-          (res!.data!.url!.includes("?") ? "&" : "?") +
-          "output=webp&w=1200&fit=cover&a=attention";
-        localStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ ...post, url: wide })
-        );
-        new Image().src = wide;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(post));
+        new Image().src = buildUrl(post.rawUrl, PLACEHOLDER_PARAMS);
+        new Image().src = buildUrl(post.rawUrl, getWsrvParams(post.origW, post.origH));
       } catch {
         /* best-effort */
       }
     };
 
     const run = async () => {
-      // 1. Instantly show whatever we prefetched last time.
+      // 1. Instantly show whatever we prefetched last time (cache-warmed).
       let stored: BgPost | null = null;
       try {
         stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       } catch {
         stored = null;
       }
-      if (stored?.url) {
-        // Re-derive sizing for this viewport.
-        try {
-          const u = new URL(stored.url);
-          const params = new URLSearchParams(getWsrvParams(stored.origW, stored.origH));
-          params.forEach((v, k) => u.searchParams.set(k, v));
-          stored.url = u.toString();
-        } catch {
-          /* keep as-is */
-        }
+      if (stored?.rawUrl) {
         apply(stored);
         prefetchNext();
         return;
@@ -175,43 +191,50 @@ export function RandomAuthBackground() {
   }, []);
 
   return (
-    <div
-      className="overflow-hidden bg-black max-md:pointer-events-none max-md:fixed max-md:inset-0 max-md:z-0 md:relative md:flex-1"
-      style={
-        loaded
-          ? { backgroundImage: `url("${src}")`, backgroundSize: "cover", backgroundPosition: "center" }
-          : undefined
-      }
-    >
-      {/* Blurred glow layer behind the image, matches accounts. */}
-      {src && (
+    <div className="overflow-hidden bg-black max-md:pointer-events-none max-md:fixed max-md:inset-0 max-md:z-0 md:relative md:flex-1">
+      {/* Blurred glow layer behind the image (uses the cheap placeholder). */}
+      {placeholderSrc && (
         <div
-          className="absolute -inset-5 z-[1] transition-opacity duration-1000"
+          className="absolute -inset-5 z-[1]"
           style={{
-            backgroundImage: `url("${src}")`,
+            backgroundImage: `url("${placeholderSrc}")`,
             backgroundSize: "cover",
             backgroundPosition: "center",
             filter: "blur(40px) brightness(0.45)",
-            opacity: loaded ? 1 : 0,
           }}
         />
       )}
-      {src && (
+
+      {/* Instant blurred placeholder. */}
+      {placeholderSrc && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          src={placeholderSrc}
           alt=""
-          onLoad={() => setLoaded(true)}
-          className={`absolute inset-0 z-[2] h-full w-full transition-opacity duration-1000 ${
+          aria-hidden
+          className={`absolute inset-0 z-[2] h-full w-full scale-110 object-cover blur-xl ${
+            mismatch ? "opacity-60" : ""
+          }`}
+        />
+      )}
+
+      {/* Full-resolution image, fades in on load. */}
+      {fullSrc && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={fullSrc}
+          alt=""
+          onLoad={() => setFullLoaded(true)}
+          className={`absolute inset-0 z-[3] h-full w-full transition-opacity duration-700 ${
             mismatch ? "object-contain" : "object-cover"
           }`}
-          style={{ opacity: loaded ? 1 : 0 }}
+          style={{ opacity: fullLoaded ? 1 : 0 }}
         />
       )}
 
       {/* Artist attribution chip */}
-      {loaded && artist && (
-        <div className="z-[3] inline-flex items-center gap-2 rounded-full border border-white/[0.12] bg-[#121215]/75 px-4 py-[0.45rem] text-sm font-semibold text-white shadow-[0_8px_20px_rgba(0,0,0,0.4)] backdrop-blur-md max-md:fixed max-md:top-4 max-md:left-1/2 max-md:z-20 max-md:-translate-x-1/2 max-md:whitespace-nowrap max-md:px-[0.85rem] max-md:py-[0.35rem] max-md:text-xs md:absolute md:bottom-5 md:left-6">
+      {fullLoaded && artist && (
+        <div className="z-[4] inline-flex items-center gap-2 rounded-full border border-white/[0.12] bg-[#121215]/75 px-4 py-[0.45rem] text-sm font-semibold text-white shadow-[0_8px_20px_rgba(0,0,0,0.4)] backdrop-blur-md max-md:fixed max-md:top-4 max-md:left-1/2 max-md:z-20 max-md:-translate-x-1/2 max-md:whitespace-nowrap max-md:px-[0.85rem] max-md:py-[0.35rem] max-md:text-xs md:absolute md:bottom-5 md:left-6">
           {postId ? (
             <a
               href={`https://serika.art/image/${postId}`}
