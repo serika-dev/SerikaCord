@@ -18,6 +18,20 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const { user, isLoading: authLoading, login } = useAuth();
   const redirectTo = searchParams.get("redirect") || "/channels/me";
+  // QR login is the default on desktop (scan with your phone). On mobile there's
+  // no second device to scan with, so we go straight to the password form and
+  // don't offer QR at all.
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [usePassword, setUsePassword] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  // On mobile, force the password form; QR is desktop-only.
+  const showQr = isDesktop && !usePassword;
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -50,121 +64,143 @@ function LoginForm() {
   };
 
   return (
-    <div className="bg-[#0a0a0a]/90 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-8 shadow-2xl shadow-black/60">
-      <div className="flex flex-col md:flex-row md:items-stretch gap-8">
-        {/* ── Left column: password login ─────────────────────────────── */}
-        <div className="flex-1 min-w-0">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-semibold text-white mb-2">
-              <T>Welcome back</T>
-            </h1>
-            <p className="text-[#888888] text-sm">
-              <T>Sign in to your account to continue</T>
-            </p>
-          </div>
+    <div>
+      {/* Header */}
+      <div className="text-center mb-8">
+        <h1 className="text-[1.6rem] font-bold tracking-[-0.02em] text-white mb-1">
+          <T>Welcome back</T>
+        </h1>
+        <p className="text-[#a1a1aa] text-sm">
+          <T>Sign in to your Serika account</T>
+        </p>
+      </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-        {error && (
-          <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
-            {error}
-          </div>
-        )}
-        
-        {/* Email Field */}
-        <div className="space-y-2">
-          <Label className="text-sm font-medium text-[#888888]">
-            {gt("Email")}
-          </Label>
-          <Input
-            type="email"
-            required
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
-            placeholder="you@example.com"
-          />
-        </div>
+      {!showQr ? (
+        /* ── Password / email login ─────────────────────────────────── */
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {error && (
+            <div className="p-3 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {error}
+            </div>
+          )}
 
-        {/* Password Field */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          {/* Email Field */}
+          <div className="space-y-2">
             <Label className="text-sm font-medium text-[#888888]">
-              {gt("Password")}
+              {gt("Email")}
             </Label>
-            <Link 
-              href="/forgot-password" 
-              className="text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-colors"
-            >
-              <T>Forgot password?</T>
-            </Link>
-          </div>
-          <div className="relative">
             <Input
-              type={showPassword ? "text" : "password"}
+              type="email"
               required
-              value={formData.password}
-              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-              className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors pr-11"
-              placeholder={gt("Enter your password")}
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors"
+              placeholder="you@example.com"
             />
+          </div>
+
+          {/* Password Field */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium text-[#888888]">
+                {gt("Password")}
+              </Label>
+              <Link
+                href="/forgot-password"
+                className="text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-colors"
+              >
+                <T>Forgot password?</T>
+              </Link>
+            </div>
+            <div className="relative">
+              <Input
+                type={showPassword ? "text" : "password"}
+                required
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className="h-11 bg-[#111111] border-white/[0.08] text-white placeholder:text-[#555555] rounded-xl focus:border-[#8B5CF6]/60 focus:ring-1 focus:ring-[#8B5CF6]/40 focus-visible:ring-[#8B5CF6]/40 transition-colors pr-11"
+                placeholder={gt("Enter your password")}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-white transition-colors"
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Submit Button */}
+          <Button
+            type="submit"
+            disabled={isLoading}
+            className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
+          >
+            {isLoading ? <Loader size={16} /> : gt("Sign in")}
+          </Button>
+
+          {/* Switch back to QR login (desktop only) */}
+          {isDesktop && (
             <button
               type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#555555] hover:text-white transition-colors"
+              onClick={() => {
+                setError("");
+                setUsePassword(false);
+              }}
+              className="block w-full text-sm text-center text-[#888888] hover:text-white transition-colors pt-1"
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              <T>Log in with a QR code instead</T>
             </button>
-          </div>
-        </div>
-
-        {/* Submit Button */}
-        <Button
-          type="submit"
-          disabled={isLoading}
-          className="w-full h-11 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold rounded-xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 shadow-[0_0_20px_rgba(139,92,246,0.25)]"
-        >
-          {isLoading ? (
-            <Loader size={16} />
-          ) : (
-            gt("Sign in")
           )}
-        </Button>
 
-        {/* Register Link */}
-        <p className="text-sm text-center text-[#888888] pt-4">
-          <T>Don&apos;t have an account?</T>{" "}
-          <Link 
-            href={`/register${redirectTo !== "/channels/me" ? `?redirect=${redirectTo}` : ""}`}
-            className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
-          >
-            <T>Sign up</T>
-          </Link>
-        </p>
-          </form>
-        </div>
-
-        {/* ── Divider ──────────────────────────────────────────────────── */}
-        <div className="hidden md:flex flex-col items-center px-1">
-          <div className="w-px flex-1 bg-white/[0.08]" />
-        </div>
-
-        {/* ── Right column: QR login (desktop only) ───────────────────── */}
-        <div className="hidden md:flex md:w-[280px] flex-col items-center justify-center">
+          {/* Register Link */}
+          <p className="text-sm text-center text-[#888888] pt-3 border-t border-white/[0.06]">
+            <T>Don&apos;t have an account?</T>{" "}
+            <Link
+              href={`/register${redirectTo !== "/channels/me" ? `?redirect=${redirectTo}` : ""}`}
+              className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
+            >
+              <T>Sign up</T>
+            </Link>
+          </p>
+        </form>
+      ) : (
+        /* ── QR login (default) ─────────────────────────────────────── */
+        <div className="space-y-6">
           <QRLoginPanel
             redirectTo={redirectTo}
             onApproved={(to) => router.replace(to)}
           />
+
+          {/* Switch to password/email login */}
+          <button
+            type="button"
+            onClick={() => setUsePassword(true)}
+            className="block w-full text-sm text-center text-[#888888] hover:text-white transition-colors"
+          >
+            <T>Want to log in with password/email instead?</T>
+          </button>
+
+          {/* Register Link */}
+          <p className="text-sm text-center text-[#888888] pt-3 border-t border-white/[0.06]">
+            <T>Don&apos;t have an account?</T>{" "}
+            <Link
+              href={`/register${redirectTo !== "/channels/me" ? `?redirect=${redirectTo}` : ""}`}
+              className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
+            >
+              <T>Sign up</T>
+            </Link>
+          </p>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="bg-[#0a0a0a]/90 border border-white/[0.08] rounded-2xl p-8 h-64 animate-pulse" />}>
+    <Suspense fallback={<div className="h-64 rounded-xl bg-white/[0.04] animate-pulse" />}>
       <LoginForm />
     </Suspense>
   );
