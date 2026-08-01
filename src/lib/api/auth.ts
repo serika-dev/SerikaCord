@@ -632,6 +632,28 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     return { success: true };
   })
 
+  // Random background for the auth pages, proxied from serika-accounts.
+  // We call the accounts service server-to-server so the SERIKA_ART_API_KEY
+  // lives only on accounts.serika.dev and never has to be shared with SerikaCord.
+  // The response shape matches serika.art's /api/v1/random ({ data: { url, tags, ... } }).
+  .get('/random-bg', async ({ set }) => {
+    try {
+      const res = await fetch(`${config.ACCOUNTS_API_URL}/api/auth/random-bg`, {
+        // Cache briefly at the CDN/edge; each visitor still rotates client-side
+        // via the prefetch pipeline, this just avoids hammering accounts.
+        headers: { accept: 'application/json' },
+      });
+      if (!res.ok) {
+        set.status = 502;
+        return { error: 'Failed to fetch background' };
+      }
+      return await res.json();
+    } catch {
+      set.status = 502;
+      return { error: 'Failed to fetch background' };
+    }
+  })
+
   // Save current account to saved_accounts cookie
   .post('/save-account', async ({ headers, cookie, set }) => {
     const authHeader = headers.authorization;

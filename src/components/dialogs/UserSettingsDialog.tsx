@@ -1382,11 +1382,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
     const lines: { label: string; value: string }[] = [];
 
-    lines.push({ label: "SerikaCord", value: `v1.2.7 ${environment}` });
+    lines.push({ label: "SerikaCord", value: `v2.0.0 ${environment}` });
     lines.push({ label: "Build Override", value: "N/A" });
 
     if (isTauri) {
-      lines.push({ label: "Runtime", value: "Tauri 2.x (SerikaCord Desktop v1.2.7)" });
+      lines.push({ label: "Runtime", value: "Tauri 2.x (SerikaCord Desktop v2.0.0)" });
       const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
       if (ua.includes("Windows")) {
         lines.push({ label: "WebView", value: "WebView2 (Edge/Chromium)" });

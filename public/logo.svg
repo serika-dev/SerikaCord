@@ -12,7 +12,7 @@
       </feMerge>
     </filter>
   </defs>
-  <text x="0" y="45" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" letter-spacing="-1" filter="url(#textGlow)">
+  <text x="200" y="45" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="48" font-weight="800" letter-spacing="-1" filter="url(#textGlow)">
     <tspan fill="#ffffff">Serika</tspan><tspan fill="url(#cordGradient)">Cord</tspan>
   </text>
 </svg>

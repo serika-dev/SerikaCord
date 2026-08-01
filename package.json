@@ -1,6 +1,6 @@
 {
   "name": "serikacord",
-  "version": "1.2.7",
+  "version": "2.0.0",
   "private": true,
   "packageManager": "bun@1.3.2",
   "scripts": {
@@ -11,9 +11,9 @@
     "start:next": "next start",
     "gateway": "bun scripts/gateway.ts",
     "lint": "eslint",
-    "desktop": "cd desktop && bun run start",
-    "desktop:dev": "cd desktop && bun run dev",
-    "desktop:build": "cd desktop && bun run build",
+    "desktop": "cd desktop-QT/build && ./SerikaCord",
+    "desktop:dev": "cmake --build desktop-QT/build --config Debug",
+    "desktop:build": "cmake --build desktop-QT/build --config Release",
     "mobile:ios": "cd mobile && bun run ios",
     "mobile:android": "cd mobile && bun run android",
     "mobile:sync": "cd mobile && bun run cap:sync",

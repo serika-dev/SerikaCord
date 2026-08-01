@@ -67,6 +67,7 @@ const FIRST_PARTY_DOMAINS = [
   "serika.dev",
   "serika.chat",
   "serika.cc",
+  "serika.moe",
   "serika.video",
   "waifu.ws",
   "gifs.serika.dev",
@@ -116,19 +117,10 @@ function isImageUrl(url: string): boolean {
   return /\.(gif|jpg|jpeg|png|webp|svg|bmp)(\?.*)?$/i.test(url) || /^https?:\/\/gifs\.serika\.dev/i.test(url);
 }
 
-function isFirstPartyUrl(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return FIRST_PARTY_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
-  } catch {
-    return false;
-  }
-}
-
 function shouldSkipOEmbed(url: string): boolean {
   // Giphy URLs are rendered directly from the ID, no need for oEmbed
   if (/giphy\.com/.test(url)) return true;
-  return isImageUrl(url) || isFirstPartyUrl(url);
+  return isImageUrl(url);
 }
 
 function parseSpotifyUrl(url: string): { type: string; id: string } | null {
@@ -911,6 +903,10 @@ interface OEmbedData {
   author?: string;
   authorUrl?: string;
   provider?: string;
+  card?: string;
+  player?: string;
+  playerWidth?: number;
+  playerHeight?: number;
 }
 
 function XLogo({ className }: { className?: string }) {
@@ -1252,6 +1248,87 @@ function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { t
   );
 }
 
+/**
+ * Twitter Card "player" embed. Renders an iframe with the twitter:player URL
+ * at the specified width/height. Only shown for whitelisted domains (the
+ * server strips player data for non-whitelisted URLs).
+ */
+function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: OEmbedData; onSuppress?: () => void }) {
+  const [showPlayer, setShowPlayer] = useState(false);
+  const playerUrl = preview.player!;
+  const width = preview.playerWidth || 456;
+  const height = preview.playerHeight || 152;
+
+  let hostname = "link";
+  try {
+    hostname = new URL(url).hostname.replace(/^www\./, "");
+  } catch {}
+
+  if (showPlayer) {
+    return (
+      <div className="mt-2 relative rounded-lg overflow-hidden bg-black shadow-lg" style={{ maxWidth: width }}>
+        <iframe
+          src={playerUrl}
+          width={width}
+          height={height}
+          title={preview.title || "Embedded player"}
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          allowFullScreen
+          loading="lazy"
+          className="border-0 block"
+          style={{ width: "100%", height }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative group/embed-card mt-2" style={{ maxWidth: Math.min(width, 480) }}>
+      {onSuppress && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSuppress(); }}
+          className="absolute top-1 right-1 z-10 opacity-0 group-hover/embed-card:opacity-100 transition-opacity p-1 text-white/70 hover:text-white"
+          title="Remove embed"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+      <div
+        className="cursor-pointer rounded-lg overflow-hidden border border-white/10 bg-[#1a1a1a] hover:bg-[#222222] transition-colors"
+        onClick={() => setShowPlayer(true)}
+      >
+        {preview.thumbnail && (
+          <div className="relative">
+            <img
+              src={preview.thumbnail}
+              alt={preview.title || "Link preview"}
+              className="w-full max-h-52 object-cover"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/30 group-hover/embed-card:bg-black/40 transition-colors">
+              <div className="w-14 h-14 rounded-full bg-[#8B5CF6] flex items-center justify-center shadow-2xl group-hover/embed-card:scale-110 transition-transform">
+                <Play className="w-6 h-6 text-white ml-1" fill="white" />
+              </div>
+            </div>
+          </div>
+        )}
+        <div className="p-3">
+          <div className="flex items-center gap-2 text-xs text-[#8B5CF6] font-medium mb-1">
+            <span>{preview.siteName || hostname}</span>
+            <ExternalLink className="w-3 h-3 opacity-70" />
+          </div>
+          {preview.title && (
+            <div className="text-white text-sm font-medium line-clamp-2">{preview.title}</div>
+          )}
+          {preview.description && (
+            <div className="text-[#888888] text-xs mt-1 line-clamp-2">{preview.description}</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Memoized: embeds fetch previews and must not re-run while unrelated chat
 // state (composer text, typing indicators) changes.
 export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSuppress }: LinkEmbedProps) {
@@ -1295,6 +1372,10 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
           author: data.author,
           authorUrl: data.authorUrl,
           provider: data.provider,
+          card: data.card,
+          player: data.player,
+          playerWidth: data.playerWidth,
+          playerHeight: data.playerHeight,
         });
       })
       .catch(() => {
@@ -1404,6 +1485,13 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
 
   if (urlType === "klipy") {
     return <KlipyEmbed url={url} preview={preview || undefined} onMediaClick={onMediaClick} />;
+  }
+
+  // Twitter Card player: show iframe embed for whitelisted domains that
+  // expose twitter:player. The server only returns player data for
+  // whitelisted domains, so this is safe by construction.
+  if (preview?.card === "player" && preview.player) {
+    return <PlayerCardEmbed url={url} preview={preview} onSuppress={onSuppress} />;
   }
 
   // Wrapper carries the visibility sensor so the oembed fetch above only fires

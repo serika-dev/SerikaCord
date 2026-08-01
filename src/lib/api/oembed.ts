@@ -20,26 +20,12 @@ interface OEmbedResponse {
   authorUrl?: string;
   /** Extra provider metadata (e.g. tweet engagement counts). */
   provider?: string;
-}
-
-const FIRST_PARTY_DOMAINS = [
-  'serika.dev',
-  'serika.chat',
-  'serika.cc',
-  'waifu.ws',
-  'gifs.serika.dev',
-  'accounts.serika.dev',
-  'music.serika.dev',
-  'cdn.ado.wtf',
-];
-
-function isFirstPartyDomain(url: string): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return FIRST_PARTY_DOMAINS.some(domain => hostname === domain || hostname.endsWith(`.${domain}`));
-  } catch {
-    return false;
-  }
+  /** Twitter Card type (e.g. "player", "summary_large_image"). */
+  card?: string;
+  /** Twitter Player iframe URL (twitter:player). Only exposed for whitelisted domains. */
+  player?: string;
+  playerWidth?: number;
+  playerHeight?: number;
 }
 
 function isDirectMediaUrl(url: string): boolean {
@@ -99,10 +85,14 @@ function extractMetaTags(html: string): OEmbedResponse {
   const twitterStream = metaContent(html, 'twitter:player:stream', 'name');
 
   // Twitter Card tags (fallback / richer author info).
+  const twitterCard = metaContent(html, 'twitter:card', 'name');
   const twitterTitle = metaContent(html, 'twitter:title', 'name');
   const twitterDesc = metaContent(html, 'twitter:description', 'name');
   const twitterImage = metaContent(html, 'twitter:image', 'name') || metaContent(html, 'twitter:image:src', 'name');
   const twitterCreator = metaContent(html, 'twitter:creator', 'name');
+  const twitterPlayer = metaContent(html, 'twitter:player', 'name');
+  const twitterPlayerWidth = metaContent(html, 'twitter:player:width', 'name');
+  const twitterPlayerHeight = metaContent(html, 'twitter:player:height', 'name');
 
   // Standard meta tags (last resort).
   const metaTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1];
@@ -118,6 +108,12 @@ function extractMetaTags(html: string): OEmbedResponse {
   data.type = ogType;
   data.url = ogUrl;
   data.author = articleAuthor || twitterCreator;
+  data.card = twitterCard;
+  if (twitterPlayer) {
+    data.player = twitterPlayer;
+    data.playerWidth = toInt(twitterPlayerWidth);
+    data.playerHeight = toInt(twitterPlayerHeight);
+  }
 
   // Only surface a playable video when it looks like a direct media file, not
   // an HTML iframe player (those are handled by dedicated provider embeds).
@@ -215,6 +211,7 @@ const OEMBED_WHITELIST = [
   'serika.dev',
   'serika.chat',
   'serika.cc',
+  'serika.moe',
   'music.serika.dev',
   'waifu.ws',
 ];
@@ -567,9 +564,9 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       return { error: 'Domain is blocked' };
     }
 
-    // Skip first-party and direct-media URLs.
-    // Link previews for these should be handled directly by the client renderer.
-    if (isFirstPartyDomain(url) || isDirectMediaUrl(url)) {
+    // Skip direct-media URLs (images, gifs, etc.) — these are rendered
+    // directly by the client and don't need meta-tag scraping.
+    if (isDirectMediaUrl(url)) {
       return {};
     }
 
@@ -650,7 +647,16 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       
       const data = extractMetaTags(html);
       data.url = url;
-      
+
+      // Only expose twitter:player iframe URLs for whitelisted domains.
+      // This prevents arbitrary iframe embedding from untrusted sources.
+      if (!whitelisted) {
+        data.player = undefined;
+        data.playerWidth = undefined;
+        data.playerHeight = undefined;
+        data.card = undefined;
+      }
+
       return data;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {

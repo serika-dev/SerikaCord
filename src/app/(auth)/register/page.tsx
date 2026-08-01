@@ -58,13 +58,13 @@ function RegisterForm() {
   };
 
   return (
-    <div className="bg-[#0a0a0a]/90 backdrop-blur-sm border border-white/[0.08] rounded-2xl p-8 shadow-2xl shadow-black/60">
+    <div>
       {/* Header */}
       <div className="text-center mb-6">
-        <h1 className="text-2xl font-semibold text-white mb-2">
+        <h1 className="text-[1.6rem] font-bold tracking-[-0.02em] text-white mb-1">
           <T>Create an account</T>
         </h1>
-        <p className="text-[#888888] text-sm">
+        <p className="text-[#a1a1aa] text-sm">
           <T>Join SerikaCord and start chatting</T>
         </p>
       </div>
@@ -226,7 +226,7 @@ function RegisterForm() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={<div className="bg-[#0a0a0a]/90 border border-white/[0.08] rounded-2xl p-8 h-64 animate-pulse" />}>
+    <Suspense fallback={<div className="h-64 rounded-xl bg-white/[0.04] animate-pulse" />}>
       <RegisterForm />
     </Suspense>
   );

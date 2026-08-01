@@ -48,7 +48,7 @@ A modern, Discord-compatible chat platform built with Next.js, Bun, and PostgreS
 - **Markdown Rendering** — Full markdown support with sanitization
 
 ### Platform
-- **Desktop App** — Tauri-based desktop client (see `desktop-tauri/`)
+- **Desktop App** — Qt6-based desktop client (see `desktop-QT/`); the legacy Tauri client (`desktop-tauri/`) is deprecated
 - **Mobile App** — Capacitor-based mobile client (see `mobile/`)
 - **i18n** — Multi-language support via General Translation (100+ locales)
 - **Premium** — Stripe-powered Serika+ subscription tier
@@ -130,7 +130,8 @@ SerikaCord/
 │   └── server/                     # Server-side utilities
 ├── packages-api/
 │   └── serika.js/                  # Official TypeScript bot SDK
-├── desktop-tauri/                  # Tauri desktop app
+├── desktop-QT/                     # Qt6 desktop app (default)
+├── desktop-tauri/                  # Tauri desktop app (DEPRECATED)
 ├── mobile/                         # Capacitor mobile app (Android)
 ├── serika-accounts/                # External accounts auth service
 ├── drizzle/                        # Database migrations
@@ -213,7 +214,7 @@ See [`packages-api/serika.js`](packages-api/serika.js) for the official SDK, or 
 
 ## Desktop & Mobile
 
-- **Desktop:** The Tauri-based desktop client is in `desktop-tauri/`. See its [README](desktop-tauri/README.md) for build instructions.
+- **Desktop:** The Qt6-based desktop client is in `desktop-QT/`. See its [README](desktop-QT/README.md) for build instructions. The legacy Tauri client in `desktop-tauri/` is deprecated.
 - **Mobile:** The Capacitor-based Android app is in `mobile/`. See its [README](mobile/README.md) for setup.
 
 ## Translations
