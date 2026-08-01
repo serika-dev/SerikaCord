@@ -117,6 +117,15 @@ function isImageUrl(url: string): boolean {
   return /\.(gif|jpg|jpeg|png|webp|svg|bmp)(\?.*)?$/i.test(url) || /^https?:\/\/gifs\.serika\.dev/i.test(url);
 }
 
+function isFirstPartyUrl(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return FIRST_PARTY_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  } catch {
+    return false;
+  }
+}
+
 function shouldSkipOEmbed(url: string): boolean {
   // Giphy URLs are rendered directly from the ID, no need for oEmbed
   if (/giphy\.com/.test(url)) return true;
@@ -1254,7 +1263,9 @@ function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { t
  * server strips player data for non-whitelisted URLs).
  */
 function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: OEmbedData; onSuppress?: () => void }) {
-  const [showPlayer, setShowPlayer] = useState(false);
+  // First-party domains (e.g. music.serika.dev) render the iframe immediately,
+  // like Spotify embeds. Third-party domains get a click-to-play preview.
+  const [showPlayer, setShowPlayer] = useState(() => isFirstPartyUrl(url));
   const playerUrl = preview.player!;
   const width = preview.playerWidth || 456;
   const height = preview.playerHeight || 152;
