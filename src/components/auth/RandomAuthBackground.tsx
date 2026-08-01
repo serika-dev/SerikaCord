@@ -123,7 +123,7 @@ export function RandomAuthBackground() {
       const d = res.data;
       const artistTag = d.tags?.find((t) => t.type === "artist");
       const name = artistTag ? artistTag.name : d.user?.username || "Unknown Artist";
-      return { rawUrl: d.url, artist: name, id: d.post_id, origW: d.width, origH: d.height };
+      return { rawUrl: d.url!, artist: name, id: d.post_id, origW: d.width, origH: d.height };
     };
 
     // Prefetch the NEXT background: store its raw URL and warm the browser cache
