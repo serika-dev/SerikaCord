@@ -20,6 +20,21 @@ use tauri_plugin_opener::OpenerExt;
 const APP_URL: &str = "https://serika.chat";
 const START_PATH: &str = "/channels/me";
 
+/// First-party domains allowed to navigate inside the Tauri webview.
+/// Mirrors the `FIRST_PARTY_DOMAINS` / `OEMBED_WHITELIST` in the web app
+/// so that iframe embeds (e.g. music.serika.dev player) load in-app.
+const FIRST_PARTY_DOMAINS: &[&str] = &[
+    "serika.dev",
+    "serika.chat",
+    "serika.cc",
+    "serika.moe",
+    "waifu.ws",
+    "gifs.serika.dev",
+    "accounts.serika.dev",
+    "music.serika.dev",
+    "cdn.ado.wtf",
+];
+
 static MUTED: AtomicBool = AtomicBool::new(false);
 
 // Injected into the web app. Receives detected activities from Rust via
@@ -332,8 +347,15 @@ fn build_main_window(app: &tauri::AppHandle) {
         .initialization_script(DESKTOP_ENHANCEMENTS_JS)
         .on_navigation(move |url| {
             let target = url.as_str();
-            let allowed =
-                target.starts_with(APP_URL) || target.starts_with("http://localhost");
+            // Allow the main app URL, localhost (dev), and first-party domains
+            // (e.g. music.serika.dev embeds loaded in iframes).
+            let allowed = target.starts_with(APP_URL)
+                || target.starts_with("http://localhost")
+                || FIRST_PARTY_DOMAINS.iter().any(|d| {
+                    let prefix = format!("https://{d}");
+                    let prefix_sub = format!("https://*.{d}");
+                    target.starts_with(&prefix) || target.starts_with(&prefix_sub)
+                });
             if !allowed {
                 let _ = opener_handle.opener().open_url(target, None::<&str>);
             }
