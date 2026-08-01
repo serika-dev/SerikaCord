@@ -1284,7 +1284,6 @@ function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: O
           height={height}
           title={preview.title || "Embedded player"}
           allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
-          allowFullScreen
           loading="lazy"
           className="border-0 block"
           style={{ width: "100%", height }}
