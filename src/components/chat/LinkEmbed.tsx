@@ -1351,13 +1351,16 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
   // link-heavy channel doesn't fire every oembed request at once on open.
   const [genericRef, inView] = useInView<HTMLDivElement>();
 
+  // First-party URLs fetch immediately; others defer until near viewport.
+  const firstParty = isFirstPartyUrl(url);
+
   useEffect(() => {
     // Twitter/X is rendered by TwitterEmbed, which fetches its own richer data.
     if (!url || shouldSkipOEmbed(url) || getUrlType(url) === "twitter") {
       setPreview(null);
       return;
     }
-    if (!inView) return;
+    if (!firstParty && !inView) return;
 
     let active = true;
     setPreview(null);
@@ -1396,7 +1399,7 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
     return () => {
       active = false;
     };
-  }, [url, inView]);
+  }, [url, inView, firstParty]);
 
   if (!url) return null;
 
@@ -1503,6 +1506,20 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
   // whitelisted domains, so this is safe by construction.
   if (preview?.card === "player" && preview.player) {
     return <PlayerCardEmbed url={url} preview={preview} onSuppress={onSuppress} />;
+  }
+
+  // First-party URLs: show a loading skeleton while the oEmbed fetch is
+  // in-flight, instead of a clickable GenericEmbed link.
+  if (firstParty && !preview) {
+    return (
+      <div className="mt-2 max-w-[456px] rounded-lg border border-white/10 bg-[#1a1a1a] animate-pulse">
+        <div className="h-[152px] bg-white/5 rounded-t-lg" />
+        <div className="p-3 space-y-2">
+          <div className="h-3 w-24 bg-white/10 rounded" />
+          <div className="h-2.5 w-3/4 bg-white/10 rounded" />
+        </div>
+      </div>
+    );
   }
 
   // Wrapper carries the visibility sensor so the oembed fetch above only fires
