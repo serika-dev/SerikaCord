@@ -337,6 +337,11 @@ function MessageGroupInner<M extends ChatMessage>({
                     {message.embeds && message.embeds.length > 0 && !message.suppressEmbeds && (
                     <RichEmbed
                       embeds={message.embeds}
+                      serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                      mentionUsers={mergedMentionUsers}
+                      mentionRoles={mentionRoles}
+                      currentUserId={currentUserId}
+                      serverId={serverId}
                       onMediaClick={(src, alt) => onMediaClick(src, alt, message.id)}
                     />
                     )}

@@ -5,8 +5,20 @@ import { ExternalLink } from "lucide-react";
 import type { MessageEmbed } from "@/lib/chat/types";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { isGifUrl } from "@/lib/chat/media";
+import { MessageContent } from "@/components/chat/MessageContent";
 
-interface RichEmbedProps {
+/** Message-level data needed so embed text supports the same features as
+ *  normal message content: mentions, custom emoji, spoilers, `<t:...>`
+ *  timestamps/countdowns, channel links and full markdown. */
+export interface EmbedRenderContext {
+  serverEmojis?: React.ComponentProps<typeof MessageContent>["serverEmojis"];
+  mentionUsers?: React.ComponentProps<typeof MessageContent>["mentionUsers"];
+  mentionRoles?: React.ComponentProps<typeof MessageContent>["mentionRoles"];
+  currentUserId?: string;
+  serverId?: string;
+}
+
+interface RichEmbedProps extends EmbedRenderContext {
   embeds?: MessageEmbed[];
   onMediaClick?: (src: string, alt?: string) => void;
 }
@@ -24,83 +36,35 @@ function colorToHex(color?: number): string {
   return `#${clamped.toString(16).padStart(6, "0")}`;
 }
 
-/**
- * Inline markdown renderer for embed text. Supports the subset Discord allows
- * in embeds: bold (**), italics (* or _), strikethrough (~~), inline code (`),
- * and markdown links [label](url) plus bare URL autolinking.
- */
-function renderInlineMarkdown(text: string, keyPrefix: string): React.ReactNode[] {
-  // Token regex: captures all supported inline formats in one pass.
-  // Order matters: code first (so ** inside `` isn't parsed), then links,
-  // then bold, strikethrough, italics.
-  const tokenRegex = /(`[^`]+`)|\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s]+)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|(\*[^*]+\*|_[^_]+_)/g;
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-  while ((match = tokenRegex.exec(text)) !== null) {
-    if (match.index > last) parts.push(text.slice(last, match.index));
-    const [full, code, linkLabel, linkUrl, bareUrl, bold, strike, italic] = match;
-    if (code) {
-      parts.push(
-        <code key={`${keyPrefix}-${key++}`} className="px-1 py-0.5 rounded bg-black/30 text-[#e0e0e0] text-[0.85em] font-mono">
-          {code.slice(1, -1)}
-        </code>,
-      );
-    } else if (linkLabel && linkUrl) {
-      parts.push(
-        <a key={`${keyPrefix}-${key++}`} href={linkUrl} target="_blank" rel="noopener noreferrer" className="text-[#8B5CF6] hover:underline">
-          {linkLabel}
-        </a>,
-      );
-    } else if (bareUrl) {
-      parts.push(
-        <a key={`${keyPrefix}-${key++}`} href={bareUrl} target="_blank" rel="noopener noreferrer" className="text-[#8B5CF6] hover:underline break-all">
-          {bareUrl}
-        </a>,
-      );
-    } else if (bold) {
-      parts.push(
-        <strong key={`${keyPrefix}-${key++}`} className="font-bold text-white">
-          {bold.slice(2, -2)}
-        </strong>,
-      );
-    } else if (strike) {
-      parts.push(
-        <s key={`${keyPrefix}-${key++}`} className="opacity-70">
-          {strike.slice(2, -2)}
-        </s>,
-      );
-    } else if (italic) {
-      parts.push(
-        <em key={`${keyPrefix}-${key++}`} className="italic">
-          {italic.slice(1, -1)}
-        </em>,
-      );
-    }
-    last = tokenRegex.lastIndex;
-  }
-  if (last < text.length) parts.push(text.slice(last));
-  return parts;
-}
-
-function EmbedText({ text, className }: { text: string; className?: string }) {
-  const decoded = decodeHtmlEntities(text);
-  // Split into lines to preserve line breaks, render each with inline markdown.
-  const lines = decoded.split("\n");
+/** Embed text rendered through the normal message pipeline, so mentions,
+ *  custom emoji, spoilers, timestamps/countdowns and markdown all work. */
+function EmbedText({
+  text,
+  className,
+  ctx,
+  onMediaClick,
+}: {
+  text: string;
+  className?: string;
+  ctx: EmbedRenderContext;
+  onMediaClick?: (src: string, alt?: string) => void;
+}) {
   return (
     <div className={className} style={{ whiteSpace: "pre-wrap" }}>
-      {lines.map((line, i) => (
-        <span key={i}>
-          {i > 0 && "\n"}
-          {renderInlineMarkdown(line, `el-${i}`)}
-        </span>
-      ))}
+      <MessageContent
+        content={text}
+        serverEmojis={ctx.serverEmojis}
+        mentionUsers={ctx.mentionUsers}
+        mentionRoles={ctx.mentionRoles}
+        currentUserId={ctx.currentUserId}
+        serverId={ctx.serverId}
+        onImageClick={onMediaClick}
+      />
     </div>
   );
 }
 
-function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClick?: (src: string, alt?: string) => void }) {
+function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMediaClick?: (src: string, alt?: string) => void; ctx: EmbedRenderContext }) {
   const accent = colorToHex(embed.color);
   const footerIcon = embed.footer?.icon_url || embed.footer?.iconUrl;
   const authorIcon = embed.author?.icon_url || embed.author?.iconUrl;
@@ -136,10 +100,10 @@ function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClic
               {authorIcon && <img src={authorIcon} alt="" className="w-5 h-5 rounded-full object-cover" loading="lazy" />}
               {embed.author.url ? (
                 <a href={embed.author.url} target="_blank" rel="noopener noreferrer" className="text-white text-xs font-semibold hover:underline">
-                  {embed.author.name}
+                  {decodeHtmlEntities(embed.author.name)}
                 </a>
               ) : (
-                <span className="text-white text-xs font-semibold">{embed.author.name}</span>
+                <EmbedText text={embed.author.name} ctx={ctx} className="text-white text-xs font-semibold" />
               )}
             </div>
           )}
@@ -152,13 +116,13 @@ function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClic
                   <ExternalLink className="w-3 h-3 opacity-60" />
                 </a>
               ) : (
-                <span className="text-white font-semibold text-[15px]">{decodeHtmlEntities(embed.title)}</span>
+                <EmbedText text={embed.title} ctx={ctx} className="text-white font-semibold text-[15px]" />
               )}
             </div>
           )}
 
           {embed.description && (
-            <EmbedText text={embed.description} className="text-[#c8c8c8] text-sm leading-snug" />
+            <EmbedText text={embed.description} ctx={ctx} onMediaClick={onMediaClick} className="text-[#c8c8c8] text-sm leading-snug" />
           )}
 
           {embed.fields && embed.fields.length > 0 && (
@@ -181,8 +145,8 @@ function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClic
                   <div key={ri} className="grid gap-2" style={{ gridTemplateColumns: `repeat(${row!.length}, minmax(0, 1fr))` }}>
                     {row!.map((f, fi) => (
                       <div key={fi} className="min-w-0">
-                        <div className="text-white text-xs font-semibold mb-0.5">{decodeHtmlEntities(f.name)}</div>
-                        <EmbedText text={f.value} className="text-[#c8c8c8] text-xs leading-snug" />
+                        <EmbedText text={f.name} ctx={ctx} className="text-white text-xs font-semibold mb-0.5" />
+                        <EmbedText text={f.value} ctx={ctx} onMediaClick={onMediaClick} className="text-[#c8c8c8] text-xs leading-snug" />
                       </div>
                     ))}
                   </div>
@@ -216,8 +180,8 @@ function SingleEmbed({ embed, onMediaClick }: { embed: MessageEmbed; onMediaClic
       {(embed.footer?.text || embed.timestamp) && (
         <div className="flex items-center gap-2 px-3 pb-3 mt-1">
           {footerIcon && <img src={footerIcon} alt="" className="w-4 h-4 rounded-full object-cover" loading="lazy" />}
-          <span className="text-[#888] text-[11px]">
-            {embed.footer?.text}
+          <span className="text-[#888] text-[11px] inline-flex items-center gap-1">
+            {embed.footer?.text && <EmbedText text={embed.footer.text} ctx={ctx} />}
             {embed.footer?.text && embed.timestamp ? " • " : ""}
             {embed.timestamp ? new Date(embed.timestamp).toLocaleString() : ""}
           </span>
@@ -261,7 +225,7 @@ export function getRenderedEmbedUrls(embeds?: MessageEmbed[]): string[] {
 }
 
 /** Renders bot-authored rich embeds (Discord embed format) below a message. */
-export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick }: RichEmbedProps) {
+export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick, ...ctx }: RichEmbedProps) {
   if (!embeds || embeds.length === 0) return null;
   // Filter out GIF-provider embeds — LinkEmbed renders those URLs as inline
   // GIFs, so showing the raw video embed too would duplicate the media.
@@ -271,7 +235,7 @@ export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick }: RichE
   return (
     <div className="flex flex-col">
       {filtered.slice(0, 10).map((embed, i) => (
-        <SingleEmbed key={i} embed={embed} onMediaClick={onMediaClick} />
+        <SingleEmbed key={i} embed={embed} onMediaClick={onMediaClick} ctx={ctx} />
       ))}
     </div>
   );
