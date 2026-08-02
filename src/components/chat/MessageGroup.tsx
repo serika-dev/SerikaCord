@@ -344,6 +344,7 @@ function MessageGroupInner<M extends ChatMessage>({
                     {inlineEmbedsEnabled && !message.suppressEmbeds && (
                     <LinkEmbed
                       content={message.content}
+                      embeds={message.embeds}
                       onMediaClick={(src, alt) => onMediaClick(src, alt, message.id)}
                       onSuppress={onSuppressEmbeds && (message.authorId === currentUserId || canModerate) ? () => onSuppressEmbeds(message.id) : undefined}
                     />

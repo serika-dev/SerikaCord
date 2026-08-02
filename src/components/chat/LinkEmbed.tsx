@@ -7,6 +7,8 @@ import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { useChatGt } from "./ChatGtContext";
+import { getRenderedEmbedUrls } from "@/components/chat/RichEmbed";
+import type { MessageEmbed } from "@/lib/chat/types";
 
 // `referrerPolicy` isn't in React's <video> typings, but the DOM honors it —
 // needed so hotlink-protected media (e.g. video.twimg.com) doesn't 403 on our
@@ -18,6 +20,20 @@ interface LinkEmbedProps {
   /** Opens a GIF in the in-app image viewer instead of the provider website. */
   onMediaClick?: (src: string, alt?: string) => void;
   onSuppress?: () => void;
+  /** Rich embeds rendered for this message (e.g. Discord's own unfurls on
+   *  bridged messages) — their URLs are skipped so a link isn't previewed twice. */
+  embeds?: MessageEmbed[];
+}
+
+/** Loose URL comparison ignoring scheme, `www.`, trailing slash and hash. */
+function normalizeEmbedUrl(url: string): string {
+  return url
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/#.*$/, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }
 
 /** Shared media/badge layout for provider GIF embeds (Giphy/Tenor/Klipy). */
@@ -1341,10 +1357,11 @@ function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: O
 
 // Memoized: embeds fetch previews and must not re-run while unrelated chat
 // state (composer text, typing indicators) changes.
-export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSuppress }: LinkEmbedProps) {
+export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSuppress, embeds }: LinkEmbedProps) {
   // Decode entities (e.g. `&amp;` in query strings) so URLs resolve correctly.
   const urls = extractUrls(decodeHtmlEntities(content));
-  const url = urls[0] || "";
+  const skip = getRenderedEmbedUrls(embeds).map(normalizeEmbedUrl);
+  const url = urls.find((u) => !skip.includes(normalizeEmbedUrl(u))) || "";
   const [preview, setPreview] = useState<OEmbedData | null>(null);
   // Defer the link-preview fetch until the embed is near the viewport, so a
   // link-heavy channel doesn't fire every oembed request at once on open.

@@ -249,6 +249,17 @@ function isGifProviderEmbed(embed: MessageEmbed): boolean {
   return false;
 }
 
+/** URLs already unfurled by rendered rich embeds. LinkEmbed uses this to avoid
+ *  rendering a second preview for a link Discord already unfurled. */
+export function getRenderedEmbedUrls(embeds?: MessageEmbed[]): string[] {
+  if (!embeds || embeds.length === 0) return [];
+  return embeds
+    .filter((e) => !isGifProviderEmbed(e))
+    .slice(0, 10)
+    .map((e) => e.url || "")
+    .filter(Boolean);
+}
+
 /** Renders bot-authored rich embeds (Discord embed format) below a message. */
 export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick }: RichEmbedProps) {
   if (!embeds || embeds.length === 0) return null;
