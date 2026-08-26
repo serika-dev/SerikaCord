@@ -36,6 +36,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/developers/docs/intro", priority: 0.7, changeFrequency: "weekly", lastModified: now },
     { path: "/developers/docs/getting-started", priority: 0.7, changeFrequency: "weekly", lastModified: now },
     { path: "/developers/docs/quick-start", priority: 0.7, changeFrequency: "weekly", lastModified: now },
+    { path: "/developers/docs/mcp", priority: 0.7, changeFrequency: "weekly", lastModified: now },
     { path: "/developers/docs/reference", priority: 0.6, changeFrequency: "weekly", lastModified: now },
 
     // Developer docs — bots

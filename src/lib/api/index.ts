@@ -22,6 +22,7 @@ import { gifRoutes } from './gifs';
 import { developerRoutes, oauth2Routes } from './developers';
 import { botApiRoutes } from './botApi';
 import { socialSdkRoutes } from './social-sdk';
+import { mcpRoutes } from './mcp';
 import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { getMoeActivity } from '@/lib/services/moeActivity';
@@ -3605,7 +3606,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(gameLibraryRoutes)
   .use(socialSdkRoutes)
   .use(discordRoutes)
-  .use(botApiRoutes);
+  .use(botApiRoutes)
+  .use(mcpRoutes);
 
 // Idempotency guard: once initializeAPI() has been called, subsequent calls
 // return the same promise instead of re-running DB connections and seeding.

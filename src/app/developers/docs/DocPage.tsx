@@ -200,7 +200,7 @@ export function Callout({
   );
 }
 
-export function Table({ headers, rows }: { headers: string[]; rows: string[][] }) {
+export function Table({ headers, rows }: { headers: (string | React.ReactNode)[]; rows: (string | React.ReactNode)[][] }) {
   return (
     <div className="overflow-x-auto my-4 rounded-xl border border-white/[0.08]">
       <table className="w-full text-[13px]">

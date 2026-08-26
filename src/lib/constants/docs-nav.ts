@@ -28,6 +28,7 @@ export const docNav: DocNavSection[] = [
       { label: "Introduction", slug: "intro" },
       { label: "Getting Started", slug: "getting-started" },
       { label: "Quick Start", slug: "quick-start" },
+      { label: "MCP Server", slug: "mcp", badge: "NEW" },
       { label: "Reference", slug: "reference" },
     ],
   },
