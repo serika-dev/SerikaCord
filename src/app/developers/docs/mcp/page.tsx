@@ -123,7 +123,7 @@ export default async function McpDoc() {
       <P>{gt("Documentation pages, configuration files, cheat sheets, and templates are registered under URI schemes:")}</P>
 
       <UL>
-        <li><InlineCode>docs://{gt("{slug}")}</InlineCode> — {gt("Documentation pages in Markdown (e.g. docs://intro, docs://topics/gateway, docs://resources/message)")}</li>
+        <li><InlineCode>docs://&#123;slug&#125;</InlineCode> — {gt("Documentation pages in Markdown (e.g. docs://intro, docs://topics/gateway, docs://resources/message)")}</li>
         <li><InlineCode>config://api-endpoints</InlineCode> — {gt("JSON configuration of all API URLs and hosts")}</li>
         <li><InlineCode>cheatsheet://opcodes</InlineCode> — {gt("Quick cheat sheet for Gateway WebSocket Opcodes and close codes")}</li>
         <li><InlineCode>cheatsheet://permissions</InlineCode> — {gt("Bitwise permissions reference cheat sheet")}</li>
