@@ -59,7 +59,7 @@ static const QVector<KnownApp> KNOWN_APPS = {
     {{"blender"}, "Blender", "other"},
     {{"obs", "obs64"}, "OBS Studio", "other"},
     {{"photoshop"}, "Adobe Photoshop", "other"},
-    {{"figma", "figma_agent"}, "Figma", "other"},
+    {{"figma"}, "Figma", "other"},  // not figma_agent: Figma's font helper keeps running after Figma quits
     {{"unity", "unityhub"}, "Unity", "other"},
     {{"unrealeditor"}, "Unreal Engine", "other"},
     {{"godot"}, "Godot Engine", "other"},

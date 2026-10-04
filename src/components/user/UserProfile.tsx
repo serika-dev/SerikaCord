@@ -108,8 +108,8 @@ export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurren
 
   const openSettings = () => {
     onClose();
-    // Dispatch custom event to open user settings
-    window.dispatchEvent(new CustomEvent('openUserSettings'));
+    // Open user settings on the profile page (Edit Profile)
+    window.dispatchEvent(new CustomEvent('openUserSettings', { detail: { tab: 'profiles' } }));
   };
 
   const formatDate = (date?: Date) => {

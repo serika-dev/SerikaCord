@@ -69,6 +69,19 @@ function isOnlyUrl(text: string): boolean {
 }
 
 // Check if a string contains only emoji characters (including custom emoji syntax)
+/** One piece of a rendered message; headings that hold emoji or mentions wrap their pieces. */
+type MessagePart = {
+  type: "text" | "custom-emoji" | "image" | "link" | "mention-user" | "mention-role" | "mention-special" | "heading";
+  content: string;
+  emoji?: CustomEmoji;
+  url?: string;
+  mentionId?: string;
+  mentionKind?: "everyone" | "here";
+  level?: number;
+  small?: boolean;
+  children?: MessagePart[];
+};
+
 function isOnlyEmoji(text: string, customEmojiCount: number): boolean {
   // Remove whitespace and custom emoji placeholders. Full custom-emoji tokens
   // (<:name:id> / <a:name:id>) must be stripped too, otherwise a message made
@@ -243,32 +256,28 @@ export const MessageContent = memo(function MessageContent({
 
     const tokenRegex = /<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(?<!\S)@(everyone|here)\b|<(a)?:([a-zA-Z0-9_]+):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|:([a-zA-Z_][a-zA-Z0-9_]*):/gi;
     const urlRegex = /(?<!\]\(<?)https?:\/\/[^\s]+/g;
-    const parts: Array<{
-      type: "text" | "custom-emoji" | "image" | "link" | "mention-user" | "mention-role" | "mention-special";
-      content: string;
-      emoji?: CustomEmoji;
-      url?: string;
-      mentionId?: string;
-      mentionKind?: "everyone" | "here";
-    }> = [];
-    
+    let customEmojiCount = 0;
+
+    // Split one run of text into links, images, mentions, emoji and plain text.
+    const tokenize = (source: string): MessagePart[] => {
+    const parts: MessagePart[] = [];
+
     // First, split by URLs
+    urlRegex.lastIndex = 0;
     let lastIndex = 0;
     let urlMatch;
     const segments: Array<{ type: "text" | "url"; content: string }> = [];
     
-    while ((urlMatch = urlRegex.exec(displayContent)) !== null) {
+    while ((urlMatch = urlRegex.exec(source)) !== null) {
       if (urlMatch.index > lastIndex) {
-        segments.push({ type: "text", content: displayContent.slice(lastIndex, urlMatch.index) });
+        segments.push({ type: "text", content: source.slice(lastIndex, urlMatch.index) });
       }
       segments.push({ type: "url", content: urlMatch[0] });
       lastIndex = urlMatch.index + urlMatch[0].length;
     }
-    if (lastIndex < displayContent.length) {
-      segments.push({ type: "text", content: displayContent.slice(lastIndex) });
+    if (lastIndex < source.length) {
+      segments.push({ type: "text", content: source.slice(lastIndex) });
     }
-
-    let customEmojiCount = 0;
 
     // Process each segment
     for (const segment of segments) {
@@ -350,6 +359,43 @@ export const MessageContent = memo(function MessageContent({
       }
     }
 
+    return parts;
+    };
+
+    // A heading line that contains an emoji, mention or link used to be cut apart at that
+    // token, so only the part before it rendered as a heading (CORD-48). Such lines are
+    // tokenized on their own and wrapped in the heading instead. Headings without tokens,
+    // and anything inside a code fence, still go through the Markdown renderer as before.
+    const hasToken = (text: string) => {
+      tokenRegex.lastIndex = 0;
+      urlRegex.lastIndex = 0;
+      return tokenRegex.test(text) || urlRegex.test(text);
+    };
+    const parts: MessagePart[] = [];
+    let pending: string[] = [];
+    let inFence = false;
+    const flush = () => {
+      if (pending.length) parts.push(...tokenize(pending.join("\n")));
+      pending = [];
+    };
+    for (const line of displayContent.split("\n")) {
+      const heading = inFence ? null : line.match(/^(-?)(#{1,3})\s*(.+)$/);
+      if ((line.match(/```/g)?.length ?? 0) % 2 === 1) inFence = !inFence;
+      if (heading && hasToken(heading[3])) {
+        flush();
+        parts.push({
+          type: "heading",
+          content: line,
+          level: heading[2].length,
+          small: heading[1] === "-",
+          children: tokenize(heading[3]),
+        });
+        continue;
+      }
+      pending.push(line);
+    }
+    flush();
+
     return { parts, customEmojiCount };
   }, [displayContent, serverEmojis, imageOnlyUrl]);
 
@@ -425,6 +471,165 @@ export const MessageContent = memo(function MessageContent({
     );
   }
 
+  const renderPart = (part: MessagePart, index: number): React.ReactNode => {
+    if (part.type === "heading" && part.children) {
+      return (
+        <span
+          key={`heading-${index}`}
+          className={cn(
+            "block",
+            part.small
+              ? "text-[0.7em] text-[var(--text-muted)]"
+              : cn("font-bold", part.level === 1 && "text-lg", part.level === 2 && "text-base", part.level === 3 && "text-sm")
+          )}
+        >
+          {part.children.map(renderPart)}
+        </span>
+      );
+    }
+    if (part.type === "custom-emoji" && part.emoji) {
+      return (
+        <img
+          key={`emoji-${index}-${part.emoji.id}`}
+          src={cdnImage(part.emoji.url || part.emoji.imageUrl)}
+          alt={`:${part.emoji.name}:`}
+          title={`:${part.emoji.name}:`}
+          className="custom-emoji"
+          loading="lazy"
+          data-emoji-id={part.emoji.id}
+          data-emoji-name={part.emoji.name}
+          data-emoji-url={part.emoji.url || part.emoji.imageUrl || ""}
+          data-emoji-server={part.emoji.serverId || ""}
+          onContextMenu={(e) => handleEmojiContextMenu(e, part.emoji!)}
+        />
+      );
+    }
+    if (part.type === "image" && part.url) {
+      if (inline) {
+        return (
+          <span key={`image-${index}`} className="opacity-70">{gt("(attachment)")}</span>
+        );
+      }
+      const inlineGif = isGifUrl(part.url);
+      return (
+        <span key={`image-${index}`} className="block my-2">
+          <span className={cn("relative group", inlineGif && "inline-flex rounded-lg chat-gif-wrap")}>
+            <img
+              src={part.url}
+              alt={gt("Image")}
+              className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
+              onClick={() => handleMediaClick(part.url!, gt("Image"))}
+              loading="lazy"
+              />
+              {inlineGif && (
+                <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center">
+                  <GifFavoriteButton url={part.url} className="p-0" />
+              </div>
+            )}
+          </span>
+        </span>
+      );
+    }
+    if (part.type === "link" && part.url) {
+      // GIF-provider page links (giphy/tenor/klipy) are rendered as an
+      // actual GIF by LinkEmbed, so don't also show the raw URL text.
+      if (isGifProviderUrl(part.url)) {
+        return null;
+      }
+      return (
+        <a
+          key={`link-${index}`}
+          href={part.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[var(--app-accent)] hover:underline break-all"
+        >
+          {part.content}
+        </a>
+      );
+    }
+    if (part.type === "mention-user" && part.mentionId) {
+      const mentionUser = mentionUserMap.get(part.mentionId);
+      const isResolved = Boolean(mentionUser);
+      const mentionLabel = mentionUser?.displayName || mentionUser?.username || gt("Unknown User");
+      const isSelfMention = Boolean(currentUserId && currentUserId === part.mentionId);
+      const mentionSpan = (
+        <span
+          title={isResolved ? undefined : `User ID: ${part.mentionId}`}
+          className={cn(
+            "inline-block px-1 py-0.5 rounded font-medium cursor-pointer",
+            isSelfMention
+              ? "bg-yellow-500/25 text-yellow-200"
+              : isResolved
+                ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)] hover:bg-[var(--app-accent)]/30"
+                : "bg-[var(--app-surface-alt)] text-[var(--app-muted)] hover:bg-[var(--app-border)]"
+          )}
+        >
+          @{mentionLabel}
+        </span>
+      );
+      // Wrap in MemberProfilePopup if we have enough info to show the card
+      if (mentionUser && mentionUser.id && mentionUser.id !== "unknown") {
+        return (
+          <MemberProfilePopup
+            key={`mention-user-${index}-${part.mentionId}`}
+            member={{
+              id: mentionUser.id,
+              username: mentionUser.username || "unknown",
+              displayName: mentionUser.displayName,
+            }}
+            serverId={serverId}
+            side="top"
+            align="center"
+          >
+            <button
+              type="button"
+              className="inline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {mentionSpan}
+            </button>
+          </MemberProfilePopup>
+        );
+      }
+      return (
+        <span key={`mention-user-${index}-${part.mentionId}`}>
+          {mentionSpan}
+        </span>
+      );
+    }
+    if (part.type === "mention-role" && part.mentionId) {
+      const mentionRole = mentionRoleMap.get(part.mentionId);
+      const mentionLabel = mentionRole?.name || gt("role");
+      const roleColor = mentionRole?.color || "var(--app-accent)";
+      const roleBackgroundColor = roleColor.startsWith("#") ? `${roleColor}22` : "rgba(124, 58, 237, 0.2)";
+      return (
+        <span
+          key={`mention-role-${index}-${part.mentionId}`}
+          className="inline-block px-1 py-0.5 rounded font-medium"
+          style={{ backgroundColor: roleBackgroundColor, color: roleColor }}
+        >
+          @{mentionLabel}
+        </span>
+      );
+    }
+    if (part.type === "mention-special" && part.mentionKind) {
+      return (
+        <span
+          key={`mention-special-${index}-${part.mentionKind}`}
+          className="inline-block px-1 py-0.5 rounded font-medium bg-yellow-500/20 text-yellow-200"
+        >
+          @{part.mentionKind}
+        </span>
+      );
+    }
+    return (
+      <span key={`text-${index}`} className="twemoji-text">
+        <MarkdownRenderer content={part.content} />
+      </span>
+    );
+  };
+
   return (
     <span
       ref={textRef}
@@ -434,149 +639,7 @@ export const MessageContent = memo(function MessageContent({
         className
       )}
     >
-      {parsedContent.parts.map((part, index) => {
-        if (part.type === "custom-emoji" && part.emoji) {
-          return (
-            <img
-              key={`emoji-${index}-${part.emoji.id}`}
-              src={cdnImage(part.emoji.url || part.emoji.imageUrl)}
-              alt={`:${part.emoji.name}:`}
-              title={`:${part.emoji.name}:`}
-              className="custom-emoji"
-              loading="lazy"
-              data-emoji-id={part.emoji.id}
-              data-emoji-name={part.emoji.name}
-              data-emoji-url={part.emoji.url || part.emoji.imageUrl || ""}
-              data-emoji-server={part.emoji.serverId || ""}
-              onContextMenu={(e) => handleEmojiContextMenu(e, part.emoji!)}
-            />
-          );
-        }
-        if (part.type === "image" && part.url) {
-          if (inline) {
-            return (
-              <span key={`image-${index}`} className="opacity-70">{gt("(attachment)")}</span>
-            );
-          }
-          const inlineGif = isGifUrl(part.url);
-          return (
-            <span key={`image-${index}`} className="block my-2">
-              <span className={cn("relative group", inlineGif && "inline-flex rounded-lg chat-gif-wrap")}>
-                <img
-                  src={part.url}
-                  alt={gt("Image")}
-                  className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
-                  onClick={() => handleMediaClick(part.url!, gt("Image"))}
-                  loading="lazy"
-                  />
-                  {inlineGif && (
-                    <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity p-1 bg-black/60 backdrop-blur-sm rounded-full flex items-center justify-center">
-                      <GifFavoriteButton url={part.url} className="p-0" />
-                  </div>
-                )}
-              </span>
-            </span>
-          );
-        }
-        if (part.type === "link" && part.url) {
-          // GIF-provider page links (giphy/tenor/klipy) are rendered as an
-          // actual GIF by LinkEmbed, so don't also show the raw URL text.
-          if (isGifProviderUrl(part.url)) {
-            return null;
-          }
-          return (
-            <a
-              key={`link-${index}`}
-              href={part.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--app-accent)] hover:underline break-all"
-            >
-              {part.content}
-            </a>
-          );
-        }
-        if (part.type === "mention-user" && part.mentionId) {
-          const mentionUser = mentionUserMap.get(part.mentionId);
-          const isResolved = Boolean(mentionUser);
-          const mentionLabel = mentionUser?.displayName || mentionUser?.username || gt("Unknown User");
-          const isSelfMention = Boolean(currentUserId && currentUserId === part.mentionId);
-          const mentionSpan = (
-            <span
-              title={isResolved ? undefined : `User ID: ${part.mentionId}`}
-              className={cn(
-                "inline-block px-1 py-0.5 rounded font-medium cursor-pointer",
-                isSelfMention
-                  ? "bg-yellow-500/25 text-yellow-200"
-                  : isResolved
-                    ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)] hover:bg-[var(--app-accent)]/30"
-                    : "bg-[var(--app-surface-alt)] text-[var(--app-muted)] hover:bg-[var(--app-border)]"
-              )}
-            >
-              @{mentionLabel}
-            </span>
-          );
-          // Wrap in MemberProfilePopup if we have enough info to show the card
-          if (mentionUser && mentionUser.id && mentionUser.id !== "unknown") {
-            return (
-              <MemberProfilePopup
-                key={`mention-user-${index}-${part.mentionId}`}
-                member={{
-                  id: mentionUser.id,
-                  username: mentionUser.username || "unknown",
-                  displayName: mentionUser.displayName,
-                }}
-                serverId={serverId}
-                side="top"
-                align="center"
-              >
-                <button
-                  type="button"
-                  className="inline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {mentionSpan}
-                </button>
-              </MemberProfilePopup>
-            );
-          }
-          return (
-            <span key={`mention-user-${index}-${part.mentionId}`}>
-              {mentionSpan}
-            </span>
-          );
-        }
-        if (part.type === "mention-role" && part.mentionId) {
-          const mentionRole = mentionRoleMap.get(part.mentionId);
-          const mentionLabel = mentionRole?.name || gt("role");
-          const roleColor = mentionRole?.color || "var(--app-accent)";
-          const roleBackgroundColor = roleColor.startsWith("#") ? `${roleColor}22` : "rgba(124, 58, 237, 0.2)";
-          return (
-            <span
-              key={`mention-role-${index}-${part.mentionId}`}
-              className="inline-block px-1 py-0.5 rounded font-medium"
-              style={{ backgroundColor: roleBackgroundColor, color: roleColor }}
-            >
-              @{mentionLabel}
-            </span>
-          );
-        }
-        if (part.type === "mention-special" && part.mentionKind) {
-          return (
-            <span
-              key={`mention-special-${index}-${part.mentionKind}`}
-              className="inline-block px-1 py-0.5 rounded font-medium bg-yellow-500/20 text-yellow-200"
-            >
-              @{part.mentionKind}
-            </span>
-          );
-        }
-        return (
-          <span key={`text-${index}`} className="twemoji-text">
-            <MarkdownRenderer content={part.content} />
-          </span>
-        );
-      })}
+      {parsedContent.parts.map(renderPart)}
       {typeof document !== "undefined" && emojiCtxMenu && createPortal(
         <div
           className="ctx-menu fixed z-[9999] min-w-[188px]"

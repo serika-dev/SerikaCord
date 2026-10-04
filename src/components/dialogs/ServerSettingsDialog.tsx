@@ -3291,7 +3291,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             aria-label="Explicit media content filter"
             className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
           >
-            <option value="disabled">{gt("Don&apos;t scan any media content")}</option>
+            <option value="disabled">{gt("Don't scan any media content")}</option>
             <option value="members_without_roles">{gt("Scan content from members without roles")}</option>
             <option value="all_members">{gt("Scan content from all members")}</option>
           </select>

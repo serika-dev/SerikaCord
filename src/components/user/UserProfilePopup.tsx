@@ -49,7 +49,7 @@ const statusOptions = [
 
 type StatusValue = typeof statusOptions[number]['value'];
 
-export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupProps) {
+export function UserProfilePopup({ children }: UserProfilePopupProps) {
   const { user, refresh, updateUser } = useAuth();
   const localTime = useCurrentTime(user?.timezone);
   const gt = useGT();
@@ -96,7 +96,7 @@ export function UserProfilePopup({ children, onOpenSettings }: UserProfilePopupP
 
   const handleEditProfile = () => {
     setOpen(false);
-    onOpenSettings?.();
+    window.dispatchEvent(new CustomEvent('openUserSettings', { detail: { tab: 'profiles' } }));
   };
 
   const handleSaveStatus = async () => {

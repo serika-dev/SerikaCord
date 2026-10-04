@@ -6,6 +6,15 @@
 
 ## Unreleased
 
+### Bug Fixes
+- **Edit Profile opens your profile** — it used to reopen settings on whatever page was last open. (CORD-21)
+- **Menus highlight the item under the mouse** — server, member and other dropdown menus only highlighted on keyboard focus. (CORD-23)
+- **"Don't scan any media content"** — the explicit media filter option showed a raw `&apos;`. (CORD-26)
+- **Select lists no longer jitter at the bottom on macOS** — trackpad bounce scrolling fought the list's scroll buttons (Language picker and every other select). (CORD-37)
+- **Settings page titles match the sidebar** — "Text Images" now reads "Text & Images", and other pages use their translated names. (CORD-40)
+- **Headings keep their size with emoji, mentions or links in them** — the heading used to stop at the first custom emoji, mention or link. (CORD-48)
+- **Desktop activity no longer shows Figma when it is closed** — Figma's background font helper (`figma_agent`) was counted as Figma. Ships with the next desktop build. (CORD-58)
+
 ### Security
 - **@everyone/@here and role mentions now respect permissions** — the server never checked `MENTION_EVERYONE`, so turning off "Mention @everyone" for a role or channel did nothing and anyone could ping the whole server. Members without it (after channel overwrites) now send @everyone/@here as plain text, and can only ping roles marked mentionable. Applies to messages, edits and forum posts. Owners and administrators are unaffected. (CORD-59)
 

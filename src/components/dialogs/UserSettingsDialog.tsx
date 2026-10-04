@@ -1150,6 +1150,17 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     void saveSettingsPatch({ appearance: mergedAppearance }, "appearance");
   };
 
+  // "Edit Profile" opens settings with { tab: "profiles" }. The dialog stays mounted, so
+  // without this it reopened on whatever page was last open (CORD-21).
+  useEffect(() => {
+    const onOpenRequest = (event: Event) => {
+      const tab = (event as CustomEvent<{ tab?: SettingsTab } | undefined>).detail?.tab;
+      if (tab) setActiveTab(tab);
+    };
+    window.addEventListener('openUserSettings', onOpenRequest);
+    return () => window.removeEventListener('openUserSettings', onOpenRequest);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     fetchUserSettings();
@@ -3538,8 +3549,10 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Default fallback for other tabs */}
               {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports"].includes(activeTab) && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5 capitalize">
-                    {activeTab.replace(/-/g, " ")}
+                  <h2 className="text-xl font-bold text-white mb-5">
+                    {/* The sidebar label, not the tab id: "text-images" read as "Text Images" (CORD-40). */}
+                    {menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label
+                      ?? activeTab.replace(/-/g, " ")}
                   </h2>
                   {isLoadingSettings || !userSettings ? (
                     <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
