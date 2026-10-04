@@ -22,6 +22,7 @@ const PERM_VIEW_CHANNEL = 1n << 10n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
 const PERM_PIN_MESSAGES = 1n << 51n;
 const PERM_SEND_MESSAGES = 1n << 11n;
+const PERM_MENTION_EVERYONE = 1n << 17n;
 const PERM_MANAGE_WEBHOOKS = 1n << 29n;
 
 /**
@@ -245,6 +246,89 @@ async function canSendInChannel(
   // Default: allow if @everyone doesn't deny it
   if ((baseDeny & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return false;
   return true;
+}
+
+/**
+ * Whether a member may use @everyone/@here, and mention roles that aren't mentionable, in a
+ * channel. Server-level permissions come from all their roles (always including the
+ * server's @everyone role), then the channel's overwrites apply in Discord's order:
+ * @everyone, then the member's roles together, then the member. Owners and administrators
+ * always may.
+ */
+async function canMentionEveryoneInChannel(
+  channel: { permissionOverwrites?: any[]; serverId?: string | null },
+  userId: string,
+): Promise<boolean> {
+  const serverId = channel.serverId;
+  if (!serverId) return true; // DMs and group DMs have no such permission
+
+  const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
+  const [server, member, everyoneRole] = await Promise.all([
+    cachedOwner ? null : Server.findById(serverId),
+    ServerMember.findOne({ serverId, userId }),
+    Role.findOne({ serverId, isDefault: true }),
+  ]);
+  const ownerId = cachedOwner || server?.ownerId;
+  if (ownerId && compareIds(ownerId, userId)) return true;
+
+  const roleIds = Array.from(new Set([
+    ...(everyoneRole ? [everyoneRole.id as string] : []),
+    ...(((member?.roles || []) as string[])),
+  ]));
+  let perms = 0n;
+  for (const [, rolePerms] of await getRolePermissions(roleIds, serverId)) perms |= rolePerms;
+  if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
+
+  const overwrites = (channel.permissionOverwrites || []) as Array<{ id: string; type: string; allow?: string; deny?: string }>;
+  const apply = (allow: bigint, deny: bigint) => { perms = (perms & ~deny) | allow; };
+
+  // The @everyone overwrite is keyed by the server id in some places and the role id in others.
+  const everyoneOverwrite = overwrites.find((o) => o.type === 'role'
+    && (o.id === serverId || (everyoneRole && o.id === everyoneRole.id)));
+  if (everyoneOverwrite) apply(BigInt(everyoneOverwrite.allow || '0'), BigInt(everyoneOverwrite.deny || '0'));
+
+  let roleAllow = 0n;
+  let roleDeny = 0n;
+  for (const roleId of (member?.roles || []) as string[]) {
+    if (everyoneRole && roleId === everyoneRole.id) continue;
+    const overwrite = overwrites.find((o) => o.type === 'role' && o.id === roleId);
+    if (overwrite) {
+      roleAllow |= BigInt(overwrite.allow || '0');
+      roleDeny |= BigInt(overwrite.deny || '0');
+    }
+  }
+  apply(roleAllow, roleDeny);
+
+  const memberOverwrite = overwrites.find((o) => o.type === 'member' && o.id === userId);
+  if (memberOverwrite) apply(BigInt(memberOverwrite.allow || '0'), BigInt(memberOverwrite.deny || '0'));
+
+  return (perms & PERM_MENTION_EVERYONE) === PERM_MENTION_EVERYONE;
+}
+
+/**
+ * Drop the mentions a sender isn't allowed to make. Without MENTION_EVERYONE in the channel,
+ * @everyone/@here stay as plain text and only roles marked mentionable ping. The checks were
+ * missing entirely, so the "Mention @everyone" setting did nothing (CORD-59).
+ */
+async function limitMentionsToPermissions<T extends { mentionEveryone: boolean; mentionedRoleIds: string[] }>(
+  mentions: T,
+  channel: { permissionOverwrites?: any[]; serverId?: string | null },
+  userId: string,
+): Promise<T> {
+  if (!channel.serverId) return mentions;
+  if (!mentions.mentionEveryone && mentions.mentionedRoleIds.length === 0) return mentions;
+  if (await canMentionEveryoneInChannel(channel, userId)) return mentions;
+
+  const mentionable = mentions.mentionedRoleIds.length
+    ? new Set(((await Role.find({ serverId: channel.serverId, id: { in: mentions.mentionedRoleIds } })) as IRole[])
+        .filter((role) => role.mentionable)
+        .map((role) => role.id))
+    : new Set<string>();
+  return {
+    ...mentions,
+    mentionEveryone: false,
+    mentionedRoleIds: mentions.mentionedRoleIds.filter((id) => mentionable.has(id)),
+  };
 }
 
 const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<@&[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<#(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<a?:[a-zA-Z0-9_]+:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<t:-?\d{1,13}(?::[tTdDfFRC](?:\[[^\]]*\])?)?>|<t:-?\d{1,13}>/g;
@@ -1278,7 +1362,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Initial post message lives in the thread channel.
     let sanitizedContent = normalizeEmojiFormat(sanitizeMessageContent(content));
-    const mentionData = await extractMentionsFromContent(sanitizedContent, forum.serverId || null);
+    const mentionData = await limitMentionsToPermissions(
+      await extractMentionsFromContent(sanitizedContent, forum.serverId || null),
+      forum,
+      user.id,
+    );
     const encryptedContent = await encryptForStorage(sanitizedContent);
     const message = await Message.create({
       channelId: thread.id,
@@ -1945,7 +2033,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         const userServerIds = userServerMemberships.map((m: any) => m.serverId);
         return parseCustomEmojis(sanitizedContent, channel.serverId, userServerIds);
       })(),
-      extractMentionsFromContent(sanitizedContent, channel.serverId || null),
+      extractMentionsFromContent(sanitizedContent, channel.serverId || null)
+        .then((mentions) => limitMentionsToPermissions(mentions, channel, user.id)),
       sanitizedContent ? encryptForStorage(sanitizedContent) : Promise.resolve(''),
     ]);
 
@@ -2415,7 +2504,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       sanitizedEditContent = sanitizeMessageContent(content);
       sanitizedEditContent = normalizeEmojiFormat(sanitizedEditContent);
       const [mentionData, encryptedEdit] = await Promise.all([
-        extractMentionsFromContent(sanitizedEditContent, channel.serverId || null),
+        extractMentionsFromContent(sanitizedEditContent, channel.serverId || null)
+          .then((mentions) => limitMentionsToPermissions(mentions, channel, user.id)),
         encryptForStorage(sanitizedEditContent),
       ]);
       updateData.mentionEveryone = mentionData.mentionEveryone;
