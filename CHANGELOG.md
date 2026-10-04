@@ -7,6 +7,15 @@
 ## Unreleased
 
 ### Bug Fixes
+- **Right-click a person in chat or the DM list** — names and avatars in chat, and DM rows, open the user menu (Send Message, Add Friend, Call, Video Call, Copy Username/ID) like the member list does. (CORD-3)
+- **Close DM works** — the X on a DM row did nothing. It now hides the conversation until a new message arrives (also in the DM menu). Remembered per device.
+- **Role pills have an X** — remove a role straight from a member's role bar; the duplicate "..." role menu with toggles is gone, leaving the one with checkmarks. (CORD-27)
+- **Categories are called categories** — Edit Category, Delete Category and Category Name instead of Channel. (CORD-28)
+- **Deleting a category keeps its channels visible** — its channels used to keep pointing at the deleted category and vanished from the list. They now move out of it, and channels already orphaned this way show up again. (CORD-28)
+- **Settings stop flashing a spinner** — user and server settings only show a loading state the first time, then refresh in the background. (CORD-30)
+- **Channel permission label** — "Mention @everyone, @here, and All Roles", matching the role permission. (CORD-36)
+- **One theme control** — the Theme style dropdown duplicated the theme tiles right below it. (CORD-38)
+- **One animated emoji switch** — Appearance's "Animated Emojis" changed the same setting as GIF autoplay; it is now a single "Autoplay GIFs and animated emoji" switch in Text & Images. (CORD-39)
 - **Edit Profile opens your profile** — it used to reopen settings on whatever page was last open. (CORD-21)
 - **Menus highlight the item under the mouse** — server, member and other dropdown menus only highlighted on keyboard focus. (CORD-23)
 - **"Don't scan any media content"** — the explicit media filter option showed a raw `&apos;`. (CORD-26)

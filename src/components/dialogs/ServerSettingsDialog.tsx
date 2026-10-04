@@ -38,7 +38,6 @@ import {
   ExternalLink,
   Crown,
   Volume2,
-  MoreHorizontal,
   AlertTriangle,
   GripVertical,
   Search,
@@ -533,12 +532,17 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     setMembers((data.members || []) as ServerMember[]);
   }, [currentServer]);
 
+  // Tabs (per server) that have loaded once. Later refreshes, such as when the server
+  // object updates, keep the current data on screen instead of flashing a spinner (CORD-30).
+  const loadedTabsRef = useRef(new Set<string>());
+
   // Fetch data based on active tab
   useEffect(() => {
     if (!open || !currentServer) return;
+    const loadKey = `${currentServer.id}:${activeTab}`;
 
     const fetchData = async () => {
-      setIsLoading(true);
+      if (!loadedTabsRef.current.has(loadKey)) setIsLoading(true);
       try {
         switch (activeTab) {
           case "roles":
@@ -627,6 +631,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       } catch (error) {
         console.error("Failed to fetch data:", error);
       } finally {
+        loadedTabsRef.current.add(loadKey);
         setIsLoading(false);
       }
     };
@@ -2388,10 +2393,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       .map((role) => (
                         <span
                           key={`${member.id}-${role.id}`}
-                          className="px-2 py-0.5 rounded text-[11px]"
+                          className="group/role inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px]"
                           style={{ backgroundColor: `${role.color}22`, color: role.color }}
                         >
                           {role.name}
+                          {!role.managed && (
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleMemberRole(member, role.id, false)}
+                              className="opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                              title={gt("Remove role")}
+                              aria-label={gt("Remove role {role}", { role: role.name })}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
                         </span>
                       ))}
                     {member.roles.filter(r => !r.isDefault).length > 3 && (
@@ -2440,37 +2456,6 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     </DropdownMenu>
                   </div>
                 </div>
-                <details className="relative">
-                  <summary className="list-none p-2 hover:bg-[#1a1a1a] rounded-md text-[#888888] transition-colors cursor-pointer">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </summary>
-                  <div className="absolute right-0 mt-2 z-20 w-64 rounded-lg bg-[#0c0c0c] border border-[#222222] p-3 shadow-xl">
-                    <p className="text-xs uppercase tracking-wide text-[#888888] mb-2"><T>Assign Roles</T></p>
-                    <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
-                      {roles
-                        .slice()
-                        .sort((a, b) => b.position - a.position)
-                        .map((role) => {
-                          const checked = member.roles.some((entry) => entry.id === role.id);
-                          const isDisabled = role.isDefault;
-                          return (
-                            <label key={`${member.id}-${role.id}`} className="flex items-center justify-between gap-2 py-1">
-                              <span className="text-sm" style={{ color: role.color || "#ffffff" }}>
-                                {role.name}
-                              </span>
-                              <ToggleSwitch
-                                size="sm"
-                                checked={checked}
-                                disabled={isDisabled}
-                                aria-label={`Toggle role ${role.name}`}
-                                onCheckedChange={(next) => void handleToggleMemberRole(member, role.id, next)}
-                              />
-                            </label>
-                          );
-                        })}
-                    </div>
-                  </div>
-                </details>
               </div>
             ))}
         </div>

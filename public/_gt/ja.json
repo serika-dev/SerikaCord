@@ -4755,5 +4755,16 @@
   "d8dd723062e86dcc": "Webhook vs ボット",
   "154a66a940e83367": "Webhookは",
   "b56579e3b91085e2": "送信専用",
-  "d3725410b3a989ed": "メッセージを送信できますが、メッセージを読み取ったり、ボイスに参加したり、Gatewayイベントを受信したりできません。メッセージを読み取ったり反応する必要がある場合は、ボットを使用してください。両方を組み合わせることもできます：イベントを読み取るボットと、ボットがアクセスできないチャンネルに投稿するWebhook。"
+  "d3725410b3a989ed": "メッセージを送信できますが、メッセージを読み取ったり、ボイスに参加したり、Gatewayイベントを受信したりできません。メッセージを読み取ったり反応する必要がある場合は、ボットを使用してください。両方を組み合わせることもできます：イベントを読み取るボットと、ボットがアクセスできないチャンネルに投稿するWebhook。",
+  "e01a10cb9047a520": "Remove role {role}",
+  "0a589a93d94f1509": "Edit Category",
+  "2da50cbd4938e824": "Delete Category",
+  "19d502717da733f1": "Delete the category {category}? Its channels stay and move out of the category.",
+  "42902f592e45b180": "Category Name",
+  "d02a76ac74926f13": "Remove this category. Its channels stay and move out of the category.",
+  "db5bcbd0d800dc3b": "This can't be undone. The channels in it are kept.",
+  "34901bb929deb832": "Delete {name}",
+  "4bb0ec066c540cac": "Autoplay GIFs and animated emoji",
+  "06a50efbee55c37d": "Play animated GIFs and emoji automatically",
+  "261124990e99c514": "Close DM"
 }

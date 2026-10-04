@@ -641,7 +641,7 @@ export function ChannelSettingsDialog({
               )}
             >
               <Trash2 className="w-4 h-4" />
-              {gt("Delete Channel")}
+              {isCategory ? gt("Delete Category") : gt("Delete Channel")}
             </button>
           </div>
         </div>
@@ -679,7 +679,7 @@ export function ChannelSettingsDialog({
                   {/* Channel Name */}
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                      {gt("Channel Name")}
+                      {isCategory ? gt("Category Name") : gt("Channel Name")}
                     </Label>
                     <div className="relative flex items-center">
                       <span className="absolute left-3 text-[var(--text-muted)]">
@@ -1416,17 +1416,23 @@ export function ChannelSettingsDialog({
             {activeTab === "delete" && (
               <div className="max-w-[520px] space-y-6">
                 <div className="mb-6">
-                  <h2 className="text-xl font-bold text-red-500 mb-1">{gt("Delete Channel")}</h2>
-                  <p className="text-sm text-[var(--text-muted)]">{gt("Permanently remove this channel and all its content.")}</p>
+                  <h2 className="text-xl font-bold text-red-500 mb-1">{isCategory ? gt("Delete Category") : gt("Delete Channel")}</h2>
+                  <p className="text-sm text-[var(--text-muted)]">
+                    {isCategory
+                      ? gt("Remove this category. Its channels stay and move out of the category.")
+                      : gt("Permanently remove this channel and all its content.")}
+                  </p>
                 </div>
                 <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/20">
                   <h3 className="text-base font-semibold text-red-400 mb-2">
-                    {gt("Delete #{name}", { name: channel.name })}
+                    {isCategory ? gt("Delete {name}", { name: channel.name }) : gt("Delete #{name}", { name: channel.name })}
                   </h3>
                   <p className="text-sm text-[var(--text-muted)] leading-relaxed">
                     {gt("Are you sure you want to delete")}
-                    <span className="font-semibold text-[var(--text-primary)]">#{channel.name}</span>?
-                    {gt("This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.")}
+                    <span className="font-semibold text-[var(--text-primary)]">{isCategory ? channel.name : `#${channel.name}`}</span>?
+                    {isCategory
+                      ? gt("This can't be undone. The channels in it are kept.")
+                      : gt("This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.")}
                   </p>
                 </div>
 
@@ -1447,7 +1453,7 @@ export function ChannelSettingsDialog({
                   disabled={deleteConfirmText !== channel.name}
                   className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-medium w-full h-10"
                 >
-                  {gt("Delete Channel")}
+                  {isCategory ? gt("Delete Category") : gt("Delete Channel")}
                 </Button>
               </div>
             )}

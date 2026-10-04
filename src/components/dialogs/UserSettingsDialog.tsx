@@ -1084,7 +1084,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   }, [user]);
 
   const fetchUserSettings = async () => {
-    setIsLoadingSettings(true);
+    // Only the first load shows the spinner; reopening settings refreshes in the
+    // background instead of blanking every page while it reloads (CORD-30).
+    if (!userSettings) setIsLoadingSettings(true);
     try {
       const [settingsRes, appsRes, devicesRes, connectionsRes] = await Promise.all([
         fetch("/api/users/me/settings"),
@@ -3073,18 +3075,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {userSettings && (
                     <div className="rounded-lg p-5 space-y-4 border border-[var(--border-subtle)] bg-[var(--bg-card)]">
-                      <div>
-                        <label className="block text-sm text-[var(--text-secondary)] mb-2">{gt("Theme style")}</label>
-                        <select
-                          value={userSettings.appearance?.theme || userSettings.appearance?.themeStyle || themeSettings.theme || "dark"}
-                          onChange={(e) => saveAppearancePatch({ theme: e.target.value })}
-                          className="w-full rounded-md px-3 py-2 bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-                        >
-                          <option value="dark">{gt("Dark")}</option>
-                          <option value="midnight">{gt("Midnight")}</option>
-                          <option value="light">{gt("Light")}</option>
-                        </select>
-                      </div>
                       <div className="flex items-center justify-between">
                         <span className="text-[var(--text-primary)]">{gt("Compact mode")}</span>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)} onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })} />
@@ -3236,23 +3226,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <p className="text-sm text-[var(--text-secondary)]">{gt("Show smooth transitions and animations")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)} onCheckedChange={(checked) => saveAppearancePatch({ enableAnimations: checked })} />
-                      </label>
-                      <label className="flex items-center justify-between cursor-pointer group">
-                        <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Animated Emojis")}</p>
-                          <p className="text-sm text-[var(--text-secondary)]">{gt("Play animated emojis automatically")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.textImages?.gifAutoplay ?? themeSettings.animatedEmojis)} onCheckedChange={(checked) => {
-                            setUserSettings((prev) => ({
-                              ...(prev || {}),
-                              textImages: { ...(prev?.textImages || {}), gifAutoplay: checked },
-                            }));
-                            updateSettings({ animatedEmojis: checked });
-                            void saveSettingsPatch(
-                              { textImages: { ...(userSettings?.textImages || {}), gifAutoplay: checked } },
-                              "text-images"
-                            );
-                          }} />
                       </label>
                     </div>
                   </div>
@@ -3789,10 +3762,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("GIF autoplay")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Play animated GIFs automatically")}</p>
+                              <span className="text-white">{gt("Autoplay GIFs and animated emoji")}</span>
+                              <p className="text-xs text-[var(--text-secondary)]">{gt("Play animated GIFs and emoji automatically")}</p>
                             </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.gifAutoplay)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images")} />
+                            {/* The only switch for this: Appearance used to have a second "Animated Emojis" toggle for the same setting (CORD-39). */}
+                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.gifAutoplay)} onCheckedChange={(checked) => {
+                              updateSettings({ animatedEmojis: checked });
+                              void saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images");
+                            }} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>

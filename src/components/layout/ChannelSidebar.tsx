@@ -47,6 +47,7 @@ import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { UserMenuItems } from "@/components/user/UserContextMenu";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { ServerBadge } from "@/components/ui/badges";
@@ -89,6 +90,8 @@ interface DMChannel {
   updatedAt?: string;
   unreadCount?: number;
 }
+
+const CLOSED_DMS_KEY = "serikacord:closed-dms";
 
 interface ChannelSidebarProps {
   onInvitePeople?: () => void;
@@ -421,7 +424,10 @@ export function ChannelSidebar({
   };
 
   const handleDeleteChannel = async () => {
-    if (contextMenu?.channel && confirm(gt("Are you sure you want to delete #{channel}?", { channel: contextMenu.channel.name }))) {
+    const confirmText = contextMenu?.channel?.type === "category"
+      ? gt("Delete the category {category}? Its channels stay and move out of the category.", { category: contextMenu.channel.name })
+      : gt("Are you sure you want to delete #{channel}?", { channel: contextMenu?.channel?.name ?? "" });
+    if (contextMenu?.channel && confirm(confirmText)) {
       try {
         await deleteChannel(contextMenu.channel.id);
         closeContextMenu();
@@ -526,7 +532,11 @@ export function ChannelSidebar({
   }, [channels]);
 
   const uncategorizedChannels = useMemo(() => {
-    return normalChannels.filter(c => c.type !== "category" && !c.parentId).sort(mentionFirst);
+    // A channel whose category is gone counts as uncategorized instead of vanishing.
+    const categoryIds = new Set(normalChannels.filter(c => c.type === "category").map(c => c.id));
+    return normalChannels
+      .filter(c => c.type !== "category" && (!c.parentId || !categoryIds.has(c.parentId)))
+      .sort(mentionFirst);
   }, [normalChannels, mentionFirst]);
 
   const categories = useMemo(() => {
@@ -634,8 +644,34 @@ export function ChannelSidebar({
     setCollapsedCategories(new Set());
   }, [currentServer?.id]);
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
+  // Closed DMs (the X on a DM row): channel id → last message id when it was closed.
+  // A DM comes back as soon as a newer message arrives, like on Discord. Kept per device.
+  const [closedDms, setClosedDms] = useState<Record<string, string>>({});
+  useEffect(() => {
+    try {
+      setClosedDms(JSON.parse(localStorage.getItem(CLOSED_DMS_KEY) || "{}"));
+    } catch { /* storage unavailable: nothing closed */ }
+  }, []);
+  const closeDm = (channel: DMChannel) => {
+    setClosedDms((prev) => {
+      const next = { ...prev, [channel.id]: channel.lastMessageId ?? "" };
+      try { localStorage.setItem(CLOSED_DMS_KEY, JSON.stringify(next)); } catch { /* best effort */ }
+      return next;
+    });
+    if (pathname === `/dm/${channel.recipients[0]?.id}`) router.push("/channels/me");
+  };
   const [externalVoiceParticipants, setExternalVoiceParticipants] = useState<Map<string, VoiceParticipant[]>>(new Map());
   const pathname = usePathname();
+  // Hide closed DMs until a newer message arrives; the open conversation always shows.
+  const visibleDmChannels = useMemo(
+    () => dmChannels.filter((channel) => {
+      const closedAt = closedDms[channel.id];
+      if (closedAt === undefined) return true;
+      if (pathname === `/dm/${channel.recipients[0]?.id}`) return true;
+      return (channel.lastMessageId ?? "") !== closedAt;
+    }),
+    [dmChannels, closedDms, pathname],
+  );
 
   const renderChannelItem = (channel: typeof channels[0]) => {
     const showDropBefore = dropIndicator?.targetId === channel.id && dropIndicator.position === "before";
@@ -1083,9 +1119,9 @@ export function ChannelSidebar({
               </button>
             </div>
 
-            {dmChannels.length > 0 ? (
+            {visibleDmChannels.length > 0 ? (
               <div className="space-y-0.5">
-                {dmChannels.map((channel) => {
+                {visibleDmChannels.map((channel) => {
                   const recipient = channel.recipients[0];
                   if (!recipient) return null;
                   const isActive = pathname === `/dm/${recipient.id}`;
@@ -1147,7 +1183,10 @@ export function ChannelSidebar({
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          closeDm(channel);
                         }}
+                        title={gt("Close DM")}
+                        aria-label={gt("Close DM")}
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1181,14 +1220,22 @@ export function ChannelSidebar({
               <Check className="w-4 h-4" />
               {gt("Mark As Read")}
             </button>
-            <div className="ctx-sep" />
-            <button
-              onClick={() => { navigator.clipboard.writeText(dmContextMenu.channel.recipients[0]?.id || ""); closeDmContextMenu(); }}
-              className="ctx-item"
-            >
-              <Copy className="w-4 h-4" />
-              {gt("Copy User ID")}
+            <button onClick={() => { closeDm(dmContextMenu.channel); closeDmContextMenu(); }} className="ctx-item">
+              <X className="w-4 h-4" />
+              {gt("Close DM")}
             </button>
+            <div className="ctx-sep" />
+            {dmContextMenu.channel.type === "dm" && dmContextMenu.channel.recipients[0] ? (
+              <UserMenuItems user={dmContextMenu.channel.recipients[0]} onDone={closeDmContextMenu} />
+            ) : (
+              <button
+                onClick={() => { navigator.clipboard.writeText(dmContextMenu.channel.recipients[0]?.id || ""); closeDmContextMenu(); }}
+                className="ctx-item"
+              >
+                <Copy className="w-4 h-4" />
+                {gt("Copy User ID")}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1451,7 +1498,7 @@ export function ChannelSidebar({
               className="ctx-item"
             >
               <Edit2 className="w-4 h-4" />
-              {gt("Edit Channel")}
+              {contextMenu.channel.type === "category" ? gt("Edit Category") : gt("Edit Channel")}
             </button>
           )}
           {canInvite && (
@@ -1506,7 +1553,7 @@ export function ChannelSidebar({
                 className="ctx-item ctx-item-danger"
               >
                 <Trash2 className="w-4 h-4" />
-                {gt("Delete Channel")}
+                {contextMenu.channel.type === "category" ? gt("Delete Category") : gt("Delete Channel")}
               </button>
             </>
           )}

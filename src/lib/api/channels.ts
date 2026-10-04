@@ -1187,10 +1187,26 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const messages = await Message.find({ channelId: channel.id });
     await Promise.all(messages.map(m => Message.updateById(m.id, { isDeleted: true, deletedAt: new Date() })));
 
+    // A category's channels move out of it rather than being left pointing at a category
+    // that no longer exists, which hid them from the channel list entirely.
+    const orphaned = channel.type === 'category' && channel.serverId
+      ? await Channel.find({ serverId: channel.serverId, parentId: channel.id })
+      : [];
+    await Promise.all(orphaned.map((child) => Channel.updateById(child.id, { parentId: null })));
+
     await Channel.deleteById(channel.id);
 
     // Publish delete event
     const publisher = getPublisher();
+    if (publisher) {
+      for (const child of orphaned) {
+        await publisher.publish('channel:update', JSON.stringify({
+          channelId: child.id,
+          serverId: channel.serverId,
+          updates: { parentId: null },
+        }));
+      }
+    }
     if (publisher) {
       await publisher.publish('channel:delete', JSON.stringify({
         channelId: params.channelId,

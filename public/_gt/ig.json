@@ -4120,5 +4120,16 @@
   "d8dd723062e86dcc": "Webhooks vs Bots",
   "154a66a940e83367": "Webhooks are",
   "b56579e3b91085e2": "outbound only",
-  "d3725410b3a989ed": "they can send messages but cannot read messages, join voice, or receive gateway events. If you need to read or react to messages, use a bot instead. You can combine both: a bot for reading events and a webhook for posting to channels the bot doesn't have access to."
+  "d3725410b3a989ed": "they can send messages but cannot read messages, join voice, or receive gateway events. If you need to read or react to messages, use a bot instead. You can combine both: a bot for reading events and a webhook for posting to channels the bot doesn't have access to.",
+  "e01a10cb9047a520": "Remove role {role}",
+  "0a589a93d94f1509": "Edit Category",
+  "2da50cbd4938e824": "Delete Category",
+  "19d502717da733f1": "Delete the category {category}? Its channels stay and move out of the category.",
+  "42902f592e45b180": "Category Name",
+  "d02a76ac74926f13": "Remove this category. Its channels stay and move out of the category.",
+  "db5bcbd0d800dc3b": "This can't be undone. The channels in it are kept.",
+  "34901bb929deb832": "Delete {name}",
+  "4bb0ec066c540cac": "Autoplay GIFs and animated emoji",
+  "06a50efbee55c37d": "Play animated GIFs and emoji automatically",
+  "261124990e99c514": "Close DM"
 }

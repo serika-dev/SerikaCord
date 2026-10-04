@@ -12,6 +12,7 @@ import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/use
 import { cn, cdnImage } from "@/lib/utils";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { useChatGt } from "./ChatGtContext";
+import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
 
@@ -22,6 +23,7 @@ interface GroupAvatarProps {
 
 /** The 40px avatar in the message gutter, wrapped in a profile popup when possible. */
 export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: GroupAvatarProps) {
+  const { openUserMenu, userMenu } = useUserContextMenu();
   const initial = (author.displayName || author.username || "?").charAt(0).toUpperCase();
   const avatar = (
     <Avatar className="w-10 h-10 mt-0.5">
@@ -33,6 +35,7 @@ export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: Group
   if (!author.id || author.id === "unknown") return avatar;
 
   return (
+    <>
     <MemberProfilePopup
       member={{
         id: author.id,
@@ -49,11 +52,13 @@ export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: Group
       <button
         className="block rounded-full focus-visible:outline-2 focus-visible:outline-[#8B5CF6] cursor-pointer hover:opacity-90 transition-opacity"
         aria-label={`View profile of ${author.displayName || author.username}`}
-        onContextMenu={(e) => e.stopPropagation()}
+        onContextMenu={(e) => openUserMenu(e, { ...author, id: author.id!, username: author.username || "unknown" })}
       >
         {avatar}
       </button>
     </MemberProfilePopup>
+    {userMenu}
+    </>
   );
 });
 
@@ -67,6 +72,7 @@ interface GroupHeaderProps {
 /** Author name + staff pill + timestamp row above the first message of a group. */
 export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor }: GroupHeaderProps) {
   const gt = useChatGt();
+  const { openUserMenu, userMenu } = useUserContextMenu();
   const { settings } = useTheme();
   // Server-only: surface a red clock next to timed-out members. In DMs the
   // members list is empty so this is a no-op.
@@ -88,6 +94,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
 
   return (
     <div className="flex items-center gap-2 mb-1">
+      {userMenu}
       {author.id && author.id !== "unknown" ? (
         <MemberProfilePopup
           member={{
@@ -104,7 +111,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
           side="right"
           align="start"
         >
-          <button onContextMenu={(e) => e.stopPropagation()} className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
+          <button onContextMenu={(e) => openUserMenu(e, { ...author, id: author.id!, username: author.username || "unknown" })} className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
             <span>{name}</span>
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />

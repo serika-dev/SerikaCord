@@ -93,7 +93,7 @@ export const CHANNEL_PERMISSIONS = {
   ADD_REACTIONS: { flag: 2 ** 6, name: 'Add Reactions' },
   USE_EXTERNAL_EMOJI: { flag: 2 ** 18, name: 'Use External Emoji' },
   USE_EXTERNAL_STICKERS: { flag: 2 ** 37, name: 'Use External Stickers' },
-  MENTION_EVERYONE: { flag: 2 ** 17, name: 'Mention @everyone' },
+  MENTION_EVERYONE: { flag: 2 ** 17, name: 'Mention @everyone, @here, and All Roles' },
   MANAGE_MESSAGES: { flag: 2 ** 13, name: 'Manage Messages' },
   MANAGE_THREADS: { flag: 2 ** 34, name: 'Manage Threads' },
   READ_MESSAGE_HISTORY: { flag: 2 ** 16, name: 'Read Message History' },
