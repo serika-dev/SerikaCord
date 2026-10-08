@@ -19,6 +19,11 @@ export function setUserNotificationSettings(n: IUserSettings['notifications'] | 
   }
 }
 
+/** True when the user turned off "Mentions only" (notify on every message). */
+export function isNotifyAllMessages(): boolean {
+  return getNotifSettings()?.notifyAllMessages === true;
+}
+
 function getNotifSettings(): IUserSettings['notifications'] | null {
   if (cachedSettings) return cachedSettings;
   // Fallback: read from localStorage (legacy)
@@ -109,6 +114,8 @@ export function evaluateNotification(ctx: NotifyContext): NotifyDecision {
 
   // @everyone suppression
   const everyoneSuppressed = ctx.isEveryoneMention && muteEveryone && !ctx.isMentioned;
+  // An un-muted @everyone/@here ping notifies like a mention.
+  const effectiveMention = ctx.isMentioned || (ctx.isEveryoneMention && !muteEveryone);
 
   // Sound
   const playSound = soundsEnabled &&
@@ -120,14 +127,14 @@ export function evaluateNotification(ctx: NotifyContext): NotifyDecision {
   const showDesktop = desktopEnabled &&
     passesFocusFilter &&
     !everyoneSuppressed &&
-    (ctx.isMentioned || notifyAllMessages || ctx.isDM) &&
-    (!ctx.isTabVisible || ctx.isMentioned);
+    (effectiveMention || notifyAllMessages || ctx.isDM) &&
+    (!ctx.isTabVisible || effectiveMention);
 
   // Toast
   const showToast = !suppressToasts &&
     passesFocusFilter &&
     !everyoneSuppressed &&
-    (!ctx.isTabVisible || ctx.isMentioned);
+    (!ctx.isTabVisible || effectiveMention);
 
   // Badge
   const incrementBadge = passesFocusFilter && !everyoneSuppressed;

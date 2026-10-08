@@ -28,6 +28,7 @@ import {
   clearUnread,
   evaluateNotification,
   incrementUnread,
+  isNotifyAllMessages,
   playNotificationSound,
 } from "@/lib/services/notificationUX";
 import { showNotification } from "@/lib/services/notificationService";
@@ -154,6 +155,8 @@ function notifyBackgroundMessage(opts: {
   icon?: string | null;
   data: Record<string, unknown>;
   onOpen: () => void;
+  /** Non-mention message ("notify on all messages"): no toast, and sound only while unfocused. */
+  desktopOnly?: boolean;
 }) {
   const focused = isAppFocused();
   const decision = evaluateNotification({
@@ -165,7 +168,7 @@ function notifyBackgroundMessage(opts: {
     isTabVisible: focused && opts.viewing,
   });
   if (!focused && decision.incrementBadge) incrementUnread();
-  if (decision.playSound) playNotificationSound();
+  if (decision.playSound && !(opts.desktopOnly && focused)) playNotificationSound();
   if (decision.showDesktop && !focused) {
     void showNotification(opts.title, opts.body, {
       tag: `message-${opts.channelId}`,
@@ -174,7 +177,7 @@ function notifyBackgroundMessage(opts: {
       onClick: opts.onOpen,
     });
   }
-  if (decision.showToast && focused && !opts.viewing) {
+  if (decision.showToast && focused && !opts.viewing && !opts.desktopOnly) {
     toast(opts.title, {
       description: opts.body,
       duration: 5000,
@@ -658,7 +661,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
 
       // The open channel notifies through its own chat view; everything else
       // (other channels, or this one while the chat isn't mounted) goes here.
-      if (mentionsMe && !isActive && markMessageSeen(event.messageId)) {
+      if ((mentionsMe || isNotifyAllMessages()) && !isActive && markMessageSeen(event.messageId)) {
         const label = event.channelName ? `#${event.channelName}` : "a channel";
         const who = event.authorName || "Someone";
         const url = event.serverId ? `/channels/${event.serverId}/${event.channelId}` : null;
@@ -668,8 +671,9 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           isMentioned: (event.mentionedUserIds || []).includes(user.id),
           isEveryoneMention: Boolean(event.mentionEveryone),
           viewing: false,
-          title: `${who} mentioned you`,
-          body: `in ${label}`,
+          title: mentionsMe ? `${who} mentioned you` : `${who} in ${label}`,
+          body: mentionsMe ? `in ${label}` : label,
+          desktopOnly: !mentionsMe,
           data: { channelId: event.channelId, serverId: event.serverId, url },
           onOpen: () => {
             window.focus();

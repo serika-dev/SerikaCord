@@ -1,9 +1,10 @@
 import { Elysia, t } from 'elysia';
 import { and, eq, sql } from 'drizzle-orm';
-import { Channel, Message, User, ServerMember, ServerSticker } from '@/lib/models';
+import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings, type IMessage } from '@/lib/models';
 import { ChannelReadState } from '@/lib/models/ChannelReadState';
 import { db, schema } from '@/lib/db/postgres';
 import { canStartDm, dmPairKey, dmPrivacy, isDmBlocked, isDmListedFor, pickDmChannel } from '@/lib/chat/dmAccess';
+import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';

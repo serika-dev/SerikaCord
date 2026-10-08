@@ -36,7 +36,7 @@ export function isRTLLocale(locale: string): boolean {
   return RTL_LOCALES.some((l) => locale.startsWith(l));
 }
 
-function resolveSupportedLocale(locale: string): string {
+export function resolveSupportedLocale(locale: string): string {
   if (!locale) return "en";
   const lower = locale.toLowerCase();
   const exact = SUPPORTED_LOCALES.find((l) => lower === l || lower.startsWith(l + "-"));
@@ -62,18 +62,19 @@ export function useLocale() {
     sharedGet("/api/users/me/settings")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        const dbLocale = data?.language?.locale;
-        if (dbLocale) {
+        const dbLocale = data?.settings?.language?.locale;
+        // 'en-US' is the injected default, not an explicit choice.
+        if (dbLocale && dbLocale !== "en-US") {
           const resolved = resolveSupportedLocale(dbLocale);
           localStorage.setItem("serika-locale", resolved);
           setLocaleState(resolved);
           setIsRTL(isRTLLocale(resolved));
           return;
         }
-        // Fall back to browser language
+        // Fall back to browser language. Not persisted: only an explicit
+        // choice is stored, so it never hides the account's saved locale.
         const browserLang = navigator?.languages?.[0] || navigator?.language || "en";
         const resolved = resolveSupportedLocale(browserLang);
-        localStorage.setItem("serika-locale", resolved);
         setLocaleState(resolved);
         setIsRTL(isRTLLocale(resolved));
       })

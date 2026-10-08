@@ -6,6 +6,7 @@ import { twemojiOnError } from "@/lib/twemoji-helpers";
 import { useChatGt } from "./ChatGtContext";
 import { cn, cdnImage } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";
+import { useAnimatedMedia } from "@/hooks/useAnimatedMedia";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
@@ -117,6 +118,7 @@ export const MessageContent = memo(function MessageContent({
   inline = false,
 }: MessageContentProps) {
   const gt = useChatGt();
+  const animateMedia = useAnimatedMedia();
   const textRef = useRef<HTMLSpanElement>(null);
   const { isFavorite, toggleFavorite } = useEmojiFavorites();
   const [emojiCtxMenu, setEmojiCtxMenu] = useState<{
@@ -454,7 +456,7 @@ export const MessageContent = memo(function MessageContent({
       <div className={className}>
         <div className={cn("relative group", onlyGif ? "inline-flex rounded-lg chat-gif-wrap" : "inline-block w-fit")}>
           <img
-            src={imageOnlyUrl}
+            src={onlyGif && !animateMedia ? cdnImage(imageOnlyUrl, { still: true }) : imageOnlyUrl}
             alt={gt("Image")}
             className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
             onClick={() => handleMediaClick(imageOnlyUrl, gt("Image"))}
@@ -491,7 +493,7 @@ export const MessageContent = memo(function MessageContent({
       return (
         <img
           key={`emoji-${index}-${part.emoji.id}`}
-          src={cdnImage(part.emoji.url || part.emoji.imageUrl)}
+          src={cdnImage(part.emoji.url || part.emoji.imageUrl, { still: !animateMedia })}
           alt={`:${part.emoji.name}:`}
           title={`:${part.emoji.name}:`}
           className="custom-emoji"
@@ -515,7 +517,7 @@ export const MessageContent = memo(function MessageContent({
         <span key={`image-${index}`} className="block my-2">
           <span className={cn("relative group", inlineGif && "inline-flex rounded-lg chat-gif-wrap")}>
             <img
-              src={part.url}
+              src={inlineGif && !animateMedia ? cdnImage(part.url, { still: true }) : part.url}
               alt={gt("Image")}
               className="chat-media cursor-pointer hover:opacity-90 transition-opacity block"
               onClick={() => handleMediaClick(part.url!, gt("Image"))}

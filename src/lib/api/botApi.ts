@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 import { Application, ChannelWebhook } from '@/lib/models';
 import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
@@ -1617,6 +1618,20 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   );
 
   if (!dm) {
+    // A bot may only open a DM with someone who shares a server with it, has
+    // not blocked it, and accepts DMs from non-friends.
+    const recipient = await User.findById(recipient_id);
+    if (!recipient) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
+    const blocked = ((recipient.blockedUsers as string[] | undefined) ?? []).includes(auth.botUser.id);
+    const [botMemberships, recipientMemberships] = await Promise.all([
+      ServerMember.find({ userId: auth.botUser.id }),
+      ServerMember.find({ userId: recipient_id }),
+    ]);
+    const botServers = new Set(botMemberships.map((m: { serverId: string }) => String(m.serverId)));
+    const sharesServer = recipientMemberships.some((m: { serverId: string }) => botServers.has(String(m.serverId)));
+    if (blocked || !sharesServer || !acceptsDmsFromNonFriends(recipient.settings as Parameters<typeof acceptsDmsFromNonFriends>[0])) {
+      set.status = 403; return { code: 50007, message: 'Cannot send messages to this user' };
+    }
     dm = await Channel.create({
       type: 'dm',
       recipientIds: [auth.botUser.id, recipient_id],

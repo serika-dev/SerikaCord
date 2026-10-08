@@ -19,13 +19,21 @@ const CDN_IMAGE_HOST = "cdn.serika.chat";
  * `format=webp` when no explicit format is present. Existing params (w/h/flip/
  * quality/etc.) are preserved untouched.
  */
-export function cdnImage(url?: string | null): string {
+export function cdnImage(url?: string | null, opts?: { still?: boolean }): string {
   if (!url) return url ?? "";
   // Fast bail-out for non-CDN / non-http strings without constructing a URL.
   if (!url.includes(CDN_IMAGE_HOST)) return url;
   try {
     const u = new URL(url);
     if (u.hostname !== CDN_IMAGE_HOST) return url;
+    if (opts?.still) {
+      // `still`: first frame only (wsrv n=1), so GIFs/animated WebP don't play.
+      u.searchParams.set("n", "1");
+      if (!u.searchParams.has("format") && !u.searchParams.has("output") && !u.searchParams.has("fm")) {
+        u.searchParams.set("format", "webp");
+      }
+      return u.toString();
+    }
     // Respect a caller-specified output format (wsrv accepts format/output/fm).
     if (u.searchParams.has("format") || u.searchParams.has("output") || u.searchParams.has("fm")) {
       return url;

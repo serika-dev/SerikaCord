@@ -8,6 +8,8 @@ import { NetworkStatus } from "@/components/ui/network-status";
 import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
 import { ChunkReloadGuard } from "@/components/boot/ChunkReloadGuard";
 import { AppProviders } from "@/components/boot/AppProviders";
+import { SettingsHydrator } from "@/components/boot/SettingsHydrator";
+import { MotionPreferences } from "@/components/boot/MotionPreferences";
 import { TauriUpdater } from "@/components/TauriUpdater";
 import { buildRootMetadata } from "@/lib/seo";
 import "./globals.css";
@@ -152,13 +154,16 @@ export default function RootLayout({
         <GTProvider>
           <LocaleSync />
           <ThemeProvider>
-            <AuthProvider>
-              <AppProviders>{children}</AppProviders>
-              <NetworkStatus />
-              <ToasterWrapper />
-              <ChunkReloadGuard />
-              <TauriUpdater />
-            </AuthProvider>
+            <MotionPreferences>
+              <AuthProvider>
+                <SettingsHydrator />
+                <AppProviders>{children}</AppProviders>
+                <NetworkStatus />
+                <ToasterWrapper />
+                <ChunkReloadGuard />
+                <TauriUpdater />
+              </AuthProvider>
+            </MotionPreferences>
           </ThemeProvider>
         </GTProvider>
       </body>

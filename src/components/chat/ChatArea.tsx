@@ -509,7 +509,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       const isTabVisible = document.visibilityState === "visible" && document.hasFocus();
 
       const decision = evaluateNotification({
-        isMentioned: isMentioned || isEveryoneMention,
+        // Direct/role mentions only: evaluateNotification decides whether an
+        // @everyone ping counts, so "Mute @everyone and @here" can apply.
+        isMentioned,
         isDM: false,
         isEveryoneMention,
         channelId: message.channelId,

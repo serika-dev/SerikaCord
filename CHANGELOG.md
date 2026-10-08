@@ -10,6 +10,10 @@
 - **What's new page and version info** — User Settings and the mobile profile show the running version and commit (`SerikaCord v2.0.0 (abc1234)`) with a "What's new" link to the new `/changelog` page. Bug reports pick up the real version, and `/api/version` reports what's deployed.
 
 ### Bug Fixes
+- **Settings apply right away** — chat-side toggles (TTS, inline media, message previews, emoji picker, developer mode) take effect without a reload; sliders no longer jump back or spam "Settings saved"; your theme, notification and DND settings and saved language load after signing in or switching accounts.
+- **Privacy toggles work on desktop** — "Allow DMs from non-friends" and "Allow friend requests" now really block strangers, and there's a "Share activity status" switch. Bots can only DM people they share a server with who allow DMs.
+- **Notification fixes** — "Mute @everyone and @here" also applies to the channel you have open, and turning off "Mentions only" notifies for messages in other channels.
+- **Reduced motion, Compact mode and GIF autoplay** — turning off animations or GIF/animated emoji autoplay, or turning on Compact mode, now changes what you see. Advanced toggles that did nothing (Verbose Logging, API Latency, Debug Overlay) are gone.
 - **Right-click a person in chat or the DM list** — names and avatars in chat, and DM rows, open the user menu (Send Message, Add Friend, Call, Video Call, Copy Username/ID) like the member list does. (CORD-3)
 - **Close DM works** — the X on a DM row did nothing. It now hides the conversation until a new message arrives (also in the DM menu). Remembered per device.
 - **Role pills have an X** — remove a role straight from a member's role bar; the duplicate "..." role menu with toggles is gone, leaving the one with checkmarks. (CORD-27)

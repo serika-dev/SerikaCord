@@ -1,3 +1,4 @@
+import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 // Pure DM access rules shared by the DM routes (src/lib/api/dms.ts), the raw
 // SSE fast path (server.ts) and the generic channel send route (channels.ts).
 // No DB access here so the rules can be unit-tested.
@@ -43,7 +44,7 @@ export function isDmBlocked(a: DmParty, b: DmParty): boolean {
 export function dmPrivacyAllows(sender: DmParty, recipient: DmParty, recipientIsSystem = false): boolean {
   if (recipientIsSystem || recipient.isSystem) return true;
   if ((sender.friends || []).some((id) => sameId(id, recipient.id))) return true;
-  return dmPrivacy(recipient.settings) === 'everyone';
+  return acceptsDmsFromNonFriends(recipient.settings as Parameters<typeof acceptsDmsFromNonFriends>[0]);
 }
 
 /** Whether `sender` may open a brand-new DM with `recipient`. */

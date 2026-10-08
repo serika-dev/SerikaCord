@@ -802,20 +802,32 @@ html.message-spacing-cozy .chat-message-row {
   padding-block: 0.25rem;
 }
 
+/* Compact mode (Appearance): tighter message rows, beats the spacing classes */
+html.compact-mode .chat-message-row {
+  padding-block: 0.05rem;
+}
+html.compact-mode .msg-group-cv {
+  padding-top: 0.2rem;
+  margin-top: -0.3rem;
+}
+
+/* Reduced motion / animations off (app setting, independent of the OS) */
+html.reduce-motion *,
+html.reduce-motion *::before,
+html.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 /* Saturation filter applied to the whole app */
 html.saturation-filter body {
   filter: saturate(var(--saturation, 100%));
 }
 
-/* Disable animated emojis: show only first frame */
-html.no-animated-emojis .twemoji img.emoji[src*=".gif"],
-html.no-animated-emojis img.custom-emoji[src*=".gif"] {
-  background-image: none;
-}
-html.no-animated-emojis img.custom-emoji[alt*="animated"],
-html.no-animated-emojis img.emoji[alt*="animated"] {
-  animation: none !important;
-}
+/* html.no-animated-emojis (GIF/animated emoji autoplay off) is handled at
+   render time: useAnimatedMedia() + cdnImage(url, { still: true }). */
 
 /* Disable animated avatars: show static poster frame */
 html.no-animated-avatars img[src*=".gif"] {

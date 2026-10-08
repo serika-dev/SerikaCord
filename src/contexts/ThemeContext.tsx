@@ -1,8 +1,6 @@
 "use client";
 
-import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
-import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
 
 export interface ThemeSettings {
@@ -119,29 +117,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setIsLoaded(true);
   }, []);
 
-  // Hydrate from server-side persisted settings when available.
-  useEffect(() => {
-    if (!isLoaded) return;
-    let active = true;
-
-    sharedGet("/api/users/me/settings")
-      .then(async (res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!active || !data?.settings) return;
-        applyUserSettingsPatch(data.settings);
-        setUserNotificationSettings(data.settings?.notifications);
-        if (typeof data.settings?.voiceVideo?.soundboardVolume === "number") {
-          voiceService.setSoundboardVolume(data.settings.voiceVideo.soundboardVolume);
-        }
-      })
-      .catch(() => {
-        // optional hydration; ignore when unauthenticated
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [applyUserSettingsPatch, isLoaded]);
+  // Server-side settings are hydrated per signed-in user by
+  // <SettingsHydrator/> (inside AuthProvider), so login/account switches apply.
 
   // Save settings to localStorage and apply CSS variables
   useEffect(() => {

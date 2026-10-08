@@ -1,3 +1,4 @@
+import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 import { normalizeId } from '@/lib/db/normalizeId';
 
 /**
@@ -31,8 +32,7 @@ export function dmSendDenyReason(
   const recipientIsSystem = Boolean(opts.recipientIsSystem || recipient.isSystem);
   if (recipientIsSystem) return null;
   const isFriend = (sender.friends || []).some((f) => same(f, recipient.id));
-  const dmSetting = (recipient.settings as { privacy?: { directMessages?: string } } | null | undefined)?.privacy?.directMessages;
-  if (!isFriend && dmSetting !== 'everyone') {
+  if (!isFriend && !acceptsDmsFromNonFriends(recipient.settings as Parameters<typeof acceptsDmsFromNonFriends>[0])) {
     return 'You cannot message this user';
   }
   return null;

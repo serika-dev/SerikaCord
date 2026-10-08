@@ -158,6 +158,19 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const targetId = params.id === '@me' ? user.id : params.id;
+    if (targetId !== user.id) {
+      // Honor the target's "Share activity status" and blocks either way.
+      const target = await User.findById(targetId) as IUser | null;
+      const targetSettings = target?.settings as { privacy?: { showActivity?: boolean } } | undefined;
+      if (
+        !target ||
+        targetSettings?.privacy?.showActivity === false ||
+        (target.blockedUsers ?? []).includes(user.id) ||
+        ((user as IUser).blockedUsers ?? []).includes(targetId)
+      ) {
+        return { presences: [] };
+      }
+    }
     const docs = await RichPresence.find({ userId: targetId });
     const now = Date.now();
     const active = (docs as IRichPresence[]).filter((d) => d.expiresAt && new Date(d.expiresAt).getTime() > now);

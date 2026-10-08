@@ -94,9 +94,9 @@ describe("dmSendDenyReason", () => {
     expect(dmSendDenyReason(alice, { ...bob, blockedUsers: [ALICE] })).not.toBeNull();
   });
 
-  test("non-friends need the recipient's privacy set to everyone", () => {
+  test("non-friends are allowed unless the recipient restricts DMs (unset = everyone)", () => {
     const stranger = { ...alice, friends: [] };
-    expect(dmSendDenyReason(stranger, bob)).not.toBeNull();
+    expect(dmSendDenyReason(stranger, bob)).toBeNull();
     expect(dmSendDenyReason(stranger, { ...bob, settings: { privacy: { directMessages: "friends" } } })).not.toBeNull();
     expect(dmSendDenyReason(stranger, { ...bob, settings: { privacy: { directMessages: "everyone" } } })).toBeNull();
   });

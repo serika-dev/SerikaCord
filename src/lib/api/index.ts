@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { acceptsFriendRequests } from '@/lib/settings/privacy';
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
@@ -2527,6 +2528,10 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       // Check if target blocked the user
       if (hasId(targetUser.blockedUsers, user.id)) {
         return { status: 403, body: { error: 'Unable to send friend request to this user' } };
+      }
+      // Privacy: "Allow friend requests from" set to nobody.
+      if (!acceptsFriendRequests(targetUser.settings as IUserSettings | undefined)) {
+        return { status: 403, body: { error: `${targetUser.displayName || targetUser.username} is not accepting friend requests` } };
       }
 
       // Check privacy settings

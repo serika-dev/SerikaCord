@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateActio
 import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuth } from "@/contexts/AuthContext";
+import { mergeSettingsDeep, type SettingsPatch } from "@/lib/settings/mergeSettings";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -479,11 +480,13 @@ function VoiceVideoTab({
   userSettings,
   isLoadingSettings,
   saveSettingsPatch,
+  saveSettingsPatchDebounced,
   gt,
 }: {
   userSettings: Record<string, any> | null;
   isLoadingSettings: boolean;
   saveSettingsPatch: (patch: Record<string, any>, sectionLabel: string) => void;
+  saveSettingsPatchDebounced: (patch: SettingsPatch, sectionLabel: string) => void;
   gt: GTFunc;
 }) {
   const [micTesting, setMicTesting] = useState(false);
@@ -597,7 +600,7 @@ function VoiceVideoTab({
                 min={0}
                 max={200}
                 value={userSettings.voiceVideo?.inputVolume ?? 100}
-                onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), inputVolume: Number(e.target.value) } }, "voice-video")}
+                onChange={(e) => saveSettingsPatchDebounced({ voiceVideo: { inputVolume: Number(e.target.value) } }, "voice-video")}
                 className="w-full accent-[var(--app-accent)]"
               />
             </div>
@@ -704,7 +707,7 @@ function VoiceVideoTab({
               min={0}
               max={200}
               value={userSettings.voiceVideo?.outputVolume ?? 100}
-              onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), outputVolume: Number(e.target.value) } }, "voice-video")}
+              onChange={(e) => saveSettingsPatchDebounced({ voiceVideo: { outputVolume: Number(e.target.value) } }, "voice-video")}
               className="w-full accent-[var(--app-accent)]"
             />
 
@@ -717,7 +720,7 @@ function VoiceVideoTab({
               min={0}
               max={200}
               value={userSettings.voiceVideo?.soundboardVolume ?? 100}
-              onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), soundboardVolume: Number(e.target.value) } }, "voice-video")}
+              onChange={(e) => saveSettingsPatchDebounced({ voiceVideo: { soundboardVolume: Number(e.target.value) } }, "voice-video")}
               aria-label="Soundboard playback volume"
               className="w-full accent-[var(--app-accent)]"
             />
@@ -807,7 +810,7 @@ function VoiceVideoTab({
                 max={2}
                 step={0.1}
                 value={userSettings.accessibility?.ttsRate ?? 1}
-                onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsRate: parseFloat(e.target.value) } }, "voice-video")}
+                onChange={(e) => saveSettingsPatchDebounced({ accessibility: { ttsRate: parseFloat(e.target.value) } }, "voice-video")}
                 className="w-full accent-[var(--app-accent)]"
               />
             </div>
@@ -1124,38 +1127,102 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     }
   };
 
-  const saveSettingsPatch = async (patch: Record<string, any>, sectionLabel: string) => {
-    setIsSavingSettings(sectionLabel);
-    try {
-      const response = await fetch("/api/users/me/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: patch }),
-      });
+  // Saves are applied locally first, then sent one at a time (so two quick
+  // toggles can't race on the server's read-modify-write), and only the newest
+  // request's response is reconciled into local + AuthContext state.
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const saveSeqRef = useRef(0);
+  const debouncedPatchRef = useRef<{ patch: SettingsPatch; sectionLabel: string; timer: ReturnType<typeof setTimeout> | null }>({ patch: {}, sectionLabel: "", timer: null });
 
-      if (response.ok) {
-        setUserSettings((prev) => ({ ...(prev || {}), ...patch }));
-        applyUserSettingsPatch(patch);
-        if (patch.notifications) setUserNotificationSettings(patch.notifications);
-        if (typeof patch.voiceVideo?.soundboardVolume === "number") voiceService.setSoundboardVolume(patch.voiceVideo.soundboardVolume);
-        toast.success(gt("Settings saved"));
-      } else {
-        const data = await response.json();
-        toast.error(data.error || gt("Failed to save settings"));
-      }
-    } catch (error) {
-      console.error("Failed to save settings:", error);
-      toast.error(gt("Failed to save settings"));
-    } finally {
-      setIsSavingSettings(null);
+  const applyLocalSettingsPatch = (patch: SettingsPatch) => {
+    setUserSettings((prev) => mergeSettingsDeep(prev || {}, patch));
+    applyUserSettingsPatch(patch);
+    if (patch.notifications) {
+      setUserNotificationSettings(mergeSettingsDeep(userSettings?.notifications || {}, patch.notifications));
+    }
+    if (typeof patch.voiceVideo?.soundboardVolume === "number") voiceService.setSoundboardVolume(patch.voiceVideo.soundboardVolume);
+  };
+
+  const resyncSettingsFromServer = async () => {
+    try {
+      const res = await fetch("/api/users/me/settings");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data?.settings) return;
+      setUserSettings(data.settings);
+      applyUserSettingsPatch(data.settings);
+      setUserNotificationSettings(data.settings.notifications);
+      updateUser({ settings: data.settings });
+    } catch {
+      // keep the optimistic state; the next save reconciles
     }
   };
 
-  const saveAppearancePatch = (appearancePatch: Record<string, any>) => {
-    const mergedAppearance = { ...(userSettings?.appearance || {}), ...appearancePatch };
-    setUserSettings((prev) => ({ ...(prev || {}), appearance: mergedAppearance }));
-    applyUserSettingsPatch({ appearance: mergedAppearance });
-    void saveSettingsPatch({ appearance: mergedAppearance }, "appearance");
+  const sendSettingsPatch = (patch: SettingsPatch, sectionLabel: string, opts?: { silent?: boolean }) => {
+    const seq = ++saveSeqRef.current;
+    const run = async () => {
+      setIsSavingSettings(sectionLabel);
+      try {
+        const response = await fetch("/api/users/me/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ settings: patch }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.ok) {
+          if (seq === saveSeqRef.current && !debouncedPatchRef.current.timer && data?.settings) {
+            setUserSettings(data.settings);
+            setUserNotificationSettings(data.settings.notifications);
+            updateUser({ settings: data.settings });
+          }
+          if (!opts?.silent) toast.success(gt("Settings saved"));
+        } else {
+          toast.error(data?.error || gt("Failed to save settings"));
+          await resyncSettingsFromServer();
+        }
+      } catch (error) {
+        console.error("Failed to save settings:", error);
+        toast.error(gt("Failed to save settings"));
+        await resyncSettingsFromServer();
+      } finally {
+        if (seq === saveSeqRef.current) setIsSavingSettings(null);
+      }
+    };
+    const next = saveQueueRef.current.then(run, run);
+    saveQueueRef.current = next;
+    return next;
+  };
+
+  const saveSettingsPatch = (patch: SettingsPatch, sectionLabel: string, opts?: { silent?: boolean }) => {
+    applyLocalSettingsPatch(patch);
+    return sendSettingsPatch(patch, sectionLabel, opts);
+  };
+
+  /**
+   * For sliders: apply the value live, but PATCH once ~300ms after the last
+   * change, without a toast. Pass only the changed leaf (e.g.
+   * `{ voiceVideo: { inputVolume } }`); pending leaves are merged.
+   */
+  const saveSettingsPatchDebounced = (patch: SettingsPatch, sectionLabel: string) => {
+    applyLocalSettingsPatch(patch);
+    const pending = debouncedPatchRef.current;
+    pending.patch = mergeSettingsDeep(pending.patch, patch);
+    pending.sectionLabel = sectionLabel;
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => {
+      const toSend = pending.patch;
+      pending.patch = {};
+      pending.timer = null;
+      void sendSettingsPatch(toSend, pending.sectionLabel, { silent: true });
+    }, 300);
+  };
+
+  const saveAppearancePatch = (appearancePatch: SettingsPatch, opts?: { debounce?: boolean }) => {
+    if (opts?.debounce) {
+      saveSettingsPatchDebounced({ appearance: appearancePatch }, "appearance");
+      return;
+    }
+    void saveSettingsPatch({ appearance: appearancePatch }, "appearance");
   };
 
   // "Edit Profile" opens settings with { tab: "profiles" }. The dialog stays mounted, so
@@ -3201,7 +3268,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         min="12"
                         max="20"
                         value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
-                        onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) })}
+                        onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) }, { debounce: true })}
                         className="flex-1 accent-[var(--accent-color)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
                       />
                       <span className="text-xs text-[var(--text-secondary)]">20px</span>
@@ -3222,7 +3289,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         min="0"
                         max="200"
                         value={userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}
-                        onChange={(e) => saveAppearancePatch({ saturation: Number(e.target.value) })}
+                        onChange={(e) => saveAppearancePatch({ saturation: Number(e.target.value) }, { debounce: true })}
                         className="flex-1 accent-[var(--accent-color)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
                       />
                       <span className="text-xs text-[var(--text-secondary)]">200%</span>
@@ -3275,6 +3342,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   userSettings={userSettings}
                   isLoadingSettings={isLoadingSettings}
                   saveSettingsPatch={saveSettingsPatch}
+                  saveSettingsPatchDebounced={saveSettingsPatchDebounced}
                   gt={gt}
                 />
               )}
@@ -3498,7 +3566,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             value={userSettings?.notifications?.soundVolume ?? 50}
                             onChange={(e) => {
                               const vol = Number(e.target.value);
-                              saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), soundVolume: vol } }, "notifications");
+                              saveSettingsPatchDebounced({ notifications: { soundVolume: vol } }, "notifications");
                             }}
                             className="w-full accent-[var(--app-accent)]"
                           />
@@ -3651,27 +3719,26 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                     <div className="space-y-4 bg-[var(--bg-app)] rounded-lg p-5">
                       {activeTab === "content-social" && (
                         <>
-                          <label className="block text-sm text-[var(--text-secondary)]">{gt("Sensitive Content Filter")}</label>
-                          <select
-                            value={userSettings.contentSocial?.explicitFilter || "moderate"}
-                            onChange={(e) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), explicitFilter: e.target.value } }, "content-social")}
-                            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white"
-                          >
-                            <option value="disabled">{gt("Disabled")}</option>
-                            <option value="moderate">{gt("Moderate")}</option>
-                            <option value="strict">{gt("Strict")}</option>
-                          </select>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Show sensitive media")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.contentSocial?.showSensitiveMedia)} onCheckedChange={(checked) => saveSettingsPatch({ contentSocial: { ...(userSettings.contentSocial || {}), showSensitiveMedia: checked } }, "content-social")} />
+                            <div className="pr-4">
+                              <span className="text-[var(--text-primary)]">{gt("Allow DMs from non-friends")}</span>
+                              <p className="text-xs text-[var(--text-muted)]">{gt("When off, only friends can start a new direct message with you.")}</p>
+                            </div>
+                            <ToggleSwitch size="sm" checked={userSettings.privacy?.directMessages === "everyone" && userSettings.friendRequests?.allowServerMembers !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { directMessages: checked ? "everyone" : "friends" }, friendRequests: { allowServerMembers: checked } }, "content-social")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Allow direct messages from server members")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowServerMembers)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowServerMembers: checked } }, "content-social")} />
+                            <div className="pr-4">
+                              <span className="text-[var(--text-primary)]">{gt("Allow friend requests")}</span>
+                              <p className="text-xs text-[var(--text-muted)]">{gt("When off, nobody can send you a friend request.")}</p>
+                            </div>
+                            <ToggleSwitch size="sm" checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none" }, friendRequests: { allowEveryone: checked } }, "content-social")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Allow friend requests from everyone")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.friendRequests?.allowEveryone)} onCheckedChange={(checked) => saveSettingsPatch({ friendRequests: { ...(userSettings.friendRequests || {}), allowEveryone: checked } }, "content-social")} />
+                            <div className="pr-4">
+                              <span className="text-[var(--text-primary)]">{gt("Share activity status")}</span>
+                              <p className="text-xs text-[var(--text-muted)]">{gt("Show what you're playing or watching to others.")}</p>
+                            </div>
+                            <ToggleSwitch size="sm" checked={userSettings.privacy?.showActivity !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")} />
                           </label>
                         </>
                       )}
@@ -3846,36 +3913,6 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           </label>
                           <p className="text-xs text-[var(--text-secondary)] mb-4">
                             <T>Enables extra technical information, such as copying IDs from context menus.</T>
-                          </p>
-
-                          <div className="h-px bg-[var(--border-subtle)] my-3" />
-
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-white"><T>Verbose Logging</T></span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.advanced?.verboseLogging)} onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), verboseLogging: checked } }, "advanced")} />
-                          </label>
-                          <p className="text-xs text-[var(--text-secondary)] mb-4">
-                            <T>Logs detailed API requests and WebSocket events to the browser console.</T>
-                          </p>
-
-                          <div className="h-px bg-[var(--border-subtle)] my-3" />
-
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-white"><T>Show API Latency</T></span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.advanced?.showLatency)} onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), showLatency: checked } }, "advanced")} />
-                          </label>
-                          <p className="text-xs text-[var(--text-secondary)] mb-4">
-                            <T>Displays real-time API response times and WebSocket ping in the UI.</T>
-                          </p>
-
-                          <div className="h-px bg-[var(--border-subtle)] my-3" />
-
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-white"><T>Debug Overlay</T></span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.advanced?.debugOverlay)} onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), debugOverlay: checked } }, "advanced")} />
-                          </label>
-                          <p className="text-xs text-[var(--text-secondary)] mb-4">
-                            <T>Shows a floating overlay with render performance, memory usage, and component counts.</T>
                           </p>
 
                           <div className="h-px bg-[var(--border-subtle)] my-3" />

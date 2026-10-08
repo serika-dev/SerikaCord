@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useMemo } from "react";
 import twemoji from "@twemoji/api";
-import { cn } from "@/lib/utils";
+import { cn, cdnImage } from "@/lib/utils";
+import { useAnimatedMedia } from "@/hooks/useAnimatedMedia";
 import { twemojiOnError } from "@/lib/twemoji-helpers";
 
 interface CustomEmojiData {
@@ -41,7 +42,7 @@ function escapeHtml(str: string): string {
 }
 
 // Parse content and replace custom emojis with img tags
-function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[]): string {
+function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[], still = false): string {
   if (!content || typeof content !== 'string') return content;
   
   // Create a map for quick lookup
@@ -67,7 +68,7 @@ function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[]): s
     const emojiData = emojiMap.get(id);
     if (emojiData) {
       // Escape the URL and name to prevent attribute injection
-      parts.push(`<img src="${escapeHtml(emojiData.url)}" alt=":${escapeHtml(emojiData.name)}:" title=":${escapeHtml(emojiData.name)}:" class="custom-emoji inline-block align-middle" draggable="false" />`);
+      parts.push(`<img src="${escapeHtml(still ? cdnImage(emojiData.url, { still: true }) : emojiData.url)}" alt=":${escapeHtml(emojiData.name)}:" title=":${escapeHtml(emojiData.name)}:" class="custom-emoji inline-block align-middle" draggable="false" />`);
     } else {
       parts.push(escapeHtml(`:${name}:`));
     }
@@ -84,14 +85,15 @@ function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[]): s
 
 export function Twemoji({ children, className, size = "normal", customEmojis }: TwemojiProps) {
   const ref = useRef<HTMLSpanElement>(null);
+  const animateMedia = useAnimatedMedia();
   
   // Pre-process content to handle custom emojis
   const processedContent = useMemo(() => {
     if (typeof children === 'string') {
-      return parseCustomEmojis(children, customEmojis);
+      return parseCustomEmojis(children, customEmojis, !animateMedia);
     }
     return null;
-  }, [children, customEmojis]);
+  }, [children, customEmojis, animateMedia]);
 
   useEffect(() => {
     if (ref.current) {

@@ -325,9 +325,19 @@ export default function MobileSettingsSectionPage() {
         throw new Error(data.error || "Failed to save settings");
       }
 
-      setSettings((prev) => ({ ...(prev || {}), ...patch }));
-      applyUserSettingsPatch(patch);
-      if (patch.notifications) setUserNotificationSettings(patch.notifications);
+      const data = await response.json().catch(() => null);
+      if (data?.settings) {
+        // Server's merged copy: keeps local state and AuthContext (read by
+        // chat-side toggles) in sync without a reload.
+        setSettings(data.settings);
+        applyUserSettingsPatch(patch);
+        setUserNotificationSettings(data.settings.notifications);
+        updateUser({ settings: data.settings });
+      } else {
+        setSettings((prev) => ({ ...(prev || {}), ...patch }));
+        applyUserSettingsPatch(patch);
+        if (patch.notifications) setUserNotificationSettings(patch.notifications);
+      }
       toast.success(gt("Settings saved"));
     } catch (error) {
       console.error("Failed to save settings:", error);
@@ -390,14 +400,14 @@ export default function MobileSettingsSectionPage() {
               label={gt("Allow direct messages")}
               checked={settings.privacy?.directMessages === "everyone"}
               onChange={(checked) =>
-                saveSettings({ privacy: { ...(settings.privacy || {}), directMessages: checked ? "everyone" : "friends" } })
+                saveSettings({ privacy: { ...(settings.privacy || {}), directMessages: checked ? "everyone" : "friends" }, friendRequests: { ...(settings.friendRequests || {}), allowServerMembers: checked } })
               }
             />
             <ToggleRow
               label={gt("Allow friend requests")}
               checked={settings.privacy?.friendRequests !== "none"}
               onChange={(checked) =>
-                saveSettings({ privacy: { ...(settings.privacy || {}), friendRequests: checked ? "everyone" : "none" } })
+                saveSettings({ privacy: { ...(settings.privacy || {}), friendRequests: checked ? "everyone" : "none" }, friendRequests: { ...(settings.friendRequests || {}), allowEveryone: checked } })
               }
             />
             <ToggleRow
