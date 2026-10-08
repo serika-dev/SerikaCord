@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useChatStream } from "@/hooks/useChatStream";
 import {
   Dialog,
   DialogContent,
@@ -153,8 +154,8 @@ export function ForumChannelView({
     };
   }, [channelId, channelName]);
 
-  const loadThreads = useCallback(async () => {
-    setLoading(true);
+  const loadThreads = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`/api/channels/${channelId}/threads?archived=${showArchived}`);
       if (res.ok) {
@@ -173,6 +174,15 @@ export function ForumChannelView({
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
+
+  // Live: new posts/tickets by others show up without a reload.
+  useChatStream({
+    url: channelId ? `/api/channels/${channelId}/stream` : null,
+    onEvent: (event) => {
+      if (event.type === "thread_create") void loadThreads(true);
+    },
+    onReconnect: () => void loadThreads(true),
+  });
 
   const handleCreate = async () => {
     if (!postTitle.trim() || !postBody.trim()) return;

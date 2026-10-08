@@ -1200,7 +1200,6 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     await Channel.deleteById(channel.id);
 
-    // Publish delete event
     const publisher = getPublisher();
     if (publisher) {
       for (const child of orphaned) {
@@ -1401,14 +1400,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     });
     await Channel.updateById(thread.id, { lastMessageId: message.id });
 
-    const publisher = getPublisher();
-    if (publisher) {
-      await publisher.publish('thread:create', JSON.stringify({
-        channelId: forum.id,
-        threadId: thread.id,
-        serverId: forum.serverId,
-      }));
-    }
+    // Open forum views refetch their post list on this.
+    publishToChannel(forum.id, { type: 'thread_create', threadId: thread.id });
 
     return {
       success: true,
@@ -2645,15 +2638,6 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Soft delete
     await Message.updateById(message.id, { isDeleted: true, deletedAt: new Date() });
 
-    // Publish delete event
-    const publisher = getPublisher();
-    if (publisher) {
-      await publisher.publish('message:delete', JSON.stringify({
-        channelId: params.channelId,
-        serverId: channel.serverId,
-        messageId: params.messageId,
-      }));
-    }
 
     // Send to SSE connections
     publishToChannel(params.channelId, {
@@ -2951,16 +2935,6 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Set typing in Redis
     await cache.setTyping(params.channelId, user.id);
 
-    // Publish typing event
-    const publisher = getPublisher();
-    if (publisher) {
-      await publisher.publish('typing:start', JSON.stringify({
-        channelId: params.channelId,
-        serverId: channel.serverId,
-        userId: user.id,
-        username: user.username,
-      }));
-    }
 
     // Send to SSE connections
     publishToChannel(params.channelId, {

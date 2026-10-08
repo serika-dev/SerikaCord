@@ -79,7 +79,11 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
   const { serverMentionCounts, markServerRead: markServerMentionsRead } = useMentions();
-  const { isServerUnread, markServerRead: markServerUnreadRead } = useUnread();
+  const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount } = useUnread();
+  // Live mention count (activity stream) or the polled one, whichever is ahead:
+  // the poll alone left a new mention invisible on the rail for up to 30s.
+  const mentionsFor = (serverId: string) =>
+    Math.max(serverMentionCounts.get(serverId) || 0, getServerMentionCount(serverId));
   const { isMuted, toggleMute } = useServerMutes();
   const pathname = usePathname();
 
@@ -357,7 +361,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   // ── reusable server icon button (plain render fn — no component boundary so
   //     Reorder items don't remount on every parent state change) ─────────────
   const renderServerIcon = (server: Server, inFolder: boolean) => {
-    const mentionCount = serverMentionCounts.get(server.id) || 0;
+    const mentionCount = mentionsFor(server.id);
     const muted = isMuted(server.id);
     const hasMention = mentionCount > 0 && !muted;
     // Unread-without-mention: show the Discord-style short white pill.
@@ -530,7 +534,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
       .map((id) => serversById.get(id))
       .filter((s): s is Server => Boolean(s));
     const isOpen = openFolders.has(folder.id);
-    const folderMentions = folderServers.reduce((sum, s) => sum + (serverMentionCounts.get(s.id) || 0), 0);
+    const folderMentions = folderServers.reduce((sum, s) => sum + mentionsFor(s.id), 0);
     const menuOpen = menuFolderId === folder.id;
     const setMenuOpen = (o: boolean) => setMenuFolderId(o ? folder.id : null);
 
