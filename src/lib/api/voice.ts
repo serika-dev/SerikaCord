@@ -309,6 +309,24 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       roomId: t.String(),
     }),
   })
+  // Participants for several rooms in one call (the channel sidebar used to
+  // poll one request per voice channel every 5s).
+  .get('/states', async ({ headers, cookie, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const roomIds = [...new Set(String(query.rooms || '').split(',').map((r) => r.trim()).filter(Boolean))].slice(0, 100);
+    const states: Record<string, unknown[]> = {};
+    for (const roomId of roomIds) {
+      const room = roomState.get(roomId);
+      if (room && room.size > 0) states[roomId] = Array.from(room.values());
+    }
+    return { states };
+  }, {
+    query: t.Object({ rooms: t.String() }),
+  })
   // SSE signaling stream for a voice room
   .get('/signal/:roomId', async ({ headers, cookie, params }) => {
     const sseHeaders = {

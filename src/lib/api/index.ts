@@ -820,29 +820,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
         filterChannelIds = channels.filter(c => c.serverId === serverFilter).map(c => c.id);
       }
 
-      // Fetch recent mentioned messages - use DB-level date filter and limit
-      const mentionedMessages = await Message.find({
-        channelId: { in: filterChannelIds },
-        isDeleted: false,
-        createdAtAfter: sevenDaysAgo,
-        _limit: 200,
+      const filteredMessages = await Message.findMentionsOf({
+        channelIds: filterChannelIds,
+        userId: user.id,
+        roleIds: [...allUserRoleIds],
+        since: sevenDaysAgo,
+        limit: 50,
       });
-
-      // Filter by mention conditions in JS (can't do OR easily in Drizzle)
-      const filteredMessages = mentionedMessages
-        .filter(msg => {
-          // Your own messages are never a mention *of you* — otherwise sending
-          // an @everyone/@here or a role you hold pings yourself.
-          if (compareIds(msg.authorId, user.id)) return false;
-          const mentionedUsers = msg.mentionedUserIds || [];
-          const mentionEveryone = msg.mentionEveryone || false;
-          const mentionedRoles = msg.mentionedRoleIds || [];
-          if (mentionedUsers.includes(user.id)) return true;
-          if (mentionEveryone) return true;
-          if (allUserRoleIds.size > 0 && mentionedRoles.some((r: string) => allUserRoleIds.has(r))) return true;
-          return false;
-        })
-        .slice(0, 50);
 
       // Batch fetch authors
       const authorIds = [...new Set(filteredMessages.map(m => m.authorId))];

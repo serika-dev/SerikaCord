@@ -224,7 +224,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
 
   const fetchChannels = useCallback(async (serverId: string) => {
     try {
-      const response = await fetch(`/api/servers/${serverId}/channels`);
+      const response = await sharedGet(`/api/servers/${serverId}/channels`);
       if (response.ok) {
         const data = await response.json();
         // Handle both array and wrapped response, transform _id to id if needed

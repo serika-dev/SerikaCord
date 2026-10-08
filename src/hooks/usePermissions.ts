@@ -1,5 +1,7 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
+
 import { useCallback, useEffect, useState } from "react";
 import { PERMISSIONS, bitfieldHas, type PermissionKey } from "@/lib/roles/permissions";
 
@@ -30,7 +32,7 @@ export function usePermissions(serverId: string | null | undefined) {
     }
     let active = true;
     setState((prev) => ({ ...prev, loading: true }));
-    fetch(`/api/servers/${serverId}/members/@me/permissions`)
+    sharedGet(`/api/servers/${serverId}/members/@me/permissions`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!active) return;

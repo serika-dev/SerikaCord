@@ -927,26 +927,24 @@ export function ChannelSidebar({
   // (visibility-aware: pauses in background tabs, refreshes on focus)
   const fetchVoiceStates = useCallback(async () => {
     if (!currentServer) return;
-    const voiceChannelIds = voiceChannels.map(ch => ch.id);
-    {
-      const results = new Map<string, VoiceParticipant[]>();
-      await Promise.all(voiceChannelIds.map(async (chId) => {
-        const roomId = `channel-${chId}`;
-        if (voiceService.currentRoomId === roomId) return; // skip active channel
-        try {
-          const res = await fetch(`/api/voice/state/${roomId}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (data.participants?.length > 0) {
-              results.set(chId, data.participants);
-            }
+    const roomIds = voiceChannels
+      .map((ch) => `channel-${ch.id}`)
+      .filter((roomId) => voiceService.currentRoomId !== roomId); // skip active channel
+    const results = new Map<string, VoiceParticipant[]>();
+    if (roomIds.length > 0) {
+      try {
+        const res = await fetch(`/api/voice/states?rooms=${encodeURIComponent(roomIds.join(","))}`);
+        if (res.ok) {
+          const data = (await res.json()) as { states?: Record<string, VoiceParticipant[]> };
+          for (const [roomId, participants] of Object.entries(data.states ?? {})) {
+            if (participants?.length > 0) results.set(roomId.replace(/^channel-/, ""), participants);
           }
-        } catch {
-          // best-effort
         }
-      }));
-      setExternalVoiceParticipants(results);
+      } catch {
+        // best-effort
+      }
     }
+    setExternalVoiceParticipants(results);
   }, [currentServer, voiceChannels]);
   usePolling(() => void fetchVoiceStates(), 5000, !!currentServer, currentServer?.id);
 

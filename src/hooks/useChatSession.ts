@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
+import { sharedGet } from "@/lib/bootFetch";
 import { useGT } from "gt-next";
 import type { MessageBarHandle } from "@/components/chat/MessageBar";
 import { useChatStream, useTypingSignal, type ChatStreamEvent } from "@/hooks/useChatStream";
@@ -396,7 +397,9 @@ export function useChatSession<M extends ChatMessage>({
       const url = deltaCursor
         ? `${apiBase}/messages?after=${deltaCursor}&limit=${PAGE_SIZE}`
         : `${apiBase}/messages?limit=${PAGE_SIZE}`;
-      const response = await fetch(url);
+      // A cold open may already have this page in flight from the HTML
+      // (BootPrefetch) or a hover prefetch.
+      const response = deltaCursor ? await fetch(url) : await sharedGet(url);
       if (activeFetchContextRef.current !== requestedContext) return;
       if (response.ok) {
         const data = await response.json();

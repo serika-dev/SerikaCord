@@ -85,6 +85,43 @@ export const Message = {
     return query;
   },
 
+  /**
+   * Recent messages that mention a user (directly, via @everyone/@here, or via
+   * one of their roles), newest first. Filtered in SQL — the old approach took
+   * the newest 200 messages across every channel and filtered in JS, which was
+   * slow and missed mentions in busy servers.
+   */
+  async findMentionsOf(opts: {
+    channelIds: string[];
+    userId: string;
+    roleIds: string[];
+    since: Date;
+    limit: number;
+  }) {
+    if (opts.channelIds.length === 0) return [];
+    const uid = normalizeId(opts.userId);
+    const mentionConds: SQL[] = [
+      sql`${schema.messages.mentionedUserIds} @> ARRAY[${uid}]::uuid[]`,
+      eq(schema.messages.mentionEveryone, true),
+    ];
+    if (opts.roleIds.length > 0) {
+      const roles = sql.join(opts.roleIds.map((r) => sql`${normalizeId(r)}`), sql`, `);
+      mentionConds.push(sql`${schema.messages.mentionedRoleIds} && ARRAY[${roles}]::uuid[]`);
+    }
+    return db
+      .select()
+      .from(schema.messages)
+      .where(and(
+        buildCondition(schema.messages.channelId, { in: opts.channelIds }, true),
+        eq(schema.messages.isDeleted, false),
+        gt(schema.messages.createdAt, opts.since),
+        ne(schema.messages.authorId, uid),
+        or(...mentionConds),
+      ))
+      .orderBy(desc(schema.messages.createdAt))
+      .limit(opts.limit);
+  },
+
   async create(data: typeof schema.messages.$inferInsert) {
     const [row] = await db.insert(schema.messages).values(data).returning();
     return row;
