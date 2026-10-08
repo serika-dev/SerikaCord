@@ -1485,9 +1485,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const handleDeleteInvite = async (code: string) => {
     if (!currentServer) return;
     try {
-      await fetch(`/api/servers/${currentServer.id}/invites/${code}`, {
+      const res = await fetch(`/api/servers/${currentServer.id}/invites/${code}`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string } | null;
+        toast.error(data?.error || gt("Failed to delete invite"));
+        return;
+      }
       setInvites(prev => prev.filter(i => i.code !== code));
       toast.success(gt("Invite deleted"));
     } catch (error) {
@@ -1499,9 +1504,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const handleUnban = async (userId: string) => {
     if (!currentServer) return;
     try {
-      await fetch(`/api/servers/${currentServer.id}/bans/${userId}`, {
+      const res = await fetch(`/api/servers/${currentServer.id}/bans/${userId}`, {
         method: "DELETE",
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string } | null;
+        toast.error(data?.error || gt("Failed to unban user"));
+        return;
+      }
       setBans(prev => prev.filter(b => b.id !== userId));
       toast.success(gt("User unbanned"));
     } catch (error) {

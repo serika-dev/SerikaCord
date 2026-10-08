@@ -7,9 +7,9 @@ import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
-import { BoundedMap } from '@/lib/utils/boundedMap';
 import { randomUUID } from 'crypto';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { getRolePermissions, hasServerPermission } from '@/lib/permissions/serverPermissions';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -21,6 +21,7 @@ const PERM_ADMINISTRATOR = 1n << 3n;
 const PERM_MANAGE_MESSAGES = 1n << 13n;
 const PERM_VIEW_CHANNEL = 1n << 10n;
 const PERM_MANAGE_CHANNELS = 1n << 4n;
+const PERM_MANAGE_ROLES = 1n << 28n;
 const PERM_PIN_MESSAGES = 1n << 51n;
 const PERM_SEND_MESSAGES = 1n << 11n;
 const PERM_MENTION_EVERYONE = 1n << 17n;
@@ -92,39 +93,6 @@ async function canPinMessagesInServer(
  * - No overwrites deny VIEW_CHANNEL to the user's roles or @everyone
  * - User's roles explicitly allow VIEW_CHANNEL
  */
-// In-memory cache for role permission checks: serverId+roleId -> permissions bigint string
-// TTL 60s — roles change rarely, but we don't want stale perms forever.
-const rolePermCache = new BoundedMap<string, string>(10000);
-const ROLE_CACHE_TTL_MS = 60_000;
-
-async function getRolePermissions(roleIds: string[], serverId: string): Promise<Map<string, bigint>> {
-  const result = new Map<string, bigint>();
-  const now = Date.now();
-  const uncachedIds: string[] = [];
-  for (const id of roleIds) {
-    const key = `${serverId}:${id}`;
-    const cached = rolePermCache.get(key);
-    if (cached !== undefined) {
-      result.set(id, BigInt(cached));
-    } else {
-      uncachedIds.push(id);
-    }
-  }
-  if (uncachedIds.length > 0) {
-    const roles = await Role.find({ id: { in: uncachedIds }, serverId });
-    for (const role of roles) {
-      const perms = role.permissions || '0';
-      result.set(role.id, BigInt(perms));
-      rolePermCache.set(`${serverId}:${role.id}`, perms);
-    }
-    // Schedule cleanup
-    setTimeout(() => {
-      for (const id of uncachedIds) rolePermCache.delete(`${serverId}:${id}`);
-    }, ROLE_CACHE_TTL_MS);
-  }
-  return result;
-}
-
 async function canViewChannel(
   channel: { permissionOverwrites?: any[]; serverId?: string | null },
   userId: string,
@@ -1031,17 +999,36 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Check permissions (owner or manage channels). Thread owners may manage
     // their own thread (rename / archive / lock).
     let isServerOwner = false;
+    let canManageChannel = false;
+    let editServer: { id: string; ownerId: string } | null = null;
     if (channel.serverId) {
       const server = await Server.findById(channel.serverId);
+      editServer = server ? { id: server.id, ownerId: server.ownerId } : null;
       isServerOwner = !!server && compareIds(server.ownerId, user.id);
+      canManageChannel = isServerOwner
+        || (!!editServer && await hasServerPermission(editServer, user.id, PERM_MANAGE_CHANNELS));
       const isThreadOwner = isThread && compareIds(channel.ownerId, user.id);
-      if (!isServerOwner && !isThreadOwner) {
+      if (!canManageChannel && !isThreadOwner) {
         set.status = 403;
         return { error: 'You do not have permission to edit this channel' };
       }
     }
 
     const { name, topic, nsfw, rateLimitPerUser, bitrate, userLimit, parentId, position, permissionOverwrites, type, forumMode, ticketAccessRoleIds, availableTags, archived, locked } = body;
+
+    // Editing permission overwrites additionally needs Manage Roles (Discord's
+    // "Manage Permissions"), so Manage Channels alone cannot grant itself access.
+    const overwriteKey = (list: Array<{ id: string; type: string; allow?: string; deny?: string }> | null | undefined) =>
+      JSON.stringify((list || []).map((o) => `${o.type}:${o.id}:${o.allow || '0'}:${o.deny || '0'}`).sort());
+    const overwritesChanged = permissionOverwrites !== undefined
+      && overwriteKey(permissionOverwrites) !== overwriteKey(channel.permissionOverwrites as Array<{ id: string; type: string; allow?: string; deny?: string }> | null | undefined);
+    if (overwritesChanged && !isServerOwner) {
+      const canManagePerms = !!editServer && await hasServerPermission(editServer, user.id, PERM_MANAGE_ROLES);
+      if (!canManagePerms) {
+        set.status = 403;
+        return { error: 'You need Manage Roles permission to edit channel permissions' };
+      }
+    }
 
     const updateData: Record<string, any> = {};
     if (name !== undefined) updateData.name = sanitizeInput(name);
@@ -1087,15 +1074,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Thread self-management
     if (isThread) {
       if (archived !== undefined) updateData.archived = Boolean(archived);
-      if (locked !== undefined && isServerOwner) updateData.locked = Boolean(locked);
+      if (locked !== undefined && canManageChannel) updateData.locked = Boolean(locked);
     }
 
-    // Forum configuration (server owner only)
-    if (channel.type === 'forum' && isServerOwner) {
+    // Forum configuration (owner or Manage Channels; ticket access also needs Manage Roles)
+    if (channel.type === 'forum' && canManageChannel) {
       if (forumMode !== undefined && (forumMode === 'posts' || forumMode === 'tickets')) {
         updateData.forumMode = forumMode;
       }
-      if (ticketAccessRoleIds !== undefined) {
+      if (ticketAccessRoleIds !== undefined && (isServerOwner || (!!editServer && await hasServerPermission(editServer, user.id, PERM_MANAGE_ROLES)))) {
         updateData.ticketAccessRoleIds = ticketAccessRoleIds;
       }
       if (availableTags !== undefined) {
@@ -1181,7 +1168,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Check permissions
     if (channel.serverId) {
       const server = await Server.findById(channel.serverId);
-      if (!server || !compareIds(server.ownerId, user.id)) {
+      const canDelete = !!server && (
+        compareIds(server.ownerId, user.id)
+        || await hasServerPermission({ id: server.id, ownerId: server.ownerId }, user.id, PERM_MANAGE_CHANNELS)
+      );
+      if (!canDelete) {
         set.status = 403;
         return { error: 'You do not have permission to delete this channel' };
       }

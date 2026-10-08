@@ -47,6 +47,8 @@
 ### Security
 - **@everyone/@here and role mentions now respect permissions** — the server never checked `MENTION_EVERYONE`, so turning off "Mention @everyone" for a role or channel did nothing and anyone could ping the whole server. Members without it (after channel overwrites) now send @everyone/@here as plain text, and can only ping roles marked mentionable. Applies to messages, edits and forum posts. Owners and administrators are unaffected. (CORD-59)
 - **Bot tokens are limited to their own servers** — the bot API never checked that a bot could see a channel, so any bot token could read, post in or delete from any channel or DM by id. Bots now need view access to the channel (and membership for server routes), and message ids must belong to that channel.
+- **Role hierarchy is enforced** — Manage Roles could grant Administrator or assign roles above your own, and moderators could kick, ban or time out administrators. Members can now only edit, assign, reorder or delete roles below their highest role, only grant permissions they have, and only moderate members ranked below them. Role permission changes take effect within a minute at most (immediately on the same server).
+- **Permissions match what the app shows** — Manage Channels can create, edit, reorder and delete channels; Manage Server can save server settings, the vanity URL, and manage invites; Manage Roles no longer edits server settings; Create Invite is required to make invites. Deleting an invite or unbanning shows an error instead of a fake success when it fails.
 
 ---
 
