@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, memo } from "react";
 import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, Clock, UserPlus, UserPlus2, ShieldAlert, Phone, Video } from "lucide-react";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
@@ -96,12 +96,13 @@ export function MemberSidebar() {
   const { members, isMembersLoading: isLoading } = useServerMembers();
   const [canModerate, setCanModerate] = useState(false);
 
+  const currentServerId = currentServer?.id;
   useEffect(() => {
-    if (!currentServer) { setCanModerate(false); return; }
+    if (!currentServerId) { setCanModerate(false); return; }
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`/api/servers/${currentServer.id}/members/@me/permissions`);
+        const res = await fetch(`/api/servers/${currentServerId}/members/@me/permissions`);
         if (!res.ok || !active) return;
         const data = await res.json();
         // owner, admin, or any of kick/ban/timeout/manage-roles.
@@ -112,7 +113,7 @@ export function MemberSidebar() {
       } catch { /* ignore */ }
     })();
     return () => { active = false; };
-  }, [currentServer]);
+  }, [currentServerId]);
 
   const groupedOnlineMembers = useMemo(() => {
     const onlineMembers = sortMembersByName(members.filter((member) => member.status !== "offline"));
@@ -239,7 +240,11 @@ interface MemberItemProps {
   canModerate?: boolean;
 }
 
-function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
+// Memoized: ServerContext reuses unchanged member objects across polls, so
+// only rows whose member actually changed re-render.
+const MemberItem = memo(MemberItemImpl);
+
+function MemberItemImpl({ member, serverId, canModerate }: MemberItemProps) {
   const gt = useGT();
   const router = useRouter();
   const { user } = useAuth();

@@ -519,22 +519,25 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     }
   }, [channels]);
 
+  // Keyed on the id: the server-list poll swaps in a fresh currentServer
+  // object every 25s, which used to refetch the open tab (incl. 1000 members).
+  const serverId = currentServer?.id;
   const fetchRolesData = useCallback(async () => {
-    if (!currentServer) return;
-    const rolesRes = await fetch(`/api/servers/${currentServer.id}/roles`);
+    if (!serverId) return;
+    const rolesRes = await fetch(`/api/servers/${serverId}/roles`);
     if (!rolesRes.ok) return;
     const data = await rolesRes.json();
     const nextRoles = (data.roles || []) as Role[];
     setRoles(nextRoles);
-  }, [currentServer]);
+  }, [serverId]);
 
   const fetchMembersData = useCallback(async () => {
-    if (!currentServer) return;
-    const membersRes = await fetch(`/api/servers/${currentServer.id}/members?limit=1000`);
+    if (!serverId) return;
+    const membersRes = await fetch(`/api/servers/${serverId}/members?limit=1000`);
     if (!membersRes.ok) return;
     const data = await membersRes.json();
     setMembers((data.members || []) as ServerMember[]);
-  }, [currentServer]);
+  }, [serverId]);
 
   // Tabs (per server) that have loaded once. Later refreshes, such as when the server
   // object updates, keep the current data on screen instead of flashing a spinner (CORD-30).
@@ -543,7 +546,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   // Fetch data based on active tab
   useEffect(() => {
     if (!open || !currentServer) return;
-    const loadKey = `${currentServer.id}:${activeTab}`;
+    const loadKey = `${serverId}:${activeTab}`;
 
     const fetchData = async () => {
       if (!loadedTabsRef.current.has(loadKey)) setIsLoading(true);
@@ -554,8 +557,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             break;
           case "invites": {
             const [invitesRes, vanityRes] = await Promise.all([
-              fetch(`/api/servers/${currentServer.id}/invites`),
-              fetch(`/api/servers/${currentServer.id}/vanity-url`),
+              fetch(`/api/servers/${serverId}/invites`),
+              fetch(`/api/servers/${serverId}/vanity-url`),
             ]);
             if (invitesRes.ok) {
               const data = await invitesRes.json();
@@ -575,7 +578,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             break;
           }
           case "bans":
-            const bansRes = await fetch(`/api/servers/${currentServer.id}/bans`);
+            const bansRes = await fetch(`/api/servers/${serverId}/bans`);
             if (bansRes.ok) {
               const data = await bansRes.json();
               setBans(data.bans || []);
@@ -585,21 +588,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             await Promise.all([fetchMembersData(), fetchRolesData()]);
             break;
           case "emoji":
-            const emojisRes = await fetch(`/api/servers/${currentServer.id}/emojis`);
+            const emojisRes = await fetch(`/api/servers/${serverId}/emojis`);
             if (emojisRes.ok) {
               const data = await emojisRes.json();
               setEmojis((data.emojis || []).map((e: any) => ({ id: e.id || e._id, name: e.name, imageUrl: e.imageUrl || e.url, animated: e.animated })));
             }
             break;
           case "stickers":
-            const stickersRes = await fetch(`/api/servers/${currentServer.id}/stickers`);
+            const stickersRes = await fetch(`/api/servers/${serverId}/stickers`);
             if (stickersRes.ok) {
               const data = await stickersRes.json();
               setStickers((data.stickers || []).map((s: any) => ({ id: s.id || s._id, name: s.name, description: s.description, imageUrl: s.imageUrl || s.url, tags: s.tags })));
             }
             break;
           case "audit-log":
-            const auditRes = await fetch(`/api/servers/${currentServer.id}/audit-log`);
+            const auditRes = await fetch(`/api/servers/${serverId}/audit-log`);
             if (auditRes.ok) {
               const data = await auditRes.json();
               setAuditLogs(data.logs || []);
@@ -608,7 +611,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           case "soundboard": {
             // Settings themselves live in the shared draft (loaded on open);
             // only the sound list needs fetching per visit.
-            const soundsRes = await fetch(`/api/servers/${currentServer.id}/soundboard`);
+            const soundsRes = await fetch(`/api/servers/${serverId}/soundboard`);
             if (soundsRes.ok) {
               const soundsData = await soundsRes.json();
               setSoundboardSounds(soundsData.sounds || []);
@@ -616,7 +619,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             break;
           }
           case "applications": {
-            const appsRes = await fetch(`/api/servers/${currentServer.id}/applications?status=${applicationFilter}`);
+            const appsRes = await fetch(`/api/servers/${serverId}/applications?status=${applicationFilter}`);
             if (appsRes.ok) {
               const appsData = await appsRes.json();
               setApplications(appsData.applications || []);
@@ -641,7 +644,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     };
 
     fetchData();
-  }, [activeTab, open, currentServer, fetchMembersData, fetchRolesData, applicationFilter]);
+  }, [activeTab, open, serverId, fetchMembersData, fetchRolesData, applicationFilter]);
 
   // Reset role draft init ref when dialog closes (so opening again starts fresh)
   useEffect(() => {
@@ -649,11 +652,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       roleDraftInitIdRef.current = null;
       return;
     }
-    if (!currentServer) return;
+    if (!serverId) return;
 
     const fetchAppCount = async () => {
       try {
-        const res = await fetch(`/api/servers/${currentServer.id}/applications/count`);
+        const res = await fetch(`/api/servers/${serverId}/applications/count`);
         if (res.ok) {
           const data = await res.json();
           setPendingAppCount(data.count ?? 0);
@@ -663,7 +666,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       }
     };
     void fetchAppCount();
-  }, [open, currentServer]);
+  }, [open, serverId]);
 
   // Track the last role ID we initialized the draft for, so updates to the
   // roles list (e.g. after a member role assignment) don't wipe unsaved edits.

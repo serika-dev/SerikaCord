@@ -25,10 +25,18 @@ export function usePolling(
     if (!enabled || intervalMs <= 0) return;
 
     let timer: NodeJS.Timeout | null = null;
+    let lastRun = 0;
+    // visibilitychange + focus both fire on tab return, and focus alone fires
+    // on every alt-tab; throttle so those collapse into a single refetch.
+    const minGap = Math.min(2000, intervalMs / 2);
+    const run = () => {
+      lastRun = Date.now();
+      fnRef.current();
+    };
 
     const start = () => {
       if (timer) clearInterval(timer);
-      timer = setInterval(() => fnRef.current(), intervalMs);
+      timer = setInterval(run, intervalMs);
     };
     const stop = () => {
       if (timer) {
@@ -38,23 +46,32 @@ export function usePolling(
     };
 
     const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        fnRef.current();
-        start();
-      } else {
+      if (document.visibilityState !== "visible") {
         stop();
+        return;
+      }
+      if (Date.now() - lastRun >= minGap) {
+        run();
+        start();
+      } else if (!timer) {
+        start();
       }
     };
+    // A focus while the interval is still running (alt-tab back to a window
+    // that never went hidden) needs no refetch: the interval keeps it fresh.
+    const handleFocus = () => {
+      if (!timer) handleVisibility();
+    };
 
-    fnRef.current();
+    run();
     if (document.visibilityState === "visible") start();
 
     document.addEventListener("visibilitychange", handleVisibility);
-    window.addEventListener("focus", handleVisibility);
+    window.addEventListener("focus", handleFocus);
     return () => {
       stop();
       document.removeEventListener("visibilitychange", handleVisibility);
-      window.removeEventListener("focus", handleVisibility);
+      window.removeEventListener("focus", handleFocus);
     };
      
   }, [intervalMs, enabled, key]);

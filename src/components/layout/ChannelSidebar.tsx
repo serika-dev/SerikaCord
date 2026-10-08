@@ -266,6 +266,18 @@ export function ChannelSidebar({
     e.dataTransfer.dropEffect = "move";
   };
 
+  // Drop targets compute positions from the real position order, not the
+  // display order (mentionFirst lifts channels with unread mentions, and that
+  // temporary order must not be persisted).
+  const siblingsByPosition = (parentId: string | null) => {
+    const categoryIds = new Set(normalChannels.filter(c => c.type === "category").map(c => c.id));
+    return normalChannels
+      .filter(c => c.type !== "category" && (parentId
+        ? String(c.parentId ?? "") === parentId
+        : (!c.parentId || !categoryIds.has(c.parentId))))
+      .sort((a, b) => a.position - b.position);
+  };
+
   const handleDropOnCategory = async (e: React.DragEvent, categoryId: string | null) => {
     e.preventDefault();
     setDragOverTarget(null);
@@ -275,8 +287,8 @@ export function ChannelSidebar({
     if (draggedChannel.type === "category") return;
 
     const targetChildren = categoryId
-      ? (channelsByCategory.get(categoryId) || []).filter(c => c.id !== draggedChannel.id)
-      : uncategorizedChannels.filter(c => c.id !== draggedChannel.id);
+      ? siblingsByPosition(categoryId).filter(c => c.id !== draggedChannel.id)
+      : siblingsByPosition(null).filter(c => c.id !== draggedChannel.id);
 
     const updates: Array<{ id: string; position: number; parentId?: string | null }> = [
       { id: draggedChannel.id, position: targetChildren.length, parentId: categoryId },
@@ -343,11 +355,11 @@ export function ChannelSidebar({
 
     let siblings: typeof channels;
     if (targetParent) {
-      siblings = (channelsByCategory.get(targetParent) || []).filter(c => c.id !== draggedChannel.id);
+      siblings = siblingsByPosition(targetParent).filter(c => c.id !== draggedChannel.id);
     } else if (target.type === "category") {
       siblings = categories.filter(c => c.id !== draggedChannel.id);
     } else {
-      siblings = uncategorizedChannels.filter(c => c.id !== draggedChannel.id);
+      siblings = siblingsByPosition(null).filter(c => c.id !== draggedChannel.id);
     }
 
     const targetIdx = siblings.findIndex(c => c.id === target.id);
@@ -406,8 +418,8 @@ export function ChannelSidebar({
       const targetParentId = targetCategory ? targetCategory.id : null;
 
       const siblings = targetParentId
-        ? (channelsByCategory.get(targetParentId) || []).filter(c => c.id !== draggedChannel.id)
-        : uncategorizedChannels.filter(c => c.id !== draggedChannel.id);
+        ? siblingsByPosition(targetParentId).filter(c => c.id !== draggedChannel.id)
+        : siblingsByPosition(null).filter(c => c.id !== draggedChannel.id);
       
       siblings.push(draggedChannel);
 

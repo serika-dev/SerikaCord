@@ -70,6 +70,9 @@ interface Subscription { listeners: Set<Listener>; intervals: number[]; lastFetc
 
 const subscriptions = new Map<string, Subscription>();
 const lastKnown = new Map<string, UserActivity>();
+// Raw JSON last seen per user: an unchanged poll keeps the same object and
+// notifies nobody, so subscribed rows don't re-render every cycle.
+const lastSig = new Map<string, string>();
 const TICK_MS = 2500;
 const BATCH_SIZE = 50;
 let ticker: ReturnType<typeof setInterval> | null = null;
@@ -112,6 +115,9 @@ async function poll(force = false) {
       for (const id of ids) {
         const raw = json?.activities?.[id];
         if (!raw) continue;
+        const sig = JSON.stringify(raw);
+        if (lastSig.get(id) === sig && lastKnown.has(id)) continue;
+        lastSig.set(id, sig);
         const data = normalize(raw);
         lastKnown.set(id, data);
         subscriptions.get(id)?.listeners.forEach((fn) => fn(data));

@@ -279,12 +279,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   }, [currentChannel?.id]);
 
   // Fetch server emojis (per-server SWR: paint cache instantly, revalidate).
+  // Keyed on the id: the 25s server-list poll can hand us a fresh object.
+  const currentServerIdForFetch = currentServer?.id;
   useEffect(() => {
-    if (!currentServer) {
+    const serverId = currentServerIdForFetch;
+    if (!serverId) {
       setServerEmojis([]);
       return;
     }
-    const serverId = currentServer.id;
     const cached = serverEmojiCache.get(serverId);
     if (cached) setServerEmojis(cached);
     let cancelled = false;
@@ -307,7 +309,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [currentServer]);
+  }, [currentServerIdForFetch]);
 
   // Fetch all server emojis (cross-server)
   useEffect(() => {
@@ -362,11 +364,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // Roles only — members come from the shared members context (below), avoiding a
   // duplicate `?limit=1000` member fetch. Per-server SWR cache for instant paint.
   useEffect(() => {
-    if (!currentServer) {
+    const serverId = currentServerIdForFetch;
+    if (!serverId) {
       setMentionRoles([]);
       return;
     }
-    const serverId = currentServer.id;
     const cached = serverRoleCache.get(serverId);
     if (cached) setMentionRoles(cached);
     let cancelled = false;
@@ -383,7 +385,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [currentServer]);
+  }, [currentServerIdForFetch]);
 
   // Mention users / role colors / self role ids are derived from the shared
   // members list (fetched once by ServerContext) — no extra network request.

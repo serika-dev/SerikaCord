@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { usePolling } from "./usePolling";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export interface MentionData {
   id: string;
@@ -37,56 +36,165 @@ function setChannelReadTimestamp(channelId: string, ts: number) {
   localStorage.setItem(`${READ_KEY_PREFIX}${channelId}`, String(ts));
 }
 
-export function useMentions(serverId?: string) {
-  const [mentions, setMentions] = useState<MentionData[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [readVersion, setReadVersion] = useState(0);
-  const abortRef = useRef<AbortController | null>(null);
+// ── Shared store ─────────────────────────────────────────────────────────
+// ChatArea and ServerSidebar both use this hook; one module-level store per
+// URL runs a single poll for all of them (it used to be one poll per hook
+// instance, doubling an expensive endpoint) and shares read-marker changes so
+// a channel marked read in one place clears the badge everywhere.
 
-  const fetchMentions = useCallback(async () => {
-    if (abortRef.current) {
-      abortRef.current.abort();
-    }
-    const controller = new AbortController();
-    abortRef.current = controller;
+interface MentionState {
+  mentions: MentionData[];
+  loading: boolean;
+  error: string | null;
+}
 
+interface MentionEntry {
+  state: MentionState;
+  sig: string;
+  listeners: Set<() => void>;
+  timer: ReturnType<typeof setInterval> | null;
+  lastFetch: number;
+  inflight: Promise<void> | null;
+  detach: (() => void) | null;
+}
+
+const EMPTY_STATE: MentionState = { mentions: [], loading: true, error: null };
+const entries = new Map<string, MentionEntry>();
+let readVersionGlobal = 0;
+const readListeners = new Set<() => void>();
+
+function bumpReadVersion() {
+  readVersionGlobal += 1;
+  readListeners.forEach((fn) => fn());
+}
+
+function getEntry(url: string): MentionEntry {
+  let e = entries.get(url);
+  if (!e) {
+    e = { state: EMPTY_STATE, sig: "", listeners: new Set(), timer: null, lastFetch: 0, inflight: null, detach: null };
+    entries.set(url, e);
+  }
+  return e;
+}
+
+function setEntryState(e: MentionEntry, next: Partial<MentionState>) {
+  const merged = { ...e.state, ...next };
+  if (
+    merged.mentions === e.state.mentions &&
+    merged.loading === e.state.loading &&
+    merged.error === e.state.error
+  ) return;
+  e.state = merged;
+  e.listeners.forEach((fn) => fn());
+}
+
+function fetchEntry(url: string): Promise<void> {
+  const e = getEntry(url);
+  if (e.inflight) return e.inflight;
+  e.lastFetch = Date.now();
+  e.inflight = (async () => {
     try {
-      const url = serverId
-        ? `/api/users/@me/mentions?serverId=${encodeURIComponent(serverId)}`
-        : "/api/users/@me/mentions";
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await fetch(url);
       if (!res.ok) {
-        setError("Failed to fetch mentions");
+        setEntryState(e, { error: "Failed to fetch mentions", loading: false });
         return;
       }
       const data: MentionApiResponse = await res.json();
-      setMentions(data.mentions || []);
-      setError(null);
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      setError("Failed to fetch mentions");
+      const list = data.mentions || [];
+      const sig = `${list.length}:${list.map((m) => m.id).join(",")}`;
+      if (sig !== e.sig) {
+        e.sig = sig;
+        setEntryState(e, { mentions: list, error: null, loading: false });
+      } else {
+        setEntryState(e, { error: null, loading: false });
+      }
+    } catch {
+      setEntryState(e, { error: "Failed to fetch mentions", loading: false });
     } finally {
-      setLoading(false);
+      e.inflight = null;
     }
-  }, [serverId]);
+  })();
+  return e.inflight;
+}
 
-  // Visibility-aware poll: pauses in background tabs, refreshes on focus
-  usePolling(() => void fetchMentions(), POLL_INTERVAL);
-  useEffect(() => {
-    return () => {
-      if (abortRef.current) abortRef.current.abort();
-    };
-  }, []);
+function attachPoll(url: string, e: MentionEntry) {
+  const start = () => {
+    if (e.timer) clearInterval(e.timer);
+    e.timer = setInterval(() => void fetchEntry(url), POLL_INTERVAL);
+  };
+  const stop = () => {
+    if (e.timer) {
+      clearInterval(e.timer);
+      e.timer = null;
+    }
+  };
+  const onVisibility = () => {
+    if (document.visibilityState !== "visible") {
+      stop();
+      return;
+    }
+    // visibilitychange + focus both fire on tab return: fetch once.
+    if (Date.now() - e.lastFetch >= 1000) void fetchEntry(url);
+    if (!e.timer) start();
+  };
+  const onFocus = () => {
+    if (!e.timer) onVisibility();
+  };
+  void fetchEntry(url);
+  if (document.visibilityState === "visible") start();
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("focus", onFocus);
+  e.detach = () => {
+    stop();
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("focus", onFocus);
+  };
+}
+
+function subscribeEntry(url: string, listener: () => void): () => void {
+  const e = getEntry(url);
+  e.listeners.add(listener);
+  if (e.listeners.size === 1 && !e.detach) attachPoll(url, e);
+  return () => {
+    e.listeners.delete(listener);
+    if (e.listeners.size === 0 && e.detach) {
+      e.detach();
+      e.detach = null;
+    }
+  };
+}
+
+function subscribeRead(listener: () => void): () => void {
+  readListeners.add(listener);
+  return () => {
+    readListeners.delete(listener);
+  };
+}
+
+export function useMentions(serverId?: string) {
+  const url = serverId
+    ? `/api/users/@me/mentions?serverId=${encodeURIComponent(serverId)}`
+    : "/api/users/@me/mentions";
+  const subscribe = useCallback((fn: () => void) => subscribeEntry(url, fn), [url]);
+  const { mentions, loading, error } = useSyncExternalStore(
+    subscribe,
+    () => getEntry(url).state,
+    () => EMPTY_STATE
+  );
+  const readVersion = useSyncExternalStore(subscribeRead, () => readVersionGlobal, () => 0);
+  const fetchMentions = useCallback(() => fetchEntry(url), [url]);
 
   // Recompute unread state when readVersion changes (after markChannelRead)
-  const unreadMentions = (() => {
-    return mentions.filter((m) => {
-      const readTs = getChannelReadTimestamp(m.channelId);
-      return new Date(m.createdAt).getTime() > readTs;
-    });
-     
-  })();
+  const unreadMentions = useMemo(
+    () =>
+      mentions.filter((m) => {
+        const readTs = getChannelReadTimestamp(m.channelId);
+        return new Date(m.createdAt).getTime() > readTs;
+      }),
+    // readVersion bumps when any instance marks something read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mentions, readVersion]
+  );
 
   // Per-channel unread counts (memoized to avoid recreating Maps every render)
   const { channelMentionCounts, serverMentionCounts } = useMemo(() => {
@@ -107,7 +215,7 @@ export function useMentions(serverId?: string) {
 
   const markChannelRead = useCallback((channelId: string) => {
     setChannelReadTimestamp(channelId, Date.now());
-    setReadVersion((v) => v + 1);
+    bumpReadVersion();
   }, []);
 
   const markServerRead = useCallback((sid: string) => {
@@ -117,7 +225,7 @@ export function useMentions(serverId?: string) {
     for (const chId of channelIds) {
       setChannelReadTimestamp(chId, Date.now());
     }
-    setReadVersion((v) => v + 1);
+    bumpReadVersion();
   }, [mentions]);
 
   const markAllRead = useCallback(() => {
@@ -125,7 +233,7 @@ export function useMentions(serverId?: string) {
     for (const chId of channelIds) {
       setChannelReadTimestamp(chId, Date.now());
     }
-    setReadVersion((v) => v + 1);
+    bumpReadVersion();
   }, [mentions]);
 
   const getChannelCount = useCallback(

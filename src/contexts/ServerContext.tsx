@@ -4,6 +4,7 @@ import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition, useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
+import { reuseUnchanged } from "@/lib/state/reuseUnchanged";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
 
@@ -130,6 +131,13 @@ function lsSet(key: string, value: unknown) {
   }
 }
 
+function shallowEqual<T extends object>(a: T, b: T): boolean {
+  if (a === b) return true;
+  const ka = Object.keys(a) as (keyof T)[];
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => Object.is(a[k], b[k]));
+}
+
 export function ServerProvider({ children }: { children: ReactNode }) {
   const [servers, setServers] = useState<Server[]>([]);
   const [currentServer, setCurrentServerState] = useState<Server | null>(null);
@@ -193,26 +201,38 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // Last raw /@me/servers body and the list parsed from it: an unchanged poll
+  // keeps the same array/object identities so nothing downstream re-renders
+  // or refetches.
+  const lastServersRef = useRef<{ raw: string; list: Server[] } | null>(null);
   const fetchServers = useCallback(async () => {
     try {
       const response = await sharedGet("/api/users/@me/servers");
       if (response.ok) {
-        const data = await response.json();
-        // Transform _id to id if needed
-        const transformedServers = (Array.isArray(data) ? data : []).map((s: any) => ({
-          id: s.id || s._id,
-          name: s.name,
-          icon: s.icon,
-          ownerId: s.ownerId || s.isOwner,
-          ...s,
-        }));
-        setServers(transformedServers);
-        lsSet(LS_SERVERS, transformedServers);
+        const raw = await response.text();
+        let transformedServers: Server[];
+        if (lastServersRef.current && lastServersRef.current.raw === raw) {
+          transformedServers = lastServersRef.current.list;
+        } else {
+          const data = JSON.parse(raw);
+          // Transform _id to id if needed
+          transformedServers = (Array.isArray(data) ? data : []).map((s: any) => ({
+            id: s.id || s._id,
+            name: s.name,
+            icon: s.icon,
+            ownerId: s.ownerId || s.isOwner,
+            ...s,
+          }));
+          lastServersRef.current = { raw, list: transformedServers };
+          lsSet(LS_SERVERS, transformedServers);
+        }
+        setServers((prev) => (prev === transformedServers ? prev : transformedServers));
         // Also update currentServer if it exists in the new list (keeps banner, icon, etc. in sync)
         setCurrentServerState((prev) => {
           if (!prev) return prev;
           const updated = transformedServers.find((s: Server) => s.id === prev.id);
-          return updated || prev;
+          if (!updated || shallowEqual(updated, prev)) return prev;
+          return updated;
         });
       }
     } catch (error) {
@@ -305,8 +325,23 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const fetchMembers = useCallback(async (serverId: string) => {
-    if (!serverId) return;
+  // One in-flight members request per server: the switch, the poll and
+  // SSE-triggered refreshes share it instead of each pulling 1000 members.
+  const membersInflightRef = useRef<Map<string, Promise<void>>>(new Map());
+  const fetchMembers = useCallback((serverId: string): Promise<void> => {
+    if (!serverId) return Promise.resolve();
+    const pending = membersInflightRef.current.get(serverId);
+    // Reuse only while that server is still the active one; after switching
+    // away and back the old request may be discarded as stale.
+    if (pending && lastMembersServerIdRef.current === serverId) return pending;
+    const p = fetchMembersNow(serverId).finally(() => {
+      if (membersInflightRef.current.get(serverId) === p) membersInflightRef.current.delete(serverId);
+    });
+    membersInflightRef.current.set(serverId, p);
+    return p;
+  }, []);
+
+  const fetchMembersNow = async (serverId: string) => {
     const isSwitch = lastMembersServerIdRef.current !== serverId;
     if (isSwitch) {
       setIsMembersLoading(true);
@@ -319,16 +354,14 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         const rawMembers = Array.isArray(data) ? data : data?.members || [];
+        // The user switched servers while this was in flight: drop it.
+        if (lastMembersServerIdRef.current !== serverId) return;
         // Only update state if the data actually changed to avoid unnecessary re-renders
         setMembers(prev => {
-          if (!isSwitch && prev.length === rawMembers.length) {
-            // Lightweight signature comparison instead of full JSON.stringify
-            const sig = (m: any) => `${m.id}|${m.status}|${m.displayName || m.username}|${m.avatar || ""}|${m.customStatus || ""}|${m.communicationDisabledUntil || ""}|${JSON.stringify(m.customization?.nameplate || "")}|${(m.roles || []).map((r: any) => r.id).join(",")}`;
-            const prevSig = prev.map(sig).join("\n");
-            const newSig = rawMembers.map(sig).join("\n");
-            if (prevSig === newSig) return prev;
-          }
-          return rawMembers;
+          if (isSwitch) return rawMembers;
+          // Reuse unchanged member objects so memoized rows skip re-rendering;
+          // keep `prev` outright when nothing changed at all.
+          return reuseUnchanged<{ id?: string; membershipId?: string }>(prev, rawMembers, (m) => m.id || m.membershipId);
         });
       } else if (isSwitch) {
         setMembers([]);
@@ -339,9 +372,9 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         setMembers([]);
       }
     } finally {
-      setIsMembersLoading(false);
+      if (lastMembersServerIdRef.current === serverId) setIsMembersLoading(false);
     }
-  }, []);
+  };
 
   const applyMemberRoles = useCallback((userId: string, roles: any[]) => {
     setMembers((prev) => {
@@ -496,20 +529,31 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     }
 
     const data = await response.json();
-    if (data.channels) {
-      const transformedChannels: Channel[] = data.channels.map((c: any) => ({
-        id: c.id || c._id,
-        name: c.name,
-        type: c.type,
-        serverId: c.serverId,
-        position: c.position,
-        parentId: c.parentId || null,
-        isNsfw: c.nsfw || c.isNsfw,
-        topic: c.topic,
-        rateLimitPerUser: c.rateLimitPerUser || 0,
-      }));
-      setChannels(transformedChannels);
-      channelCacheRef.current.set(serverId, transformedChannels);
+    if (Array.isArray(data.channels)) {
+      // Merge only position/parent into the existing (filtered) list. The
+      // reorder response is unfiltered (includes threads) and lacks
+      // permissionOverwrites/lastMessageAt, so replacing the list with it
+      // dropped overwrites (and a later permissions save wiped them).
+      type ReorderedChannel = { id?: string; _id?: string; position: number; parentId?: string | null };
+      const byId = new Map(
+        (data.channels as ReorderedChannel[]).map((c) => [c.id || c._id, c] as const)
+      );
+      const merge = (list: Channel[]) =>
+        list
+          .map((c) => {
+            const u = byId.get(c.id);
+            return u ? { ...c, position: u.position, parentId: u.parentId || undefined } : c;
+          })
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      const cached = channelCacheRef.current.get(serverId);
+      if (cached) {
+        const merged = merge(cached);
+        channelCacheRef.current.set(serverId, merged);
+        lsSet(LS_CHANNELS_PREFIX + serverId, merged);
+      }
+      if (activeServerIdRef.current === serverId) {
+        setChannels((prev) => merge(prev));
+      }
     }
   }, []);
 
@@ -544,13 +588,14 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const currentServerId = currentServer?.id ?? null;
   useEffect(() => {
     if (currentServerId) {
+      // Members come from the poll below, which runs immediately on the id
+      // change; fetching here too doubled the 1000-member request.
       fetchChannels(currentServerId);
-      fetchMembers(currentServerId);
     } else {
       setMembers([]);
       lastMembersServerIdRef.current = null;
     }
-  }, [currentServerId, fetchChannels, fetchMembers]);
+  }, [currentServerId, fetchChannels]);
 
   usePolling(
     () => {
