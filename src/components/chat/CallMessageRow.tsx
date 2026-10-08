@@ -94,6 +94,9 @@ function CallMessageRowInner({ message, currentUserId, peer, formattedTimestamp 
   } else if (kind === "missed") {
     missed = true;
     text = fill(gt("You missed a call from {caller}."), { caller: strong(callerName) });
+  } else if (kind === "declined") {
+    missed = true;
+    text = fill(gt("You declined a call from {caller}."), { caller: strong(callerName) });
   } else if (kind === "unanswered") {
     text = peer?.name
       ? fill(gt("{callee} missed your call."), { callee: strong(peerName) })

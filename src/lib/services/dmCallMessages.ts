@@ -1,8 +1,12 @@
-// Server side of the "call" message a DM call leaves in the conversation.
+// Server side of the "call" message a DM call leaves in the conversation, for
+// 1:1 calls (dm:<a>_<b>) and group DM calls (gdm:<channelId>).
 //
-//   first join of an empty dm:<a>_<b> room ─▶ create the message (type 'call')
-//   someone else joins                      ─▶ answered = true, add participant
-//   room empties (hang up, declined, no answer, dropped) ─▶ endedAt = now
+//   first join of an empty room ─▶ create the message (type 'call')
+//   someone else joins          ─▶ answered = true, add participant
+//   someone declines            ─▶ remembered (declined, not missed)
+//   room empties (hang up, declined, no answer, dropped) ─▶ endedAt = now,
+//                                  and everyone who was rung but never joined
+//                                  or declined gets a `call_missed` event
 //
 // voice.ts calls these from /voice/join and evictFromRoom. Each room's work is
 // serialized in-process; across instances the active message id lives in Redis
@@ -13,17 +17,53 @@ import { randomUUID } from 'crypto';
 import { sql } from 'drizzle-orm';
 import { db } from '@/lib/db/postgres';
 import { getRedis } from '@/lib/db/redis';
-import { Channel, Message } from '@/lib/models';
-import { dmCallPeers } from '@/lib/chat/dmCall';
+import { Channel, Message, User } from '@/lib/models';
+import { dmCallPeers, groupDisplayName, type CallGroup, type CallMissed } from '@/lib/chat/dmCall';
 import { processShared } from '@/lib/realtime/processShared';
+import { groupCallChannelId } from '@/lib/voice/rooms';
 import {
+  callDataDecline,
   callDataEnd,
   callDataJoin,
   callPreviewText,
+  missedCallRecipients,
   newCallData,
   parseCallData,
   type CallMessageData,
 } from '@/lib/voice/callMessage';
+
+/** Which conversation a call room belongs to. */
+type CallTarget = { kind: 'dm'; peers: [string, string] } | { kind: 'group'; channelId: string };
+
+function callTarget(roomId: string): CallTarget | null {
+  const peers = dmCallPeers(roomId);
+  if (peers) return { kind: 'dm', peers };
+  const channelId = groupCallChannelId(roomId);
+  return channelId ? { kind: 'group', channelId } : null;
+}
+
+/** The group DM channel behind a group call, or null if it's gone / not a group DM. */
+export async function loadGroupCallChannel(channelId: string) {
+  const channel = await Channel.findById(channelId);
+  if (!channel || channel.type !== 'group_dm') return null;
+  return channel;
+}
+
+/** The group info shown on ring cards and missed-call notifications. */
+export async function describeCallGroup(
+  channel: { id: string; name?: string | null; recipientIds?: string[] | null },
+  viewerId?: string,
+): Promise<CallGroup> {
+  const ids = (channel.recipientIds || []).filter((id) => !viewerId || id.toLowerCase() !== viewerId.toLowerCase());
+  const users = ids.length ? await User.find({ id: { in: ids.slice(0, 10) } }).catch(() => []) : [];
+  const names = users.map((u) => u.displayName || u.username).filter(Boolean) as string[];
+  return {
+    channelId: channel.id,
+    name: groupDisplayName(channel.name, names),
+    icon: null,
+    memberCount: (channel.recipientIds || []).length,
+  };
+}
 
 /** The user joining a call, as /voice/join has it after authentication. */
 export type CallJoiner = {
@@ -148,18 +188,20 @@ async function publishCallUpdate(channelId: string, messageId: string, call: Cal
   publishToDm(channelId, { type: 'call_update', messageId, call });
 }
 
-/** Refresh both people's DM list preview ("📞 Missed call") without bumping the order. */
+/** Refresh everyone's DM list preview ("📞 Missed call") without bumping the order. */
 async function publishPreview(
   channelId: string,
-  peers: [string, string],
+  members: string[],
   messageId: string,
   call: CallMessageData,
   createdAt: Date | string | null | undefined,
 ) {
   const { emitDmListUpdate } = await import('@/lib/api/dms');
   const at = new Date(createdAt ?? call.startedAt).toISOString();
-  for (const userId of peers) {
-    const other = peers[0] === userId ? peers[1] : peers[0];
+  for (const userId of members) {
+    const other = members.length === 2
+      ? (members[0] === userId ? members[1] : members[0])
+      : call.callerId;
     emitDmListUpdate([userId], {
       type: 'dm:list:update',
       channelId,
@@ -169,11 +211,24 @@ async function publishPreview(
   }
 }
 
-async function createCallMessage(roomId: string, peers: [string, string], caller: CallJoiner, messageId: string) {
-  const callee = peers[0] === caller.id.toLowerCase() ? peers[1] : peers[0];
-  const { getOrCreateDMChannel } = await import('@/lib/api/dms');
-  const channel = await getOrCreateDMChannel(caller.id, callee);
-  const call = newCallData(caller.id);
+async function createCallMessage(target: CallTarget, caller: CallJoiner, messageId: string) {
+  let channel: { id: string };
+  let recipients: string[];
+  let call: CallMessageData;
+  if (target.kind === 'dm') {
+    const peers = target.peers;
+    const callee = peers[0] === caller.id.toLowerCase() ? peers[1] : peers[0];
+    const { getOrCreateDMChannel } = await import('@/lib/api/dms');
+    channel = await getOrCreateDMChannel(caller.id, callee);
+    recipients = [caller.id, callee];
+    call = newCallData(caller.id);
+  } else {
+    const group = await loadGroupCallChannel(target.channelId);
+    if (!group) throw new Error('Group DM not found');
+    channel = group;
+    recipients = [...(group.recipientIds || [])];
+    call = newCallData(caller.id, Date.now(), recipients);
+  }
   const message = await Message.create({
     id: messageId,
     channelId: channel.id,
@@ -206,18 +261,49 @@ async function createCallMessage(roomId: string, peers: [string, string], caller
   const { publishToDm } = await import('@/lib/api/dms');
   publishToDm(channel.id, { type: 'message', message: messageData });
 
-  // DM list bump for both + unread badge / notification for the callee.
+  // DM list bump for everyone + unread badge / notification for the callees.
   const { signalDmMessage } = await import('@/lib/services/messageSignals');
+  const someCallee = recipients.find((id) => id.toLowerCase() !== caller.id.toLowerCase()) ?? null;
   await signalDmMessage({
     channelId: channel.id,
-    recipientIds: [caller.id, callee],
+    recipientIds: recipients,
     messageId: message.id,
     authorId: caller.id,
     authorName: caller.displayName || caller.username,
     authorAvatar: caller.avatar ?? null,
-    content: callPreviewText(call, callee),
+    content: callPreviewText(call, someCallee),
     createdAt: message.createdAt,
+    isCall: true,
   });
+}
+
+/** Tell everyone who was rung and never picked up (or declined) that they missed it. */
+async function notifyMissed(roomId: string, target: CallTarget, messageId: string, channelId: string, call: CallMessageData) {
+  const missed = missedCallRecipients(call, target.kind === 'dm' ? target.peers : undefined);
+  if (missed.length === 0) return;
+  const caller = await User.findById(call.callerId).catch(() => null);
+  if (!caller) return;
+  let group: CallGroup | null = null;
+  if (target.kind === 'group') {
+    const channel = await loadGroupCallChannel(target.channelId);
+    if (channel) group = await describeCallGroup(channel);
+  }
+  const payload: { type: 'call_missed' } & CallMissed = {
+    type: 'call_missed',
+    callId: messageId,
+    roomId,
+    channelId,
+    caller: {
+      id: caller.id,
+      username: caller.username,
+      displayName: caller.displayName || caller.username,
+      avatar: caller.avatar || null,
+    },
+    group,
+    endedAt: call.endedAt ?? new Date().toISOString(),
+  };
+  const { fanoutToUsers } = await import('@/lib/api/activity');
+  await fanoutToUsers({ userIds: missed }, payload);
 }
 
 async function endCallMessage(roomId: string, messageId: string) {
@@ -230,8 +316,15 @@ async function endCallMessage(roomId: string, messageId: string) {
   const ended = callDataEnd(data);
   await Message.updateById(row.id, { call: ended });
   await publishCallUpdate(row.channelId, row.id, ended);
-  const peers = dmCallPeers(roomId);
-  if (peers) await publishPreview(row.channelId, peers, row.id, ended, row.createdAt);
+  const target = callTarget(roomId);
+  if (!target) return;
+  const members = target.kind === 'dm' ? target.peers : (ended.memberIds || []);
+  await publishPreview(row.channelId, members, row.id, ended, row.createdAt);
+  // Only the run that closes the call gets here (endedAt was still null), so
+  // each person is told once per call.
+  await notifyMissed(roomId, target, row.id, row.channelId, ended).catch((err) => {
+    console.error('[calls] missed-call notification failed:', err);
+  });
 }
 
 // ─── Entry points (called by voice.ts) ────────────────────────────────────────
@@ -241,8 +334,8 @@ async function endCallMessage(roomId: string, messageId: string) {
  * `roomWasEmpty`: nobody else was in the room before this join.
  */
 export function onDmCallJoin(roomId: string, user: CallJoiner, roomWasEmpty: boolean): Promise<void> {
-  const peers = dmCallPeers(roomId);
-  if (!peers) return Promise.resolve();
+  const target = callTarget(roomId);
+  if (!target) return Promise.resolve();
   return serialize(roomId, async () => {
     for (let attempt = 0; attempt < 3; attempt++) {
       const activeId = await getActiveId(roomId);
@@ -273,7 +366,7 @@ export function onDmCallJoin(roomId: string, user: CallJoiner, roomWasEmpty: boo
       const messageId = randomUUID();
       if (!(await claim(roomId, messageId))) continue; // lost the race; join theirs
       try {
-        await createCallMessage(roomId, peers, user, messageId);
+        await createCallMessage(target, user, messageId);
       } catch (err) {
         await release(roomId, messageId);
         throw err;
@@ -285,9 +378,28 @@ export function onDmCallJoin(roomId: string, user: CallJoiner, roomWasEmpty: boo
 
 /** The room is empty: the call is over. */
 export function onDmCallRoomEmpty(roomId: string): Promise<void> {
-  if (!dmCallPeers(roomId)) return Promise.resolve();
+  if (!callTarget(roomId)) return Promise.resolve();
   return serialize(roomId, async () => {
     const activeId = await getActiveId(roomId);
     if (activeId) await endCallMessage(roomId, activeId);
+  });
+}
+
+/**
+ * Someone pressed Decline on a ringing call: when it ends they get "declined"
+ * instead of a missed-call notification.
+ */
+export function onDmCallDecline(roomId: string, userId: string): Promise<void> {
+  if (!callTarget(roomId)) return Promise.resolve();
+  return serialize(roomId, async () => {
+    const activeId = await getActiveId(roomId);
+    if (!activeId) return;
+    const row = await loadCallMessage(activeId, 4);
+    const data = row ? parseCallData(row.call) : null;
+    if (!row || !data) return;
+    const next = callDataDecline(data, userId);
+    if (next === data) return;
+    await Message.updateById(row.id, { call: next });
+    await publishCallUpdate(row.channelId, row.id, next);
   });
 }

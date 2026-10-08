@@ -112,6 +112,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "You missed a call from {caller}.": gt("You missed a call from {caller}.", { caller: "{caller}" }),
       "{callee} missed your call.": gt("{callee} missed your call.", { callee: "{callee}" }),
       "Nobody answered your call.": gt("Nobody answered your call."),
+      "You declined a call from {caller}.": gt("You declined a call from {caller}.", { caller: "{caller}" }),
     };
 
     return (str, params) => {

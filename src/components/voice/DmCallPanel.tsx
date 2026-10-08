@@ -6,7 +6,7 @@ import { Headphones, HeadphoneOff, Mic, MicOff, Monitor, MonitorOff, PhoneOff, V
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { getCallSnapshot, getServerCallSnapshot, hangUp, subscribeCall } from "@/lib/services/dmCallController";
-import { formatCallDuration } from "@/lib/voice/callState";
+import { callPanelPeople, formatCallDuration } from "@/lib/voice/callState";
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
 import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
 import { VideoGrid } from "@/components/voice/VideoGrid";
@@ -31,11 +31,25 @@ function useNow(active: boolean): number {
 }
 
 /**
- * Discord-style call area at the top of a DM: both avatars, "Calling…" while
+ * Discord-style call area at the top of a DM: everyone's avatars (speaking
+ * ring, muted badge; people not in the call yet are dimmed), "Calling…" while
  * it rings, a timer once connected, the video grid, and the call controls.
- * Renders nothing unless this tab is in (or dialing) this DM's call.
+ * 1:1 calls pass `peer`; group DM calls pass every member as `peers` plus
+ * `groupName`. Renders nothing unless this tab is in (or dialing) the call.
  */
-export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; peer: Person }) {
+export function DmCallPanel({
+  roomId,
+  me,
+  peer,
+  peers,
+  groupName,
+}: {
+  roomId: string;
+  me: Person;
+  peer?: Person;
+  peers?: Person[];
+  groupName?: string;
+}) {
   const gt = useGT();
   const voiceRoom = useSyncExternalStore(subscribeRoom, getRoom, getServerRoom);
   const call = useSyncExternalStore(subscribeCall, getCallSnapshot, getServerCallSnapshot);
@@ -77,10 +91,15 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
     }
   }), []);
 
-  const peerKey = peer.id.toLowerCase();
-  const peerParticipant = voiceRoom === roomId
-    ? participants.find((p) => p.userId.toLowerCase() === peerKey)
-    : undefined;
+  const group = !!groupName;
+  const others = peers ?? (peer ? [peer] : []);
+  const inRoom = voiceRoom === roomId ? participants : [];
+  const participantOf = (id: string) => inRoom.find((p) => p.userId.toLowerCase() === id.toLowerCase());
+  const myKey = me.id.toLowerCase();
+  const othersHere = inRoom.filter((p) => p.userId.toLowerCase() !== myKey && p.userId !== voiceService.myId);
+  // 1:1: the other person is in; group: anyone else is.
+  const peerParticipant = group ? othersHere[0] : (peer ? participantOf(peer.id) : undefined);
+  const people = callPanelPeople(me, others, group ? othersHere : []);
   const connectedAt = callState?.connectedAt ?? null;
   const ringingOut = callState?.phase === "ringing" && callState.direction === "outgoing" && !peerParticipant;
   const now = useNow(active && connectedAt !== null);
@@ -110,7 +129,7 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
     : ringingOut
       ? gt("Calling…")
       : voiceRoom === roomId && !callState
-        ? gt("Waiting for {name}…", { name: peer.name })
+        ? (group || !peer ? gt("Waiting for others…") : gt("Waiting for {name}…", { name: peer.name }))
         : gt("Connecting…");
 
   const controlBase = "flex h-11 w-11 items-center justify-center rounded-full transition-all active:scale-95";
@@ -119,36 +138,43 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
 
   return (
     <section
-      aria-label={gt("Call with {name}", { name: peer.name })}
+      aria-label={group ? gt("Call in {name}", { name: groupName }) : gt("Call with {name}", { name: peer?.name ?? "" })}
       className="shrink-0 border-b border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 pb-4 pt-5 animate-fade-in"
     >
-      <div className="flex items-center justify-center gap-8 sm:gap-12">
-        <div className="flex flex-col items-center gap-2">
-          <VoiceParticipantAvatar
-            participant={{ userId: me.id, username: me.name, displayName: me.name, avatar: me.avatar ?? undefined, audio: !muted }}
-            speaking={speaking.has(voiceService.myId)}
-            size="lg"
-          />
-        </div>
-        <div className="flex flex-col items-center gap-2">
-          <div className={cn("relative", !peerParticipant && "opacity-60")}>
-            {ringingOut && (
-              <span className="pointer-events-none absolute inset-0 rounded-full bg-[var(--app-accent)]/40 animate-ping" />
-            )}
-            <VoiceParticipantAvatar
-              participant={{
-                userId: peer.id,
-                username: peer.name,
-                displayName: peer.name,
-                avatar: peer.avatar ?? undefined,
-                audio: peerParticipant ? peerParticipant.audio : true,
-              }}
-              speaking={!!peerParticipant && speaking.has(peerParticipant.userId)}
-              size="lg"
-            />
-          </div>
-        </div>
-      </div>
+      <ul
+        className={cn(
+          "flex flex-wrap items-start justify-center",
+          people.length > 2 ? "gap-x-5 gap-y-3 sm:gap-x-6" : "gap-8 sm:gap-12",
+        )}
+      >
+        {people.map((person, index) => {
+          const isMe = index === 0;
+          const here = isMe ? undefined : participantOf(person.id);
+          return (
+            <li key={person.id} className="flex w-16 flex-col items-center gap-1.5 sm:w-20">
+              <div className={cn("relative", !isMe && !here && "opacity-60")}>
+                {!isMe && !here && ringingOut && (
+                  <span className="pointer-events-none absolute inset-0 rounded-full bg-[var(--app-accent)]/40 animate-ping" />
+                )}
+                <VoiceParticipantAvatar
+                  participant={{
+                    userId: person.id,
+                    username: person.name,
+                    displayName: person.name,
+                    avatar: person.avatar ?? undefined,
+                    audio: isMe ? !muted : here ? here.audio : true,
+                  }}
+                  speaking={isMe ? speaking.has(voiceService.myId) : !!here && speaking.has(here.userId)}
+                  size={people.length > 4 ? "md" : "lg"}
+                />
+              </div>
+              {people.length > 2 && (
+                <span className="w-full truncate text-center text-xs text-[var(--text-secondary)]">{person.name}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
 
       <p
         className="mt-3 text-center text-sm font-medium tabular-nums text-[var(--text-secondary)]"

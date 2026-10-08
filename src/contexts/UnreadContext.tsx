@@ -131,6 +131,8 @@ interface DmActivityEvent {
   hasAttachments?: boolean;
   hasSticker?: boolean;
   createdAt?: string;
+  /** A call log message: the incoming-call card already alerted the user. */
+  isCall?: boolean;
 }
 
 /** The user is looking at the app right now (tab shown and window focused). */
@@ -591,7 +593,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         const body = !showPreview
           ? "New message"
           : dm.preview || (dm.hasAttachments ? "📎 Attachment" : dm.hasSticker ? "Sticker" : "New message");
-        notifyBackgroundMessage({
+        if (!dm.isCall) notifyBackgroundMessage({
           channelId,
           isDM: true,
           isMentioned: false,
@@ -622,8 +624,10 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Incoming DM call ringing / stopped — handled by the IncomingCall UI.
-      if (data.type === "call_ring" || data.type === "call_cancel") {
+      // Incoming call ringing / stopped / missed — handled by the IncomingCall
+      // UI (ringtone, card, desktop notification, missed-call toast). The
+      // missed call's DM already has its unread badge from the call message.
+      if (data.type === "call_ring" || data.type === "call_cancel" || data.type === "call_missed") {
         emitCallEvent(data as CallEvent);
         return;
       }

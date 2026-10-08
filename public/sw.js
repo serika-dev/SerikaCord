@@ -65,7 +65,7 @@ self.addEventListener('fetch', (event) => {
 // Handle messages from the main app
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-        const { title, body, icon, tag, data } = event.data.payload;
+        const { title, body, icon, tag, data, requireInteraction } = event.data.payload;
 
         event.waitUntil(
             self.registration.showNotification(title, {
@@ -75,7 +75,7 @@ self.addEventListener('message', (event) => {
                 tag: tag || 'serikacord-message',
                 data: data || {},
                 vibrate: [100, 50, 100],
-                requireInteraction: false,
+                requireInteraction: Boolean(requireInteraction),
                 actions: [
                     { action: 'open', title: 'Open' },
                     { action: 'dismiss', title: 'Dismiss' },

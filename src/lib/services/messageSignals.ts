@@ -56,6 +56,8 @@ export async function signalDmMessage(opts: {
   content?: string | null;
   hasAttachments?: boolean;
   createdAt?: Date | string | null;
+  /** A call log message: badges the DM, but the ring itself is the notification. */
+  isCall?: boolean;
 }): Promise<void> {
   try {
     const createdAt = new Date(opts.createdAt ?? Date.now()).toISOString();
@@ -84,6 +86,7 @@ export async function signalDmMessage(opts: {
       preview: text.slice(0, 120),
       hasAttachments: Boolean(opts.hasAttachments),
       createdAt,
+      ...(opts.isCall ? { isCall: true } : {}),
     });
   } catch {
     /* best-effort */

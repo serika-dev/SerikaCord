@@ -387,6 +387,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           return {
             id: channel.id,
             type: channel.type,
+            ...(channel.type === 'group_dm' ? { name: channel.name ?? null } : {}),
             recipients: recipients.map((r: any) => ({
               id: r.id,
               username: r.username,

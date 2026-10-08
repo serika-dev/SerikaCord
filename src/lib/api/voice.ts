@@ -10,8 +10,22 @@ import { fanoutToUsers } from './activity';
 import { checkChannelAccess } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
-import { parseVoiceRoomId, isDmRoomPeer, hasRoomForParticipant, canSignalBetween } from '@/lib/voice/rooms';
-import { onDmCallJoin, onDmCallRoomEmpty } from '@/lib/services/dmCallMessages';
+import {
+  parseVoiceRoomId,
+  isDmRoomPeer,
+  hasRoomForParticipant,
+  canSignalBetween,
+  groupCallChannelId,
+  groupCallRingTargets,
+  isGroupCallMember,
+} from '@/lib/voice/rooms';
+import {
+  describeCallGroup,
+  loadGroupCallChannel,
+  onDmCallDecline,
+  onDmCallJoin,
+  onDmCallRoomEmpty,
+} from '@/lib/services/dmCallMessages';
 
 const sseEncoder = new TextEncoder();
 
@@ -145,11 +159,50 @@ function notifyCall(userIds: string[], payload: Record<string, unknown>) {
   void fanoutToUsers({ userIds }, payload).catch(() => {});
 }
 
-// Once a DM call room empties (the caller hung up before an answer, or the
-// call ended), stop it ringing anywhere it still is.
+// Group calls: who is being rung for each room (so the ring can be stopped
+// once the room empties). This instance's view; the group's member list is
+// the fallback when the ring went out from another instance.
+const groupRinging = processShared('voice:groupRinging', () => new Map<string, string[]>());
+
+// Once a DM/group call room empties (the caller hung up before an answer, or
+// the call ended), stop it ringing anywhere it still is.
 function stopRingingIfEmpty(roomId: string) {
+  if (roomState.get(roomId)?.size) return;
   const peers = dmCallPeers(roomId);
-  if (peers && !roomState.get(roomId)?.size) notifyCall(peers, { type: 'call_cancel', roomId, reason: 'ended' });
+  if (peers) {
+    notifyCall(peers, { type: 'call_cancel', roomId, reason: 'ended' });
+    return;
+  }
+  const channelId = groupCallChannelId(roomId);
+  if (!channelId) return;
+  const rung = groupRinging.get(roomId);
+  groupRinging.delete(roomId);
+  if (rung) {
+    notifyCall(rung, { type: 'call_cancel', roomId, reason: 'ended' });
+    return;
+  }
+  void loadGroupCallChannel(channelId)
+    .then((channel) => {
+      if (channel) notifyCall(channel.recipientIds || [], { type: 'call_cancel', roomId, reason: 'ended' });
+    })
+    .catch(() => {});
+}
+
+const hasId = (list: string[] | null | undefined, id: string) =>
+  (list || []).some((x) => x.toLowerCase() === id.toLowerCase());
+
+/**
+ * Members of a group call to ring: everyone else in the group, minus anyone
+ * who blocked the caller (or whom the caller blocked) and system accounts.
+ */
+async function groupRingTargets(caller: CallingUser, recipientIds: string[] | null | undefined): Promise<string[]> {
+  const ids = groupCallRingTargets(recipientIds, caller.id);
+  if (ids.length === 0) return [];
+  const users = await User.find({ id: { in: ids } }).catch(() => []);
+  return users
+    .filter((u) => !u.isSystem && !isSystemUser(u.id))
+    .filter((u) => !hasId(caller.blockedUsers, u.id) && !hasId(u.blockedUsers, caller.id))
+    .map((u) => u.id);
 }
 
 type CallingUser = { id: string; friends?: string[] | null; blockedUsers?: string[] | null };
@@ -254,6 +307,16 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
     return isDmRoomPeer(room, userId)
       ? { ok: true, userLimit: 0 }
       : { ok: false, status: 403, error: 'Not part of this call' };
+  }
+  if (room.kind === 'group') {
+    try {
+      const channel = await loadGroupCallChannel(room.channelId);
+      return isGroupCallMember(channel, userId)
+        ? { ok: true, userLimit: 0 }
+        : { ok: false, status: 403, error: 'Not part of this call' };
+    } catch {
+      return { ok: false, status: 500, error: 'Could not verify group access' };
+    }
   }
   try {
     const access = await checkChannelAccess(userId, room.channelId);
@@ -388,6 +451,17 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         return { error: 'You cannot call this user' };
       }
     }
+    // Group DM call rooms ("gdm:<channelId>"): current members only (the
+    // fresh authorizeRoom above already checked; keep the channel for ringing).
+    let groupChannel: Awaited<ReturnType<typeof loadGroupCallChannel>> = null;
+    if (body.roomId.startsWith('gdm:')) {
+      const channelId = groupCallChannelId(body.roomId);
+      groupChannel = channelId ? await loadGroupCallChannel(channelId) : null;
+      if (!isGroupCallMember(groupChannel, user.id)) {
+        set.status = 403;
+        return { error: 'Not part of this call' };
+      }
+    }
 
     // Nobody at all (not even another device of ours) was in the room: this
     // join starts a new call.
@@ -445,6 +519,38 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
             avatar: user.avatar || null,
           },
         });
+      }
+    }
+
+    if (groupChannel && !resumed) {
+      void onDmCallJoin(body.roomId, user, roomWasEmpty);
+      if (roomWasEmpty) {
+        // A new group call: ring everyone else in the group.
+        const caller = {
+          id: userId,
+          username: user.username,
+          displayName: user.displayName || user.username,
+          avatar: user.avatar || null,
+        };
+        const roomId = body.roomId;
+        const video = body.video ?? false;
+        const channel = groupChannel;
+        void (async () => {
+          const targets = await groupRingTargets(user, channel.recipientIds);
+          // Everyone may have left again while we looked them up.
+          if (targets.length === 0 || !roomState.get(roomId)?.size) return;
+          groupRinging.set(roomId, targets);
+          const group = await describeCallGroup(channel).catch(() => ({
+            channelId: channel.id,
+            name: channel.name || 'Group',
+            icon: null,
+            memberCount: (channel.recipientIds || []).length,
+          }));
+          notifyCall(targets, { type: 'call_ring', roomId, video, caller, group });
+        })().catch(() => {});
+      } else {
+        // Picked up (on one device): stop it ringing on their others.
+        notifyCall([userId], { type: 'call_cancel', roomId: body.roomId, reason: 'answered' });
       }
     }
 
@@ -514,6 +620,18 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
 
     const peers = dmCallPeers(body.roomId);
+    const groupChannelId = groupCallChannelId(body.roomId);
+    if (groupChannelId) {
+      const channel = await loadGroupCallChannel(groupChannelId).catch(() => null);
+      if (!isGroupCallMember(channel, user.id)) {
+        set.status = 403;
+        return { error: 'Not part of this call' };
+      }
+      // One member declining a group call only stops their own ringing.
+      if (!roomState.get(body.roomId)?.has(user.id)) void onDmCallDecline(body.roomId, user.id);
+      notifyCall([user.id], { type: 'call_cancel', roomId: body.roomId, reason: 'declined' });
+      return { success: true };
+    }
     if (!peers || !peers.includes(user.id.toLowerCase())) {
       set.status = 403;
       return { error: 'Not part of this call' };
@@ -522,6 +640,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     // Declining on one device while already in the call on another (or from
     // a stale card) must not hang the caller up.
     if (!roomState.get(body.roomId)?.has(user.id)) {
+      // Recorded before the caller hears about it (and hangs up), so the call
+      // ends as "declined", not "missed".
+      void onDmCallDecline(body.roomId, user.id);
       broadcastToRoom(body.roomId, { type: 'voice:call_declined', userId: user.id }, user.id);
     }
     notifyCall([user.id], { type: 'call_cancel', roomId: body.roomId, reason: 'declined' });

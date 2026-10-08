@@ -92,6 +92,8 @@ export interface IUserSettings {
     suppressToasts?: boolean;
     /** Suppress notification sound when the tab is focused/visible. Default true. */
     suppressSoundWhenFocused?: boolean;
+    /** Ring for incoming calls even with message sounds off (DND still silences it). Default true. */
+    callRingtone?: boolean;
   };
   privacy: {
     directMessages: 'everyone' | 'friends' | 'servers';

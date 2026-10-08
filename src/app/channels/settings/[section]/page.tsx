@@ -426,6 +426,7 @@ export default function MobileSettingsSectionPage() {
           <div className="space-y-4">
             <ToggleRow label={gt("Desktop notifications")} checked={Boolean(settings.notifications?.desktop)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), desktop: checked } })} />
             <ToggleRow label={gt("Sounds")} checked={Boolean(settings.notifications?.sounds)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), sounds: checked } })} />
+            <ToggleRow label={gt("Incoming call ringtone")} checked={settings.notifications?.callRingtone !== false} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), callRingtone: checked } })} />
             <ToggleRow label={gt("Mentions")} checked={Boolean(settings.notifications?.mentions)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), mentions: checked } })} />
             <ToggleRow label={gt("Direct messages")} checked={Boolean(settings.notifications?.directMessages)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), directMessages: checked } })} />
             <ToggleRow label={gt("Do Not Disturb")} checked={Boolean(settings.notifications?.dnd)} onChange={(checked) => saveSettings({ notifications: { ...(settings.notifications || {}), dnd: checked } })} />

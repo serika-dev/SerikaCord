@@ -1,13 +1,16 @@
-// Client-side owner of the 1:1 DM call lifecycle (Discord-style): who we're
-// calling, ringing/connected/ended, the outgoing ringback tone, the no-answer
-// timeout, and hanging up when the other person leaves. The media itself is
-// voiceService; the transitions are the pure reducer in lib/voice/callState.
+// Client-side owner of the DM call lifecycle (Discord-style), for 1:1 calls
+// and group DM calls: who we're calling, ringing/connected/ended, the outgoing
+// ringback tone, the no-answer timeout, and (1:1 only) hanging up when the
+// other person leaves. The media itself is voiceService; the transitions are
+// the pure reducer in lib/voice/callState.
 //
 // Every DM call entry point goes through here: the DM header buttons, the
-// "Call" items in user menus (?call=), and answering an incoming call.
+// "Call" items in user menus (?call=), group DM calls, and answering an
+// incoming call.
 import { voiceService } from "./voiceService";
 import { startRingtone, stopRingtone } from "./ringtone";
-import { dmCallRoomId, dmCallPeers } from "@/lib/chat/dmCall";
+import { dmCallRoomId, dmCallPeers, isGroupCallRoom, type CallGroup } from "@/lib/chat/dmCall";
+import { groupCallRoomId } from "@/lib/voice/rooms";
 import {
   callReducer,
   IDLE,
@@ -20,10 +23,10 @@ import {
 
 export type CallPeer = { id: string; name?: string; avatar?: string | null };
 
-export type CallSnapshot = { state: CallState; peer: CallPeer | null };
+export type CallSnapshot = { state: CallState; peer: CallPeer | null; group?: CallGroup | null };
 
 /** A call just ended; the UI decides whether that deserves a toast. */
-export type CallNotice = { roomId: string; peer: CallPeer | null; reason: CallEndReason };
+export type CallNotice = { roomId: string; peer: CallPeer | null; reason: CallEndReason; group?: CallGroup | null };
 
 let snapshot: CallSnapshot = { state: IDLE, peer: null };
 const listeners = new Set<() => void>();
@@ -56,6 +59,7 @@ function dispatch(action: CallAction) {
 
   if (next.phase === "ended") {
     const peer = snapshot.peer;
+    const group = snapshot.group ?? null;
     const roomId = next.roomId;
     // Back to idle before anything else reacts, so a new call can start from
     // inside a notice handler.
@@ -63,11 +67,11 @@ function dispatch(action: CallAction) {
     if (voiceService.currentRoomId === roomId || voiceService.joiningRoomId === roomId) {
       void voiceService.leaveChannel();
     }
-    const notice: CallNotice = { roomId, peer, reason: next.endReason ?? "hangup" };
+    const notice: CallNotice = { roomId, peer, reason: next.endReason ?? "hangup", group };
     noticeListeners.forEach((fn) => fn(notice));
     return;
   }
-  publish({ state: next, peer: snapshot.peer });
+  publish({ state: next, peer: snapshot.peer, group: snapshot.group });
 }
 
 function otherParticipantIds(): string[] {
@@ -101,13 +105,14 @@ function ensureVoiceSubscription() {
   });
 }
 
-function begin(roomId: string, peer: CallPeer, direction: "outgoing" | "incoming") {
+function begin(roomId: string, peer: CallPeer, direction: "outgoing" | "incoming", group: CallGroup | null = null) {
   ensureVoiceSubscription();
   clearRingTimer();
   // Starting a new call silently replaces whatever was being tracked.
   stopRingtone(false, "outgoing");
   snapshot = { state: IDLE, peer: null };
-  publish({ state: callReducer(IDLE, { type: "start", roomId, peerId: peer.id, direction, now: Date.now() }), peer });
+  const state = callReducer(IDLE, { type: "start", roomId, peerId: peer.id, direction, now: Date.now(), group: !!group });
+  publish({ state, peer, group });
   if (direction === "outgoing") void startRingtone("outgoing");
   ringTimer = setTimeout(() => {
     ringTimer = null;
@@ -117,6 +122,11 @@ function begin(roomId: string, peer: CallPeer, direction: "outgoing" | "incoming
 
 function roomMeta(peer: CallPeer) {
   return { label: peer.name, href: `/dm/${peer.id}` };
+}
+
+// Group DMs have no conversation page yet, so the voice bar only names them.
+function groupRoomMeta(group: CallGroup) {
+  return { label: group.name };
 }
 
 /** Is this DM call already up (or being set up) on this tab? */
@@ -139,12 +149,28 @@ export function startDmCall(opts: { myId: string; peer: CallPeer; video?: boolea
   return voiceService.joinChannel(roomId, !!opts.video, roomMeta(opts.peer));
 }
 
-/** Pick up an incoming call. */
-export function answerDmCall(opts: { roomId: string; caller: CallPeer; video?: boolean }): Promise<void> {
-  if (!dmCallPeers(opts.roomId)) return Promise.resolve();
+/**
+ * Start (or join) a group DM's call. Everyone else in the group is rung; the
+ * call goes on until the last person leaves.
+ */
+export function startGroupCall(opts: { group: CallGroup; video?: boolean }): Promise<void> {
+  const roomId = groupCallRoomId(opts.group.channelId);
+  if (isInDmCall(roomId)) {
+    voiceService.setRoomMeta(roomId, groupRoomMeta(opts.group));
+    if (opts.video && voiceService.connected && !voiceService.videoOn) void voiceService.toggleVideo();
+    return Promise.resolve();
+  }
+  begin(roomId, { id: opts.group.channelId, name: opts.group.name, avatar: opts.group.icon }, "outgoing", opts.group);
+  return voiceService.joinChannel(roomId, !!opts.video, groupRoomMeta(opts.group));
+}
+
+/** Pick up an incoming call (1:1 or group). */
+export function answerDmCall(opts: { roomId: string; caller: CallPeer; group?: CallGroup | null; video?: boolean }): Promise<void> {
+  const group = isGroupCallRoom(opts.roomId) ? opts.group ?? null : null;
+  if (!dmCallPeers(opts.roomId) && !group) return Promise.resolve();
   if (isInDmCall(opts.roomId)) return Promise.resolve();
-  begin(opts.roomId, opts.caller, "incoming");
-  return voiceService.joinChannel(opts.roomId, !!opts.video, roomMeta(opts.caller));
+  begin(opts.roomId, opts.caller, "incoming", group);
+  return voiceService.joinChannel(opts.roomId, !!opts.video, group ? groupRoomMeta(group) : roomMeta(opts.caller));
 }
 
 /** Hang up the current call (whatever kind of room it is). */
@@ -159,7 +185,7 @@ export function updateCallPeer(roomId: string, peer: CallPeer) {
   if (s.phase !== "idle" && s.roomId === roomId && snapshot.peer?.id.toLowerCase() === peer.id.toLowerCase()) {
     const merged = { ...snapshot.peer, ...peer };
     if (merged.name !== snapshot.peer.name || merged.avatar !== snapshot.peer.avatar) {
-      publish({ state: s, peer: merged });
+      publish({ state: s, peer: merged, group: snapshot.group });
     }
   }
   if (peer.name) voiceService.setRoomMeta(roomId, roomMeta(peer));

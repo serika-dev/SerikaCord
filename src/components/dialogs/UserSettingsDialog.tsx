@@ -3533,6 +3533,16 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                       <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.sounds)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: checked } }, "notifications")} />
                     </label>
 
+                    <div className="h-px bg-[var(--border-subtle)]" />
+
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div>
+                        <p className="text-[var(--text-primary)] font-medium">{gt("Incoming call ringtone")}</p>
+                        <p className="text-sm text-[var(--text-secondary)]">{gt("Ring when someone calls you, even with message sounds off. Do Not Disturb still silences it.")}</p>
+                      </div>
+                      <ToggleSwitch size="sm" checked={userSettings?.notifications?.callRingtone !== false} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), callRingtone: checked } }, "notifications")} />
+                    </label>
+
                     {userSettings?.notifications?.sounds && (
                       <>
                         <div className="h-px bg-[var(--border-subtle)]" />

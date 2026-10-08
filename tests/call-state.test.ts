@@ -114,12 +114,15 @@ describe("formatCallDuration", () => {
 });
 
 describe("ringAllowed", () => {
-  test("sound toggle silences both rings; DND only the incoming one", () => {
-    expect(ringAllowed("incoming", { soundEnabled: true, dnd: false })).toBeTrue();
-    expect(ringAllowed("incoming", { soundEnabled: true, dnd: true })).toBeFalse();
-    expect(ringAllowed("outgoing", { soundEnabled: true, dnd: true })).toBeTrue();
-    expect(ringAllowed("outgoing", { soundEnabled: false, dnd: false })).toBeFalse();
-    expect(ringAllowed("incoming", { soundEnabled: false, dnd: false })).toBeFalse();
+  test("incoming rings regardless of message sounds; DND and the ringtone switch silence it", () => {
+    expect(ringAllowed("incoming", { ringtoneEnabled: true, dnd: false })).toBeTrue();
+    expect(ringAllowed("incoming", { ringtoneEnabled: true, dnd: true })).toBeFalse();
+    expect(ringAllowed("incoming", { ringtoneEnabled: false, dnd: false })).toBeFalse();
+  });
+
+  test("the caller's ringback always plays", () => {
+    expect(ringAllowed("outgoing", { ringtoneEnabled: false, dnd: true })).toBeTrue();
+    expect(ringAllowed("outgoing", { ringtoneEnabled: true, dnd: false })).toBeTrue();
   });
 });
 

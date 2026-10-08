@@ -129,6 +129,24 @@ export async function requestNotificationPermission(): Promise<boolean> {
     return false;
 }
 
+// Page-created notifications by tag, so closeNotification() can find them.
+const openNotifications = new Map<string, Notification>();
+
+/**
+ * Close a web notification shown with this tag (an incoming call that was
+ * answered or stopped ringing). Best-effort; native shells keep theirs.
+ */
+export async function closeNotification(tag: string): Promise<void> {
+    openNotifications.get(tag)?.close();
+    openNotifications.delete(tag);
+    try {
+        const list = await swRegistration?.getNotifications({ tag });
+        list?.forEach((n) => n.close());
+    } catch {
+        /* not supported */
+    }
+}
+
 /**
  * Show a notification (platform-aware)
  */
@@ -186,6 +204,7 @@ export async function showNotification(
                 icon: options.icon || '/icons/icon-192x192.png',
                 tag: options.tag,
                 data: options.data,
+                requireInteraction: options.requireInteraction,
             },
         });
         return;
@@ -199,6 +218,12 @@ export async function showNotification(
             tag: options.tag,
             requireInteraction: options.requireInteraction,
         });
+        if (options.tag) {
+            openNotifications.set(options.tag, notification);
+            notification.onclose = () => {
+                if (openNotifications.get(options.tag!) === notification) openNotifications.delete(options.tag!);
+            };
+        }
 
         if (options.onClick) {
             notification.onclick = () => {

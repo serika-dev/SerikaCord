@@ -79,6 +79,7 @@ function getDefaultUserSettings() {
       directMessages: true,
       friendRequests: true,
       muteEveryone: false,
+      callRingtone: true,
     },
     privacy: {
       directMessages: 'everyone',

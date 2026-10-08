@@ -2,17 +2,26 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Phone, PhoneOff, Video } from "lucide-react";
+import { Phone, PhoneOff, Users, Video } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/contexts/AuthContext";
-import { onCallEvent, type CallRing } from "@/lib/chat/dmCall";
+import { callConversationHref, onCallEvent, type CallMissed, type CallRing } from "@/lib/chat/dmCall";
 import { onHotkey } from "@/lib/keybinds";
 import { startRingtone, stopRingtone } from "@/lib/services/ringtone";
 import { voiceService, type VoiceErrorCode } from "@/lib/services/voiceService";
 import { answerDmCall, isInDmCall, onCallNotice } from "@/lib/services/dmCallController";
-import { RING_TIMEOUT_MS } from "@/lib/voice/callState";
+import { callAlertPlan, RING_TIMEOUT_MS } from "@/lib/voice/callState";
+import {
+  areToastsEnabled,
+  incrementUnread,
+  isDesktopNotificationEnabled,
+  isDndActive,
+  startTitleFlash,
+  stopTitleFlash,
+} from "@/lib/services/notificationUX";
+import { closeNotification, showNotification } from "@/lib/services/notificationService";
 import { cdnImage } from "@/lib/utils";
 
 type Gt = ReturnType<typeof useGT>;
@@ -36,9 +45,34 @@ export function voiceErrorText(gt: Gt, code: VoiceErrorCode | undefined, fallbac
   }
 }
 
-// Incoming DM call card + ringtone, plus the app-wide call/voice toasts.
-// Mounted once in the DM and channels layouts next to VoiceAudioSink, so it
-// rings wherever the user is in the app.
+/** The user is looking at the app right now (tab shown and window focused). */
+function isAppFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
+const callTag = (roomId: string) => `call-${roomId}`;
+
+/**
+ * Claim a missed call for this tab so only one of the user's open tabs
+ * notifies about it (each device's tabs share localStorage).
+ */
+const MISSED_KEY = "sc:calls-missed";
+function claimMissedCall(callId: string): boolean {
+  try {
+    const raw = localStorage.getItem(MISSED_KEY);
+    const seen: string[] = raw ? JSON.parse(raw) : [];
+    if (seen.includes(callId)) return false;
+    localStorage.setItem(MISSED_KEY, JSON.stringify([...seen.slice(-49), callId]));
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+// Incoming DM / group call card + ringtone, missed-call notifications, plus
+// the app-wide call/voice toasts. Mounted once in the DM and channels layouts
+// next to VoiceAudioSink, so it rings wherever the user is in the app.
 export function IncomingCall() {
   const gt = useGT();
   const router = useRouter();
@@ -54,23 +88,105 @@ export function IncomingCall() {
 
   const dismiss = useCallback((outro: boolean) => {
     stopRingtone(outro, "incoming");
+    stopTitleFlash();
+    const current = callRef.current;
+    if (current) void closeNotification(callTag(current.roomId));
     show(null);
   }, [show]);
+
+  /** Make sure an incoming call gets noticed, even when the ring can't be heard. */
+  const alert = useCallback((ring: CallRing, soundBlocked: boolean) => {
+    const name = ring.caller.displayName || ring.caller.username;
+    const plan = callAlertPlan({
+      dnd: isDndActive(),
+      desktopEnabled: isDesktopNotificationEnabled(),
+      toastsEnabled: false, // the card itself is the in-app alert
+      focused: isAppFocused(),
+      soundBlocked,
+    });
+    if (plan.flashTitle || soundBlocked) {
+      startTitleFlash(ring.group
+        ? gt("📞 {name} is calling {group}", { name, group: ring.group.name })
+        : gt("📞 Incoming call from {name}", { name }));
+    }
+    if (!plan.desktop) return;
+    const title = ring.group
+      ? gt("{name} is calling {group}", { name, group: ring.group.name })
+      : gt("Incoming call from {name}", { name });
+    const body = ring.video ? gt("Incoming video call") : gt("Incoming voice call");
+    const url = callConversationHref(ring);
+    void showNotification(title, body, {
+      tag: callTag(ring.roomId),
+      icon: cdnImage(ring.caller.avatar) || undefined,
+      requireInteraction: true,
+      data: { url },
+      onClick: () => {
+        window.focus();
+        router.push(url);
+      },
+    });
+  }, [gt, router]);
+
+  const notifyMissed = useCallback((missed: CallMissed) => {
+    if (isDndActive()) return;
+    if (!claimMissedCall(missed.callId)) return;
+    const name = missed.caller.displayName || missed.caller.username;
+    const focused = isAppFocused();
+    const plan = callAlertPlan({
+      dnd: false,
+      desktopEnabled: isDesktopNotificationEnabled(),
+      toastsEnabled: areToastsEnabled(),
+      focused,
+    });
+    const url = callConversationHref(missed);
+    const open = () => {
+      window.focus();
+      router.push(url);
+    };
+    const title = missed.group
+      ? gt("Missed call from {name} in {group}", { name, group: missed.group.name })
+      : gt("Missed call from {name}", { name });
+    if (!focused) incrementUnread();
+    if (plan.desktop) {
+      void showNotification(title, gt("You missed a call."), {
+        tag: `call-missed-${missed.callId}`,
+        icon: cdnImage(missed.caller.avatar) || undefined,
+        data: { url },
+        onClick: open,
+      });
+    }
+    if (plan.toast) {
+      toast(title, {
+        id: `call-missed-${missed.callId}`,
+        duration: 8000,
+        action: { label: gt("View"), onClick: open },
+      });
+    }
+  }, [gt, router]);
 
   useEffect(() => onCallEvent((event) => {
     if (event.type === "call_ring") {
       // Already in (or joining) that call on this tab: nothing to ring for.
       if (isInDmCall(event.roomId)) return;
       const ringing = callRef.current?.roomId === event.roomId;
-      show({ roomId: event.roomId, video: event.video, caller: event.caller });
+      const ring: CallRing = { roomId: event.roomId, video: event.video, caller: event.caller, group: event.group ?? null };
+      show(ring);
       // A repeated ring for the same call (caller reconnected) keeps the
       // current ringtone instead of restarting it.
-      if (!ringing) void startRingtone("incoming");
+      if (ringing) return;
+      void startRingtone("incoming").then((result) => {
+        // Answered/declined while the ringtone was loading.
+        if (callRef.current?.roomId !== ring.roomId) return;
+        alert(ring, result === "blocked");
+      });
+    } else if (event.type === "call_missed") {
+      if (callRef.current?.roomId === event.roomId) dismiss(true);
+      notifyMissed(event);
     } else if (callRef.current?.roomId === event.roomId) {
       // Caller hung up → outro; answered/declined on another device → just stop.
       dismiss(event.reason === "ended");
     }
-  }), [dismiss, show]);
+  }), [alert, dismiss, notifyMissed, show]);
 
   useEffect(() => {
     if (!call) return;
@@ -79,7 +195,10 @@ export function IncomingCall() {
     return () => clearTimeout(timer);
   }, [call, dismiss]);
 
-  useEffect(() => () => stopRingtone(false, "incoming"), []);
+  useEffect(() => () => {
+    stopRingtone(false, "incoming");
+    stopTitleFlash();
+  }, []);
 
   const accept = useCallback((withVideo = false) => {
     const current = callRef.current;
@@ -93,9 +212,12 @@ export function IncomingCall() {
         name: current.caller.displayName || current.caller.username,
         avatar: current.caller.avatar,
       },
+      group: current.group ?? null,
       video: withVideo,
     });
-    router.push(`/dm/${current.caller.id}`);
+    // Group DMs have no conversation page yet: the call panel lives in the
+    // voice bar wherever the user already is.
+    if (!current.group) router.push(callConversationHref(current));
   }, [dismiss, router, user]);
 
   const decline = useCallback(() => {
@@ -121,6 +243,10 @@ export function IncomingCall() {
 
   // How a DM call ended, from the caller's side.
   useEffect(() => onCallNotice((notice) => {
+    if (notice.group) {
+      if (notice.reason === "no-answer") toast(gt("Nobody answered"));
+      return;
+    }
     const name = notice.peer?.name || gt("They");
     if (notice.reason === "declined") toast(gt("{name} declined the call", { name }));
     else if (notice.reason === "no-answer") toast(gt("{name} didn't answer", { name }));
@@ -156,6 +282,10 @@ export function IncomingCall() {
 
   if (!call) return null;
   const name = call.caller.displayName || call.caller.username;
+  const title = call.group ? call.group.name : name;
+  const subtitle = call.group
+    ? (call.video ? gt("{name} is starting a video call", { name }) : gt("{name} is starting a call", { name }))
+    : (call.video ? gt("Incoming video call") : gt("Incoming voice call"));
 
   return (
     <div
@@ -168,15 +298,30 @@ export function IncomingCall() {
         <div className="relative shrink-0">
           <span className="absolute inset-0 rounded-full bg-[#22c55e]/40 animate-ping" />
           <Avatar className="relative h-12 w-12">
-            <AvatarImage src={cdnImage(call.caller.avatar)} alt="" />
-            <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
+            {call.group ? (
+              <>
+                {call.group.icon && <AvatarImage src={cdnImage(call.group.icon)} alt="" />}
+                <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
+                  <Users className="h-5 w-5" aria-hidden />
+                </AvatarFallback>
+              </>
+            ) : (
+              <>
+                <AvatarImage src={cdnImage(call.caller.avatar)} alt="" />
+                <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
+              </>
+            )}
           </Avatar>
+          {call.group && (
+            <Avatar className="absolute -bottom-1 -right-1 h-6 w-6 border-2 border-[var(--bg-card)]">
+              <AvatarImage src={cdnImage(call.caller.avatar)} alt="" />
+              <AvatarFallback className="text-[10px]">{name.slice(0, 1).toUpperCase()}</AvatarFallback>
+            </Avatar>
+          )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-semibold text-[var(--text-primary)]">{name}</div>
-          <div className="text-sm text-[var(--text-secondary)]">
-            {call.video ? gt("Incoming video call") : gt("Incoming voice call")}
-          </div>
+          <div className="truncate font-semibold text-[var(--text-primary)]">{title}</div>
+          <div className="truncate text-sm text-[var(--text-secondary)]">{subtitle}</div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button

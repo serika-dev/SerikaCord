@@ -44,6 +44,7 @@ import {
   Link as LinkIcon,
   BellOff,
   AlertTriangle,
+  Phone,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
@@ -61,6 +62,8 @@ import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
+import { startGroupCall } from "@/lib/services/dmCallController";
+import { groupDisplayName } from "@/lib/chat/dmCall";
 import { T, useGT } from "gt-next";
 import { useIsClient } from "@/hooks/useIsClient";
 import { toast } from "sonner";
@@ -96,6 +99,8 @@ interface DMChannel {
   lastMessageId?: string;
   updatedAt?: string;
   unreadCount?: number;
+  /** Group DMs only: the group's own name (may be a default). */
+  name?: string | null;
 }
 
 const CLOSED_DMS_KEY = "serikacord:closed-dms";
@@ -1295,6 +1300,27 @@ export function ChannelSidebar({
               <X className="w-4 h-4" />
               {gt("Close DM")}
             </button>
+            {dmContextMenu.channel.type === "group_dm" && user && (
+              <button
+                onClick={() => {
+                  const ch = dmContextMenu.channel;
+                  closeDmContextMenu();
+                  voiceService.setUserId(user.id);
+                  void startGroupCall({
+                    group: {
+                      channelId: ch.id,
+                      name: groupDisplayName(ch.name, ch.recipients.map((r) => r.displayName || r.username)),
+                      icon: null,
+                      memberCount: ch.recipients.length + 1,
+                    },
+                  });
+                }}
+                className="ctx-item"
+              >
+                <Phone className="w-4 h-4" />
+                {gt("Start Call")}
+              </button>
+            )}
             <div className="ctx-sep" />
             {dmContextMenu.channel.type === "dm" && dmContextMenu.channel.recipients[0] ? (
               <UserMenuItems user={dmContextMenu.channel.recipients[0]} onDone={closeDmContextMenu} />

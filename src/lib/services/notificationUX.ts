@@ -142,13 +142,33 @@ export function evaluateNotification(ctx: NotifyContext): NotifyDecision {
   return { playSound, showDesktop, showToast, incrementBadge };
 }
 
+// ── Call alerts (settings the ringtone and call notifications follow) ────
+
+/** "Incoming call ringtone" (Notifications settings). Default on, independent of message sounds. */
+export function isCallRingtoneEnabled(): boolean {
+  return getNotifSettings()?.callRingtone !== false;
+}
+
+/** The "Desktop notifications" switch. Default on. */
+export function isDesktopNotificationEnabled(): boolean {
+  return getNotifSettings()?.desktop !== false;
+}
+
+/** In-app toasts aren't turned off ("Suppress in-app toast notifications"). */
+export function areToastsEnabled(): boolean {
+  return getNotifSettings()?.suppressToasts !== true;
+}
+
 // ── Tab badge ────────────────────────────────────────────────────────────
 
 let unreadCount = 0;
 const originalTitle = typeof document !== "undefined" ? document.title : "SerikaCord";
+// While a call rings in a background tab the title alternates with this text.
+let flashTimer: ReturnType<typeof setInterval> | null = null;
 
 function updateTabBadge() {
   if (typeof document === "undefined") return;
+  if (flashTimer) return; // the flash restores the title when it stops
   if (unreadCount > 0) {
     document.title = `(${unreadCount}) ${originalTitle.replace(/^\(\d+\)\s*/, "")}`;
   } else {
@@ -170,9 +190,42 @@ export function getUnreadCount() {
   return unreadCount;
 }
 
+/**
+ * Alternate the tab title with `text` (an incoming call) so it's noticed in a
+ * background tab. Stops by itself once the tab is looked at.
+ */
+export function startTitleFlash(text: string) {
+  if (typeof document === "undefined") return;
+  stopTitleFlash();
+  let on = false;
+  const tick = () => {
+    on = !on;
+    document.title = on ? text : originalTitle.replace(/^\(\d+\)\s*/, "");
+  };
+  tick();
+  flashTimer = setInterval(() => {
+    if (document.visibilityState === "visible" && document.hasFocus()) {
+      stopTitleFlash();
+      return;
+    }
+    tick();
+  }, 1000);
+}
+
+export function stopTitleFlash() {
+  if (!flashTimer) return;
+  clearInterval(flashTimer);
+  flashTimer = null;
+  updateTabBadge();
+}
+
 // ── Sound engine ─────────────────────────────────────────────────────────
 
+// One AudioContext for every app sound (notification chimes and the call
+// ringtone): browsers only let a context play after a user gesture on the
+// page, so sharing it means one click anywhere unlocks both.
 let audioCtx: AudioContext | null = null;
+const unlockListeners = new Set<() => void>();
 
 function getAudioCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -182,22 +235,54 @@ function getAudioCtx(): AudioContext | null {
     } catch {
       return null;
     }
+    audioCtx.addEventListener("statechange", () => {
+      if (audioCtx?.state !== "running") return;
+      const listeners = [...unlockListeners];
+      unlockListeners.clear();
+      listeners.forEach((fn) => fn());
+    });
   }
   // A context created before any click starts suspended and stays silent.
   if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
   return audioCtx;
 }
 
-// Unlock audio on the first interaction so a later background notification
-// (no gesture of its own) can actually be heard.
+/** The shared app AudioContext (created on demand; null during SSR). */
+export function getAudioContext(): AudioContext | null {
+  return getAudioCtx();
+}
+
+/** Whether the browser currently lets the app play sound. */
+export function isAudioUnlocked(): boolean {
+  return audioCtx?.state === "running";
+}
+
+/** Run `fn` once audio becomes playable (the next click/key press). */
+export function onAudioUnlocked(fn: () => void): () => void {
+  if (isAudioUnlocked()) {
+    fn();
+    return () => {};
+  }
+  unlockListeners.add(fn);
+  return () => { unlockListeners.delete(fn); };
+}
+
+// Unlock audio on interaction so a later background notification or incoming
+// call (no gesture of its own) can actually be heard. Kept until the context
+// really runs: some browsers ignore the first resume().
 if (typeof window !== "undefined") {
+  const events = ["pointerdown", "keydown", "touchend"] as const;
   const unlock = () => {
-    getAudioCtx();
-    window.removeEventListener("pointerdown", unlock);
-    window.removeEventListener("keydown", unlock);
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    const done = () => {
+      if (ctx.state !== "running") return;
+      events.forEach((e) => window.removeEventListener(e, unlock, true));
+    };
+    if (ctx.state === "running") done();
+    else void ctx.resume().then(done).catch(() => {});
   };
-  window.addEventListener("pointerdown", unlock);
-  window.addEventListener("keydown", unlock);
+  events.forEach((e) => window.addEventListener(e, unlock, true));
 }
 
 type SoundPreset = 'chime' | 'ding' | 'pop' | 'coin' | 'none';

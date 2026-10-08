@@ -13,14 +13,62 @@ export interface CallMessageData {
   participantIds: string[];
   /** True once someone other than the caller joined. */
   answered: boolean;
+  /** People who pressed Decline (they get "declined", not "missed"). */
+  declinedIds?: string[];
+  /**
+   * Group DM calls only: every member of the group when the call started
+   * (caller included). Its presence is what makes this a group call.
+   */
+  memberIds?: string[];
 }
 
 const sameId = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 const toIso = (d: Date | string | number) => new Date(d).toISOString();
 
-export function newCallData(callerId: string, now: Date | string | number = Date.now()): CallMessageData {
-  return { callerId, startedAt: toIso(now), endedAt: null, participantIds: [callerId], answered: false };
+export function newCallData(
+  callerId: string,
+  now: Date | string | number = Date.now(),
+  memberIds?: string[],
+): CallMessageData {
+  const data: CallMessageData = { callerId, startedAt: toIso(now), endedAt: null, participantIds: [callerId], answered: false };
+  if (memberIds && memberIds.length) data.memberIds = [...memberIds];
+  return data;
+}
+
+export const isGroupCallData = (data: CallMessageData): boolean => Array.isArray(data.memberIds);
+
+/**
+ * Someone declined the ringing call. Only matters for people who haven't been
+ * in it; declining twice (two devices) changes nothing.
+ */
+export function callDataDecline(data: CallMessageData, userId: string): CallMessageData {
+  if (data.endedAt || sameId(userId, data.callerId)) return data;
+  if (data.participantIds.some((id) => sameId(id, userId))) return data;
+  const declined = data.declinedIds || [];
+  if (declined.some((id) => sameId(id, userId))) return data;
+  return { ...data, declinedIds: [...declined, userId] };
+}
+
+/**
+ * Who missed this (ended) call and should be told so: everyone who was rung
+ * (`members`, or the group's stored member list) except the caller, people who
+ * were in the call, and people who declined. A 1:1 call someone answered has
+ * nobody who missed it.
+ */
+export function missedCallRecipients(data: CallMessageData, members?: string[]): string[] {
+  if (!data.endedAt) return [];
+  const group = isGroupCallData(data);
+  if (!group && data.answered) return [];
+  const pool = group ? data.memberIds! : members || [];
+  const excluded = [data.callerId, ...data.participantIds, ...(data.declinedIds || [])];
+  const out: string[] = [];
+  for (const id of pool) {
+    if (excluded.some((x) => sameId(x, id))) continue;
+    if (out.some((x) => sameId(x, id))) continue;
+    out.push(id);
+  }
+  return out;
 }
 
 /**
@@ -53,16 +101,21 @@ export function parseCallData(raw: unknown): CallMessageData | null {
   if (typeof r.callerId !== "string" || typeof r.startedAt !== "string") return null;
   if (Number.isNaN(new Date(r.startedAt).getTime())) return null;
   const endedAt = typeof r.endedAt === "string" && !Number.isNaN(new Date(r.endedAt).getTime()) ? r.endedAt : null;
-  const participantIds = Array.isArray(r.participantIds)
-    ? r.participantIds.filter((id): id is string => typeof id === "string")
-    : [r.callerId];
-  return {
+  const ids = (v: unknown): string[] | null =>
+    Array.isArray(v) ? v.filter((id): id is string => typeof id === "string") : null;
+  const participantIds = ids(r.participantIds) ?? [r.callerId];
+  const data: CallMessageData = {
     callerId: r.callerId,
     startedAt: r.startedAt,
     endedAt,
     participantIds: participantIds.length ? participantIds : [r.callerId],
     answered: Boolean(r.answered),
   };
+  const declinedIds = ids(r.declinedIds);
+  if (declinedIds && declinedIds.length) data.declinedIds = declinedIds;
+  const memberIds = ids(r.memberIds);
+  if (memberIds) data.memberIds = memberIds;
+  return data;
 }
 
 export type CallMessageKind =
@@ -73,7 +126,9 @@ export type CallMessageKind =
   /** Nobody answered, seen by the person who was called. */
   | "missed"
   /** Nobody answered, seen by the caller. */
-  | "unanswered";
+  | "unanswered"
+  /** The viewer pressed Decline. */
+  | "declined";
 
 export interface CallMessageView {
   kind: CallMessageKind;
@@ -86,10 +141,17 @@ export interface CallMessageView {
 export function describeCallMessage(data: CallMessageData, viewerId: string | null | undefined): CallMessageView {
   const viewerIsCaller = !!viewerId && sameId(viewerId, data.callerId);
   if (!data.endedAt) return { kind: "ongoing", viewerIsCaller, durationMs: null };
+  const viewerDeclined = !viewerIsCaller && !!viewerId && (data.declinedIds || []).some((id) => sameId(id, viewerId));
+  const viewerJoined = !!viewerId && data.participantIds.some((id) => sameId(id, viewerId));
   if (data.answered) {
+    // In a group call, members who never joined still missed it.
+    if (isGroupCallData(data) && !viewerIsCaller && !viewerJoined && viewerId) {
+      return { kind: viewerDeclined ? "declined" : "missed", viewerIsCaller, durationMs: null };
+    }
     const ms = new Date(data.endedAt).getTime() - new Date(data.startedAt).getTime();
     return { kind: "ended", viewerIsCaller, durationMs: Math.max(0, ms) };
   }
+  if (viewerDeclined) return { kind: "declined", viewerIsCaller, durationMs: null };
   return { kind: viewerIsCaller ? "unanswered" : "missed", viewerIsCaller, durationMs: null };
 }
 
@@ -124,6 +186,7 @@ export function callPreviewText(data: CallMessageData | null, viewerId?: string 
   const view = describeCallMessage(data, viewerId);
   if (view.kind === "missed") return "📞 Missed call";
   if (view.kind === "unanswered") return "📞 Call not answered";
+  if (view.kind === "declined") return "📞 Declined call";
   if (view.kind === "ongoing") return "📞 Call started";
   return "📞 Call";
 }
