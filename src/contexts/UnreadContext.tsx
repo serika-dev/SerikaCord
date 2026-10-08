@@ -20,8 +20,16 @@ import {
   useCallback,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  clearUnread,
+  evaluateNotification,
+  incrementUnread,
+  playNotificationSound,
+} from "@/lib/services/notificationUX";
+import { showNotification } from "@/lib/services/notificationService";
 
 interface ActivityEvent {
   type: "channel_activity";
@@ -72,7 +80,7 @@ interface UnreadContextValue {
    * DMs don't flow through the activity stream, so this is how their counts
    * stay realtime. No-op while the DM is the active channel.
    */
-  notifyDmActivity: (channelId: string, createdAt?: string) => void;
+  notifyDmActivity: (channelId: string, createdAt?: string, messageId?: string) => void;
 }
 
 const UnreadContext = createContext<UnreadContextValue | undefined>(undefined);
@@ -109,8 +117,92 @@ function saveMap(key: string, map: Record<string, string>) {
   }
 }
 
+interface DmActivityEvent {
+  type: "dm_activity";
+  channelId?: string;
+  messageId?: string;
+  authorId?: string;
+  authorName?: string;
+  authorAvatar?: string | null;
+  preview?: string;
+  hasAttachments?: boolean;
+  hasSticker?: boolean;
+  createdAt?: string;
+}
+
+/** The user is looking at the app right now (tab shown and window focused). */
+function isAppFocused(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.visibilityState === "visible" && document.hasFocus();
+}
+
+/**
+ * Sound / desktop notification / in-app toast for a message that arrived
+ * outside the conversation on screen. The open conversation's own messages
+ * are handled by its chat view (ChatArea), so `viewing` only matters when the
+ * window is in the background.
+ */
+function notifyBackgroundMessage(opts: {
+  channelId: string;
+  isDM: boolean;
+  isMentioned: boolean;
+  isEveryoneMention: boolean;
+  viewing: boolean;
+  title: string;
+  body: string;
+  icon?: string | null;
+  data: Record<string, unknown>;
+  onOpen: () => void;
+}) {
+  const focused = isAppFocused();
+  const decision = evaluateNotification({
+    isMentioned: opts.isMentioned,
+    isDM: opts.isDM,
+    isEveryoneMention: opts.isEveryoneMention,
+    channelId: opts.channelId,
+    // "Visible" here means the user can already see this conversation.
+    isTabVisible: focused && opts.viewing,
+  });
+  if (!focused && decision.incrementBadge) incrementUnread();
+  if (decision.playSound) playNotificationSound();
+  if (decision.showDesktop && !focused) {
+    void showNotification(opts.title, opts.body, {
+      tag: `message-${opts.channelId}`,
+      icon: opts.icon || "/icons/icon-192x192.png",
+      data: opts.data,
+      onClick: opts.onOpen,
+    });
+  }
+  if (decision.showToast && focused && !opts.viewing) {
+    toast(opts.title, {
+      description: opts.body,
+      duration: 5000,
+      action: { label: "View", onClick: opts.onOpen },
+    });
+  }
+}
+
+// Message ids already counted/notified. A DM can reach us over both the
+// activity stream and the DM-list stream; count it once.
+const seenMessageIds = new Set<string>();
+function markMessageSeen(messageId: string | undefined): boolean {
+  if (!messageId) return true;
+  if (seenMessageIds.has(messageId)) return false;
+  seenMessageIds.add(messageId);
+  if (seenMessageIds.size > 500) {
+    const oldest = seenMessageIds.values().next().value;
+    if (oldest) seenMessageIds.delete(oldest);
+  }
+  return true;
+}
+
 export function UnreadProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
+  const router = useRouter();
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  }, [router]);
 
   // lastActivity/lastRead are ISO timestamp maps keyed by channelId. Initialized
   // lazily from localStorage (guarded for SSR) so persisted state is available
@@ -239,8 +331,9 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const notifyDmActivity = useCallback((channelId: string, createdAt?: string) => {
+  const notifyDmActivity = useCallback((channelId: string, createdAt?: string, messageId?: string) => {
     if (!channelId) return;
+    if (!markMessageSeen(messageId)) return;
     const ts = createdAt || new Date().toISOString();
     setLastActivity((prev) => {
       if (prev[channelId] === ts) return prev;
@@ -421,19 +514,17 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   // Live activity stream.
   useEffect(() => {
     if (!user) return;
-    const es = new EventSource("/api/users/@me/activity", { withCredentials: true });
-
+    let es: EventSource | null = null;
+    let closed = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
     // On every (re)connect, reconcile against the DB. The initial mount seed is
     // handled separately, but a reconnect after a drop is exactly when we may
     // have missed a live `read_state` event — pull the authoritative markers so
     // read state converges instead of lingering stale until reload.
     let firstOpen = true;
-    es.onopen = () => {
-      if (firstOpen) { firstOpen = false; return; } // mount effect already seeded
-      void syncReadStates();
-    };
 
-    es.onmessage = (ev) => {
+    const handleMessage = (ev: MessageEvent) => {
       let data: ActivityEvent | { type: string };
       try {
         data = JSON.parse(ev.data);
@@ -486,8 +577,30 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       // comes through the always-connected activity stream so DM unread badges
       // appear in realtime regardless of which view the user is in.
       if (data.type === "dm_activity") {
-        const { channelId, authorId, createdAt } = data as { channelId?: string; authorId?: string; createdAt?: string };
+        const dm = data as DmActivityEvent;
+        const { channelId, authorId, createdAt } = dm;
         if (!channelId || !authorId || authorId === user.id) return;
+        if (!markMessageSeen(dm.messageId)) return;
+        const viewing = activeChannelRef.current === channelId;
+        const showPreview = user.settings?.notifications?.showPreview !== false;
+        const body = !showPreview
+          ? "New message"
+          : dm.preview || (dm.hasAttachments ? "📎 Attachment" : dm.hasSticker ? "Sticker" : "New message");
+        notifyBackgroundMessage({
+          channelId,
+          isDM: true,
+          isMentioned: false,
+          isEveryoneMention: false,
+          viewing,
+          title: dm.authorName || "New message",
+          body,
+          icon: dm.authorAvatar,
+          data: { channelId, isDM: true, recipientId: authorId, url: `/dm/${authorId}` },
+          onOpen: () => {
+            window.focus();
+            routerRef.current.push(`/dm/${authorId}`);
+          },
+        });
         const ts = createdAt || new Date().toISOString();
         setLastActivity((prev) => {
           if (prev[channelId] === ts) return prev;
@@ -539,28 +652,89 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
             if (current >= MAX_UNREAD_BADGE) return prev; // "99+" already; no re-render
             return { ...prev, [event.channelId]: current + 1 };
           });
-          const label = event.channelName ? `#${event.channelName}` : "a channel";
-          const who = event.authorName || "Someone";
-          toast(`${who} mentioned you in ${label}`, {
-            action: {
-              label: "Jump",
-              onClick: () => {
-                if (event.serverId) {
-                  window.location.href = `/channels/${event.serverId}/${event.channelId}`;
-                }
-              },
-            },
-          });
         }
+      }
+
+      // The open channel notifies through its own chat view; everything else
+      // (other channels, or this one while the chat isn't mounted) goes here.
+      if (mentionsMe && !isActive && markMessageSeen(event.messageId)) {
+        const label = event.channelName ? `#${event.channelName}` : "a channel";
+        const who = event.authorName || "Someone";
+        const url = event.serverId ? `/channels/${event.serverId}/${event.channelId}` : null;
+        notifyBackgroundMessage({
+          channelId: event.channelId,
+          isDM: false,
+          isMentioned: (event.mentionedUserIds || []).includes(user.id),
+          isEveryoneMention: Boolean(event.mentionEveryone),
+          viewing: false,
+          title: `${who} mentioned you`,
+          body: `in ${label}`,
+          data: { channelId: event.channelId, serverId: event.serverId, url },
+          onOpen: () => {
+            window.focus();
+            if (url) routerRef.current.push(url);
+          },
+        });
       }
     };
 
-    es.onerror = () => {
-      // EventSource auto-reconnects; nothing to do.
+    const connect = () => {
+      if (closed) return;
+      const source = new EventSource("/api/users/@me/activity", { withCredentials: true });
+      es = source;
+      source.onopen = () => {
+        attempts = 0;
+        if (firstOpen) { firstOpen = false; return; } // mount effect already seeded
+        void syncReadStates();
+      };
+      source.onmessage = handleMessage;
+      source.onerror = () => {
+        // The browser retries dropped connections by itself, but gives up for
+        // good after an HTTP error (401 while a token refreshes, 502/503 while
+        // the server restarts). Reconnect ourselves when that happens, or the
+        // app silently stops receiving unread badges and notifications.
+        if (source.readyState !== EventSource.CLOSED) return;
+        source.close();
+        if (closed) return;
+        const delay = Math.min(1000 * 2 ** attempts, 30000);
+        attempts += 1;
+        retryTimer = setTimeout(connect, delay);
+      };
     };
+    connect();
 
-    return () => es.close();
+    // Come back right away when the tab or the network returns.
+    const revive = () => {
+      if (closed || document.visibilityState !== "visible") return;
+      if (es && es.readyState !== EventSource.CLOSED) return;
+      if (retryTimer) clearTimeout(retryTimer);
+      attempts = 0;
+      connect();
+    };
+    window.addEventListener("online", revive);
+    document.addEventListener("visibilitychange", revive);
+
+    return () => {
+      closed = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      window.removeEventListener("online", revive);
+      document.removeEventListener("visibilitychange", revive);
+      es?.close();
+    };
   }, [user, persistActivity, persistRead, syncReadStates]);
+
+  // The tab-title count is for messages that arrived while away.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") clearUnread();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, []);
 
   const isChannelUnread = useCallback(
     (channelId: string) => {

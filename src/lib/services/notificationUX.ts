@@ -170,7 +170,21 @@ function getAudioCtx(): AudioContext | null {
       return null;
     }
   }
+  // A context created before any click starts suspended and stays silent.
+  if (audioCtx.state === "suspended") void audioCtx.resume().catch(() => {});
   return audioCtx;
+}
+
+// Unlock audio on the first interaction so a later background notification
+// (no gesture of its own) can actually be heard.
+if (typeof window !== "undefined") {
+  const unlock = () => {
+    getAudioCtx();
+    window.removeEventListener("pointerdown", unlock);
+    window.removeEventListener("keydown", unlock);
+  };
+  window.addEventListener("pointerdown", unlock);
+  window.addEventListener("keydown", unlock);
 }
 
 type SoundPreset = 'chime' | 'ding' | 'pop' | 'coin' | 'none';
@@ -261,6 +275,11 @@ export function playNotificationSound() {
     case 'chime':
     default: playChime(ctx, volume); break;
   }
+}
+
+/** Notification volume (0–1) from the user's settings; the ringtone scales from it. */
+export function getNotificationVolume(): number {
+  return Math.min(1, Math.max(0, (getNotifSettings()?.soundVolume ?? 50) / 100));
 }
 
 export function isNotificationSoundEnabled(): boolean {

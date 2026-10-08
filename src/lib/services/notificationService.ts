@@ -171,6 +171,10 @@ export async function showNotification(
         }
     }
 
+    // Web: nothing can be shown without permission (the service worker would
+    // reject silently).
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
     // Web: Try Service Worker first, fall back to Notification API
     if (swRegistration?.active) {
         // Use service worker for better background support

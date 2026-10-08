@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { invalidateServerMemberCache } from '@/lib/api/activity';
 import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
@@ -190,6 +191,7 @@ async function addUserToServer(serverId: string, userId: string) {
     userId,
     roles: everyoneRole ? [everyoneRole.id] : [],
   });
+  invalidateServerMemberCache(serverId);
 
   const server = await Server.findById(serverId);
   if (server) {
@@ -4748,6 +4750,7 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
       userId: user.id,
       roles: everyoneRole ? [everyoneRole.id] : [],
     });
+    invalidateServerMemberCache(resolved.serverId);
 
     // Track uses on the invite doc, or on the server for vanity joins
     if (invite) {

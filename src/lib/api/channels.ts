@@ -5,6 +5,7 @@ import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getRea
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage } from '@/lib/security';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
+import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { randomUUID } from 'crypto';
@@ -454,15 +455,18 @@ async function extractMentionsFromContent(
 }
 
 // Store active SSE connections for server channels
-const activeConnections = new Map<string, Set<ReadableStreamDefaultController>>();
+const activeConnections = processShared(
+  'channelConnections',
+  () => new Map<string, Set<ReadableStreamDefaultController>>(),
+);
 
 // Shared codecs for the SSE hot path (avoid per-event allocations).
 const sseEncoder = new TextEncoder();
 const sseDecoder = new TextDecoder();
 
-// Unique id for THIS process, so the Redis→SSE bridge can skip re-delivering
-// events this instance already delivered locally (prevents duplicates).
-const INSTANCE_ID = randomUUID();
+// Unique id for THIS process (shared by both module copies), so the Redis→SSE
+// bridge can skip re-delivering events this instance already delivered locally.
+const INSTANCE_ID = PROCESS_INSTANCE_ID;
 // Single Redis channel carrying all channel SSE events (payload names the channel).
 const SSE_BUS = 'sse:channel';
 

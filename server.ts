@@ -93,21 +93,22 @@ async function main() {
   // Re-broadcast channel/DM events published to Redis onto THIS instance's SSE
   // connections, so users on every app instance receive messages simultaneously.
   try {
-    const [channelMod, dmMod] = await Promise.all([
+    const [channelMod, dmMod, activityMod] = await Promise.all([
       import('@/lib/api/channels'),
       import('@/lib/api/dms'),
+      import('@/lib/api/activity'),
     ]);
     registerChannelSSE = channelMod.registerRawSSEConnection;
     registerDmSSE = dmMod.registerRawDmSSEConnection;
     checkChannelAccess = channelMod.checkChannelAccess;
     getOrCreateDMChannel = dmMod.getOrCreateDMChannel;
-    await channelMod.startChannelSSEBridge();
-    await dmMod.startDmSSEBridge();
     // App-wide unread/activity bus (glow, mention badges in the sidebar).
-    import('@/lib/api/activity').then(async (activityMod) => {
-      registerActivitySSE = activityMod.registerActivityConnection;
-      await activityMod.startActivitySSEBridge();
-    }).catch((err) => console.error('Activity SSE bridge init failed:', err));
+    registerActivitySSE = activityMod.registerActivityConnection;
+    // The Redis bridges only matter for other instances (local delivery uses the
+    // process-wide registries), so never let a slow/unreachable Redis block boot.
+    channelMod.startChannelSSEBridge().catch((err) => console.error('Channel SSE bridge init failed:', err));
+    dmMod.startDmSSEBridge().catch((err) => console.error('DM SSE bridge init failed:', err));
+    activityMod.startActivitySSEBridge().catch((err) => console.error('Activity SSE bridge init failed:', err));
     // Voice bridge is optional — don't block startup if it fails.
     import('@/lib/api/voice').then(({ startVoiceBridge }) => {
       startVoiceBridge().catch(() => {});

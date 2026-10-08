@@ -1,4 +1,4 @@
-import { eq, ne, sql, and, or, desc, asc, lt, gt, type SQL } from 'drizzle-orm';
+import { eq, ne, sql, and, or, desc, asc, lt, gt, gte, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -125,7 +125,10 @@ export const Message = {
     if (entries.length === 0) return {};
     const perChannel = entries.map((e) => {
       const chan = buildCondition(schema.messages.channelId, e.channelId, true);
-      return e.after ? and(chan, gt(schema.messages.createdAt, e.after)) : chan;
+      // Postgres keeps microseconds but the read marker came through a JS Date
+      // (milliseconds), so the read message itself compares as "after" it.
+      // Count from the next millisecond instead.
+      return e.after ? and(chan, gte(schema.messages.createdAt, new Date(e.after.getTime() + 1))) : chan;
     });
     const ranked = db
       .select({

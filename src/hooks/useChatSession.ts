@@ -236,10 +236,14 @@ export function useChatSession<M extends ChatMessage>({
   const [messages, setMessages] = useState<M[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
-  // Synchronous re-entrancy guard: `isSending` state updates only after a
-  // render, so rapid Enter presses (especially while attachments upload) could
-  // otherwise fire sendMessage multiple times before the flag flips.
-  const sendingRef = useRef(false);
+  // Sends are queued, not dropped: each Enter clears the composer and shows its
+  // optimistic bubble right away, and the POSTs go out one at a time in order.
+  // Only an attachment upload is exclusive — the MessageBar holds one set of
+  // pending files, so a second send with files waits for the first to finish.
+  const sendQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const inFlightSendsRef = useRef(0);
+  const uploadingRef = useRef(false);
+  const tempSeqRef = useRef(0);
   const [hasMoreOlder, setHasMoreOlder] = useState(false);
   // True when the loaded window is NOT anchored to the live tail — i.e. we jumped
   // to a pinned/search result via `around`, or older-history loading trimmed the
@@ -339,6 +343,19 @@ export function useChatSession<M extends ChatMessage>({
 
   const { signalTyping, resetTyping } = useTypingSignal(apiBase ? `${apiBase}/typing` : null);
 
+  // A full page replaces what's on screen, but keep anything that arrived over
+  // SSE (or was sent) after that page's newest message — the stream and the
+  // fetch race on open, and overwriting would drop those messages.
+  const mergeLiveTail = useCallback((page: M[], prev: M[]): M[] => {
+    if (prev.length === 0) return page;
+    const pageIds = new Set(page.map((m) => m.id));
+    const newest = page.length ? new Date(page[page.length - 1].createdAt).getTime() : 0;
+    const tail = prev.filter(
+      (m) => !pageIds.has(m.id) && (m.id.startsWith("temp-") || new Date(m.createdAt).getTime() > newest)
+    );
+    return tail.length ? [...page, ...tail] : page;
+  }, []);
+
   const fetchMessages = useCallback(async () => {
     if (!apiBase) return;
     const requestedContext = apiBase;
@@ -402,7 +419,7 @@ export function useChatSession<M extends ChatMessage>({
               const fullRaw = Array.isArray(fullData) ? fullData : fullData.messages || [];
               const deduped = dedupeMessages<M>(fullRaw);
               writeCache(requestedContext, deduped, true);
-              setMessages(deduped);
+              setMessages((prev) => mergeLiveTail(deduped, prev));
               setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
               // No explicit scroll here: we already scrolled on the cache paint,
               // and MessageList auto-scrolls when the message count grows while
@@ -432,7 +449,7 @@ export function useChatSession<M extends ChatMessage>({
         } else {
           const deduped = dedupeMessages<M>(raw);
           writeCache(requestedContext, deduped, true);
-          setMessages(deduped);
+          setMessages((prev) => mergeLiveTail(deduped, prev));
           setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
           latestRef.current.onShouldScrollToBottom?.();
         }
@@ -450,7 +467,58 @@ export function useChatSession<M extends ChatMessage>({
         setIsLoading(false);
       }
     }
-  }, [apiBase, paginated]);
+  }, [apiBase, paginated, mergeLiveTail]);
+
+  const messagesRef = useRef<M[]>([]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  // After an SSE reconnect: fetch what's newer than the newest message on
+  // screen and merge it in. Falls back to a full refetch for a long gap.
+  const catchUpTail = useCallback(async () => {
+    if (!apiBase) return;
+    const context = apiBase;
+    const current = messagesRef.current;
+    let newestId: string | undefined;
+    for (let i = current.length - 1; i >= 0; i--) {
+      const id = current[i]?.id;
+      if (id && !id.startsWith("temp-")) { newestId = id; break; }
+    }
+    if (!newestId) {
+      void fetchMessages();
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/messages?after=${newestId}&limit=${PAGE_SIZE}`);
+      if (!response.ok || activeFetchContextRef.current !== context) return;
+      const data = await response.json();
+      if (activeFetchContextRef.current !== context) return;
+      const raw = Array.isArray(data) ? data : data.messages || [];
+      if (raw.length >= PAGE_SIZE) {
+        void fetchMessages();
+        return;
+      }
+      if (raw.length === 0) return;
+      const incoming = raw.map((item: RawMessagePayload) => normalizeIncomingMessage<M>(item));
+      setMessages((prev) => {
+        const existing = new Set(prev.map((m) => m.id));
+        const fresh = incoming.filter((m: M) => !existing.has(m.id));
+        if (fresh.length === 0) return prev;
+        // Drop optimistic bubbles that the catch-up now confirms.
+        const confirmedOwn = fresh.filter((m: M) => m.authorId === user?.id);
+        let base = prev;
+        for (const own of confirmedOwn) {
+          const idx = base.findIndex((m) => m.id.startsWith("temp-") && m.content === own.content);
+          if (idx !== -1) base = [...base.slice(0, idx), ...base.slice(idx + 1)];
+        }
+        const merged = [...base, ...fresh];
+        return merged.length > MAX_LOADED_MESSAGES ? merged.slice(merged.length - MAX_LOADED_MESSAGES) : merged;
+      });
+    } catch {
+      /* next reconnect or channel switch will retry */
+    }
+  }, [apiBase, fetchMessages, user?.id]);
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
     if (!apiBase || isLoadingMore || !hasMoreOlder || messages.length === 0) return false;
@@ -681,6 +749,11 @@ export function useChatSession<M extends ChatMessage>({
   const { typingStatusText, typingUsers } = useChatStream({
     url: apiBase && user ? `${apiBase}/stream` : null,
     currentUsername: user?.username,
+    // Messages sent while the stream was down never arrive over it: revalidate
+    // the tail (a delta fetch after the newest cached message) on reconnect.
+    onReconnect: () => {
+      if (!hasMoreNewerRef.current) void catchUpTail();
+    },
     onEvent: (data) => {
       if (data.type === "message") {
         const incoming = normalizeIncomingMessage<M>(data.message);
@@ -701,9 +774,9 @@ export function useChatSession<M extends ChatMessage>({
           if (isOwnMessage) {
             // Replace the most recent temp message from this user (content
             // match is best-effort — server may normalise differently).
-            const ownTempIndex = prev.findIndex(
-              (m) => m.id.startsWith("temp-") && m.authorId === user?.id
-            );
+            const isOwnTemp = (m: M) => m.id.startsWith("temp-") && m.authorId === user?.id;
+            let ownTempIndex = prev.findIndex((m) => isOwnTemp(m) && m.content === incoming.content);
+            if (ownTempIndex === -1) ownTempIndex = prev.findIndex(isOwnTemp);
             if (ownTempIndex !== -1) {
               return prev.map((m, index) => (index === ownTempIndex ? incoming : m));
             }
@@ -820,37 +893,44 @@ export function useChatSession<M extends ChatMessage>({
         return;
       }
 
-      // Drop duplicate sends triggered before the previous one settled.
-      if (sendingRef.current) return;
-      sendingRef.current = true;
+      // A send with files can't start while another upload is running.
+      const hasAttachments = pendingAttachments.length > 0;
+      if (hasAttachments && uploadingRef.current) return;
 
       const replyReference = actions.replyToMessage;
       if (!isOverrideSend) {
         composer?.clear();
       }
       resetTyping();
+      actions.setReplyToMessage(null);
+      inFlightSendsRef.current += 1;
       setIsSending(true);
 
-      let tempId: string | null = null;
       const restoreDraft = () => {
         if (!isOverrideSend && messageContent.trim()) {
           messageBarRef.current?.getComposer()?.insertTextAtCaret(messageContent);
         }
       };
 
-      try {
-        let uploadedAttachments: Array<{ id: string; url: string; filename: string; contentType: string; spoiler?: boolean }> = [];
-        if (pendingAttachments.length > 0) {
-          uploadedAttachments = (await messageBarRef.current?.uploadAttachments()) ?? [];
-          messageBarRef.current?.clearAttachments();
-          if (uploadedAttachments.length === 0 && !messageContent.trim()) {
-            toast.error(gt("Failed to upload file(s). Your message was not sent."));
-            return;
+      // Upload now, while the MessageBar still holds these files.
+      let uploadPromise: Promise<Array<{ id: string; url: string; filename: string; contentType: string; spoiler?: boolean }>> =
+        Promise.resolve([]);
+      if (hasAttachments) {
+        uploadingRef.current = true;
+        uploadPromise = (async () => {
+          try {
+            const uploaded = (await messageBarRef.current?.uploadAttachments()) ?? [];
+            messageBarRef.current?.clearAttachments();
+            return uploaded;
+          } finally {
+            uploadingRef.current = false;
           }
-        }
+        })();
+      }
 
-        tempId = `temp-${Date.now()}`;
-        const optimisticMessage = {
+      tempSeqRef.current += 1;
+      const tempId = `temp-${Date.now()}-${tempSeqRef.current}`;
+      const buildOptimistic = (attachments: unknown[]) => ({
           id: tempId,
           content: messageContent,
           type: replyReference ? "reply" : "default",
@@ -868,7 +948,7 @@ export function useChatSession<M extends ChatMessage>({
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           sticker,
-          attachments: uploadedAttachments,
+          attachments,
           referencedMessageId: replyReference?.id,
           referencedMessage: replyReference
             ? {
@@ -881,59 +961,83 @@ export function useChatSession<M extends ChatMessage>({
           reactions: [],
           customEmojis: [],
           pending: true,
-        } as unknown as M;
+        } as unknown as M);
 
-        setMessages((prev) => [...prev, optimisticMessage]);
+      // Text-only sends show immediately; sends with files show once uploaded.
+      let optimisticShown = false;
+      if (!hasAttachments) {
+        setMessages((prev) => [...prev, buildOptimistic([])]);
+        optimisticShown = true;
         latestRef.current.onShouldScrollToBottom?.();
+      }
 
-        const body: Record<string, unknown> = {};
-        if (messageContent) body.content = messageContent;
-        if (sticker) body.sticker = sticker;
-        if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
-        if (replyReference) body.replyTo = replyReference.id;
-
-        const response = await fetch(`${apiBase}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-
-        if (response.ok) {
-          const payload = await response.json().catch(() => null);
-          if (payload?.interaction) {
-            // The content was a bot slash command dispatched as an interaction —
-            // nothing to render here; the bot's reply arrives over SSE. Drop the
-            // optimistic "/command" bubble.
-            setMessages((prev) => prev.filter((m) => m.id !== tempId));
-          } else {
-            const raw = payload?.message || payload;
-            if (raw && (raw.id || raw._id)) {
-              const confirmed = normalizeIncomingMessage<M>(raw);
-              setMessages((prev) =>
-                prev.map((m) => (m.id === tempId ? { ...m, ...confirmed, pending: false } : m))
-              );
-            }
+      const run = async () => {
+        try {
+          const uploadedAttachments = await uploadPromise;
+          if (hasAttachments && uploadedAttachments.length === 0 && !messageContent.trim()) {
+            toast.error(gt("Failed to upload file(s). Your message was not sent."));
+            return;
           }
-        } else {
-          const data = await response.json().catch(() => null);
+          if (!optimisticShown) {
+            setMessages((prev) => [...prev, buildOptimistic(uploadedAttachments)]);
+            optimisticShown = true;
+            latestRef.current.onShouldScrollToBottom?.();
+          }
+
+          const body: Record<string, unknown> = {};
+          if (messageContent) body.content = messageContent;
+          if (sticker) body.sticker = sticker;
+          if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
+          if (replyReference) body.replyTo = replyReference.id;
+
+          const response = await fetch(`${apiBase}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+
+          if (response.ok) {
+            const payload = await response.json().catch(() => null);
+            if (payload?.interaction) {
+              // The content was a bot slash command dispatched as an interaction —
+              // nothing to render here; the bot's reply arrives over SSE. Drop the
+              // optimistic "/command" bubble.
+              setMessages((prev) => prev.filter((m) => m.id !== tempId));
+            } else {
+              const raw = payload?.message || payload;
+              if (raw && (raw.id || raw._id)) {
+                const confirmed = normalizeIncomingMessage<M>(raw);
+                setMessages((prev) => {
+                  // The SSE echo may already have landed — then just drop the temp.
+                  if (prev.some((m) => m.id === confirmed.id)) {
+                    return prev.filter((m) => m.id !== tempId);
+                  }
+                  return prev.map((m) => (m.id === tempId ? { ...m, ...confirmed, pending: false } : m));
+                });
+              }
+            }
+          } else {
+            const data = await response.json().catch(() => null);
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+            restoreDraft();
+            toast.error(data?.error || gt("Failed to send message"));
+          }
+        } catch (error) {
+          console.error("Failed to send message:", error);
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           restoreDraft();
-          toast.error(data?.error || gt("Failed to send message"));
+          toast.error(gt("Failed to send message. Check your connection."));
+        } finally {
+          inFlightSendsRef.current -= 1;
+          if (inFlightSendsRef.current === 0) setIsSending(false);
         }
-      } catch (error) {
-        console.error("Failed to send message:", error);
-        if (tempId) {
-          setMessages((prev) => prev.filter((m) => m.id !== tempId));
-        }
-        restoreDraft();
-        toast.error(gt("Failed to send message. Check your connection."));
-      } finally {
-        sendingRef.current = false;
-        setIsSending(false);
-        actions.setReplyToMessage(null);
-      }
+      };
+
+      const queued = sendQueueRef.current.then(run);
+      sendQueueRef.current = queued.catch(() => undefined);
+      await queued;
     },
-    [apiBase, contextId, isSending, user, messageBarRef, actions, resetTyping]
+    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt]
   );
 
   /**

@@ -103,12 +103,12 @@ self.addEventListener('notificationclick', (event) => {
     // Determine URL to open based on notification data
     let urlToOpen = '/channels/me';
 
-    if (data.channelId && data.serverId) {
-        urlToOpen = `/channels/${data.serverId}/${data.channelId}`;
-    } else if (data.channelId && data.isDM) {
-        urlToOpen = `/channels/@me/${data.channelId}`;
-    } else if (data.url) {
+    if (data.url) {
         urlToOpen = data.url;
+    } else if (data.channelId && data.serverId) {
+        urlToOpen = `/channels/${data.serverId}/${data.channelId}`;
+    } else if (data.isDM && data.recipientId) {
+        urlToOpen = `/dm/${data.recipientId}`;
     }
 
     event.waitUntil(

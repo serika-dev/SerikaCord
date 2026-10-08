@@ -1025,7 +1025,11 @@ export function ChannelSidebar({
             const createdAt = data.message?.createdAt;
             // Live unread badge: count messages from the other participant only.
             if (channelId && data.message?.authorId && data.message.authorId !== user?.id) {
-              notifyDmActivity(channelId, typeof createdAt === "string" ? createdAt : undefined);
+              notifyDmActivity(
+                channelId,
+                typeof createdAt === "string" ? createdAt : undefined,
+                typeof data.message?.id === "string" ? data.message.id : undefined,
+              );
             }
             setDmChannels((prev) => {
               const idx = prev.findIndex((c) => c.id === channelId);

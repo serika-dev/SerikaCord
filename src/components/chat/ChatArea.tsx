@@ -493,7 +493,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         refreshMentions();
       }
 
-      const isTabVisible = document.visibilityState === "visible";
+      const isTabVisible = document.visibilityState === "visible" && document.hasFocus();
 
       const decision = evaluateNotification({
         isMentioned: isMentioned || isEveryoneMention,

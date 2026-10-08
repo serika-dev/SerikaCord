@@ -7,8 +7,8 @@ import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, enc
 import { isSystemUser } from '@/lib/services/systemUsers';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
+import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
-import { randomUUID } from 'crypto';
 import { normalizeId } from '@/lib/db/normalizeId';
 
 function compareIds(id1: string, id2: string): boolean {
@@ -76,8 +76,16 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
 }
 
 // Store active SSE connections
-const activeConnections = new Map<string, Set<ReadableStreamDefaultController>>();
-const activeDmListConnections = new Map<string, Set<ReadableStreamDefaultController>>();
+// Process-wide (see processShared): streams register from server.ts's module
+// copy while messages publish from Next's copy.
+const activeConnections = processShared(
+  'dmConnections',
+  () => new Map<string, Set<ReadableStreamDefaultController>>(),
+);
+const activeDmListConnections = processShared(
+  'dmListConnections',
+  () => new Map<string, Set<ReadableStreamDefaultController>>(),
+);
 
 // Shared codecs — instantiating TextEncoder/TextDecoder per event (and per
 // recipient) showed up as avoidable allocation churn on the message fan-out
@@ -88,7 +96,7 @@ const sseDecoder = new TextDecoder();
 // Cross-instance realtime: see channels.ts for the rationale. DMs use two Redis
 // buses — one keyed by DM channel (message events) and one keyed by user id (DM
 // list updates). `originId` prevents the publishing instance double-delivering.
-const INSTANCE_ID = randomUUID();
+const INSTANCE_ID = PROCESS_INSTANCE_ID;
 const SSE_DM_BUS = 'sse:dm';
 const SSE_DMLIST_BUS = 'sse:dmlist';
 
@@ -848,7 +856,14 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           {
             type: 'dm_activity',
             channelId: channel.id,
+            messageId: message.id,
             authorId: user.id,
+            authorName: user.displayName || user.username,
+            authorAvatar: user.avatar ?? null,
+            // Short plaintext preview for the recipient's notification.
+            preview: sanitizedContent.slice(0, 120),
+            hasAttachments: Array.isArray(attachments) && attachments.length > 0,
+            hasSticker: Boolean(stickerData),
             createdAt: createdAtIso,
           },
         );

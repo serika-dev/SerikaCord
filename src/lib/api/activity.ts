@@ -12,8 +12,8 @@
  * id lists are cached in-memory with a short TTL so a busy channel doesn't
  * trigger a DB read per message.
  */
-import { randomUUID } from 'crypto';
 import { getPublisher } from '@/lib/db';
+import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
 import { ServerMember } from '@/lib/models';
 import { BoundedMap } from '@/lib/utils/boundedMap';
@@ -37,10 +37,15 @@ const ACTIVITY_BUS = 'sse:activity';
 // connected recipients so payloads stay small (we ship serverId, not a member
 // list, for server-wide fan-out).
 const USER_FANOUT_BUS = 'sse:user-fanout';
-const INSTANCE_ID = randomUUID();
+const INSTANCE_ID = PROCESS_INSTANCE_ID;
 
 // userId -> set of raw write callbacks (one per open activity stream / tab).
-const activeActivityConnections = new Map<string, Set<(data: string) => void>>();
+// Process-wide (see processShared) so publishes from Next's module copy reach
+// streams registered by server.ts.
+const activeActivityConnections = processShared(
+  'activityConnections',
+  () => new Map<string, Set<(data: string) => void>>(),
+);
 
 /** Register a raw SSE writer for a user. Returns an unregister cleanup. */
 export function registerActivityConnection(
@@ -93,7 +98,10 @@ function emitToUsers(userIds: string[], payload: Record<string, unknown>) {
 
 // ── Server-member id cache (bounds DB load under message bursts) ────────────
 const MEMBER_CACHE_TTL_MS = 30_000;
-const memberCache = new BoundedMap<string, { ids: Set<string>; expires: number }>(500);
+const memberCache = processShared(
+  'activityMemberCache',
+  () => new BoundedMap<string, { ids: Set<string>; expires: number }>(500),
+);
 
 async function getServerMemberIds(serverId: string): Promise<Set<string>> {
   const cached = memberCache.get(serverId);
