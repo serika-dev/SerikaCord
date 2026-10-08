@@ -17,6 +17,7 @@ import { SystemPill } from "@/components/chat/SystemPill";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Skeleton, UserProfileSkeleton } from "@/components/ui/skeleton";
 import { voiceService } from "@/lib/services/voiceService";
+import { dmCallRoomId } from "@/lib/chat/dmCall";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VideoGrid } from "@/components/voice/VideoGrid";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
@@ -238,7 +239,7 @@ export default function DMConversationPage() {
     const call = new URLSearchParams(window.location.search).get("call");
     if (call !== "voice" && call !== "video") return;
     voiceService.setUserId(user.id);
-    void voiceService.joinChannel(`dm:${recipientId}`, call === "video");
+    void voiceService.joinChannel(dmCallRoomId(user.id, recipientId), call === "video");
     const url = new URL(window.location.href);
     url.searchParams.delete("call");
     window.history.replaceState(null, "", url.toString());
@@ -484,14 +485,14 @@ export default function DMConversationPage() {
 
           <div className="flex items-center gap-0.5 sm:gap-2">
             <button
-              onClick={() => void voiceService.joinChannel(`dm:${recipientId}`)}
+              onClick={() => user?.id && recipientId && void voiceService.joinChannel(dmCallRoomId(user.id, recipientId))}
               className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
               title={gt("Start Voice Call")}
             >
               <Phone className="w-5 h-5" />
             </button>
             <button
-              onClick={() => void voiceService.joinChannel(`dm:${recipientId}`, true)}
+              onClick={() => user?.id && recipientId && void voiceService.joinChannel(dmCallRoomId(user.id, recipientId), true)}
               className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
               title={gt("Start Video Call")}
             >

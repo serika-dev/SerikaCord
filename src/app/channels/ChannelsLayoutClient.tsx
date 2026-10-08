@@ -14,6 +14,7 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
+import { IncomingCall } from "@/components/voice/IncomingCall";
 import { voiceService } from "@/lib/services/voiceService";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -353,6 +354,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           />
         )}
         <VoiceAudioSink />
+        <IncomingCall />
 
         {/* Bottom Navigation */}
         <BottomNavigation />
@@ -472,6 +474,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         />
       </MountWhenOpened>
       <VoiceAudioSink />
+      <IncomingCall />
     </div>
   );
 }

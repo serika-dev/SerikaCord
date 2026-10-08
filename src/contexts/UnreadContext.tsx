@@ -23,6 +23,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { emitCallEvent, type CallEvent } from "@/lib/chat/dmCall";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   clearUnread,
@@ -618,6 +619,12 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           if (current >= MAX_UNREAD_BADGE) return prev;
           return { ...prev, [channelId]: current + 1 };
         });
+        return;
+      }
+
+      // Incoming DM call ringing / stopped — handled by the IncomingCall UI.
+      if (data.type === "call_ring" || data.type === "call_cancel") {
+        emitCallEvent(data as CallEvent);
         return;
       }
 

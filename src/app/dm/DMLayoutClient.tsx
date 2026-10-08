@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
+import { IncomingCall } from "@/components/voice/IncomingCall";
 import { useAppHotkeys } from "@/hooks/useAppHotkeys";
 import { onHotkey } from "@/lib/keybinds";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
@@ -83,6 +84,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
           />
         </MountWhenOpened>
         <VoiceAudioSink />
+        <IncomingCall />
       </div>
     );
   }
@@ -111,6 +113,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
         />
       </MountWhenOpened>
       <VoiceAudioSink />
+      <IncomingCall />
     </div>
   );
 }

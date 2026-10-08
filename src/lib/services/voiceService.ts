@@ -36,7 +36,8 @@ export type VoiceEvent =
   | { type: "screen_share_toggled"; enabled: boolean }
   | { type: "mute_toggled"; muted: boolean }
   | { type: "deafen_toggled"; deafened: boolean }
-  | { type: "soundboard_played"; userId: string; username: string; soundName: string };
+  | { type: "soundboard_played"; userId: string; username: string; soundName: string }
+  | { type: "call_declined"; userId: string };
 
 type VoiceListener = (event: VoiceEvent) => void;
 
@@ -487,6 +488,13 @@ class VoiceService {
         // will arrive via voice:offer which creates the non-initiator peer.
         // This avoids WebRTC glare (both sides initiating).
         this.emitParticipants();
+        break;
+      }
+      case "voice:call_declined": {
+        // The person we're calling declined. Hang up unless someone else is here.
+        this.emit({ type: "call_declined", userId: msg.userId as string });
+        const others = Array.from(this.participants.keys()).filter((id) => id !== this.getMyUserId());
+        if (others.length === 0) void this.leaveChannel();
         break;
       }
       case "voice:participant_left": {

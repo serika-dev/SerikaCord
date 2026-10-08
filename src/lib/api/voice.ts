@@ -3,7 +3,10 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { config } from '@/lib/config';
 import { getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
-import type { IServerSettings } from '@/lib/models';
+import { User, type IServerSettings, type IUserSettings } from '@/lib/models';
+import { dmCallPeers } from '@/lib/chat/dmCall';
+import { isSystemUser } from '@/lib/services/systemUsers';
+import { fanoutToUsers } from './activity';
 import { checkChannelAccess } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { parseVoiceRoomId, isDmRoomPeer, hasRoomForParticipant, canSignalBetween } from '@/lib/voice/rooms';
@@ -108,6 +111,33 @@ function publishMembership(roomId: string, action: 'join' | 'leave', data: objec
   if (pub) {
     pub.publish(VOICE_MEMBERS_BUS, JSON.stringify({ originId: INSTANCE_ID, roomId, action, ...data })).catch(() => {});
   }
+}
+
+// ── DM calls ────────────────────────────────────────────────────────────────
+// Ringing goes out over each user's app-wide activity stream (not the voice
+// room's SSE, which the callee hasn't opened yet).
+function notifyCall(userIds: string[], payload: Record<string, unknown>) {
+  void fanoutToUsers({ userIds }, payload).catch(() => {});
+}
+
+// Once a DM call room empties (the caller hung up before an answer, or the
+// call ended), stop it ringing anywhere it still is.
+function stopRingingIfEmpty(roomId: string) {
+  const peers = dmCallPeers(roomId);
+  if (peers && !roomState.get(roomId)?.size) notifyCall(peers, { type: 'call_cancel', roomId, reason: 'ended' });
+}
+
+type CallingUser = { id: string; friends?: string[] | null; blockedUsers?: string[] | null };
+
+// Same rule as sending a DM: nobody blocked either way, and either friends or
+// the callee accepts DMs from everyone.
+async function canCall(caller: CallingUser, calleeId: string): Promise<boolean> {
+  const callee = await User.findById(calleeId);
+  if (!callee || callee.isSystem || isSystemUser(callee.id)) return false;
+  const has = (list: string[] | null | undefined, id: string) => (list || []).some((x) => x.toLowerCase() === id.toLowerCase());
+  if (has(caller.blockedUsers, callee.id) || has(callee.blockedUsers, caller.id)) return false;
+  return has(caller.friends, callee.id)
+    || (callee.settings as IUserSettings | undefined)?.privacy?.directMessages === 'everyone';
 }
 
 // Subscribe this process to the voice buses. Call once at startup with a
@@ -296,6 +326,21 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       set.status = 403;
       return { error: 'This voice channel is full' };
     }
+    // DM call rooms ("dm:<a>_<b>") are only joinable by those two users.
+    let callee: string | null = null;
+    if (body.roomId.startsWith('dm:')) {
+      const peers = dmCallPeers(body.roomId);
+      const me = user.id.toLowerCase();
+      if (!peers || !peers.includes(me)) {
+        set.status = 403;
+        return { error: 'Not part of this call' };
+      }
+      callee = peers[0] === me ? peers[1] : peers[0];
+      if (!(await canCall(user, callee))) {
+        set.status = 403;
+        return { error: 'You cannot call this user' };
+      }
+    }
 
     const room = getRoom(body.roomId);
     const userId = user.id;
@@ -316,6 +361,26 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       type: 'voice:participant_joined',
       participant: room.get(userId),
     }, userId);
+
+    if (callee) {
+      const answering = Array.from(room.keys()).some((id) => id.toLowerCase() === callee);
+      if (answering) {
+        // Picked up on one device — stop it ringing on the others.
+        notifyCall([userId], { type: 'call_cancel', roomId: body.roomId, reason: 'answered' });
+      } else {
+        notifyCall([callee], {
+          type: 'call_ring',
+          roomId: body.roomId,
+          video: body.video ?? false,
+          caller: {
+            id: userId,
+            username: user.username,
+            displayName: user.displayName || user.username,
+            avatar: user.avatar || null,
+          },
+        });
+      }
+    }
 
     return {
       success: true,
@@ -354,6 +419,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       type: 'voice:participant_left',
       userId,
     });
+    stopRingingIfEmpty(body.roomId);
 
     // Clean up signaling connections for this user in this room
     const roomConnections = voiceSignalingConnections.get(body.roomId);
@@ -369,6 +435,28 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       roomId: body.roomId,
       participants: room ? Array.from(room.values()) : [],
     };
+  }, {
+    body: t.Object({
+      roomId: t.String({ minLength: 1 }),
+    }),
+  })
+  // Decline an incoming DM call: tell the caller, stop ringing on my devices.
+  .post('/decline', async ({ headers, cookie, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
+    const peers = dmCallPeers(body.roomId);
+    if (!peers || !peers.includes(user.id.toLowerCase())) {
+      set.status = 403;
+      return { error: 'Not part of this call' };
+    }
+
+    broadcastToRoom(body.roomId, { type: 'voice:call_declined', userId: user.id }, user.id);
+    notifyCall([user.id], { type: 'call_cancel', roomId: body.roomId, reason: 'declined' });
+    return { success: true };
   }, {
     body: t.Object({
       roomId: t.String({ minLength: 1 }),
@@ -506,6 +594,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
               if (room.size === 0) roomState.delete(roomId);
               publishMembership(roomId, 'leave', { userId });
               broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
+              stopRingingIfEmpty(roomId);
             }
           }
         }
