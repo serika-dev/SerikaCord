@@ -37,22 +37,38 @@ Each release section should include:
 - **Categorized changes** — Bullet points grouped by type (Security, Features, Bug Fixes, Performance, Documentation, etc.)
 - **Commit hashes** in backticks for traceability (e.g. `fa0c0ce`)
 
+### Adding changelog entries
+
+```bash
+bun run changelog <Added|Changed|Fixed|Performance|Security|Removed> "**Short title** — what changed for users."
+```
+
+Appends a bullet to `## Unreleased` under the matching heading (Added → Features, Changed → Changes, Fixed → Bug Fixes, Performance, Security, Removed), creating the heading if needed. Editing `CHANGELOG.md` by hand is fine too; keep the same headings. The in-app `/changelog` page ("What's new" under the version in User Settings and the mobile profile) renders Unreleased plus the last few releases from `CHANGELOG.md`, inlined at build time.
+
 ### Releasing a new version
 
-1. Bump version in all config files:
+Use `scripts/release.ts`; don't bump versions by hand:
+
+```bash
+bun run release:dry [patch|minor|major]   # preview the full diff, writes nothing (default: patch)
+bun run release patch --commit --tag      # bump, commit "release: vX.Y.Z", annotated tag vX.Y.Z
+git push && git push origin vX.Y.Z        # the script never pushes
+```
+
+`bun scripts/release.ts <patch|minor|major|x.y.z> [--dry-run] [--commit] [--tag] [--allow-empty]`:
+1. Refuses to run with staged changes, a non-increasing version, or an existing tag.
+2. Bumps every version-bearing file that exists (missing ones are skipped with a warning):
    - `package.json`
-   - `desktop-tauri/package.json`
-   - `desktop-tauri/src-tauri/tauri.conf.json`
-   - `desktop-tauri/src-tauri/Cargo.toml`
-   - `desktop-tauri/src-tauri/Cargo.lock` (the `serikacord-desktop` package entry)
-   - `desktop/package.json`
-   - `mobile/android/app/build.gradle` (`versionName` + increment `versionCode`)
-   - Any UI files displaying the version (e.g. `MobileDrawer.tsx`, `MobileProfileView.tsx`)
-2. Update `CHANGELOG.md` with the new release section.
-3. Commit: `release: vX.Y.Z — <brief description>`
-4. Push to `postgres` branch.
-5. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`
-6. The tag push triggers the GitHub Actions `Release Build` workflow which builds Tauri desktop (Windows/macOS/Linux) and Android APK, then creates a GitHub Release with all artifacts.
+   - `desktop-tauri/package.json`, `desktop-tauri/src-tauri/tauri.conf.json`, `desktop-tauri/src-tauri/Cargo.toml`, `desktop-tauri/src-tauri/Cargo.lock` (the `serikacord-desktop` entry)
+   - `desktop/package.json` (legacy Electron shell, currently absent)
+   - `desktop-QT/CMakeLists.txt` (`project(... VERSION)`) and `desktop-QT/Info.plist`
+   - `mobile/android/app/build.gradle` (`versionName`, and `versionCode` + 1)
+3. Moves the `## Unreleased` body into `## vX.Y.Z — YYYY-MM-DD` with a `**Tag:** ... · **Commit:** <short sha>` line (the HEAD the release was cut from) and leaves a fresh Unreleased with the standard headings. Refuses an empty Unreleased unless `--allow-empty`.
+4. `--commit` commits only the files it touched; `--tag` (needs `--commit`) creates the annotated tag.
+
+The tag push triggers the GitHub Actions `Release Build` workflow (Tauri desktop + Android APK) and `build-qt.yml`; both take the version from the tag.
+
+**The UI never hard-codes a version.** Import `APP_VERSION` / `VERSION_LABEL` / `BUILD_SHA` from `src/lib/version.ts`. `next.config.ts` inlines the version from `package.json` and the commit from `SOURCE_COMMIT` / `COOLIFY_GIT_COMMIT_SHA` / `GIT_COMMIT` / `VERCEL_GIT_COMMIT_SHA` (else `git rev-parse HEAD`, else `dev`). `GET /api/version` returns `{ version, commit, builtAt, environment }` for the running deployment.
 
 ---
 
@@ -63,10 +79,9 @@ Each release section should include:
 **Rule:** Every time you push changes to the repository, you MUST bump the patch version (e.g. `v1.2.2` → `v1.2.3`). This applies to all pushes, not just releases.
 
 **Steps before every push:**
-1. Bump the patch version in all config files listed in "Releasing a new version" above.
-2. Add a `## vX.Y.Z — YYYY-MM-DD` entry to `CHANGELOG.md` describing the changes.
-3. Commit with message `release: vX.Y.Z — <brief description>`.
-4. Push, then tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+1. Make sure `## Unreleased` in `CHANGELOG.md` describes the changes (`bun run changelog ...`).
+2. `bun run release patch --commit --tag` (preview first with `bun run release:dry`).
+3. Push, then push the tag: `git push origin vX.Y.Z`.
 
 **Minor/major version bumps** are reserved for significant feature additions or breaking changes, respectively. When in doubt, bump patch.
 

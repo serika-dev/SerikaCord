@@ -24,6 +24,12 @@ COPY . .
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Commit being built (Coolify passes it as a build arg when "Include Source
+# Commit in Build" is on). .git is dockerignored, so this is the only way the
+# build learns its SHA — next.config.ts inlines it, see src/lib/version.ts.
+ARG SOURCE_COMMIT
+ENV SOURCE_COMMIT=${SOURCE_COMMIT}
+
 # Build the application
 # Cache mounts persist webpack's incremental compilation cache across builds.
 # This dramatically speeds up rebuilds (only changed modules are recompiled).
@@ -37,6 +43,11 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Same commit for the API (/api/version), which runs from source and has
+# nothing inlined.
+ARG SOURCE_COMMIT
+ENV SOURCE_COMMIT=${SOURCE_COMMIT}
 
 # Full app: the custom server needs source (server.ts, src/) and the build.
 COPY --from=builder /app/node_modules ./node_modules

@@ -23,7 +23,10 @@
     "translate:pull": "node scripts/sync-translations.js pull",
     "translate:sync": "node scripts/sync-translations.js sync",
     "translate:status": "node scripts/sync-translations.js status",
-    "translate:keys": "node scripts/sync-translations.js keys"
+    "translate:keys": "node scripts/sync-translations.js keys",
+    "release": "bun scripts/release.ts",
+    "release:dry": "bun scripts/release.ts --dry-run",
+    "changelog": "bun scripts/changelog-add.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.986.0",

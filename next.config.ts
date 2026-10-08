@@ -1,7 +1,39 @@
 import type { NextConfig } from "next";
+import { execSync } from "node:child_process";
 import { withGTConfig } from "gt-next/config";
+import packageJson from "./package.json";
 
 const isMobileBuild = process.env.MOBILE_BUILD === '1';
+
+// ─── Build identity (read it through src/lib/version.ts) ────────────────────
+// Inlined into every bundle via `env` below. The commit comes from the CI/host
+// env (Coolify passes SOURCE_COMMIT as a build arg — see Dockerfile), else from
+// git when building from a checkout, else "dev".
+//
+// Both values are written back to process.env so the webpack build workers
+// (child processes that re-load this file with our env) agree on one value.
+// Otherwise client and server bundles could carry different build times, and
+// hydrating anything that renders them would mismatch.
+function resolveBuildSha(): string {
+  const fromEnv =
+    process.env.NEXT_PUBLIC_BUILD_SHA ||
+    process.env.SOURCE_COMMIT ||
+    process.env.COOLIFY_GIT_COMMIT_SHA ||
+    process.env.GIT_COMMIT ||
+    process.env.VERCEL_GIT_COMMIT_SHA;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  try {
+    const sha = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"], timeout: 2000 })
+      .toString()
+      .trim();
+    return sha || "dev";
+  } catch {
+    return "dev";
+  }
+}
+
+const BUILD_SHA = (process.env.NEXT_PUBLIC_BUILD_SHA = resolveBuildSha());
+const BUILD_TIME = (process.env.NEXT_PUBLIC_BUILD_TIME ||= new Date().toISOString());
 
 const nextConfig: NextConfig = {
   // Static export for mobile builds; otherwise the default build, served by our
@@ -17,6 +49,13 @@ const nextConfig: NextConfig = {
   compress: false,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
+
+  // Build identity, inlined at build time (see the top of this file).
+  env: {
+    NEXT_PUBLIC_APP_VERSION: packageJson.version,
+    NEXT_PUBLIC_BUILD_SHA: BUILD_SHA,
+    NEXT_PUBLIC_BUILD_TIME: BUILD_TIME,
+  },
 
   // Skip type checking during build for faster builds
   typescript: {
@@ -135,6 +174,14 @@ const nextConfig: NextConfig = {
 
   // webpack customizations for gt-next
   webpack: (config, { isServer }) => {
+    // The /changelog page imports CHANGELOG.md as a plain string, so the notes
+    // ship inside the build they describe (the runtime image doesn't copy
+    // repo-root markdown). See src/app/changelog/page.tsx.
+    config.module.rules.push({
+      test: /CHANGELOG\.md$/,
+      type: 'asset/source',
+    });
+
     if (isServer) {
       // gt-next's .mjs build files use CommonJS require() for their internal
       // loader specifiers (e.g. gt-next/internal/_load-translations). Webpack

@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { VERSION_LABEL } from "@/lib/version";
 
 type ReportKind = "bug" | "feedback";
 
@@ -173,7 +174,7 @@ export function BugReportPanel() {
 
       setBrowserInfo(`${browser} ${ua.match(/(Firefox|Chrome|Safari|Edge)\/([\d.]+)/)?.[2] || ""}`.trim());
       setOsInfo(os);
-      setAppVersion("1.0.0");
+      setAppVersion(VERSION_LABEL);
     }
   }, []);
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -31,6 +32,7 @@ import {
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { VERSION_LABEL } from "@/lib/version";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -278,7 +280,13 @@ export function MobileProfileView() {
 
             {/* App Info */}
             <div className="text-center py-6">
-              <p className="text-xs font-medium text-[var(--text-muted)]">SerikaCord v2.0.0 (Beta)</p>
+              <p className="text-xs font-medium text-[var(--text-muted)]">SerikaCord {VERSION_LABEL}</p>
+              <Link
+                href="/changelog"
+                className="mt-1 inline-block text-xs text-[var(--accent-color)] hover:underline underline-offset-2"
+              >
+                {gt("What's new")}
+              </Link>
             </div>
           </div>
         </div>

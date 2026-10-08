@@ -88,6 +88,7 @@ import { toast } from "sonner";
 import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
+import { APP_VERSION, BUILD_COMMIT_URL, BUILD_SHA, BUILD_TIME, VERSION_LABEL } from "@/lib/version";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -1399,11 +1400,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
     const lines: { label: string; value: string }[] = [];
 
-    lines.push({ label: "SerikaCord", value: `v2.0.0 ${environment}` });
+    lines.push({ label: "Environment", value: environment });
+    if (BUILD_TIME) lines.push({ label: "Built", value: BUILD_TIME.slice(0, 10) });
     lines.push({ label: "Build Override", value: "N/A" });
 
     if (isTauri) {
-      lines.push({ label: "Runtime", value: "Tauri 2.x (SerikaCord Desktop v2.0.0)" });
+      // The desktop shell ships separately from the web app it loads, so its
+      // version isn't APP_VERSION.
+      lines.push({ label: "Runtime", value: "Tauri 2.x (SerikaCord Desktop)" });
       const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
       if (ua.includes("Windows")) {
         lines.push({ label: "WebView", value: "WebView2 (Edge/Chromium)" });
@@ -2181,6 +2185,31 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
               {/* Version / build info */}
               <div className="mt-3 px-2.5 space-y-0.5 select-text">
+                <p className="text-[11px] font-medium text-[var(--text-secondary)] leading-tight">
+                  {BUILD_COMMIT_URL ? (
+                    <>
+                      SerikaCord v{APP_VERSION}{" "}
+                      <a
+                        href={BUILD_COMMIT_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono hover:text-[var(--text-primary)] hover:underline underline-offset-2"
+                      >
+                        ({BUILD_SHA})
+                      </a>
+                    </>
+                  ) : (
+                    <>SerikaCord {VERSION_LABEL}</>
+                  )}
+                </p>
+                <a
+                  href="/changelog"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block text-[11px] text-[var(--accent-color)] hover:underline underline-offset-2 pb-0.5"
+                >
+                  {gt("What's new")}
+                </a>
                 {buildInfo.lines.map((line, i) => (
                   <p key={i} className="text-[11px] text-[var(--text-muted)] leading-tight">
                     {line.label} {line.value}

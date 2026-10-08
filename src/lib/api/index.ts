@@ -29,6 +29,8 @@ import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { getMoeActivity } from '@/lib/services/moeActivity';
 import { getLastFmNowPlaying } from '@/lib/services/lastfmService';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { getVersionInfo } from '@/lib/version';
+import { getServerBuildTime } from '@/lib/versionServer';
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -3381,6 +3383,13 @@ export const api = new Elysia({ prefix: '/api' })
     service: 'serikacord',
     timestamp: new Date().toISOString(),
   }))
+  // Public build identity — what's deployed here. See src/lib/version.ts.
+  .get('/version', ({ request, set }) => {
+    set.headers['cache-control'] = 'no-store';
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+    const info = getVersionInfo(host);
+    return { ...info, builtAt: getServerBuildTime() ?? info.builtAt };
+  })
   .post('/webhooks/:channelId/:token', async ({ params, body, set }) => {
     const { ChannelWebhook, Channel, Message } = await import('@/lib/models');
     const webhook = await ChannelWebhook.findOne({ 

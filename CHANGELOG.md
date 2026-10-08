@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+### Features
+- **What's new page and version info** — User Settings and the mobile profile show the running version and commit (`SerikaCord v2.0.0 (abc1234)`) with a "What's new" link to the new `/changelog` page. Bug reports pick up the real version, and `/api/version` reports what's deployed.
+
 ### Bug Fixes
 - **Right-click a person in chat or the DM list** — names and avatars in chat, and DM rows, open the user menu (Send Message, Add Friend, Call, Video Call, Copy Username/ID) like the member list does. (CORD-3)
 - **Close DM works** — the X on a DM row did nothing. It now hides the conversation until a new message arrives (also in the DM menu). Remembered per device.
