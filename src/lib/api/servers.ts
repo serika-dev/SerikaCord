@@ -14,6 +14,7 @@ import { User } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
 import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -378,6 +379,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         const server = serverMap.get(m.serverId)!;
         return {
           ...server,
+          settings: publicServerSettings(server.settings),
           id: server.id,
           joinedAt: m.joinedAt,
           roles: m.roles,
@@ -667,6 +669,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     return {
       server: {
         ...server,
+        settings: publicServerSettings(server.settings),
         channels,
         roles,
         member: membership,
@@ -725,7 +728,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           twitchNotificationChannelId: '',
           youtubeChannel: '',
           youtubeNotificationChannelId: '',
-          ...((server.settings as IServerSettings | undefined)?.integrations || {}),
+          ...(publicServerSettings(server.settings as IServerSettings | undefined)?.integrations || {}),
         },
         soundboard: (server.settings as IServerSettings | undefined)?.soundboard || {
           enabled: true,
@@ -771,6 +774,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const payload = body as { settings?: Partial<IServerSettings> & { discoveryDescription?: string; discoveryCategories?: string[] }; isAgeGated?: boolean; [key: string]: unknown };
     const serverSettings = server.settings as IServerSettings | undefined || {};
     const settingsPayload = payload.settings || {};
+    // The Discord link and its webhook/channel maps are written only by the
+    // verified link + sync routes, never directly by clients.
+    if (settingsPayload.integrations) {
+      const integ = { ...(settingsPayload.integrations as Record<string, unknown>) };
+      delete integ.discordGuildId;
+      delete integ.discordWebhooks;
+      delete integ.discordChannelsMap;
+      settingsPayload.integrations = integ as IServerSettings['integrations'];
+    }
     const nextSettings = {
       ...serverSettings,
       ...settingsPayload,
@@ -1066,7 +1078,24 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           if (v !== undefined) staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
           break;
         }
-        case 'integrations.discordGuildId':
+        case 'integrations.discordGuildId': {
+          const v = expectString(key, 32);
+          if (v === undefined) break;
+          const current = (server.settings as IServerSettings | undefined)?.integrations?.discordGuildId || '';
+          if (v === current) break;
+          if (v) {
+            const check = await verifyDiscordGuildControl(user.id, v, server.id);
+            if (!check.ok) { fieldErrors[key] = check.error; break; }
+          }
+          // A different guild (or unlinking) invalidates the old webhooks and channel map.
+          staged.push(() => {
+            const integ = section('integrations');
+            integ.discordGuildId = v;
+            delete integ.discordWebhooks;
+            delete integ.discordChannelsMap;
+          });
+          break;
+        }
         case 'integrations.discordMode':
         case 'integrations.twitchChannel':
         case 'integrations.twitchNotificationChannelId':
@@ -1259,7 +1288,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // Invalidate cache
     await cache.del(`server:${server.id}`);
 
-    return { success: true, server };
+    return { success: true, server: { ...server, settings: publicServerSettings(server.settings) } };
   }, {
     params: t.Object({
       serverId: t.String(),
@@ -4119,6 +4148,15 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     const botToken = process.env.SERIKA_DISCORD_TOKEN;
     const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     const guildId = integrations.discordGuildId;
+    // Re-check on every sync: a link stored before verification existed (or
+    // whose owner has since lost access) must not drive the bot.
+    if (guildId) {
+      const check = await verifyDiscordGuildControl(user.id, guildId, server.id);
+      if (!check.ok) {
+        set.status = check.status;
+        return { error: check.error };
+      }
+    }
     let discordChannels: Array<{ id: string; name: string; type: string; position: number; parentId: string | null; topic?: string; permissionOverwrites?: any[] }> = [];
     const discordChannelWebhookMap: Record<string, string> = {};
     const discordRoleMap: Record<string, string> = {};
@@ -4169,7 +4207,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
                   const existingWh = webhooksList.find(w => w.name === 'SerikaBridge' && w.token);
                   if (existingWh) {
                     webhookUrl = `https://discord.com/api/webhooks/${existingWh.id}/${existingWh.token}`;
-                    console.log(`[Discord Bridge] Found existing webhook for ${c.name}: ${webhookUrl}`);
+                    console.log(`[Discord Bridge] Found existing webhook for ${c.name}`);
                   }
                 }
 
@@ -4190,7 +4228,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
                     if (createWhRes.ok) {
                       const newWh = await createWhRes.json();
                       webhookUrl = `https://discord.com/api/webhooks/${newWh.id}/${newWh.token}`;
-                      console.log(`[Discord Bridge] Created new webhook for ${c.name}: ${webhookUrl}`);
+                      console.log(`[Discord Bridge] Created new webhook for ${c.name}`);
                     } else if (createWhRes.status === 429) {
                       const retryAfter = parseFloat(createWhRes.headers.get('Retry-After') || '2') * 1000;
                       console.warn(`[Discord Bridge] Rate limited creating webhook for ${c.name} (attempt ${createAttempts}/${MAX_WEBHOOK_ATTEMPTS}), waiting ${retryAfter}ms`);
