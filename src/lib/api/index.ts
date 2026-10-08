@@ -3392,11 +3392,17 @@ export const api = new Elysia({ prefix: '/api' })
   })
   .post('/webhooks/:channelId/:token', async ({ params, body, set }) => {
     const { ChannelWebhook, Channel, Message } = await import('@/lib/models');
-    const webhook = await ChannelWebhook.findOne({ 
-      channelId: params.channelId, 
-      token: params.token 
+    const { encryptForStorage, secureCompare, isValidObjectId, validateMessageContent, checkRateLimit } = await import('@/lib/security');
+    if (!isValidObjectId(params.channelId) || typeof params.token !== 'string' || params.token.length === 0) {
+      set.status = 404;
+      return { error: 'Webhook not found' };
+    }
+    const webhook = await ChannelWebhook.findOne({
+      channelId: params.channelId,
+      token: params.token,
     });
-    if (!webhook) {
+    // Fail closed: the token must match exactly (constant-time compare).
+    if (!webhook || !secureCompare(webhook.token, params.token)) {
       set.status = 404;
       return { error: 'Webhook not found' };
     }
@@ -3405,15 +3411,38 @@ export const api = new Elysia({ prefix: '/api' })
       set.status = 404;
       return { error: 'Channel not found' };
     }
-    const payload = body as { content?: string; username?: string; avatar_url?: string };
-    const content = payload.content || '';
-    const username = payload.username || webhook.name;
-    const avatarUrl = payload.avatar_url || webhook.avatar;
-    const { encryptForStorage } = await import('@/lib/security');
+    const rateLimit = await checkRateLimit('message', `webhook:${webhook.id}`);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'Webhook rate limited', retryAfter: rateLimit.retryAfter };
+    }
+    const payload = (body ?? {}) as { content?: unknown; username?: unknown; avatar_url?: unknown };
+    const rawContent = typeof payload.content === 'string' ? payload.content : '';
+    const validation = validateMessageContent(rawContent);
+    if (!validation.valid) {
+      set.status = 400;
+      return { error: validation.error };
+    }
+    const { sanitizeMessageContent, publishToChannel } = await import('./channels');
+    const content = sanitizeMessageContent(rawContent);
+    if (!content) {
+      set.status = 400;
+      return { error: 'Message content cannot be empty' };
+    }
+    const username = (typeof payload.username === 'string' && payload.username.trim()
+      ? payload.username.trim()
+      : webhook.name).slice(0, 80);
+    const avatarUrl = typeof payload.avatar_url === 'string' && /^https:\/\//i.test(payload.avatar_url)
+      ? payload.avatar_url
+      : webhook.avatar;
     const encryptedContent = await encryptForStorage(content);
+    // Authored by the webhook's own id, not its creator's, so a leaked token
+    // can't post as the admin who made it. History renders it as a bot with
+    // the webhook's name/avatar (see GET /channels/:id/messages).
     const message = await Message.create({
       channelId: channel.id,
-      authorId: webhook.creatorId || '00000000-0000-0000-0000-000000000000',
+      serverId: channel.serverId,
+      authorId: webhook.id,
       content: encryptedContent,
       type: 'default',
     });
@@ -3443,7 +3472,6 @@ export const api = new Elysia({ prefix: '/api' })
       pinned: false,
       reactions: [],
     };
-    const { publishToChannel } = await import('./channels');
     publishToChannel(channel.id, { type: 'message', message: messageResponse });
     const { signalChannelMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
     void signalChannelMessage({

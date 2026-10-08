@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { Application, ChannelWebhook } from '@/lib/models';
+import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
 import { AppCommand, type IAppCommand } from '@/lib/models/AppCommand';
 import * as crypto from 'crypto';
@@ -773,17 +774,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
 
   const emojiKey = params.emoji;
-  const reactions = [...((msg.reactions as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }> | undefined) || [])];
-  let reaction = reactions.find((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => r.emoji.name === emojiKey || r.emoji.id === emojiKey);
-  if (!reaction) {
-    reaction = { emoji: { name: emojiKey }, count: 0, userIds: [] as string[] };
-    reactions.push(reaction);
-  }
-  if (!reaction.userIds.some((uid: string) => uid === auth.botUser.id)) {
-    reaction.userIds.push(auth.botUser.id);
-    reaction.count = reaction.userIds.length;
-  }
-  await Message.updateById(params.messageId, { reactions });
+  const matchKey = (r: StoredReaction) => r.emoji?.name === emojiKey || r.emoji?.id === emojiKey;
+  // Row-locked so concurrent reactions can't overwrite each other.
+  await Message.mutateReactions<StoredReaction>(params.messageId, (current) =>
+    addReaction(current, matchKey, { name: emojiKey }, auth.botUser.id).reactions,
+  );
   set.status = 204;
   return '';
 })
@@ -796,17 +791,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
 
   const emojiKey = params.emoji;
-  const reactions = [...((msg.reactions as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }> | undefined) || [])];
-  const reaction = reactions.find((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => r.emoji.name === emojiKey || r.emoji.id === emojiKey);
-  if (reaction) {
-    reaction.userIds = reaction.userIds.filter((uid: string) => uid !== auth.botUser.id);
-    reaction.count = reaction.userIds.length;
-    if (reaction.count === 0) {
-      const idx = reactions.indexOf(reaction);
-      if (idx >= 0) reactions.splice(idx, 1);
-    }
-    await Message.updateById(params.messageId, { reactions });
-  }
+  const matchKey = (r: StoredReaction) => r.emoji?.name === emojiKey || r.emoji?.id === emojiKey;
+  await Message.mutateReactions<StoredReaction>(params.messageId, (current) => {
+    const result = removeReaction(current, matchKey, auth.botUser.id);
+    return result.changed ? result.reactions : null;
+  });
   set.status = 204;
   return '';
 })
@@ -819,17 +808,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
 
   const emojiKey = params.emoji;
-  const reactions = [...((msg.reactions as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }> | undefined) || [])];
-  const reaction = reactions.find((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => r.emoji.name === emojiKey || r.emoji.id === emojiKey);
-  if (reaction) {
-    reaction.userIds = reaction.userIds.filter((uid: string) => uid !== params.userId);
-    reaction.count = reaction.userIds.length;
-    if (reaction.count === 0) {
-      const idx = reactions.indexOf(reaction);
-      if (idx >= 0) reactions.splice(idx, 1);
-    }
-    await Message.updateById(params.messageId, { reactions });
-  }
+  const matchKey = (r: StoredReaction) => r.emoji?.name === emojiKey || r.emoji?.id === emojiKey;
+  await Message.mutateReactions<StoredReaction>(params.messageId, (current) => {
+    const result = removeReaction(current, matchKey, params.userId);
+    return result.changed ? result.reactions : null;
+  });
   set.status = 204;
   return '';
 })

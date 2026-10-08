@@ -19,6 +19,9 @@ export type IMessage = typeof schema.messages.$inferSelect;
 // Kept a touch above 99 so "99+" is always reached before the cap bites.
 export const MAX_UNREAD_BADGE = 100;
 
+// Used when a caller passes an invalid `_limit` to Message.find.
+const FALLBACK_FIND_LIMIT = 100;
+
 export const Message = {
   table: schema.messages,
 
@@ -68,8 +71,15 @@ export const Message = {
         case 'authorId': conditions.push(buildCondition(schema.messages.authorId, value, true)); break;
         case 'isDeleted': conditions.push(eq(schema.messages.isDeleted, value as boolean)); break;
         case 'pinned': conditions.push(eq(schema.messages.pinned, value as boolean)); break;
-        case '_limit': limit = value as number; break;
-        case '_orderAsc': orderAsc = true; break;
+        // Only a positive finite limit is applied; a bad value (0, NaN,
+        // negative) falls back to a safe cap instead of meaning "no LIMIT".
+        // Callers that really want every row leave `_limit` out.
+        case '_limit': {
+          const n = Number(value);
+          limit = Number.isFinite(n) && n > 0 ? Math.floor(n) : FALLBACK_FIND_LIMIT;
+          break;
+        }
+        case '_orderAsc': orderAsc = Boolean(value); break;
         case 'createdAtBefore': conditions.push(lt(schema.messages.createdAt, value as Date)); break;
         case 'createdAtAfter': conditions.push(gt(schema.messages.createdAt, value as Date)); break;
       }
@@ -130,6 +140,35 @@ export const Message = {
   async updateById(id: string, data: Partial<typeof schema.messages.$inferInsert>) {
     const [row] = await db.update(schema.messages).set({ ...data, updatedAt: new Date() }).where(eq(schema.messages.id, normalizeId(id))).returning();
     return row || null;
+  },
+
+  /**
+   * Row-locked read-modify-write of a message's reactions array, so concurrent
+   * reactions can't overwrite each other. `fn` gets the current array and
+   * returns the next one (or null to leave the row untouched). Returns the
+   * array that was stored, or null when the message doesn't exist. Doesn't
+   * bump `updatedAt`: a reaction is not an edit.
+   */
+  async mutateReactions<T>(
+    id: string,
+    fn: (current: T[]) => T[] | null,
+  ): Promise<T[] | null> {
+    return db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ reactions: schema.messages.reactions })
+        .from(schema.messages)
+        .where(eq(schema.messages.id, normalizeId(id)))
+        .for('update');
+      if (!row) return null;
+      const current = (Array.isArray(row.reactions) ? row.reactions : []) as T[];
+      const next = fn(current);
+      if (next === null) return current;
+      await tx
+        .update(schema.messages)
+        .set({ reactions: next })
+        .where(eq(schema.messages.id, normalizeId(id)));
+      return next;
+    });
   },
 
   async deleteById(id: string) {

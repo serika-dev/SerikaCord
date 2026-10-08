@@ -21,6 +21,11 @@ import { getRolePermissions, hasServerPermission } from '@/lib/permissions/serve
 import { DEFAULT_SERVER_SAFETY, exceedsMentionLimit, resolveServerSafety, type ServerSafety } from '@/lib/servers/guards';
 import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
 import { computeChannelPermissions, hasBit as hasPermissionBit, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
+import { isSystemUser } from '@/lib/services/systemUsers';
+import { dmSendDenyReason, type DmPolicyUser } from '@/lib/chat/dmPolicy';
+import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
+import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
+import { clampInt } from '@/lib/utils/clampInt';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -228,6 +233,66 @@ async function checkCanSpeak(
 }
 
 /**
+ * Whether `user` may post into `channel` (messages, slash commands, reactions).
+ * Server channels: timeout + SEND_MESSAGES overwrites. 1:1 DM channels: the
+ * same block / DM-privacy rules as POST /dms/:recipientId/messages, so the
+ * generic /channels/:dmChannelId routes can't bypass them.
+ * Returns null when allowed, or the status + body to reply with.
+ */
+async function checkCanPostInChannel(
+  channel: IChannel,
+  user: DmPolicyUser,
+  membership: { roles?: string[] | null } | null | undefined,
+  opts: { checkSendPermission?: boolean } = {},
+): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  if (channel.serverId) {
+    const disabledUntil = (membership as { communicationDisabledUntil?: Date | null } | null | undefined)?.communicationDisabledUntil;
+    if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
+      return {
+        status: 403,
+        body: { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() },
+      };
+    }
+    if (opts.checkSendPermission !== false) {
+      const denied = await checkCanSpeak(channel as never, (membership ?? null) as never, user.id, ['send']);
+      if (denied) return denied;
+    }
+    return null;
+  }
+
+  if (channel.type === 'dm') {
+    const otherId = ((channel.recipientIds || []) as string[]).find((r) => !compareIds(r, user.id));
+    if (!otherId) return null;
+    const recipient = await User.findById(otherId);
+    if (!recipient) return null;
+    const reason = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id) });
+    if (reason) return { status: 403, body: { error: reason } };
+  }
+  return null;
+}
+
+/**
+ * MANAGE_WEBHOOKS in a server: owner, ADMINISTRATOR, or the MANAGE_WEBHOOKS bit.
+ */
+async function canManageWebhooksInServer(
+  serverId: string,
+  userId: string,
+  membership?: { roles?: string[] | null } | null,
+): Promise<boolean> {
+  const ownerId = await getServerOwnerIdCached(serverId);
+  if (ownerId && compareIds(ownerId, userId)) return true;
+  const member = membership ?? await ServerMember.findOne({ serverId, userId });
+  const roleIds = (member?.roles || []) as string[];
+  if (roleIds.length === 0) return false;
+  const rolePerms = await getRolePermissions(roleIds, serverId);
+  for (const [, perms] of rolePerms) {
+    if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
+    if ((perms & PERM_MANAGE_WEBHOOKS) === PERM_MANAGE_WEBHOOKS) return true;
+  }
+  return false;
+}
+
+/**
  * Whether a member may use @everyone/@here, and mention roles that aren't mentionable, in a
  * channel. Server-level permissions come from all their roles (always including the
  * server's @everyone role), then the channel's overwrites apply in Discord's order:
@@ -315,7 +380,7 @@ const USER_MENTION_REGEX = /<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
 const ROLE_MENTION_REGEX = /<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/g;
 const CHANNEL_MENTION_REGEX = /<#([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/g;
 
-function sanitizeMessageContent(content: string): string {
+export function sanitizeMessageContent(content: string): string {
   const preservedTokens = new Map<string, string>();
   let tokenIndex = 0;
   const placeholderPrefix = '__SERIKACORD_TOKEN__';
@@ -781,7 +846,8 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     if (action === 'create' && message.referencedMessageId) {
       try {
         const refMsg = await Message.findById(message.referencedMessageId);
-        if (refMsg) {
+        // Only quote a live message from this same channel.
+        if (refMsg && refMsg.channelId === message.channelId && !refMsg.isDeleted) {
           const refAuthor = await User.findById(refMsg.authorId);
           const refName = refAuthor?.displayName || refAuthor?.username || 'someone';
           let refText = '';
@@ -1033,6 +1099,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (speakDenial) {
       set.status = speakDenial.status;
       return speakDenial.body;
+    }
+    // Same gate as sending a message: a timed-out member, or one without
+    // SEND_MESSAGES here, can't make a bot post on their behalf either.
+    const postDenied = await checkCanPostInChannel(channel, user, membership);
+    if (postDenied) {
+      set.status = postDenied.status;
+      return postDenied.body;
     }
     const content = String((body as { content?: string }).content ?? '').trim();
     if (!content.startsWith('/')) {
@@ -1572,7 +1645,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     let nicknameMap: Map<string, string> = new Map();
     const serverId = channel?.serverId;
 
-    const limit = Math.min(parseInt(query.limit || '50'), config.MAX_MESSAGES_PER_FETCH);
+    const limit = clampInt(query.limit, 50, config.MAX_MESSAGES_PER_FETCH);
     const before = query.before;
     const after = query.after;
     const around = query.around;
@@ -1594,6 +1667,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       const afterMsg = await Message.findById(after);
       if (afterMsg) {
         msgFilter.createdAtAfter = afterMsg.createdAt;
+        // Oldest-first so the page starts right after the cursor (DESC + LIMIT
+        // would return the newest page and skip everything in between).
+        msgFilter._orderAsc = true;
       }
     } else if (around) {
       const aroundMsg = await Message.findById(around);
@@ -1606,7 +1682,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     const messages = await Message.find(msgFilter);
-    messages.reverse(); // oldest first for display
+    if (!msgFilter._orderAsc) messages.reverse(); // oldest first for display
 
     // Everything below depends only on this page of messages, so the lookups
     // run in parallel (they used to be ~8 sequential DB round-trips).
@@ -1638,7 +1714,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const [, authors, refMessages, decryptedContents] = await Promise.all([
       loadServerBits(),
       authorIds.length > 0 ? User.find({ id: { in: authorIds } }) : Promise.resolve([]),
-      refIds.length > 0 ? Message.find({ id: { in: refIds } }) : Promise.resolve([]),
+      // Scoped to this channel and live messages: a deleted or foreign
+      // reference renders as "original message deleted" instead of leaking.
+      refIds.length > 0 ? Message.find({ id: { in: refIds }, channelId: params.channelId, isDeleted: false }) : Promise.resolve([]),
       // Decrypt all message contents in parallel
       Promise.all((messages as IMessage[]).map((msg) => decryptFromStorage(msg.content || ''))),
     ]);
@@ -1669,6 +1747,25 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isSystem: false,
         isDiscord: true,
       });
+    }
+    // Webhook posts are authored by the webhook's own id (not a user):
+    // render them as a bot with the webhook's name and avatar.
+    const webhookAuthorIds = missingAuthorIds.filter((id) => !authorMap.has(id));
+    if (webhookAuthorIds.length > 0) {
+      const { ChannelWebhook } = await import('@/lib/models');
+      const hooks = await ChannelWebhook.find({ id: { in: webhookAuthorIds } });
+      for (const w of hooks) {
+        authorMap.set(w.id, {
+          id: w.id,
+          username: w.name,
+          displayName: w.name,
+          avatar: w.avatar,
+          status: 'offline',
+          isBot: true,
+          isSystem: false,
+          isDiscord: w.name.toLowerCase().includes('discord'),
+        });
+      }
     }
     const refAuthorMap = new Map((refAuthors as any[]).map((a: any) => [a.id, a]));
     // Fetch Discord users for ref authors not found in User table
@@ -1848,8 +1945,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { messages: [] };
     }
 
-    const resultLimit = Math.min(parseInt(query.limit || '20', 10), 50);
-    const searchLimit = Math.min(parseInt(query.searchLimit || '400', 10), 1000);
+    const resultLimit = clampInt(query.limit, 20, 50);
+    const searchLimit = clampInt(query.searchLimit, 400, 1000);
 
     const candidates = await Message.find({
       channelId: params.channelId,
@@ -1981,6 +2078,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = speakDenial.status;
       return speakDenial.body;
     }
+    // Blocks + DM privacy on DMs (and the same timeout/send gate on servers).
+    const postDenied = await checkCanPostInChannel(channel, user, membership);
+    if (postDenied) {
+      set.status = postDenied.status;
+      return postDenied.body;
+    }
 
     if (channel.type === 'public_thread' || channel.type === 'private_thread') {
       const threadMembers = Array.isArray(channel.threadMemberIds) ? (channel.threadMemberIds as string[]) : [];
@@ -2098,6 +2201,26 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Message must have content, attachments, or a sticker' };
     }
 
+    // Attachments must be our own uploads by this user (see attachmentPolicy).
+    const attachmentError = validateMessageAttachments(attachments, { cdnUrl: config.CDN_URL, userId: user.id });
+    if (attachmentError) {
+      set.status = 400;
+      return { error: attachmentError };
+    }
+
+    // The reply target must be a live message in this same channel; otherwise
+    // its content would be echoed back (and to every viewer) from anywhere.
+    let reference: IMessage | null = null;
+    if (replyTo) {
+      reference = isValidObjectId(replyTo)
+        ? await Message.findOne({ id: replyTo, channelId: params.channelId, isDeleted: false })
+        : null;
+      if (!reference) {
+        set.status = 400;
+        return { error: 'Referenced message not found' };
+      }
+    }
+
     if (content) {
       const validation = validateMessageContent(content);
       if (!validation.valid) {
@@ -2209,8 +2332,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       serverId: channel.serverId,
       authorId: user.id,
       content: encryptedContent,
-      type: replyTo ? 'reply' : 'default',
-      referencedMessageId: replyTo,
+      type: reference ? 'reply' : 'default',
+      referencedMessageId: reference?.id,
       attachments,
       sticker: stickerData,
       mentionEveryone: mentionData.mentionEveryone,
@@ -2242,40 +2365,37 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         }
       | undefined;
 
-    if (message.referencedMessageId) {
-      const reference = await Message.findById(message.referencedMessageId);
-      if (reference) {
-        let refAuthor: { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null = reference.authorId ? (await User.findById(reference.authorId) as { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null) : null;
-        // Fall back to DiscordUser if not found in User table
-        if (!refAuthor && reference.authorId) {
-          const { DiscordUser } = await import('@/lib/models/DiscordUser');
-          const da = await DiscordUser.findById(reference.authorId);
-          if (da) {
-            refAuthor = {
-              id: da.id,
-              username: da.username || `discord-${da.discordId}`,
-              displayName: da.displayName,
-              avatar: da.avatar,
-              isBot: da.isBot ?? false,
-              isVerified: false,
-            };
-          }
+    if (reference) {
+      let refAuthor: { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null = reference.authorId ? (await User.findById(reference.authorId) as { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null) : null;
+      // Fall back to DiscordUser if not found in User table
+      if (!refAuthor && reference.authorId) {
+        const { DiscordUser } = await import('@/lib/models/DiscordUser');
+        const da = await DiscordUser.findById(reference.authorId);
+        if (da) {
+          refAuthor = {
+            id: da.id,
+            username: da.username || `discord-${da.discordId}`,
+            displayName: da.displayName,
+            avatar: da.avatar,
+            isBot: da.isBot ?? false,
+            isVerified: false,
+          };
         }
-        const refDecrypted = reference.content ? await decryptFromStorage(reference.content) : '';
-        referencedMessage = {
-          id: reference.id,
-          content: refDecrypted,
-          author: refAuthor ? {
-            id: refAuthor.id,
-            username: refAuthor.username,
-            displayName: refAuthor.displayName || refAuthor.username,
-            avatar: refAuthor.avatar ?? undefined,
-            isBot: Boolean(refAuthor.isBot),
-            isVerified: Boolean(refAuthor.isVerified),
-          } : undefined,
-          createdAt: reference.createdAt ?? undefined,
-        };
       }
+      const refDecrypted = reference.content ? await decryptFromStorage(reference.content) : '';
+      referencedMessage = {
+        id: reference.id,
+        content: refDecrypted,
+        author: refAuthor ? {
+          id: refAuthor.id,
+          username: refAuthor.username,
+          displayName: refAuthor.displayName || refAuthor.username,
+          avatar: refAuthor.avatar ?? undefined,
+          isBot: Boolean(refAuthor.isBot),
+          isVerified: Boolean(refAuthor.isVerified),
+        } : undefined,
+        createdAt: reference.createdAt ?? undefined,
+      };
     }
 
     const messageResponse = {
@@ -2403,7 +2523,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error };
     }
 
-    const limit = Math.min(parseInt(query.limit || '50', 10), 100);
+    const limit = clampInt(query.limit, 50, 100);
     const allPinned = await Message.find({
       channelId: params.channelId,
       pinned: true,
@@ -2627,6 +2747,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!compareIds(message.authorId, user.id)) {
       set.status = 403;
       return { error: 'You can only edit your own messages' };
+    }
+
+    // In a 1:1 DM, a block (or DM privacy) also stops rewriting old messages.
+    if (channel.type === 'dm') {
+      const editDenied = await checkCanPostInChannel(channel, user, null);
+      if (editDenied) {
+        set.status = editDenied.status;
+        return editDenied.body;
+      }
     }
 
     const { content } = body;
@@ -2903,6 +3032,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
 
+    // Timeouts on server channels; blocks + DM privacy on 1:1 DMs.
+    const reactDenied = await checkCanPostInChannel(channel, user, membership, { checkSendPermission: false });
+    if (reactDenied) {
+      set.status = reactDenied.status;
+      return reactDenied.body;
+    }
+
     const message = await Message.findOne({
       id: params.messageId,
       channelId: params.channelId,
@@ -2928,50 +3064,33 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Invalid emoji' };
     }
     
-    // Find or create reaction - match by ID for custom emojis, name for unicode
-    const reactions = (message.reactions || []) as Array<{ emoji: { name: string; id?: string; url?: string; animated?: boolean }; count: number; userIds: string[] }>;
-    const existingReaction = reactions.find(
-      (r) => 
-        (emojiData.id && r.emoji.id === emojiData.id) || 
-        (!emojiData.id && r.emoji.name === emojiData.name)
-    );
-
     // Timed-out members can't react; ADD_REACTIONS gates starting a new reaction
     // (joining an existing one is allowed, as on Discord).
-    const speakDenial = await checkCanSpeak(channel, membership, user.id, existingReaction ? [] : ['react']);
+    const startsNewReaction = !((message.reactions || []) as StoredReaction[]).some(matchReactionEmoji(emojiData));
+    const speakDenial = await checkCanSpeak(channel, membership, user.id, startsNewReaction ? ['react'] : []);
     if (speakDenial) {
       set.status = speakDenial.status;
       return speakDenial.body;
     }
 
-    let reactionCount: number;
-    if (existingReaction) {
-      // Check if user already reacted
-      if (!existingReaction.userIds.some((id: string) => compareIds(id, user.id))) {
-        existingReaction.userIds.push(user.id);
-        existingReaction.count++;
-        // Ensure url is populated for custom emoji reactions
-        if (emojiData.url) {
-          existingReaction.emoji.url = emojiData.url;
-        }
-      }
-      reactionCount = existingReaction.count;
-    } else {
-      // Add new reaction with full emoji data
-      reactions.push({
-        emoji: {
-          name: emojiData.name,
-          id: emojiData.id,
-          animated: emojiData.animated,
-          url: emojiData.url,
-        },
-        count: 1,
-        userIds: [user.id],
-      });
-      reactionCount = 1;
+    // Find or create reaction - match by ID for custom emojis, name for unicode.
+    // Row-locked so concurrent reactions can't overwrite each other.
+    let reactionCount = 0;
+    const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+      const result = addReaction(
+        current,
+        matchReactionEmoji(emojiData),
+        { name: emojiData.name, id: emojiData.id, animated: emojiData.animated, url: emojiData.url },
+        user.id,
+        compareIds,
+      );
+      reactionCount = result.count;
+      return result.reactions;
+    });
+    if (!stored) {
+      set.status = 404;
+      return { error: 'Message not found' };
     }
-
-    await Message.updateById(message.id, { reactions });
 
     // Publish reaction event
     publishToChannel(params.channelId, {
@@ -3030,23 +3149,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Parse emoji to get ID for custom emojis
     const emojiData = await getReactionEmoji(decodedEmoji);
     
-    const reactions = (message.reactions || []) as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }>;
-    const reactionIndex = reactions.findIndex(r => 
-      (emojiData?.id && r.emoji.id === emojiData.id) || 
-      (!emojiData?.id && r.emoji.name === (emojiData?.name || decodedEmoji))
-    );
-
-    if (reactionIndex !== -1) {
-      const reaction = reactions[reactionIndex];
-      reaction.userIds = reaction.userIds.filter((id: string) => !compareIds(id, user.id));
-      reaction.count = reaction.userIds.length;
-
-      if (reaction.count === 0) {
-        reactions.splice(reactionIndex, 1);
-      }
-
-      await Message.updateById(message.id, { reactions });
-    }
+    // Row-locked so concurrent reaction changes can't overwrite each other.
+    const removeMatch = matchReactionEmoji({ name: emojiData?.name || decodedEmoji, id: emojiData?.id });
+    await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+      const result = removeReaction(current, removeMatch, user.id, compareIds);
+      return result.changed ? result.reactions : null;
+    });
 
     // Publish reaction removal event
     publishToChannel(params.channelId, {
@@ -3293,8 +3401,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
   .get('/:channelId/webhooks', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-    const { hasAccess, channel } = await checkChannelAccess(user.id, params.channelId);
+    const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
+    // The list carries each webhook's secret token, so it is limited to people
+    // who could create/delete webhooks here (not every member who can view).
+    if (channel.serverId && !(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
+      set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
+    }
     const { ChannelWebhook } = await import('@/lib/models');
     const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
     return webhooks.map((w: any) => ({
@@ -3314,11 +3427,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
     const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
-    if (channel.serverId) {
-      const server = await Server.findById(channel.serverId);
-      const isOwner = server && compareIds(server.ownerId, user.id);
-      const canManage = await canManageMessagesInServer(channel.serverId, user.id, membership);
-      if (!isOwner && !canManage) { set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' }; }
+    if (channel.serverId && !(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
+      set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
     }
     const { name, avatar } = body as { name: string; avatar?: string };
     if (!name || typeof name !== 'string') { set.status = 400; return { error: 'Name is required' }; }
@@ -3361,11 +3471,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 404; return { error: 'Webhook not found' };
     }
     if (channel.serverId) {
-      const server = await Server.findById(channel.serverId);
-      const isOwner = server && compareIds(server.ownerId, user.id);
-      const canManage = await canManageMessagesInServer(channel.serverId, user.id, membership);
       const isCreator = webhook.creatorId && compareIds(webhook.creatorId, user.id);
-      if (!isOwner && !canManage && !isCreator) { set.status = 403; return { error: 'You can only delete your own webhooks' }; }
+      if (!isCreator && !(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
+        set.status = 403; return { error: 'You can only delete your own webhooks' };
+      }
     }
     await ChannelWebhook.deleteById(params.webhookId);
     return { success: true };

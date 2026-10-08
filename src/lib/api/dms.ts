@@ -3,8 +3,12 @@ import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
-import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams } from '@/lib/security';
+import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams, isValidObjectId } from '@/lib/security';
 import { isSystemUser } from '@/lib/services/systemUsers';
+import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
+import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
+import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
+import { clampInt } from '@/lib/utils/clampInt';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
@@ -456,7 +460,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // Get or create DM channel
     const channel = await getOrCreateDMChannel(user.id, params.recipientId);
 
-    const limit = Math.min(parseInt(query.limit as string) || 50, 100);
+    const limit = clampInt(query.limit as string | undefined, 50, 100);
     const before = query.before as string | undefined;
     const after = query.after as string | undefined;
     const around = query.around as string | undefined;
@@ -479,6 +483,9 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       const afterMsg = await Message.findById(after);
       if (afterMsg) {
         msgFilter.createdAtAfter = afterMsg.createdAt;
+        // Oldest-first so the page starts right after the cursor (DESC + LIMIT
+        // would return the newest page and skip everything in between).
+        msgFilter._orderAsc = true;
       }
     } else if (around) {
       // Load a window ending at (and including) the target message so the client
@@ -490,7 +497,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
 
     const msgs = await Message.find(msgFilter);
-    msgs.reverse(); // oldest first for display
+    if (!msgFilter._orderAsc) msgs.reverse(); // oldest first for display
 
     // Batch fetch authors
     const authorIds = [...new Set(msgs.map(m => m.authorId).filter(Boolean))];
@@ -499,7 +506,9 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     // Batch fetch referenced messages
     const refIds = [...new Set(msgs.map(m => m.referencedMessageId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
-    const refMsgs = refIds.length > 0 ? await Message.find({ id: { in: refIds } }) : [];
+    // Scoped to this DM and live messages: a deleted or foreign reference
+    // renders as "original message deleted" instead of leaking its text.
+    const refMsgs = refIds.length > 0 ? await Message.find({ id: { in: refIds }, channelId: channel.id, isDeleted: false }) : [];
     const refMap = new Map(refMsgs.map((m: any) => [m.id, m]));
 
     // Decrypt messages — batch decrypt + batch emoji parse
@@ -624,27 +633,29 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'User not found' };
     }
 
-    // Check if blocked
-    if ((user.blockedUsers || []).some((b: string) => compareIds(b, recipient.id))) {
+    // Blocks + DM privacy (skipped for system users). Shared with the generic
+    // /channels/:dmChannelId routes so neither path can bypass it.
+    const dmDenied = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id) });
+    if (dmDenied) {
       set.status = 403;
-      return { error: 'You have blocked this user' };
-    }
-    if ((recipient.blockedUsers || []).some((b: string) => compareIds(b, user.id))) {
-      set.status = 403;
-      return { error: 'You cannot message this user' };
-    }
-
-    // Check DM permissions (skip for system users)
-    const isFriend = (user.friends || []).some((f: string) => compareIds(f, recipient.id));
-    const recipientIsSystem = recipient.isSystem || isSystemUser(recipient.id);
-    if (!isFriend && !recipientIsSystem && (recipient.settings as IUserSettings | undefined)?.privacy?.directMessages !== 'everyone') {
-      set.status = 403;
-      return { error: 'You cannot message this user' };
+      return { error: dmDenied };
     }
 
     // Validate content
     const { content, sticker, attachments, replyTo } = body;
     let sanitizedContent = content ? sanitizeMessageContent(content) : '';
+
+    // Attachments must be our own uploads by this user (see attachmentPolicy).
+    const attachmentError = validateMessageAttachments(attachments, { cdnUrl: config.CDN_URL, userId: user.id });
+    if (attachmentError) {
+      set.status = 400;
+      return { error: attachmentError };
+    }
+    // A malformed reply id would otherwise make the uuid lookup throw (500).
+    if (replyTo && !isValidObjectId(replyTo)) {
+      set.status = 400;
+      return { error: 'Referenced message not found' };
+    }
 
     // Validate sticker if provided
     let stickerData: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string } | undefined;
@@ -1233,35 +1244,20 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid emoji' };
     }
 
-    const reactions = (message.reactions || []) as Array<{ emoji: { name: string; id?: string; url?: string; animated?: boolean }; count: number; userIds: string[] }>;
-    const existingReaction = reactions.find(
-      (r) =>
-        (emojiData.id && r.emoji.id === emojiData.id) ||
-        (!emojiData.id && r.emoji.name === emojiData.name)
+    // Row-locked so concurrent reactions can't overwrite each other.
+    const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) =>
+      addReaction(
+        current,
+        matchReactionEmoji(emojiData),
+        { name: emojiData.name, id: emojiData.id, animated: emojiData.animated, url: emojiData.url },
+        user.id,
+        compareIds,
+      ).reactions,
     );
-
-    if (existingReaction) {
-      if (!existingReaction.userIds.some((id: string) => compareIds(id, user.id))) {
-        existingReaction.userIds.push(user.id);
-        existingReaction.count++;
-        if (emojiData.url) {
-          existingReaction.emoji.url = emojiData.url;
-        }
-      }
-    } else {
-      reactions.push({
-        emoji: {
-          name: emojiData.name,
-          id: emojiData.id,
-          animated: emojiData.animated,
-          url: emojiData.url,
-        },
-        count: 1,
-        userIds: [user.id],
-      });
+    if (!stored) {
+      set.status = 404;
+      return { error: 'Message not found' };
     }
-
-    await Message.updateById(message.id, { reactions });
 
     publishToDm(channel.id, {
       type: 'reaction_add',
@@ -1313,23 +1309,12 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
     const emojiData = await getReactionEmoji(decodedEmoji);
 
-    const reactions = (message.reactions || []) as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }>;
-    const reactionIndex = reactions.findIndex(r =>
-      (emojiData?.id && r.emoji.id === emojiData.id) ||
-      (!emojiData?.id && r.emoji.name === (emojiData?.name || decodedEmoji))
-    );
-
-    if (reactionIndex !== -1) {
-      const reaction = reactions[reactionIndex];
-      reaction.userIds = reaction.userIds.filter((id: string) => !compareIds(id, user.id));
-      reaction.count = reaction.userIds.length;
-
-      if (reaction.count === 0) {
-        reactions.splice(reactionIndex, 1);
-      }
-
-      await Message.updateById(message.id, { reactions });
-    }
+    // Row-locked so concurrent reaction changes can't overwrite each other.
+    const removeMatch = matchReactionEmoji({ name: emojiData?.name || decodedEmoji, id: emojiData?.id });
+    await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+      const result = removeReaction(current, removeMatch, user.id, compareIds);
+      return result.changed ? result.reactions : null;
+    });
 
     publishToDm(channel.id, {
       type: 'reaction_remove',

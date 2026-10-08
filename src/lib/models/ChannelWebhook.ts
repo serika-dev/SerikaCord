@@ -1,5 +1,5 @@
 import { eq, and, type SQL } from 'drizzle-orm';
-import { normalizeId } from '../db/normalizeId';
+import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
 export type IChannelWebhook = typeof schema.channelWebhooks.$inferSelect;
@@ -17,8 +17,10 @@ export const ChannelWebhook = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
+        case 'id': conditions.push(buildCondition(schema.channelWebhooks.id, value, true)); break;
         case 'channelId': conditions.push(eq(schema.channelWebhooks.channelId, normalizeId(value as string))); break;
         case 'serverId': conditions.push(eq(schema.channelWebhooks.serverId, normalizeId(value as string))); break;
+        case 'token': conditions.push(eq(schema.channelWebhooks.token, value as string)); break;
       }
     }
     let query = db.select().from(schema.channelWebhooks);
@@ -34,8 +36,10 @@ export const ChannelWebhook = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
+        case 'id': conditions.push(buildCondition(schema.channelWebhooks.id, value, true)); break;
         case 'channelId': conditions.push(eq(schema.channelWebhooks.channelId, normalizeId(value as string))); break;
         case 'serverId': conditions.push(eq(schema.channelWebhooks.serverId, normalizeId(value as string))); break;
+        case 'token': conditions.push(eq(schema.channelWebhooks.token, value as string)); break;
       }
     }
     let query = db.select().from(schema.channelWebhooks);

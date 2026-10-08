@@ -144,6 +144,8 @@ export function ChannelSettingsDialog({
   const [webhooks, setWebhooks] = useState<any[]>([]);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
   const [isLoadingWebhooks, setIsLoadingWebhooks] = useState(false);
+  // The webhook list (it carries secret tokens) needs MANAGE_WEBHOOKS.
+  const [webhooksForbidden, setWebhooksForbidden] = useState(false);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [newWebhookName, setNewWebhookName] = useState("");
   const [creatingWebhook, setCreatingWebhook] = useState(false);
@@ -369,10 +371,9 @@ export function ChannelSettingsDialog({
     setIsLoadingWebhooks(true);
     try {
       const res = await fetch(`/api/channels/${channel.id}/webhooks`);
+      setWebhooksForbidden(res.status === 403);
       const data = await res.json();
-      if (Array.isArray(data)) {
-        setWebhooks(data);
-      }
+      setWebhooks(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to fetch webhooks", err);
     } finally {
@@ -1310,6 +1311,10 @@ export function ChannelSettingsDialog({
 
                 {isLoadingWebhooks ? (
                   <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading webhooks...")}</div>
+                ) : webhooksForbidden ? (
+                  <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm">
+                    {gt("You need the Manage Webhooks permission to view this channel's webhooks.")}
+                  </div>
                 ) : webhooks.length === 0 ? (
                   <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
                     <Radio className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
