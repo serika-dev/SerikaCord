@@ -44,13 +44,23 @@ const g = globalThis as unknown as { __callMessageSchema?: Promise<void> | null 
 export function ensureCallMessageSchema(): Promise<void> {
   if (g.__callMessageSchema) return g.__callMessageSchema;
   g.__callMessageSchema = (async () => {
-    try {
-      await db.execute(sql`ALTER TYPE message_type ADD VALUE IF NOT EXISTS 'call'`);
-      await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS "call" jsonb`);
-    } catch (err) {
-      console.error('[calls] Failed to ensure call message schema:', err);
-      g.__callMessageSchema = null;
+    // The messages table is shared with production: never queue behind a long
+    // transaction holding a lock (that would stall every message query). Each
+    // attempt gives up after a few seconds and is retried.
+    for (let attempt = 1; attempt <= 10; attempt++) {
+      try {
+        await db.execute(sql`ALTER TYPE message_type ADD VALUE IF NOT EXISTS 'call'`);
+        await db.transaction(async (tx) => {
+          await tx.execute(sql`SET LOCAL lock_timeout = '3s'`);
+          await tx.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS "call" jsonb`);
+        });
+        return;
+      } catch (err) {
+        console.error(`[calls] Ensuring call message schema failed (attempt ${attempt}):`, (err as Error)?.message ?? err);
+        await new Promise((r) => setTimeout(r, Math.min(30_000, 2_000 * attempt)));
+      }
     }
+    g.__callMessageSchema = null;
   })();
   return g.__callMessageSchema;
 }
