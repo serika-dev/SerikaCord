@@ -2,7 +2,7 @@ import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings, type IUserSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
-import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage } from '@/lib/security';
+import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, isValidObjectId } from '@/lib/security';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
@@ -17,6 +17,7 @@ import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { getRolePermissions, hasServerPermission } from '@/lib/permissions/serverPermissions';
+import { DEFAULT_SERVER_SAFETY, exceedsMentionLimit, resolveServerSafety, type ServerSafety } from '@/lib/servers/guards';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -1126,7 +1127,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }));
     }
 
-    if (parentId !== undefined) {
+    // A thread's parent is its forum/channel and decides who can read it
+    // (ticketAccessRoleIds), so it is never moved through this route.
+    if (parentId !== undefined && !isThread && isServerOwner) {
       if (parentId === null) {
         updateData.parentId = null;
       } else {
@@ -1134,8 +1137,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           set.status = 400;
           return { error: 'A category cannot have a parent category' };
         }
-        const parentChannel = await Channel.findById(parentId);
-        if (!parentChannel || parentChannel.type !== 'category') {
+        const parentChannel = isValidObjectId(parentId) ? await Channel.findById(parentId) : null;
+        if (
+          !parentChannel
+          || parentChannel.type !== 'category'
+          || !parentChannel.serverId
+          || !channel.serverId
+          || !compareIds(parentChannel.serverId, channel.serverId)
+        ) {
           set.status = 400;
           return { error: 'Invalid parent category' };
         }
@@ -1155,7 +1164,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         updateData.forumMode = forumMode;
       }
       if (ticketAccessRoleIds !== undefined && (isServerOwner || (!!editServer && await hasServerPermission(editServer, user.id, PERM_MANAGE_ROLES)))) {
-        updateData.ticketAccessRoleIds = ticketAccessRoleIds;
+        // Only roles of this server may grant ticket access.
+        const requested = [...new Set(ticketAccessRoleIds.filter((id) => typeof id === 'string' && isValidObjectId(id)))];
+        const ownRoles = requested.length > 0 && channel.serverId
+          ? (await Role.find({ serverId: channel.serverId, id: { in: requested } })) as IRole[]
+          : [];
+        updateData.ticketAccessRoleIds = ownRoles.map((role) => role.id);
       }
       if (availableTags !== undefined) {
         updateData.availableTags = availableTags.map((tag: { id?: string; name: string; moderated?: boolean; emojiName?: string }) => ({
@@ -1958,10 +1972,24 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return ownerId;
     })();
 
-    const [rateLimit, globalRateLimit, serverOwnerId] = await Promise.all([
+    // Server safety settings (anti-spam toggle, mention spam limit). Cached
+    // briefly; the settings routes drop the key when they change.
+    const safetyPromise = (async (): Promise<ServerSafety> => {
+      if (!channel.serverId) return DEFAULT_SERVER_SAFETY;
+      const cacheKey = `server:safety:${channel.serverId}`;
+      const cached = await cache.get<ServerSafety>(cacheKey).catch(() => null);
+      if (cached) return cached;
+      const server = await Server.findById(channel.serverId);
+      const safety = resolveServerSafety((server?.settings as IServerSettings | undefined)?.safety);
+      await cache.set(cacheKey, safety, 60).catch(() => {});
+      return safety;
+    })().catch(() => DEFAULT_SERVER_SAFETY);
+
+    const [rateLimit, globalRateLimit, serverOwnerId, safety] = await Promise.all([
       checkRateLimit('message', `${user.id}:${params.channelId}`),
       checkRateLimit('messageGlobal', user.id),
       serverOwnerPromise,
+      safetyPromise,
     ]);
     if (!rateLimit.success) {
       set.status = 429;
@@ -2071,8 +2099,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Duplicate-spam guard: block sending the same text many times in a row.
     // Only applies to plain text sends (attachments/stickers are exempt) and is
     // fingerprint-based so trivial variations don't sidestep it.
+    // Owners can turn it off with the server's anti-spam setting.
     const spamFingerprint = normalizeForSpamCheck(sanitizedContent);
-    if (spamFingerprint && attachments.length === 0 && !stickerData) {
+    if (safety.antiSpam && spamFingerprint && attachments.length === 0 && !stickerData) {
       const recent = await Message.find({
         channelId: params.channelId,
         authorId: user.id,
@@ -2109,6 +2138,27 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         .then((mentions) => limitMentionsToPermissions(mentions, channel, user.id)),
       sanitizedContent ? encryptForStorage(sanitizedContent) : Promise.resolve(''),
     ]);
+
+    // Mention spam limit (server safety setting). Owners and members with
+    // Manage Messages / Administrator are exempt.
+    if (
+      channel.serverId
+      && exceedsMentionLimit(mentionData, safety)
+      && !(serverOwnerId && compareIds(serverOwnerId, user.id))
+    ) {
+      let exempt = false;
+      if (membership?.roles?.length) {
+        const roles = await Role.find({ id: { in: membership.roles }, serverId: channel.serverId });
+        exempt = roles.some((r: IRole) => {
+          const perms = BigInt(r.permissions || '0');
+          return (perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES || (perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR;
+        });
+      }
+      if (!exempt) {
+        set.status = 400;
+        return { error: `This server allows at most ${safety.mentionSpamLimit} mentions per message.` };
+      }
+    }
 
     // Store parsed emoji data for the message response
     const customEmojis = emojiResult.emojis.map(e => ({

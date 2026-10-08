@@ -313,7 +313,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [emojiRenameValue, setEmojiRenameValue] = useState("");
   const [renamingStickerId, setRenamingStickerId] = useState<string | null>(null);
   const [stickerRenameValue, setStickerRenameValue] = useState("");
-  const [soundboardSounds, setSoundboardSounds] = useState<{ _id: string; name: string; url: string; emoji: string }[]>([]);
+  const [soundboardSounds, setSoundboardSounds] = useState<{ id: string; name: string; url: string; emoji: string }[]>([]);
   const [isUploadingSound, setIsUploadingSound] = useState(false);
   const [trimmerOpen, setTrimmerOpen] = useState(false);
   const [trimmerFile, setTrimmerFile] = useState<File | null>(null);
@@ -432,7 +432,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         rulesChannelId: server.rulesChannelId || null,
         afkChannelId: server.afkChannelId || null,
         afkTimeout: server.afkTimeout || 300,
-        "widget.enabled": true,
+        "widget.enabled": false,
+        "widget.publicMessages": false,
         "widget.channelId": null,
         "moderation.verificationLevel": "none",
         "moderation.explicitContentFilter": "disabled",
@@ -463,7 +464,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         if (res.ok) {
           const data = await res.json();
           const s = data.settings || {};
-          base["widget.enabled"] = s.widget?.enabled ?? true;
+          base["widget.enabled"] = s.widget?.enabled === true;
+          base["widget.publicMessages"] = s.widget?.publicMessages === true;
           base["widget.channelId"] = s.widget?.channelId || null;
           base["moderation.verificationLevel"] = s.moderation?.verificationLevel || "none";
           base["moderation.explicitContentFilter"] = s.moderation?.explicitContentFilter || "disabled";
@@ -837,6 +839,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     afkChannelId: gt("AFK channel"),
     afkTimeout: gt("AFK timeout"),
     "widget.enabled": gt("Widget"),
+    "widget.publicMessages": gt("Widget recent messages"),
     "widget.channelId": gt("Widget invite channel"),
     "moderation.verificationLevel": gt("Verification level"),
     "moderation.explicitContentFilter": gt("Content filter"),
@@ -1438,7 +1441,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         method: "DELETE",
       });
       if (response.ok) {
-        setSoundboardSounds((prev) => prev.filter((s) => s._id !== soundId));
+        setSoundboardSounds((prev) => prev.filter((s) => s.id !== soundId));
         toast.success(gt("Sound deleted"));
       } else {
         toast.error(gt("Failed to delete sound"));
@@ -1448,12 +1451,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     }
   };
 
-  const playSound = (sound: { _id: string; url: string }) => {
+  const playSound = (sound: { id: string; url: string }) => {
     const audio = new Audio(sound.url);
     // Audio.volume caps at 1.0; values above 100% previously threw IndexSizeError
     audio.volume = Math.min(Math.max(draftNumber("soundboard.volume", 100), 0) / 100, 1);
     audio.play().catch(() => toast.error(gt("Failed to play sound")));
-    setPlayingSoundId(sound._id);
+    setPlayingSoundId(sound.id);
     audio.onended = () => setPlayingSoundId(null);
   };
 
@@ -3138,21 +3141,35 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <div className="flex items-center justify-between mb-4">
           <span className="text-white font-medium"><T>Enable Server Widget</T></span>
           <button
-            onClick={() => settingsDraft.update("widget.enabled", !draftBool("widget.enabled", true))}
+            onClick={() => settingsDraft.update("widget.enabled", !draftBool("widget.enabled", false))}
             role="switch"
-            aria-checked={draftBool("widget.enabled", true)}
+            aria-checked={draftBool("widget.enabled", false)}
             aria-label="Enable server widget"
-            className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("widget.enabled", true) ? "bg-[#8B5CF6]" : "bg-[#222222]")}
+            className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("widget.enabled", false) ? "bg-[#8B5CF6]" : "bg-[#222222]")}
           >
             <div className={cn(
               "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
-              draftBool("widget.enabled", true) ? "translate-x-6 left-0.5" : "left-0.5"
+              draftBool("widget.enabled", false) ? "translate-x-6 left-0.5" : "left-0.5"
             )} />
           </button>
         </div>
         <p className="text-sm text-[#888888]">
           <T>Allow people to embed your server info on their websites</T>
         </p>
+        <label className="mt-4 flex items-center justify-between gap-4 cursor-pointer">
+          <span>
+            <span className="block text-sm text-white"><T>Show recent messages</T></span>
+            <span className="block text-xs text-[var(--app-muted)] mt-1">
+              <T>Anyone with the widget link can read the latest messages of channels that have no permission overwrites.</T>
+            </span>
+          </span>
+          <ToggleSwitch
+            size="sm"
+            checked={draftBool("widget.publicMessages", false)}
+            disabled={!draftBool("widget.enabled", false)}
+            onCheckedChange={(checked) => settingsDraft.update("widget.publicMessages", checked)}
+          />
+        </label>
       </div>
 
       <div>
@@ -3258,6 +3275,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       </div>
 
       <div className="space-y-4">
+        {/* Not enforced by the server yet: shown read-only so owners don't
+            rely on protection that doesn't exist. */}
+        <p className="text-sm text-[var(--app-muted)]">
+          <T>Verification level, content filter, 2FA requirement and raid protection are coming soon and are not enforced yet.</T>
+        </p>
+        <fieldset disabled aria-disabled="true" className="space-y-4 opacity-60 cursor-not-allowed">
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between mb-2">
             <span className="text-white font-medium"><T>Verification Level</T></span>
@@ -3335,6 +3358,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </button>
           </div>
         </div>
+        </fieldset>
 
         <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
           <div className="flex items-center justify-between mb-2">
@@ -3419,14 +3443,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {soundboardSounds.map((sound) => (
               <div
-                key={sound._id}
+                key={sound.id}
                 className="relative group flex items-center gap-3 p-3 bg-[#111111] border border-[#222222] rounded-lg hover:border-[#8B5CF6]/50 transition-colors"
               >
                 <button
                   onClick={() => playSound(sound)}
                   className="flex-shrink-0 w-10 h-10 rounded-full bg-[#8B5CF6] hover:bg-[#7C3AED] flex items-center justify-center transition-colors"
                 >
-                  {playingSoundId === sound._id ? (
+                  {playingSoundId === sound.id ? (
                     <Loader size={20} />
                   ) : (
                     <Play className="w-5 h-5 text-white ml-0.5" fill="white" />
@@ -3437,7 +3461,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   <p className="text-xs text-[#666666]">{sound.emoji}</p>
                 </div>
                 <button
-                  onClick={() => handleDeleteSound(sound._id)}
+                  onClick={() => handleDeleteSound(sound.id)}
                   className="flex-shrink-0 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3 text-white" />

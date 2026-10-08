@@ -1503,7 +1503,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     const isAvatar = false;
     let endpoint = "/api/upload/banner";
     if (profileTab === "server" && selectedServerId) {
-      endpoint = `/api/upload/server/${selectedServerId}/banner`;
+      endpoint = `/api/upload/server/${selectedServerId}/member-banner`;
     }
 
     setIsUploadingBanner(true);
@@ -1544,7 +1544,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
     if (profileTab === "server" && selectedServerId) {
       endpoint = isAvatar 
         ? `/api/upload/server/${selectedServerId}/avatar`
-        : `/api/upload/server/${selectedServerId}/banner`;
+        : `/api/upload/server/${selectedServerId}/member-banner`;
     }
 
     setUploading(true);

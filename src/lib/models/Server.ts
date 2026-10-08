@@ -5,7 +5,9 @@ import { db, schema } from '../db/postgres';
 export type IServer = typeof schema.servers.$inferSelect;
 
 export interface IServerSettings {
-  widget?: { enabled: boolean; channelId: string | null };
+  // publicMessages: owner opted in to showing recent messages of public
+  // channels in the unauthenticated widget (off by default).
+  widget?: { enabled: boolean; channelId: string | null; publicMessages?: boolean };
   moderation?: {
     verificationLevel?: string;
     explicitContentFilter?: string;

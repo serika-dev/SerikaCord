@@ -261,8 +261,10 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       file: t.File(),
     }),
   })
-  // Upload server member banner
-  .post('/server/:serverId/banner', async ({ headers, cookie, params, body, request, set }) => {
+  // Upload server member (per-server profile) banner. Its own path: the
+  // owner-only server banner route below uses /server/:serverId/banner and
+  // Elysia keeps only the last handler registered for a method + path.
+  .post('/server/:serverId/member-banner', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
       set.status = 401;

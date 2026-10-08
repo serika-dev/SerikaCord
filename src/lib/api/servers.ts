@@ -4,13 +4,14 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { cache } from '@/lib/db';
 import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 import { config } from '@/lib/config';
 import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
 import { resolveEffectiveStatus, PRESENCE_TIMEOUT_MS } from '@/lib/services/presence';
 import { parseCustomEmojis, batchParseCustomEmojis } from '@/lib/services/emoji';
 import { User } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
-import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
+import { and, eq, gt, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
@@ -18,6 +19,7 @@ import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleCha
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
+import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -45,6 +47,31 @@ export async function computeOnlineCounts(serverIds: string[]): Promise<Map<stri
 export async function computeOnlineCount(serverId: string): Promise<number> {
   const counts = await computeOnlineCounts([serverId]);
   return counts.get(normalizeId(serverId)) ?? counts.get(serverId) ?? 0;
+}
+
+// Only the user columns member lists render. A plain User.find selects every
+// column (password hash, settings, favorites, friends...) for every member.
+const MEMBER_USER_COLUMNS = {
+  id: schema.users.id,
+  username: schema.users.username,
+  displayName: schema.users.displayName,
+  avatar: schema.users.avatar,
+  status: schema.users.status,
+  customStatus: schema.users.customStatus,
+  presenceLastHeartbeatAt: schema.users.presenceLastHeartbeatAt,
+  customization: schema.users.customization,
+  isBot: schema.users.isBot,
+  isSystem: schema.users.isSystem,
+  isPremium: schema.users.isPremium,
+  isVerified: schema.users.isVerified,
+};
+
+async function findMemberUsers(userIds: string[]) {
+  if (userIds.length === 0) return [];
+  return db
+    .select(MEMBER_USER_COLUMNS)
+    .from(schema.users)
+    .where(inArray(schema.users.id, userIds.map((id) => normalizeId(id))));
 }
 
 // Helper function for auth
@@ -551,10 +578,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'A category cannot have a parent category' };
     }
 
-    // If parentId provided, verify it's a valid category
+    // If parentId provided, verify it's a category in this same server
+    let parentChannel: typeof schema.channels.$inferSelect | null = null;
     if (parentId) {
-      const parentChannel = await Channel.findById(parentId);
-      if (!parentChannel || parentChannel.type !== 'category' || normalizeId(parentChannel.serverId ?? '') !== normalizeId(server.id)) {
+      parentChannel = isValidObjectId(parentId) ? await Channel.findById(parentId) : null;
+      if (!parentChannel || parentChannel.type !== 'category' || !sameId(parentChannel.serverId, server.id)) {
         set.status = 400;
         return { error: 'Invalid parent category' };
       }
@@ -577,6 +605,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       position,
       parentId: parentId || null,
       nsfw: type !== 'category' ? Boolean(nsfw) : false,
+      // Permissions are copied, not inherited: a channel created inside a
+      // private category starts synced with it instead of being public.
+      permissionOverwrites: type !== 'category' && parentChannel
+        ? copyPermissionOverwrites(parentChannel.permissionOverwrites)
+        : [],
       ...(type === 'forum' ? { forumMode: forumMode === 'tickets' ? 'tickets' : 'posts' } : {}),
     });
 
@@ -621,23 +654,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'No channel updates provided' };
     }
 
-    // Only this server's channels may be moved, and only into one of its own
-    // categories (never reposition or re-parent another server's channels).
-    const serverChannels = await Channel.find({ serverId: server.id });
-    const serverChannelById = new Map(serverChannels.map((c) => [normalizeId(c.id), c]));
-    for (const update of channelUpdates) {
-      const target = serverChannelById.get(normalizeId(update.id));
-      if (!target) {
-        set.status = 400;
-        return { error: 'One or more channels do not belong to this server' };
-      }
-      if (update.parentId) {
-        const parent = serverChannelById.get(normalizeId(update.parentId));
-        if (!parent || parent.type !== 'category' || target.type === 'category') {
-          set.status = 400;
-          return { error: 'Invalid parent category' };
-        }
-      }
+    // Every id (and every new parent) must belong to THIS server: updateById
+    // filters on id alone, so an unchecked id would let the owner of one
+    // server reorder or re-parent another server's channels.
+    const ownChannels = await Channel.find({ serverId: server.id });
+    const reorderError = validateChannelReorder(channelUpdates, ownChannels);
+    if (reorderError) {
+      set.status = 400;
+      return { error: reorderError };
     }
 
     // Bulk update each channel's position and parentId
@@ -742,7 +766,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     return {
       settings: {
-        widget: (server.settings as IServerSettings | undefined)?.widget || { enabled: true, channelId: null },
+        // The public widget is opt-in: off unless the owner turned it on.
+        widget: {
+          enabled: false,
+          channelId: null,
+          publicMessages: false,
+          ...((server.settings as IServerSettings | undefined)?.widget || {}),
+        },
         moderation: {
           verificationLevel: (server.settings as IServerSettings | undefined)?.moderation?.verificationLevel || server.verificationLevel,
           explicitContentFilter: (server.settings as IServerSettings | undefined)?.moderation?.explicitContentFilter || server.explicitContentFilter,
@@ -871,6 +901,21 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       }
     }
 
+    // Age-gated servers cannot be discoverable (checked on the final state).
+    if (server.isAgeGated && (server.joinMode === 'discoverable' || server.isDiscoverable)) {
+      if (settingsPayload.access?.joinMode === 'discoverable') {
+        set.status = 400;
+        return {
+          error: 'Some settings are invalid',
+          fieldErrors: { 'access.joinMode': 'Age-restricted servers cannot be discoverable' },
+        };
+      }
+      server.joinMode = 'invite_only';
+      server.isDiscoverable = false;
+      server.discoverableAt = null;
+      nextSettings.access = { ...(nextSettings.access || {}), joinMode: 'invite_only' };
+    }
+
     if (payload.settings?.discoveryDescription !== undefined) {
       server.discoveryDescription = payload.settings.discoveryDescription === '' ? null : payload.settings.discoveryDescription;
     }
@@ -890,6 +935,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       discoveryCategories: server.discoveryCategories,
     });
     await cache.del(`server:${server.id}`);
+    await cache.del(`server:safety:${server.id}`);
 
     return {
       success: true,
@@ -1050,7 +1096,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         case 'afkChannelId': {
           if (fieldErrors[key]) break;
           const v = changes[key];
-          staged.push(() => { (server as Record<string, unknown>)[key] = v || undefined; });
+          // null (not undefined): drizzle skips undefined keys, so "None" would never be saved.
+          staged.push(() => { (server as Record<string, unknown>)[key] = v || null; });
           break;
         }
         case 'afkTimeout': {
@@ -1061,6 +1108,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         case 'widget.enabled': {
           const v = expectBoolean(key);
           if (v !== undefined) staged.push(() => { section('widget').enabled = v; });
+          break;
+        }
+        case 'widget.publicMessages': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('widget').publicMessages = v; });
           break;
         }
         case 'widget.channelId': {
@@ -1210,9 +1262,27 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // All valid: apply everything, then persist
     for (const apply of staged) apply();
+
+    // Age-gated servers can never be discoverable, whatever order the keys
+    // arrived in. Decided on the final state after every staged change.
+    if (server.isAgeGated && (server.joinMode === 'discoverable' || server.isDiscoverable)) {
+      if (changes['access.joinMode'] === 'discoverable') {
+        set.status = 400;
+        return {
+          error: 'Some settings are invalid',
+          fieldErrors: { 'access.joinMode': 'Age-restricted servers cannot be discoverable' },
+        };
+      }
+      server.joinMode = 'invite_only';
+      server.isDiscoverable = false;
+      server.discoverableAt = null;
+      section('access').joinMode = 'invite_only';
+    }
+
     const { id: _sid, ...serverUpdates } = server;
     await Server.updateById(server.id, serverUpdates);
     await cache.del(`server:${server.id}`);
+    await cache.del(`server:safety:${server.id}`);
 
     return {
       success: true,
@@ -1293,7 +1363,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         explicitContentFilter: explicitContentFilter ?? serverSettings2.moderation?.explicitContentFilter ?? server.explicitContentFilter,
       },
       widget: {
-        enabled: serverSettings2.widget?.enabled ?? true,
+        ...(serverSettings2.widget || {}),
+        enabled: serverSettings2.widget?.enabled ?? false,
         channelId: serverSettings2.widget?.channelId ?? null,
       },
       safety: {
@@ -1403,50 +1474,53 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const membership = await ServerMember.findOne({
-      serverId: params.serverId,
-      userId: user.id,
-    });
+    const parsedLimit = parseInt(query.limit || '50', 10);
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 1000) : 50;
+    const after = query.after;
+    // Cursor is a membership id; an unknown/malformed cursor yields an empty page.
+    if (after && !isValidObjectId(after)) {
+      return { members: [] };
+    }
+
+    const sid = normalizeId(params.serverId);
+    // Cursor + limit run in SQL (ordered by id so pages are deterministic);
+    // this used to load every member row and slice in JS.
+    const [membership, server, pageMembers] = await Promise.all([
+      ServerMember.findOne({ serverId: params.serverId, userId: user.id }),
+      Server.findById(params.serverId),
+      db
+        .select()
+        .from(schema.serverMembers)
+        .where(and(
+          eq(schema.serverMembers.serverId, sid),
+          after ? gt(schema.serverMembers.id, normalizeId(after)) : undefined,
+        ))
+        .orderBy(schema.serverMembers.id)
+        .limit(limit),
+    ]);
 
     if (!membership) {
       set.status = 403;
       return { error: 'You are not a member of this server' };
     }
 
-    const limit = Math.min(parseInt(query.limit || '50'), 1000);
-    const after = query.after;
-
-    const filter: Record<string, unknown> = { serverId: params.serverId };
-
-    const [server, allMembers] = await Promise.all([
-      Server.findById(params.serverId),
-      ServerMember.find(filter),
-    ]);
-
-    // Manual populate: batch fetch users and roles
-    const userIds = [...new Set(allMembers.map((m: any) => m.userId).filter(Boolean))];
-    const roleIds = [...new Set(allMembers.flatMap((m: any) => m.roles || []).filter(Boolean))];
+    // Manual populate: batch fetch this page's users (slim columns) and roles
+    const userIds = [...new Set(pageMembers.map((m) => m.userId).filter(Boolean))];
+    const roleIds = [...new Set(pageMembers.flatMap((m) => m.roles || []).filter(Boolean))];
 
     const [users, roles] = await Promise.all([
-      userIds.length > 0 ? User.find({ id: { in: userIds } }) : [],
+      findMemberUsers(userIds),
       roleIds.length > 0 ? Role.find({ id: { in: roleIds }, serverId: params.serverId }) : [],
     ]);
 
-    const userMap = new Map(users.map((u: any) => [u.id, u]));
+    const userMap = new Map(users.map((u) => [u.id, u]));
     const roleMap = new Map(roles.map((r: any) => [r.id, r]));
 
-    let members = allMembers.map((m: any) => ({
+    const members = pageMembers.map((m) => ({
       ...m,
-      userId: m.userId ? userMap.get(m.userId) ?? m.userId : null,
+      userId: m.userId ? userMap.get(m.userId) ?? null : null,
       roles: (m.roles || []).map((rid: string) => roleMap.get(rid)).filter(Boolean),
     }));
-
-    // Apply 'after' cursor and limit in JS
-    if (after) {
-      const afterIdx = members.findIndex((m: any) => m.id === after);
-      members = afterIdx >= 0 ? members.slice(afterIdx + 1) : [];
-    }
-    members = members.slice(0, limit);
 
     return {
       members: members.map((member: any) =>
@@ -1661,18 +1735,24 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const { nickname, avatar, banner } = body;
 
-    const updates: Record<string, unknown> = {};
-    if (nickname !== undefined) updates.nickname = nickname ? sanitizeInput(nickname) : undefined;
-    if (avatar !== undefined) updates.avatar = avatar || undefined;
-    if (banner !== undefined) updates.banner = banner || undefined;
-    await ServerMember.updateById(member.id, updates);
+    // Empty/null clears the field. It must be null, not undefined: drizzle
+    // skips undefined keys, so the old value would silently stay.
+    const updates: { nickname?: string | null; avatar?: string | null; banner?: string | null } = {};
+    if (nickname !== undefined) {
+      const n = nickname ? sanitizeInput(nickname).trim() : '';
+      updates.nickname = n || null;
+    }
+    if (avatar !== undefined) updates.avatar = avatar || null;
+    if (banner !== undefined) updates.banner = banner || null;
+    const row = await ServerMember.updateById(member.id, updates);
 
+    // Report what was actually stored.
     return {
       success: true,
       member: {
-        nickname: updates.nickname ?? member.nickname ?? null,
-        avatar: updates.avatar ?? member.avatar ?? null,
-        banner: updates.banner ?? member.banner ?? null,
+        nickname: row ? row.nickname ?? null : member.nickname ?? null,
+        avatar: row ? row.avatar ?? null : member.avatar ?? null,
+        banner: row ? row.banner ?? null : member.banner ?? null,
       },
     };
   }, {
@@ -1870,12 +1950,25 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Check membership, fetch server, channels, and roles in parallel — all independent.
     // Fetching roles here avoids a sequential getRolePermissionsForServer round-trip.
-    const [membership, server, allChannels, allRoles] = await Promise.all([
+    // Threads (forum posts, tickets) also carry serverId; only load the ones
+    // this user has joined instead of every thread row in the server.
+    const sid = normalizeId(params.serverId);
+    const THREAD_TYPES = ['public_thread', 'private_thread'] as const;
+    const [membership, server, baseChannels, memberThreads, allRoles] = await Promise.all([
       ServerMember.findOne({ serverId: params.serverId, userId: user.id }),
       Server.findById(params.serverId),
-      Channel.find({ serverId: params.serverId }),
+      db.select().from(schema.channels).where(and(
+        eq(schema.channels.serverId, sid),
+        notInArray(schema.channels.type, [...THREAD_TYPES]),
+      )),
+      db.select().from(schema.channels).where(and(
+        eq(schema.channels.serverId, sid),
+        inArray(schema.channels.type, [...THREAD_TYPES]),
+        sql`${schema.channels.threadMemberIds} @> ARRAY[${normalizeId(user.id)}]::uuid[]`,
+      )),
       Role.find({ serverId: params.serverId }),
     ]);
+    const allChannels = [...baseChannels, ...memberThreads];
 
     if (!membership) {
       set.status = 403;
@@ -1964,8 +2057,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
     const lastMessageAtById = new Map<string, string>();
     if (lastMessageIds.length > 0) {
-      const lastMsgs = await Message.find({ id: { in: lastMessageIds } });
-      for (const m of lastMsgs as IMessage[]) {
+      // Only id + createdAt: full rows carry encrypted content, embeds, etc.
+      const lastMsgs = await db
+        .select({ id: schema.messages.id, createdAt: schema.messages.createdAt })
+        .from(schema.messages)
+        .where(inArray(schema.messages.id, lastMessageIds.map((id) => normalizeId(id))));
+      for (const m of lastMsgs) {
         if (m.createdAt) lastMessageAtById.set(m.id, new Date(m.createdAt).toISOString());
       }
     }
@@ -2373,19 +2470,28 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if ((server.settings as IServerSettings | undefined)?.widget?.enabled === false) {
+    // The widget is public and unauthenticated, so it is opt-in: only served
+    // when the owner explicitly enabled it.
+    const widgetSettings = (server.settings as IServerSettings | undefined)?.widget;
+    if (widgetSettings?.enabled !== true) {
       set.status = 403;
       return { error: 'Server widget is disabled' };
     }
+    // Recent messages are a separate opt-in on top of the widget itself.
+    const showMessages = widgetSettings.publicMessages === true;
 
-    // Get online members
-    const allMembers = await ServerMember.find({ serverId: params.serverId });
-    const memberUserIds = allMembers.map((m: any) => m.userId).filter(Boolean);
-    const memberUsers = memberUserIds.length > 0 ? await User.find({ id: { in: memberUserIds } }) : [];
-    const userMap = new Map(memberUsers.map((u: any) => [u.id, u]));
-    const members = allMembers.slice(0, 50).map((m: any) => ({
+    // Up to 50 members; only those users' (slim) rows are loaded.
+    const memberRows = await db
+      .select({ id: schema.serverMembers.id, userId: schema.serverMembers.userId })
+      .from(schema.serverMembers)
+      .where(eq(schema.serverMembers.serverId, normalizeId(params.serverId)))
+      .orderBy(schema.serverMembers.joinedAt)
+      .limit(50);
+    const memberUsers = await findMemberUsers(memberRows.map((m) => m.userId).filter(Boolean));
+    const userMap = new Map(memberUsers.map((u) => [u.id, u]));
+    const members = memberRows.map((m) => ({
       ...m,
-      userId: m.userId ? userMap.get(m.userId) ?? m.userId : null,
+      userId: m.userId ? userMap.get(m.userId) ?? null : null,
     }));
 
     // Get categories + text/voice/announcement channels, ordered like the
@@ -2404,7 +2510,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
       .slice(0, 50);
 
-    const rawWidgetChannelId = (server.settings as IServerSettings | undefined)?.widget?.channelId as string | undefined;
+    const rawWidgetChannelId = (widgetSettings.channelId || undefined) as string | undefined;
     // Only honour the configured widget channel if it survived the public
     // (non-nsfw, no-overwrite) filter above — never leak a gated channel.
     const textChannels = channels.filter((c: any) => c.type === 'text' || c.type === 'announcement');
@@ -2456,10 +2562,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const mentionUserMap: Record<string, { username: string; displayName?: string }> = {};
     const mentionRoleMap: Record<string, { name: string; color?: string }> = {};
 
-    if (messageChannelId) {
-      const allMessages = await Message.find({ channelId: messageChannelId, isDeleted: false });
-      allMessages.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      const rawMessages = allMessages.slice(0, 30);
+    if (messageChannelId && showMessages) {
+      // Newest 30 (Message.find orders by createdAt desc).
+      const rawMessages = await Message.find({ channelId: messageChannelId, isDeleted: false, _limit: 30 });
 
       // Batch fetch authors and referenced messages
       const authorIds = [...new Set(rawMessages.map((m: any) => m.authorId).filter(Boolean))];
@@ -2600,20 +2705,25 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       }
     }
 
-    // Get an active invite. Partnered servers with a vanity URL prefer that as
-    // the default invite (serika.cc/<vanity>) over a random invite code.
+    // Join link. Partnered servers with a vanity URL use it (serika.cc/<vanity>).
+    // Otherwise only an invite to the channel the owner explicitly picked as
+    // the "Widget invite channel" is shared; never some arbitrary invite.
     const vanityCode = server.isPartnered && server.vanityUrlCode ? server.vanityUrlCode : undefined;
     let invite: any = null;
-    if (!vanityCode) {
+    if (!vanityCode && rawWidgetChannelId) {
       const allInvites = await Invite.find({ serverId: params.serverId });
       const now = new Date();
-      const activeInvites = allInvites.filter((i: any) => !i.expiresAt || new Date(i.expiresAt) > now);
+      const activeInvites = allInvites.filter((i: any) =>
+        sameId(i.channelId, rawWidgetChannelId)
+        && (!i.expiresAt || new Date(i.expiresAt) > now)
+        && (!i.maxUses || (i.uses ?? 0) < i.maxUses)
+      );
       activeInvites.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       invite = activeInvites[0] || null;
     }
 
     const transformedMembers = members.map((m: any) => {
-      const userData = m.userId as PopulatedMemberUser | null;
+      const userData = m.userId;
       return {
         id: userData?.id || '',
         username: userData?.username,
@@ -3030,7 +3140,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const server = await Server.findById(params.serverId);
-    return { sounds: server?.soundboardSounds || [] };
+    if (!server) return { sounds: [] };
+    // Backfill ids for sounds stored without one so they can be deleted.
+    const { sounds, changed } = ensureSoundboardIds(server.soundboardSounds, isValidObjectId, randomUUID);
+    if (changed) await Server.updateById(server.id, { soundboardSounds: sounds });
+    return { sounds };
   })
   // Upload soundboard sound
   .post('/:serverId/soundboard', async ({ headers, cookie, params, body, set }) => {
@@ -3068,8 +3182,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Maximum of 500 soundboard sounds reached' };
     }
 
-    const sounds = (server.soundboardSounds as unknown[] | undefined) || [];
+    const { sounds } = ensureSoundboardIds<Record<string, unknown>>(server.soundboardSounds, isValidObjectId, randomUUID);
     sounds.push({
+      // A UUID, because DELETE's :soundId goes through the UUID param guard.
+      id: randomUUID(),
       name: name.substring(0, 32),
       url,
       emoji: emoji || '🔊',
@@ -3112,10 +3228,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Only the server owner can delete soundboard sounds' };
     }
 
-    const sounds = (server.soundboardSounds as unknown[] | undefined) || [];
-    const idx = sounds.findIndex(
-      (s: any) => s.id === params.soundId
-    );
+    const { sounds } = ensureSoundboardIds(server.soundboardSounds, isValidObjectId, randomUUID);
+    const idx = sounds.findIndex((s) => sameId(s.id, params.soundId));
     if (idx === -1) {
       set.status = 404;
       return { error: 'Sound not found' };
@@ -4077,6 +4191,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
+    // Age-restricted servers are never joinable from discovery; an invite is required.
+    if (server.isAgeGated) {
+      set.status = 403;
+      return { error: 'This server is invite-only. You need an invite to join.' };
+    }
+
     // Respect server access settings
     const joinMode = server.joinMode || 'invite_only';
     if (joinMode === 'invite_only') {
@@ -4181,12 +4301,26 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
   })
   .get('/discoverable', async ({ query, set }) => {
     try {
+      // Anonymous endpoint: cache whole responses briefly (not free-text
+      // searches, whose key space is unbounded) to blunt polling.
+      const hasCategory = Boolean(query.category && query.category !== 'all');
+      const responseCacheKey = query.search
+        ? null
+        : `discoverable:v1:${hasCategory ? query.category : 'all'}:${query.sort || 'popular'}:${query.limit || '100'}`;
+      if (responseCacheKey) {
+        const cachedResponse = await cache.get<Record<string, unknown>>(responseCacheKey);
+        if (cachedResponse) return cachedResponse;
+      }
+
       const filter: Record<string, unknown> = { isDiscoverable: true };
-      if (query.category && query.category !== 'all') {
+      if (hasCategory) {
         filter.discoveryCategories = query.category;
       }
 
-      let servers = await Server.find(filter);
+      // Age-restricted servers are never listed (also covers rows left in a
+      // discoverable state from before that was enforced).
+      const listed = (await Server.find(filter)).filter((s) => !s.isAgeGated);
+      let servers = listed;
 
       if (query.search) {
         const searchLower = query.search.toLowerCase();
@@ -4218,34 +4352,24 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         servers.sort((a: any, b: any) => (b.memberCount ?? 0) - (a.memberCount ?? 0));
       }
 
-      const limit = Math.min(parseInt(query.limit || '100'), 100);
+      const parsedLimit = parseInt(query.limit || '100', 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 100;
       const limitedServers = servers.slice(0, limit);
 
-      // Calculate online counts dynamically for each server
+      // Online counts: one grouped COUNT in SQL (excludes invisible users),
+      // instead of loading every member + user row of every listed server.
       const serverIds = limitedServers.map((s: any) => s.id);
-      const allMembers = serverIds.length > 0 ? await ServerMember.find({ serverId: { in: serverIds } }) : [];
-      const memberUserIds = [...new Set(allMembers.map((m: any) => m.userId).filter(Boolean))];
-      const memberUsers = memberUserIds.length > 0 ? await User.find({ id: { in: memberUserIds } }) : [];
-      const userMap = new Map(memberUsers.map((u: any) => [u.id, u]));
-
-      const now = Date.now();
+      const onlineCounts = await computeOnlineCounts(serverIds).catch(() => new Map<string, number>());
       const onlineCountMap = new Map<string, number>();
-      for (const sid of serverIds) {
-        const count = allMembers
-          .filter((m: any) => m.serverId === sid)
-          .filter((m: any) => {
-            const u = m.userId ? userMap.get(m.userId) : null;
-            if (!u) return false;
-            if (u.status === 'offline') return false;
-            const hb = u.presenceLastHeartbeatAt;
-            return hb && new Date(hb).getTime() >= now - 90000;
-          })
-          .length;
-        onlineCountMap.set(sid, count);
+      for (const id of serverIds) {
+        onlineCountMap.set(id, onlineCounts.get(normalizeId(id)) ?? onlineCounts.get(id) ?? 0);
       }
 
-      // Get category counts for sidebar badges
-      const allDiscoverable = await Server.find({ isDiscoverable: true });
+      // Category counts for sidebar badges. Without a category filter the
+      // list above already holds every discoverable server.
+      const allDiscoverable = hasCategory
+        ? (await Server.find({ isDiscoverable: true })).filter((s) => !s.isAgeGated)
+        : listed;
       const categoryCounts: Record<string, number> = {};
       for (const s of allDiscoverable as IServer[]) {
         const cats = s.discoveryCategories || [];
@@ -4254,7 +4378,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         }
       }
 
-      return {
+      const response = {
         servers: limitedServers.map((s: any) => ({
           id: s.id,
           name: s.name,
@@ -4276,6 +4400,8 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         totalMembers: allDiscoverable.reduce((sum: number, s: any) => sum + (s.memberCount ?? 0), 0),
         totalOnline: Array.from(onlineCountMap.values()).reduce((sum, v) => sum + v, 0),
       };
+      if (responseCacheKey) await cache.set(responseCacheKey, response, 60);
+      return response;
     } catch {
       set.status = 500;
       return { error: 'Failed to fetch discoverable servers' };
