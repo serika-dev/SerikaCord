@@ -72,6 +72,9 @@ export interface MessageGroupProps<M extends ChatMessage> {
   onSuppressEmbeds?: (messageId: string) => void;
   onJumpToMessage?: (messageId: string) => void;
   formattedTimestamp: string;
+  /** Id of a message in the middle of this group that starts the unread run;
+   *  a "New" divider is drawn above that row. Undefined for every other group. */
+  newSeparatorBeforeId?: string;
 }
 
 /**
@@ -113,6 +116,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onSuppressEmbeds,
   onJumpToMessage,
   formattedTimestamp,
+  newSeparatorBeforeId,
 }: MessageGroupProps<M>) {
   const gt = useChatGt();
   const { user } = useAuth();
@@ -209,6 +213,12 @@ function MessageGroupInner<M extends ChatMessage>({
         const pickerOpen = reactionPickerMessageId === message.id;
         return (
           <Fragment key={message.id}>
+            {index > 0 && newSeparatorBeforeId === message.id && (
+              <div className="flex items-center gap-2 my-2 select-none">
+                <span className="text-xs font-semibold text-[var(--app-accent)] whitespace-nowrap">{gt("New")}</span>
+                <div className="h-px flex-1 bg-[var(--app-accent)]" />
+              </div>
+            )}
             {message.interaction && (
               <div className="ml-[3.5rem] mb-0.5 flex items-center gap-1 text-xs text-[var(--app-muted)] truncate">
                 <Reply className="w-3 h-3 flex-shrink-0 -scale-x-100" />
@@ -485,7 +495,8 @@ function arePropsEqual<M extends ChatMessage>(
     prev.availableServerEmojis === next.availableServerEmojis &&
     prev.onMediaClick === next.onMediaClick &&
     prev.onSuppressEmbeds === next.onSuppressEmbeds &&
-    prev.onJumpToMessage === next.onJumpToMessage
+    prev.onJumpToMessage === next.onJumpToMessage &&
+    prev.newSeparatorBeforeId === next.newSeparatorBeforeId
   );
 }
 

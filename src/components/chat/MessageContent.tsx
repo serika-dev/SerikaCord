@@ -261,7 +261,7 @@ export const MessageContent = memo(function MessageContent({
     let customEmojiCount = 0;
 
     // Split one run of text into links, images, mentions, emoji and plain text.
-    const tokenize = (source: string): MessagePart[] => {
+    const tokenizeText = (source: string): MessagePart[] => {
     const parts: MessagePart[] = [];
 
     // First, split by URLs
@@ -339,11 +339,11 @@ export const MessageContent = memo(function MessageContent({
             continue;
           }
 
-          const foundEmoji = serverEmojis.find((e) => {
-            const normalizedName = e.name?.toLowerCase?.() || "";
-            const normalizedId = e.id || e._id;
-            return normalizedName === emojiName || (emojiId && normalizedId === emojiId);
-          });
+          // An id-bearing token resolves by id first, so two servers' same-named
+          // emojis don't render as each other; the name is only a fallback.
+          const foundEmoji =
+            (emojiId && serverEmojis.find((e) => (e.id || e._id) === emojiId)) ||
+            serverEmojis.find((e) => (e.name?.toLowerCase?.() || "") === emojiName);
 
           if (foundEmoji) {
             parts.push({ type: "custom-emoji", content: tokenMatch[0], emoji: foundEmoji });
@@ -364,6 +364,31 @@ export const MessageContent = memo(function MessageContent({
     return parts;
     };
 
+    // Inline `code` spans are cut out first so URLs, mentions and :emoji: inside them stay
+    // literal (and the URL regex can't swallow the closing backtick). Adjacent text parts
+    // are merged so the Markdown renderer still sees each run of text whole.
+    const tokenize = (source: string): MessagePart[] => {
+      const out: MessagePart[] = [];
+      const pushPart = (part: MessagePart) => {
+        const last = out[out.length - 1];
+        if (part.type === "text" && last?.type === "text") {
+          out[out.length - 1] = { ...last, content: last.content + part.content };
+        } else {
+          out.push(part);
+        }
+      };
+      const codeRegex = /`[^`\n]+`/g;
+      let last = 0;
+      let m: RegExpExecArray | null;
+      while ((m = codeRegex.exec(source)) !== null) {
+        if (m.index > last) tokenizeText(source.slice(last, m.index)).forEach(pushPart);
+        pushPart({ type: "text", content: m[0] });
+        last = m.index + m[0].length;
+      }
+      if (last < source.length) tokenizeText(source.slice(last)).forEach(pushPart);
+      return out;
+    };
+
     // A heading line that contains an emoji, mention or link used to be cut apart at that
     // token, so only the part before it rendered as a heading (CORD-48). Such lines are
     // tokenized on their own and wrapped in the heading instead. Headings without tokens,
@@ -375,14 +400,30 @@ export const MessageContent = memo(function MessageContent({
     };
     const parts: MessagePart[] = [];
     let pending: string[] = [];
-    let inFence = false;
+    // Lines of an open ``` fence (same rule as parseMarkdown: a line starting with ```
+    // opens or closes it). The whole block is handed to the Markdown renderer untouched,
+    // so URLs, mentions and :emoji: inside it are never tokenized.
+    let fence: string[] | null = null;
     const flush = () => {
       if (pending.length) parts.push(...tokenize(pending.join("\n")));
       pending = [];
     };
     for (const line of displayContent.split("\n")) {
-      const heading = inFence ? null : line.match(/^(-?)(#{1,3})\s*(.+)$/);
-      if ((line.match(/```/g)?.length ?? 0) % 2 === 1) inFence = !inFence;
+      const isFenceLine = line.trim().startsWith("```");
+      if (fence) {
+        fence.push(line);
+        if (isFenceLine) {
+          parts.push({ type: "text", content: fence.join("\n") });
+          fence = null;
+        }
+        continue;
+      }
+      if (isFenceLine) {
+        flush();
+        fence = [line];
+        continue;
+      }
+      const heading = line.match(/^(-?)(#{1,3})\s*(.+)$/);
       if (heading && hasToken(heading[3])) {
         flush();
         parts.push({
@@ -397,6 +438,7 @@ export const MessageContent = memo(function MessageContent({
       pending.push(line);
     }
     flush();
+    if (fence) parts.push({ type: "text", content: fence.join("\n") });
 
     return { parts, customEmojiCount };
   }, [displayContent, serverEmojis, imageOnlyUrl]);

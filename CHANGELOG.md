@@ -18,6 +18,18 @@
 - **Styled confirmations** — deleting a channel, leaving or deleting a server, kicking a member and discarding server settings use an in-app dialog instead of the browser popup, with the same wording from every entry point.
 - **Dead buttons wired up** — Notification and Privacy Settings in the server menu open those settings, "View Full Bio" expands the bio, and the Community Guidelines link opens the guidelines.
 - **Dead buttons and mobile fixes** — mobile Report a Bug / Help / Feedback now open the issue tracker and support server instead of silently saving to your browser; the mobile server back button works; the server rail shows unread and mention badges; "Forgot password?" goes to Serika Accounts; the DM search bar, "+" button, Notification/Privacy Settings menu items, "View Full Bio" and pull-to-refresh do something; "Mark all as read" in Notifications really marks channels read; the voice bar no longer covers the chat or shows a raw room id; notched iPhones get proper safe-area spacing; hotkeys with no feature behind them are gone from the shortcut list.
+- **Code stays code** — links, mentions and `:emoji:` inside code blocks and `inline code` are no longer pulled out as links or pills, which used to split the block apart.
+- **Enter sends slash commands with a text option** — it used to add a newline while the option hint was showing.
+- **Reopened channels show edits, deletes and reactions made while you were away** — not just new messages.
+- **Clicking a reply jumps to the original** even when it is far back in history.
+- **Sending after jumping to a pin or search result** returns you to the latest messages instead of leaving a gap.
+- **Scrolling far back keeps your place**, and long-open busy channels no longer slow down over time.
+- **The "New" line marks the first unread message**, also when it continues someone's message group.
+- **Japanese, Chinese and Korean input** — Enter that confirms a candidate no longer sends the message or saves an edit.
+- **Messages keep their order when you send text while a file uploads.**
+- **Custom emojis with the same name on two servers show the right image.**
+- **A failed delete no longer hides messages that arrived meanwhile.**
+- **Copied DM message links jump to the message.**
 - **Right-click a person in chat or the DM list** — names and avatars in chat, and DM rows, open the user menu (Send Message, Add Friend, Call, Video Call, Copy Username/ID) like the member list does. (CORD-3)
 - **Close DM works** — the X on a DM row did nothing. It now hides the conversation until a new message arrives (also in the DM menu). Remembered per device.
 - **Role pills have an X** — remove a role straight from a member's role bar; the duplicate "..." role menu with toggles is gone, leaving the one with checkmarks. (CORD-27)

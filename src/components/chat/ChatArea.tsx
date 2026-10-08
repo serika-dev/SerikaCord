@@ -1442,17 +1442,23 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       // it otherwise falls through to send below.
       if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
         const selected = mentionSuggestions[activeMentionIndex];
-        if (selected) {
-          if (selected.kind === "param-hint" || selected.id === "__app-option-hint__") {
-            mentionRangeRef.current = null;
-            setMentionSuggestions([]);
-            setActiveMentionIndex(0);
+        if (selected && (selected.kind === "param-hint" || selected.id === "__app-option-hint__")) {
+          // A hint card isn't selectable: dismiss it. Tab stays in the composer;
+          // Enter falls through to the send path below.
+          mentionRangeRef.current = null;
+          setMentionSuggestions([]);
+          setActiveMentionIndex(0);
+          if (e.key === "Tab") {
+            e.preventDefault();
             return;
           }
-          e.preventDefault();
-          insertMentionFromSuggestion(selected);
+        } else {
+          if (selected) {
+            e.preventDefault();
+            insertMentionFromSuggestion(selected);
+          }
+          return;
         }
-        return;
       }
     }
 
@@ -1694,6 +1700,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
       {/* Messages */}
       <MessageList
+        onJumpToMessage={jumpToMessage}
+        onAtBottomChange={chat.handleAtBottomChange}
         ref={messageListRef}
         groups={chat.groupedMessages}
         isLoading={chat.isLoading}

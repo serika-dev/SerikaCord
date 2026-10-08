@@ -321,6 +321,23 @@ export default function DMConversationPage() {
     requestAnimationFrame(() => requestAnimationFrame(highlight));
   }, [chat]);
 
+  // Honor a ?jump=<messageId> query param (from a copied message link) once the
+  // conversation's messages have had a moment to load. Only `jump` is stripped
+  // so other params (e.g. `call`) keep working.
+  useEffect(() => {
+    if (!recipientId || typeof window === "undefined") return;
+    const jid = new URLSearchParams(window.location.search).get("jump");
+    if (!jid) return;
+    const t = setTimeout(() => {
+      void jumpToMessage(jid);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("jump");
+      window.history.replaceState(null, "", url.toString());
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipientId]);
+
   // Emoji `:` / slash `/` / `@user` autocomplete for the DM composer.
   const composerSuggestions = useComposerSuggestions({
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
@@ -504,6 +521,8 @@ export default function DMConversationPage() {
         {/* Messages */}
         <MessageList
           ref={messageListRef}
+          onJumpToMessage={jumpToMessage}
+          onAtBottomChange={chat.handleAtBottomChange}
           groups={chat.groupedMessages}
           isLoading={chat.isLoading}
           hasMoreOlder={chat.hasMoreOlder}

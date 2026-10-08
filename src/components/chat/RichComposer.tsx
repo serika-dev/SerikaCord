@@ -401,8 +401,26 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
     }, [emitChange]);
 
     const lastKeyPreventedRef = useRef(false);
+    // True while an IME composition (Japanese, Chinese, Korean...) is open.
+    // Cleared a tick after compositionend because Safari fires the confirming
+    // Enter keydown after it.
+    const composingRef = useRef(false);
+    const handleCompositionStart = useCallback(() => {
+      composingRef.current = true;
+    }, []);
+    const handleCompositionEnd = useCallback(() => {
+      setTimeout(() => {
+        composingRef.current = false;
+      }, 0);
+    }, []);
 
     const handleKeyDownInternal = useCallback((e: React.KeyboardEvent) => {
+      // Keys that confirm or navigate an IME candidate belong to the IME: never
+      // send, autocomplete or run shortcuts on them.
+      if (e.nativeEvent.isComposing || e.keyCode === 229 || composingRef.current) {
+        lastKeyPreventedRef.current = false;
+        return;
+      }
       // Block rich-formatting shortcuts (bold/italic/underline)
       if ((e.metaKey || e.ctrlKey) && ["b", "i", "u"].includes(e.key.toLowerCase())) {
         e.preventDefault();
@@ -452,6 +470,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           onInput={handleInput}
           onPaste={handlePaste}
           onKeyDown={handleKeyDownInternal}
+          onCompositionStart={handleCompositionStart}
+          onCompositionEnd={handleCompositionEnd}
           onKeyUp={reportCaret}
           onClick={reportCaret}
           className={cn(

@@ -14,6 +14,7 @@ import {
   type RawMessagePayload,
 } from "@/lib/chat/messages";
 import { buildGalleryFromMessages } from "@/lib/chat/media";
+import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 
 const PAGE_SIZE = 50;
@@ -25,6 +26,9 @@ const PAGE_SIZE = 50;
 const OLDER_PAGE_SIZE = 25;
 // Keeps the DOM light (no virtualization needed) while allowing deep scrollback.
 const MAX_LOADED_MESSAGES = 200;
+// Live appends trim the head only once the window is this far over the cap, so
+// a busy channel doesn't re-slice (and regroup the first group) on every message.
+const LIVE_TRIM_SLACK = 50;
 
 /**
  * Module-level stale-while-revalidate cache keyed by REST base (apiBase).
@@ -254,6 +258,10 @@ export function useChatSession<M extends ChatMessage>({
   const [hasMoreNewer, setHasMoreNewer] = useState(false);
   const hasMoreNewerRef = useRef(false);
   useEffect(() => { hasMoreNewerRef.current = hasMoreNewer; }, [hasMoreNewer]);
+  // Mirrors MessageList's bottom-adjacency (via onAtBottomChange). Live appends
+  // only trim the head while the reader is at the bottom, so rows never vanish
+  // from under someone reading older history.
+  const atBottomRef = useRef(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [pinnedMessages, setPinnedMessages] = useState<M[]>([]);
   const [isLoadingPins, setIsLoadingPins] = useState(false);
@@ -291,6 +299,7 @@ export function useChatSession<M extends ChatMessage>({
     // A fresh context always opens anchored to the live tail.
     setHasMoreNewer(false);
     hasMoreNewerRef.current = false;
+    atBottomRef.current = true;
     if (apiBase) {
       const cached = readCache<M>(apiBase);
       if (cached && cached.length > 0) {
@@ -344,19 +353,6 @@ export function useChatSession<M extends ChatMessage>({
 
   const { signalTyping, resetTyping } = useTypingSignal(apiBase ? `${apiBase}/typing` : null);
 
-  // A full page replaces what's on screen, but keep anything that arrived over
-  // SSE (or was sent) after that page's newest message — the stream and the
-  // fetch race on open, and overwriting would drop those messages.
-  const mergeLiveTail = useCallback((page: M[], prev: M[]): M[] => {
-    if (prev.length === 0) return page;
-    const pageIds = new Set(page.map((m) => m.id));
-    const newest = page.length ? new Date(page[page.length - 1].createdAt).getTime() : 0;
-    const tail = prev.filter(
-      (m) => !pageIds.has(m.id) && (m.id.startsWith("temp-") || new Date(m.createdAt).getTime() > newest)
-    );
-    return tail.length ? [...page, ...tail] : page;
-  }, []);
-
   const fetchMessages = useCallback(async () => {
     if (!apiBase) return;
     const requestedContext = apiBase;
@@ -365,8 +361,8 @@ export function useChatSession<M extends ChatMessage>({
     // Stale-while-revalidate: paint cached messages immediately (no spinner)
     // and revalidate below. Only fall back to the loading state on a cold open.
     const cached = readCache<M>(requestedContext);
-    let deltaCursor: string | null = null;
-    if (cached && cached.length > 0) {
+    const warm = Boolean(cached && cached.length > 0);
+    if (cached && warm) {
       setMessages(cached);
       // Be optimistic about older history when painting from cache: the cache may
       // be a short persisted tail (localStorage only keeps ~30 messages), so a
@@ -376,87 +372,37 @@ export function useChatSession<M extends ChatMessage>({
       setHasMoreOlder(paginated);
       setIsLoading(false);
       latestRef.current.onShouldScrollToBottom?.();
-      // Newest non-optimistic message becomes the delta cursor: we revalidate
-      // by fetching only messages *after* it rather than re-downloading the whole
-      // last page. For far-away users this turns a full round-trip + ~50-message
-      // payload into a usually-empty response — the biggest win we can get
-      // without moving the server closer.
-      for (let i = cached.length - 1; i >= 0; i--) {
-        const id = cached[i]?.id;
-        if (id && !id.startsWith("temp-")) {
-          deltaCursor = id;
-          break;
-        }
-      }
     } else {
       setIsLoading(true);
       setHasMoreOlder(false);
       setMessages([]);
     }
     try {
-      const url = deltaCursor
-        ? `${apiBase}/messages?after=${deltaCursor}&limit=${PAGE_SIZE}`
-        : `${apiBase}/messages?limit=${PAGE_SIZE}`;
-      // A cold open may already have this page in flight from the HTML
-      // (BootPrefetch) or a hover prefetch.
-      const response = deltaCursor ? await fetch(url) : await sharedGet(url);
+      // Always revalidate with the plain latest page (not an `after=` delta):
+      // only the active context has a stream, so edits, deletes, reactions and
+      // pins made while we were away must be re-read, not just new messages.
+      // A cold or boot-prefetched open may already have this page in flight.
+      const response = await sharedGet(`${apiBase}/messages?limit=${PAGE_SIZE}`);
       if (activeFetchContextRef.current !== requestedContext) return;
       if (response.ok) {
         const data = await response.json();
         if (activeFetchContextRef.current !== requestedContext) return;
         const raw = Array.isArray(data) ? data : data.messages || [];
-        // fetchMessages always resolves to the live tail (plain limit or delta
-        // `after` the cache), so we're anchored to the present again.
+        const page = dedupeMessages<M>(raw);
+        // The latest page anchors us to the present again.
         setHasMoreNewer(false);
-
-        if (deltaCursor) {
-          // Delta revalidation. A full page of results means there may be a gap
-          // between our cache and now (rare: away a long time / very busy
-          // channel), so fall back to a full refetch to stay correct.
-          if (raw.length >= PAGE_SIZE) {
-            const full = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
-            if (activeFetchContextRef.current !== requestedContext) return;
-            if (full.ok) {
-              const fullData = await full.json();
-              if (activeFetchContextRef.current !== requestedContext) return;
-              const fullRaw = Array.isArray(fullData) ? fullData : fullData.messages || [];
-              const deduped = dedupeMessages<M>(fullRaw);
-              writeCache(requestedContext, deduped, true);
-              setMessages((prev) => mergeLiveTail(deduped, prev));
-              setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
-              // No explicit scroll here: we already scrolled on the cache paint,
-              // and MessageList auto-scrolls when the message count grows while
-              // pinned to the bottom. A second scroll here caused the visible
-              // "jump" on channel open.
-            }
-          } else if (raw.length > 0) {
-            // Merge the few new messages into whatever is on screen now (which
-            // may include live SSE / optimistic updates), deduping by id.
-            const incoming = raw.map((item: RawMessagePayload) => normalizeIncomingMessage<M>(item));
-            setMessages((prev) => {
-              const existing = new Set(prev.map((m) => m.id));
-              const appended = [...prev];
-              for (const msg of incoming) {
-                if (!existing.has(msg.id)) appended.push(msg);
-              }
-              const trimmed = appended.length > MAX_LOADED_MESSAGES
-                ? appended.slice(appended.length - MAX_LOADED_MESSAGES)
-                : appended;
-              writeCache(requestedContext, trimmed, true);
-              return trimmed;
-            });
-            // MessageList auto-scrolls on the resulting message-count increase
-            // when pinned to bottom; no explicit scroll needed here.
-          }
-          // raw.length === 0 → cache was already current; nothing to do.
-        } else {
-          const deduped = dedupeMessages<M>(raw);
-          writeCache(requestedContext, deduped, true);
-          setMessages((prev) => mergeLiveTail(deduped, prev));
-          setHasMoreOlder(paginated && deduped.length >= PAGE_SIZE);
-          latestRef.current.onShouldScrollToBottom?.();
-        }
-      } else if (!deltaCursor) {
+        setMessages((prev) => {
+          const next = capTail(reconcileLatestPage(page, prev), MAX_LOADED_MESSAGES);
+          writeCache(requestedContext, next, true);
+          return next;
+        });
+        // On a warm open keep the optimistic hasMoreOlder unless the page shows
+        // the whole history fits (reconciled older rows may still be cached).
+        if (!warm || page.length >= PAGE_SIZE) setHasMoreOlder(paginated && page.length >= PAGE_SIZE);
+        // No explicit scroll on a warm open: we already scrolled on the cache
+        // paint, and a second scroll here caused a visible "jump".
+        if (!warm) latestRef.current.onShouldScrollToBottom?.();
+      } else if (!warm) {
         toast.error(gt("Failed to load messages"));
       }
     } catch (error) {
@@ -464,64 +410,47 @@ export function useChatSession<M extends ChatMessage>({
       console.error("Failed to fetch messages:", error);
       // On a warm open we already painted cache, so a failed revalidation is
       // silent — only surface an error when we had nothing to show.
-      if (!deltaCursor) toast.error(gt("Failed to load messages"));
+      if (!warm) toast.error(gt("Failed to load messages"));
     } finally {
       if (activeFetchContextRef.current === requestedContext) {
         setIsLoading(false);
       }
     }
-  }, [apiBase, paginated, mergeLiveTail]);
+  }, [apiBase, paginated]);
 
   const messagesRef = useRef<M[]>([]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // After an SSE reconnect: fetch what's newer than the newest message on
-  // screen and merge it in. Falls back to a full refetch for a long gap.
+  // After an SSE reconnect: re-read the latest page and reconcile it with the
+  // window, so messages sent and edits/deletes/reactions made while the stream
+  // was down all show up.
   const catchUpTail = useCallback(async () => {
     if (!apiBase) return;
     const context = apiBase;
-    const current = messagesRef.current;
-    let newestId: string | undefined;
-    for (let i = current.length - 1; i >= 0; i--) {
-      const id = current[i]?.id;
-      if (id && !id.startsWith("temp-")) { newestId = id; break; }
-    }
-    if (!newestId) {
-      void fetchMessages();
-      return;
-    }
     try {
-      const response = await fetch(`${apiBase}/messages?after=${newestId}&limit=${PAGE_SIZE}`);
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
       if (!response.ok || activeFetchContextRef.current !== context) return;
       const data = await response.json();
-      if (activeFetchContextRef.current !== context) return;
+      if (activeFetchContextRef.current !== context || hasMoreNewerRef.current) return;
       const raw = Array.isArray(data) ? data : data.messages || [];
-      if (raw.length >= PAGE_SIZE) {
-        void fetchMessages();
-        return;
-      }
-      if (raw.length === 0) return;
-      const incoming = raw.map((item: RawMessagePayload) => normalizeIncomingMessage<M>(item));
+      const page = dedupeMessages<M>(raw);
       setMessages((prev) => {
+        // Drop optimistic bubbles that the page now confirms.
         const existing = new Set(prev.map((m) => m.id));
-        const fresh = incoming.filter((m: M) => !existing.has(m.id));
-        if (fresh.length === 0) return prev;
-        // Drop optimistic bubbles that the catch-up now confirms.
-        const confirmedOwn = fresh.filter((m: M) => m.authorId === user?.id);
         let base = prev;
-        for (const own of confirmedOwn) {
+        for (const own of page) {
+          if (existing.has(own.id) || own.authorId !== user?.id) continue;
           const idx = base.findIndex((m) => m.id.startsWith("temp-") && m.content === own.content);
           if (idx !== -1) base = [...base.slice(0, idx), ...base.slice(idx + 1)];
         }
-        const merged = [...base, ...fresh];
-        return merged.length > MAX_LOADED_MESSAGES ? merged.slice(merged.length - MAX_LOADED_MESSAGES) : merged;
+        return capTail(reconcileLatestPage(page, base), MAX_LOADED_MESSAGES);
       });
     } catch {
       /* next reconnect or channel switch will retry */
     }
-  }, [apiBase, fetchMessages, user?.id]);
+  }, [apiBase, user?.id]);
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
     if (!apiBase || isLoadingMore || !hasMoreOlder || messages.length === 0) return false;
@@ -610,7 +539,9 @@ export function useChatSession<M extends ChatMessage>({
         }
         // A short page means we've caught up to the live tail.
         setHasMoreNewer(raw.length >= PAGE_SIZE);
-        return true;
+        // Only report a load when rows were added (MessageList keeps a scroll
+        // restore pending until the window changes).
+        return raw.length > 0;
       }
     } catch (error) {
       console.error("Failed to load newer messages:", error);
@@ -667,10 +598,35 @@ export function useChatSession<M extends ChatMessage>({
   // — where `messages` still holds the previous context — never corrupts the new
   // context's cache entry.
   useEffect(() => {
-    if (apiBase && activeFetchContextRef.current === apiBase) {
+    // Only tail-anchored windows are cached: a detached (jumped) window would
+    // repaint on the next open as if it were the present.
+    if (apiBase && activeFetchContextRef.current === apiBase && !hasMoreNewer) {
       writeCache(apiBase, messages);
     }
-  }, [apiBase, messages]);
+  }, [apiBase, messages, hasMoreNewer]);
+
+  // Append one live message, trimming the head past the cap when allowed
+  // (always for own sends, which scroll to the bottom anyway).
+  const appendCapped = useCallback((prev: M[], item: M, force = false): M[] => {
+    const next = [...prev, item];
+    if (next.length > MAX_LOADED_MESSAGES + LIVE_TRIM_SLACK && (force || atBottomRef.current)) {
+      setHasMoreOlder(true);
+      return next.slice(next.length - MAX_LOADED_MESSAGES);
+    }
+    return next;
+  }, []);
+
+  // Wired to MessageList's onAtBottomChange. Returning to the bottom trims any
+  // overflow that built up while the reader was scrolled up.
+  const handleAtBottomChange = useCallback((atBottom: boolean) => {
+    atBottomRef.current = atBottom;
+    if (!atBottom) return;
+    setMessages((prev) => {
+      if (prev.length <= MAX_LOADED_MESSAGES + LIVE_TRIM_SLACK) return prev;
+      setHasMoreOlder(true);
+      return prev.slice(prev.length - MAX_LOADED_MESSAGES);
+    });
+  }, []);
 
   // Lazy-resolve "Unknown" authors
   useEffect(() => {
@@ -769,11 +725,12 @@ export function useChatSession<M extends ChatMessage>({
 
         // While viewing a detached window (jumped to a pin/search result), don't
         // append live messages at the bottom — they'd render as falsely adjacent
-        // to the window's tail. They'll be picked up by forward pagination when
-        // the user scrolls back down to the present. Own sends still show so the
-        // composer feels responsive.
-        if (hasMoreNewerRef.current && !isOwnMessage) {
-          latestRef.current.onIncomingMessage?.(incoming);
+        // to the window's tail and advance the forward-pagination cursor past the
+        // gap. They'll be picked up by forward pagination when the user scrolls
+        // back down. Own sends return to the present first (see sendMessage), so
+        // an own message here is an echo from another device.
+        if (hasMoreNewerRef.current) {
+          if (!isOwnMessage) latestRef.current.onIncomingMessage?.(incoming);
           return;
         }
 
@@ -783,13 +740,18 @@ export function useChatSession<M extends ChatMessage>({
             // Replace the most recent temp message from this user (content
             // match is best-effort — server may normalise differently).
             const isOwnTemp = (m: M) => m.id.startsWith("temp-") && m.authorId === user?.id;
-            let ownTempIndex = prev.findIndex((m) => isOwnTemp(m) && m.content === incoming.content);
+            // Prefer a temp whose attachment presence matches too, so a file
+            // send's echo doesn't replace a text bubble queued after it.
+            const hasFiles = (incoming.attachments?.length ?? 0) > 0;
+            const sameKind = (m: M) => ((m.attachments?.length ?? 0) > 0) === hasFiles;
+            let ownTempIndex = prev.findIndex((m) => isOwnTemp(m) && m.content === incoming.content && sameKind(m));
+            if (ownTempIndex === -1) ownTempIndex = prev.findIndex((m) => isOwnTemp(m) && m.content === incoming.content);
             if (ownTempIndex === -1) ownTempIndex = prev.findIndex(isOwnTemp);
             if (ownTempIndex !== -1) {
               return prev.map((m, index) => (index === ownTempIndex ? incoming : m));
             }
           }
-          return [...prev, incoming];
+          return appendCapped(prev, incoming);
         });
 
         if (!isOwnMessage) {
@@ -805,7 +767,7 @@ export function useChatSession<M extends ChatMessage>({
         const incoming = normalizeIncomingMessage<M>(data.message);
         setMessages((prev) => {
           if (prev.some((m) => m.id === incoming.id)) return prev;
-          return [...prev, incoming];
+          return appendCapped(prev, incoming);
         });
         latestRef.current.onShouldScrollToBottom?.();
         return;
@@ -919,6 +881,31 @@ export function useChatSession<M extends ChatMessage>({
         }
       };
 
+      // Sending from a detached window (jumped to a pin/search result) returns to
+      // the present first, like Discord. Appending to the old window would put
+      // the message next to week-old ones and make it the forward cursor, so the
+      // gap in between would never load.
+      if (hasMoreNewerRef.current) {
+        const context = apiBase;
+        try {
+          const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+          if (response.ok && activeFetchContextRef.current === context) {
+            const data = await response.json();
+            if (activeFetchContextRef.current === context) {
+              const raw = Array.isArray(data) ? data : data.messages || [];
+              const page = dedupeMessages<M>(raw);
+              hasMoreNewerRef.current = false;
+              setHasMoreNewer(false);
+              setHasMoreOlder(paginated && page.length >= PAGE_SIZE);
+              setMessages((prev) => [...page, ...prev.filter((m) => m.id.startsWith("temp-"))]);
+              writeCache(context, page, true);
+            }
+          }
+        } catch {
+          // Fall through and append to the current window.
+        }
+      }
+
       // Upload now, while the MessageBar still holds these files.
       let uploadPromise: Promise<Array<{ id: string; url: string; filename: string; contentType: string; spoiler?: boolean }>> =
         Promise.resolve([]);
@@ -971,13 +958,11 @@ export function useChatSession<M extends ChatMessage>({
           pending: true,
         } as unknown as M);
 
-      // Text-only sends show immediately; sends with files show once uploaded.
-      let optimisticShown = false;
-      if (!hasAttachments) {
-        setMessages((prev) => [...prev, buildOptimistic([])]);
-        optimisticShown = true;
-        latestRef.current.onShouldScrollToBottom?.();
-      }
+      // Every send shows its bubble right away, in queue order (= POST order =
+      // server createdAt order). A send with files fills in its attachments once
+      // the upload finishes.
+      setMessages((prev) => appendCapped(prev, buildOptimistic([]), true));
+      latestRef.current.onShouldScrollToBottom?.();
 
       const run = async () => {
         try {
@@ -985,15 +970,16 @@ export function useChatSession<M extends ChatMessage>({
           if (hasAttachments && uploadedAttachments.length === 0) {
             // Nothing uploaded: don't send the text alone either — put the
             // draft and reply back so the whole message can be retried.
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
             restoreDraft();
             if (replyReference) actions.setReplyToMessage(replyReference);
             toast.error(gt("Failed to upload file(s). Your message was not sent."));
             return;
           }
-          if (!optimisticShown) {
-            setMessages((prev) => [...prev, buildOptimistic(uploadedAttachments)]);
-            optimisticShown = true;
-            latestRef.current.onShouldScrollToBottom?.();
+          if (hasAttachments) {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === tempId ? ({ ...m, attachments: uploadedAttachments } as M) : m))
+            );
           }
 
           const body: Record<string, unknown> = {};
@@ -1049,7 +1035,7 @@ export function useChatSession<M extends ChatMessage>({
       sendQueueRef.current = queued.catch(() => undefined);
       await queued;
     },
-    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt]
+    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt, paginated, appendCapped]
   );
 
   /**
@@ -1060,10 +1046,10 @@ export function useChatSession<M extends ChatMessage>({
   const addEphemeralMessage = useCallback((raw: Record<string, unknown>) => {
     const incoming = normalizeIncomingMessage<M>(raw);
     setMessages((prev) =>
-      prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming]
+      prev.some((m) => m.id === incoming.id) ? prev : appendCapped(prev, incoming, true)
     );
     latestRef.current.onShouldScrollToBottom?.();
-  }, []);
+  }, [appendCapped]);
 
   const handleGifSelect = useCallback(
     (gifUrl: string) => void sendMessage({ contentOverride: gifUrl }),
@@ -1113,6 +1099,7 @@ export function useChatSession<M extends ChatMessage>({
     loadOlderMessages,
     loadNewerMessages,
     jumpToMessage,
+    handleAtBottomChange,
     pinnedMessages,
     isLoadingPins,
     fetchPinnedMessages,

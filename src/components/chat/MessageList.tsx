@@ -86,6 +86,9 @@ interface MessageListProps<M extends ChatMessage> {
   onAtBottomChange?: (atBottom: boolean) => void;
   /** When this key changes, scroll state is reset and the list force-scrolls to bottom. */
   resetKey?: string;
+  /** Jump to a message (e.g. a reply preview), loading its window if it isn't
+   *  rendered. Defaults to scrolling to an already-rendered row. */
+  onJumpToMessage?: (messageId: string) => void;
 }
 
 function MessageListInner<M extends ChatMessage>(
@@ -117,6 +120,7 @@ function MessageListInner<M extends ChatMessage>(
     className,
     onAtBottomChange,
     resetKey,
+    onJumpToMessage,
   }: MessageListProps<M>,
   ref: Ref<MessageListHandle>
 ) {
@@ -133,6 +137,10 @@ function MessageListInner<M extends ChatMessage>(
   const stickToBottomRef = useRef(true);
   const prevScrollHeightRef = useRef(0);
   const pendingScrollRestoreRef = useRef(false);
+  // Element anchor for pagination scroll restore: the first visible message row
+  // and its offset from the viewport top. Survives trims at either end, where a
+  // plain scrollHeight delta nets to ~0.
+  const scrollAnchorRef = useRef<{ id: string; top: number } | null>(null);
   const forceScrollRef = useRef(false);
   // Gates top-pagination: stays false until the list has settled at the bottom
   // for the current context, so opening a channel never auto-loads older
@@ -154,6 +162,8 @@ function MessageListInner<M extends ChatMessage>(
     [groups, gt, locale],
   );
   const firstMessageId = groups[0]?.messages[0]?.id;
+  const lastGroupMessages = groups[groups.length - 1]?.messages;
+  const lastMessageId = lastGroupMessages?.[lastGroupMessages.length - 1]?.id;
   const prevMessageCountRef = useRef(0);
   const prevGroupCountRef = useRef(0);
 
@@ -166,6 +176,7 @@ function MessageListInner<M extends ChatMessage>(
     if (resetKey === undefined) return;
     pendingScrollRestoreRef.current = false;
     prevScrollHeightRef.current = 0;
+    scrollAnchorRef.current = null;
     prevMessageCountRef.current = 0;
     prevGroupCountRef.current = 0;
     isAtBottomRef.current = true;
@@ -202,9 +213,9 @@ function MessageListInner<M extends ChatMessage>(
 
   // Latest mutable handlers behind stable identities so memoized rows
   // don't re-render on every parent render.
-  const latestRef = useRef({ actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange });
+  const latestRef = useRef({ actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange, onJumpToMessage });
   useEffect(() => {
-    latestRef.current = { actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange };
+    latestRef.current = { actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange, onJumpToMessage };
   });
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -217,6 +228,31 @@ function MessageListInner<M extends ChatMessage>(
     document
       .getElementById(`message-${messageId}`)
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
+
+  // Stable identity for MessageGroup's memo; routes to the container's loader
+  // (which fetches the surrounding window) when one is provided.
+  const jumpToMessage = useCallback((messageId: string) => {
+    const handler = latestRef.current.onJumpToMessage;
+    if (handler) handler(messageId);
+    else scrollToMessage(messageId);
+  }, [scrollToMessage]);
+
+  // Remember the first message row visible in the viewport before a page load.
+  const captureScrollAnchor = useCallback(() => {
+    const viewport = viewportRef.current;
+    const content = contentRef.current;
+    scrollAnchorRef.current = null;
+    if (!viewport || !content) return;
+    const vpTop = viewport.getBoundingClientRect().top;
+    const rows = content.querySelectorAll<HTMLElement>('[id^="message-"]');
+    for (const el of rows) {
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom > vpTop) {
+        scrollAnchorRef.current = { id: el.id, top: rect.top - vpTop };
+        return;
+      }
+    }
   }, []);
 
   const forceScrollToBottom = useCallback(() => {
@@ -246,21 +282,28 @@ function MessageListInner<M extends ChatMessage>(
     [scrollToBottom, scrollToMessage, forceScrollToBottom, scrollByViewport, scrollToTop]
   );
 
-  // Scroll restoration after loading older messages — runs synchronously
+  // Scroll restoration after loading older/newer pages — runs synchronously
   // after DOM mutation but before paint, so the user never sees a jump.
-  // Depends on firstMessageId (not messageCount) so it still fires when
-  // trimming keeps the total count unchanged.
+  // Keyed on both ends (not messageCount) so it still fires when the load trims
+  // the other end and keeps the total count unchanged. Anchors on the row that
+  // was visible before the load; falls back to the height delta if it's gone.
   useLayoutEffect(() => {
     if (!pendingScrollRestoreRef.current) return;
     pendingScrollRestoreRef.current = false;
     const viewport = viewportRef.current;
-    if (viewport && prevScrollHeightRef.current) {
+    const anchor = scrollAnchorRef.current;
+    scrollAnchorRef.current = null;
+    const anchorEl = anchor ? document.getElementById(anchor.id) : null;
+    if (viewport && anchor && anchorEl) {
+      const newTop = anchorEl.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+      viewport.scrollTop += newTop - anchor.top;
+    } else if (viewport && prevScrollHeightRef.current) {
       viewport.scrollTop += viewport.scrollHeight - prevScrollHeightRef.current;
-      prevScrollHeightRef.current = 0;
     }
+    prevScrollHeightRef.current = 0;
     prevMessageCountRef.current = messageCount;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [firstMessageId]);
+  }, [firstMessageId, lastMessageId]);
 
   // Auto-scroll on new messages when pinned to bottom; otherwise count them.
   // useLayoutEffect ensures instant scroll (no flash) on initial load and
@@ -300,7 +343,9 @@ function MessageListInner<M extends ChatMessage>(
         const g = groups[i];
         if (g.messages.length >= delta) {
           const startIdx = g.messages.length - delta;
-          setNewMessageStartId(g.messages[startIdx]?.id ?? g.messages[0]?.id ?? null);
+          const startId = g.messages[startIdx]?.id ?? g.messages[0]?.id ?? null;
+          // Keep the first unread marker; later batches must not move it down.
+          setNewMessageStartId((prev) => prev ?? startId);
           break;
         }
         delta -= g.messages.length;
@@ -368,8 +413,17 @@ function MessageListInner<M extends ChatMessage>(
         // Detached window (jumped to a pin/search result, or trimmed): reaching
         // the bottom loads the next newer page so the user can scroll all the way
         // back to the latest message.
-        if (hasMoreNewer && !isLoadingMore && readyForPaginationRef.current) {
-          void latestRef.current.loadNewerMessages?.();
+        if (hasMoreNewer && !isLoadingMore && readyForPaginationRef.current && latestRef.current.loadNewerMessages) {
+          // Newer pages can trim the top; anchor so the view doesn't shift.
+          captureScrollAnchor();
+          prevScrollHeightRef.current = 0;
+          pendingScrollRestoreRef.current = true;
+          void Promise.resolve(latestRef.current.loadNewerMessages()).then((loaded) => {
+            if (!loaded) {
+              pendingScrollRestoreRef.current = false;
+              scrollAnchorRef.current = null;
+            }
+          });
         }
       }
 
@@ -385,6 +439,7 @@ function MessageListInner<M extends ChatMessage>(
         !stickToBottomRef.current &&
         scrollHeight - clientHeight > 200
       ) {
+        captureScrollAnchor();
         prevScrollHeightRef.current = viewport.scrollHeight;
         pendingScrollRestoreRef.current = true;
         void Promise.resolve(latestRef.current.loadOlderMessages()).then((loaded) => {
@@ -393,11 +448,12 @@ function MessageListInner<M extends ChatMessage>(
           if (!loaded) {
             pendingScrollRestoreRef.current = false;
             prevScrollHeightRef.current = 0;
+            scrollAnchorRef.current = null;
           }
         });
       }
     });
-  }, [hasMoreOlder, hasMoreNewer, isLoadingMore]);
+  }, [hasMoreOlder, hasMoreNewer, isLoadingMore, captureScrollAnchor]);
 
   // Stable handlers for memoized rows.
   const stable = useMemo(() => {
@@ -459,6 +515,12 @@ function MessageListInner<M extends ChatMessage>(
                 const isLastGroup = idx === groups.length - 1;
                 const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
                 const showNewSeparator = newMessageStartId === group.messages[0]?.id;
+                // Unread run starting mid-group (same author kept talking): the
+                // group draws the divider above that row itself.
+                const midGroupSeparatorId =
+                  newMessageStartId && !showNewSeparator && group.messages.some((m) => m.id === newMessageStartId)
+                    ? newMessageStartId
+                    : undefined;
                 return (
                 <Fragment key={`group-${group.messages[0].id}`}>
                 {showNewSeparator && (
@@ -507,8 +569,9 @@ function MessageListInner<M extends ChatMessage>(
                   onOpenReactionPicker={stable.onOpenReactionPicker}
                   onMediaClick={onMediaClick}
                   onSuppressEmbeds={onSuppressEmbeds}
-                  onJumpToMessage={scrollToMessage}
+                  onJumpToMessage={jumpToMessage}
                   formattedTimestamp={formattedTimestamps[idx]}
+                  newSeparatorBeforeId={midGroupSeparatorId}
                 />
                 </div>
                 </Fragment>

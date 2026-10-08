@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
+import { reinsertMessage } from "@/lib/chat/messageWindow";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
   message: M;
@@ -113,6 +114,9 @@ export function useMessageActions<M extends ChatMessage>({
 
   const handleEditKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      // Enter / Escape that confirm or cancel an IME candidate (Japanese,
+      // Chinese, Korean input) belong to the IME, not the edit box.
+      if ((e.nativeEvent as KeyboardEvent).isComposing || e.keyCode === 229) return;
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         void submitEdit();
@@ -129,22 +133,36 @@ export function useMessageActions<M extends ChatMessage>({
     if (!apiBase || !message) return;
 
     const messageId = message.id;
-    let previousMessages: M[] = [];
+    // Remember only the removed row and its neighbour: a rollback must not
+    // replace the whole list and drop messages/edits that arrived meanwhile.
+    let removed: M | undefined;
+    let prevNeighborId: string | undefined;
     setMessages((prev) => {
-      previousMessages = prev;
+      const i = prev.findIndex((m) => m.id === messageId);
+      if (i === -1) return prev;
+      removed = prev[i];
+      prevNeighborId = prev[i - 1]?.id;
       return prev.filter((m) => m.id !== messageId);
     });
     setDeleteConfirmMessage(null);
+    const restore = () => {
+      const r = removed;
+      if (!r) return;
+      setMessages((prev) => reinsertMessage(prev, r, prevNeighborId));
+    };
 
     try {
       const response = await fetch(`${apiBase}/messages/${messageId}`, { method: "DELETE" });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
-        setMessages(previousMessages);
-        toast.error(data?.error || gt("Failed to delete message"));
+        // 404: it's already gone (e.g. a moderator removed it at the same time).
+        if (response.status !== 404) {
+          restore();
+          toast.error(data?.error || gt("Failed to delete message"));
+        }
       }
     } catch {
-      setMessages(previousMessages);
+      restore();
       toast.error(gt("Failed to delete message. Check your connection."));
     }
   }, [apiBase, setMessages]);

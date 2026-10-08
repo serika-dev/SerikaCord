@@ -66,6 +66,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "(attachment)": gt("(attachment)"),
       "Sending…": gt("Sending…"),
       "Pinned message": gt("Pinned message"),
+      "New": gt("New"),
       // MessageGroupHeader
       "Unknown": gt("Unknown"),
       "Discord": gt("Discord"),
