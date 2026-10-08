@@ -749,7 +749,7 @@ export function useChatSession<M extends ChatMessage>({
   }, [messages]);
 
   // Real-time updates over SSE (connection + typing handled by the stream hook)
-  const { typingStatusText, typingUsers } = useChatStream({
+  const { typingStatusText, typingUsers, clearTypingUser } = useChatStream({
     url: apiBase && user ? `${apiBase}/stream` : null,
     currentUsername: user?.username,
     // Messages sent while the stream was down never arrive over it: revalidate
@@ -761,6 +761,8 @@ export function useChatSession<M extends ChatMessage>({
       if (data.type === "message") {
         const incoming = normalizeIncomingMessage<M>(data.message);
         const isOwnMessage = incoming.authorId === user?.id || incoming.author?.id === user?.id;
+        // Their message landed: they're no longer "typing".
+        if (incoming.author?.username) clearTypingUser(incoming.author.username);
 
         // While viewing a detached window (jumped to a pin/search result), don't
         // append live messages at the bottom — they'd render as falsely adjacent
@@ -852,15 +854,14 @@ export function useChatSession<M extends ChatMessage>({
       }
 
       if (data.type === "reaction_add" || data.type === "reaction_remove") {
-        // Own reactions are already applied optimistically.
-        if (data.userId !== user?.id) {
-          actions.applyReactionEvent(
-            String(data.messageId),
-            String(data.emoji),
-            String(data.userId),
-            data.type === "reaction_add"
-          );
-        }
+        // Idempotent, so our own optimistic reactions aren't doubled — and a
+        // reaction made on another device of ours shows up here too.
+        actions.applyReactionEvent(
+          String(data.messageId),
+          String(data.emoji),
+          String(data.userId),
+          data.type === "reaction_add"
+        );
         return;
       }
 
@@ -923,7 +924,8 @@ export function useChatSession<M extends ChatMessage>({
         uploadPromise = (async () => {
           try {
             const uploaded = (await messageBarRef.current?.uploadAttachments()) ?? [];
-            messageBarRef.current?.clearAttachments();
+            // Keep the files in the composer if nothing uploaded, so they can retry.
+            if (uploaded.length > 0) messageBarRef.current?.clearAttachments();
             return uploaded;
           } finally {
             uploadingRef.current = false;
@@ -977,7 +979,11 @@ export function useChatSession<M extends ChatMessage>({
       const run = async () => {
         try {
           const uploadedAttachments = await uploadPromise;
-          if (hasAttachments && uploadedAttachments.length === 0 && !messageContent.trim()) {
+          if (hasAttachments && uploadedAttachments.length === 0) {
+            // Nothing uploaded: don't send the text alone either — put the
+            // draft and reply back so the whole message can be retried.
+            restoreDraft();
+            if (replyReference) actions.setReplyToMessage(replyReference);
             toast.error(gt("Failed to upload file(s). Your message was not sent."));
             return;
           }

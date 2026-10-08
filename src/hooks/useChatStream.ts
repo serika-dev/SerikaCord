@@ -154,7 +154,15 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
     return gt("{user1}, {user2} and {count} others are typing...", { user1: typingUsers[0], user2: typingUsers[1], count: typingUsers.length - 2 });
   }, [typingUsers, gt]);
 
-  return { typingUsers, typingStatusText };
+  const clearTypingUser = useCallback((username: string) => {
+    if (typingTimeoutsRef.current[username]) {
+      clearTimeout(typingTimeoutsRef.current[username]);
+      delete typingTimeoutsRef.current[username];
+    }
+    setTypingUsers((prev) => (prev.includes(username) ? prev.filter((u) => u !== username) : prev));
+  }, []);
+
+  return { typingUsers, typingStatusText, clearTypingUser };
 }
 
 /**

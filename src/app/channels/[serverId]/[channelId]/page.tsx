@@ -740,6 +740,8 @@ export default function ChannelPage() {
     }
   }, [serverId, servers, isLoading, setCurrentServer, router, fetchChannels, currentServer]);
 
+  const verifiedChannelRef = useRef<{ channelId: string | null; list: unknown }>({ channelId: null, list: null });
+
   // Set current channel when channels load. If the URL points to a channel
   // that isn't in the loaded list yet (mid server-switch), clear the stale
   // selection so the previous server's chat doesn't stick.
@@ -768,14 +770,23 @@ export default function ChannelPage() {
       return;
     }
     // Threads aren't in the sidebar channel list — fetch the channel directly so
-    // navigating into a forum post / ticket works.
-    if (currentChannel?.id === channelId) return;
+    // navigating into a forum post / ticket works. Also re-checked whenever the
+    // list changes, so a channel deleted by someone else doesn't stay open.
+    if (
+      currentChannel?.id === channelId &&
+      verifiedChannelRef.current.channelId === channelId &&
+      verifiedChannelRef.current.list === channels
+    ) return;
+    verifiedChannelRef.current = { channelId, list: channels };
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch(`/api/channels/${channelId}`);
         if (!res.ok) {
-          if (!cancelled && channels.length > 0 && currentChannel) setCurrentChannel(null);
+          if (cancelled) return;
+          if (currentChannel) setCurrentChannel(null);
+          // Gone or no longer visible: back to the server instead of an empty view.
+          if (res.status === 404 || res.status === 403) router.replace(`/channels/${serverId}`);
           return;
         }
         const data = await res.json();
@@ -799,7 +810,7 @@ export default function ChannelPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [channelId, channels, channelsServerId, currentChannel, setCurrentChannel, serverId]);
+  }, [channelId, channels, channelsServerId, currentChannel, setCurrentChannel, serverId, router]);
 
   // Persist the last-visited channel per server so reloads and server switches
   // return here instead of falling back to the first channel in the list.
