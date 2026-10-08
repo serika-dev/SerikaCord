@@ -46,7 +46,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       );
     } else if (m[4] !== undefined) {
       const href = m[5];
-      const safe = /^(https?:\/\/|\/|#)/.test(href);
+      const safe = /^(https?:\/\/|\/(?!\/)|#)/.test(href);
       out.push(
         safe ? (
           <a key={key} href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline break-words">
