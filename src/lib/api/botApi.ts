@@ -261,6 +261,39 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   }
 })
 
+// ─── Access guard ──────────────────────────────────────────
+// A bot may only touch channels it can see and servers it's in. Without this,
+// any bot token could read or post in any channel or DM by id. Message ids in
+// the path must belong to that channel (they were looked up globally).
+.onBeforeHandle(async ({ headers, params, set }) => {
+  const p = (params ?? {}) as Record<string, string | undefined>;
+  if (!p.channelId && !p.guildId) return;
+  const auth = await authenticateBot(headers);
+  if (!auth) return; // the route itself answers 401 (or is public)
+  const botId = auth.botUser.id;
+  if (p.guildId) {
+    if (!isValidObjectId(p.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+    const member = await ServerMember.findOne({ serverId: p.guildId, userId: botId });
+    if (!member) { set.status = 403; return { code: 50001, message: 'Missing Access' }; }
+  }
+  if (p.channelId) {
+    if (!isValidObjectId(p.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+    const { checkChannelAccess } = await import('@/lib/api/channels');
+    const { hasAccess, channel } = await checkChannelAccess(botId, p.channelId);
+    if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+    if (!hasAccess) { set.status = 403; return { code: 50001, message: 'Missing Access' }; }
+    if (p.guildId && channel.serverId && !compareIds(channel.serverId, p.guildId)) {
+      set.status = 404; return { code: 10003, message: 'Unknown Channel' };
+    }
+    if (p.messageId && isValidObjectId(p.messageId)) {
+      const msg = await Message.findById(p.messageId);
+      if (msg && !compareIds(msg.channelId, p.channelId)) {
+        set.status = 404; return { code: 10008, message: 'Unknown Message' };
+      }
+    }
+  }
+})
+
 // ─── API root (friendly index so /api/v10 isn't a bare 404) ─
 .get('/', () => ({
   message: 'SerikaCord API v10 — a Discord-compatible bot API.',
@@ -500,6 +533,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
   }
 
+  const { extractUserMentionIds, signalChannelMessage, signalDmMessage } = await import('@/lib/services/messageSignals');
+  const isDm = channel.type === 'dm' || channel.type === 'group_dm';
+  const mentionedUserIds = extractUserMentionIds(content);
   const msg = await Message.create({
     channelId: params.channelId,
     serverId: channel.serverId ?? null,
@@ -511,7 +547,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     pinned: false,
     edited: false,
     reactions: [],
+    mentionedUserIds,
   });
+  void Channel.updateById(params.channelId, { lastMessageId: msg.id, updatedAt: new Date() }).catch(() => {});
 
   const populated = await Message.findById(msg.id);
   const author = populated?.authorId ? await User.findById(populated.authorId) : null;
@@ -521,8 +559,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   // The SSE client expects internal format (createdAt, authorId, channelId)
   // — NOT Discord format (timestamp, channel_id) — so build it from the raw row.
   try {
-    const { publishToChannel } = await import('@/lib/api/channels');
-    publishToChannel(params.channelId, {
+    // DM viewers listen on the DM bus, server channels on the channel bus.
+    const publish = isDm
+      ? (await import('@/lib/api/dms')).publishToDm
+      : (await import('@/lib/api/channels')).publishToChannel;
+    publish(params.channelId, {
       type: 'message',
       message: {
         id: msg.id,
@@ -544,10 +585,34 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         edited: false,
         pinned: false,
         reactions: [],
+        mentionedUserIds,
         type: 'default',
       },
     });
   } catch {}
+  const botName = author?.displayName || author?.username || auth.botUser.username;
+  if (isDm) {
+    void signalDmMessage({
+      channelId: params.channelId,
+      recipientIds: (channel.recipientIds || []) as string[],
+      messageId: msg.id,
+      authorId: auth.botUser.id,
+      authorName: botName,
+      authorAvatar: author?.avatar ?? null,
+      content: content || '',
+      hasAttachments: Boolean(attachments?.length),
+      createdAt: msg.createdAt,
+    });
+  } else {
+    void signalChannelMessage({
+      channel: { id: channel.id, serverId: channel.serverId, name: channel.name },
+      messageId: msg.id,
+      authorId: auth.botUser.id,
+      authorName: botName,
+      mentionedUserIds,
+      createdAt: msg.createdAt,
+    });
+  }
   try {
     const { emitMessageCreate } = await import('@/lib/services/gatewayEvents');
     await emitMessageCreate({
@@ -629,10 +694,15 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 403; return { code: 50013, message: 'Missing Permissions' };
   }
 
-  for (const id of messages) {
+  // Only messages that are actually in this channel.
+  const found = await Message.find({ id: { in: messages.filter((id) => isValidObjectId(id)) } });
+  const deletable = found
+    .filter((m: { channelId: string }) => compareIds(m.channelId, params.channelId))
+    .map((m: { id: string }) => m.id);
+  for (const id of deletable) {
     await Message.deleteById(id);
   }
-  return { deleted_messages: messages };
+  return { deleted_messages: deletable };
 })
 
 // ─── Pins ──────────────────────────────────────────────────

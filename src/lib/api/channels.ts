@@ -2393,15 +2393,6 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       updatedBy: user.id,
     });
 
-    const publisher = getPublisher();
-    if (publisher) {
-      await publisher.publish('message:update', JSON.stringify({
-        channelId: params.channelId,
-        serverId: channel.serverId,
-        messageId: params.messageId,
-        pinned: true,
-      }));
-    }
 
     return { success: true };
   }, {
@@ -2458,15 +2449,6 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       updatedBy: user.id,
     });
 
-    const publisher = getPublisher();
-    if (publisher) {
-      await publisher.publish('message:update', JSON.stringify({
-        channelId: params.channelId,
-        serverId: channel.serverId,
-        messageId: params.messageId,
-        pinned: false,
-      }));
-    }
 
     return { success: true };
   }, {
@@ -2539,17 +2521,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     await Message.updateById(message.id, updateData);
 
-    // Publish update event with decrypted content for SSE
-    const publisher = getPublisher();
-    if (publisher) {
-      await publisher.publish('message:update', JSON.stringify({
-        channelId: params.channelId,
-        serverId: channel.serverId,
-        messageId: params.messageId,
-        content: sanitizedEditContent, // Send decrypted for SSE
-        editedTimestamp: updateData.editedTimestamp,
-      }));
-    }
+    // Live update for everyone viewing the channel (decrypted content).
+    publishToChannel(params.channelId, {
+      type: 'edit',
+      messageId: params.messageId,
+      content: sanitizedEditContent,
+      editedTimestamp: updateData.editedTimestamp,
+    });
 
     const updatedMessage = await Message.findById(message.id);
     const responseMsg = { ...updatedMessage, content: sanitizedEditContent };

@@ -859,7 +859,18 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const memberships = await ServerMember.find({ userId: user.id });
       const serverIds = memberships.map((m) => m.serverId);
       if (serverIds.length === 0) return { channels: [] };
-      const channels = await Channel.find({ serverId: { in: serverIds }, type: 'text' });
+      const allChannels = await Channel.find({ serverId: { in: serverIds }, type: 'text' });
+      // Hide channels the user can't view (permission overwrites), otherwise
+      // their server shows unread forever for a channel they can't open.
+      const { checkChannelAccess } = await import('./channels');
+      const visible = await Promise.all(
+        allChannels.map((c) =>
+          Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0
+            ? checkChannelAccess(user.id, c.id).then((r) => r.hasAccess).catch(() => false)
+            : true,
+        ),
+      );
+      const channels = allChannels.filter((_, i) => visible[i]);
       return {
         channels: channels.map((c) => ({
           channelId: c.id,
@@ -3419,6 +3430,16 @@ export const api = new Elysia({ prefix: '/api' })
     };
     const { publishToChannel } = await import('./channels');
     publishToChannel(channel.id, { type: 'message', message: messageResponse });
+    const { signalChannelMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
+    void signalChannelMessage({
+      channel: { id: channel.id, serverId: channel.serverId, name: channel.name },
+      messageId: message.id,
+      // Not the creator's id: they should get unread for their webhook's posts too.
+      authorId: `webhook:${webhook.id}`,
+      authorName: username,
+      mentionedUserIds: extractUserMentionIds(content),
+      createdAt: message.createdAt,
+    });
     return {
       id: message.id,
       channel_id: channel.id,

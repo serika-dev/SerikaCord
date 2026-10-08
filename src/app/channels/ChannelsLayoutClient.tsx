@@ -16,6 +16,7 @@ import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
 import Link from "next/link";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { AnimatePresence, motion } from "framer-motion";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -318,29 +319,39 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         {/* Dialogs */}
         <KeyboardShortcutsDialog />
         <QuickSwitcher />
-        <CreateServerDialog
-          open={showCreateServer}
-          onOpenChange={setShowCreateServer}
-        />
-        <CreateChannelDialog
-          open={createChannelOptions.open}
-          onOpenChange={(open) => setCreateChannelOptions((prev) => ({ ...prev, open }))}
-          defaultType={createChannelOptions.defaultType}
-          defaultParentId={createChannelOptions.defaultParentId}
-        />
-        <UserSettingsDialog
-          open={showUserSettings}
-          onOpenChange={setShowUserSettings}
-        />
-        <InviteDialog
-          open={showInvite}
-          onOpenChange={setShowInvite}
-          serverId={inviteServerId}
-        />
-        <ServerSettingsDialog
-          open={showServerSettings}
-          onOpenChange={setShowServerSettings}
-        />
+        <MountWhenOpened open={showCreateServer}>
+          <CreateServerDialog
+            open={showCreateServer}
+            onOpenChange={setShowCreateServer}
+          />
+        </MountWhenOpened>
+        <MountWhenOpened open={createChannelOptions.open}>
+          <CreateChannelDialog
+            open={createChannelOptions.open}
+            onOpenChange={(open) => setCreateChannelOptions((prev) => ({ ...prev, open }))}
+            defaultType={createChannelOptions.defaultType}
+            defaultParentId={createChannelOptions.defaultParentId}
+          />
+        </MountWhenOpened>
+        <MountWhenOpened open={showUserSettings}>
+          <UserSettingsDialog
+            open={showUserSettings}
+            onOpenChange={setShowUserSettings}
+          />
+        </MountWhenOpened>
+        <MountWhenOpened open={showInvite}>
+          <InviteDialog
+            open={showInvite}
+            onOpenChange={setShowInvite}
+            serverId={inviteServerId}
+          />
+        </MountWhenOpened>
+        <MountWhenOpened open={showServerSettings}>
+          <ServerSettingsDialog
+            open={showServerSettings}
+            onOpenChange={setShowServerSettings}
+          />
+        </MountWhenOpened>
       </div>
     );
   }
@@ -384,29 +395,39 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       {/* Dialogs */}
       <KeyboardShortcutsDialog />
       <QuickSwitcher />
-      <CreateServerDialog
-        open={showCreateServer}
-        onOpenChange={setShowCreateServer}
-      />
-      <CreateChannelDialog
-        open={createChannelOptions.open}
-        onOpenChange={(open) => setCreateChannelOptions((prev) => ({ ...prev, open }))}
-        defaultType={createChannelOptions.defaultType}
-        defaultParentId={createChannelOptions.defaultParentId}
-      />
-      <UserSettingsDialog
-        open={showUserSettings}
-        onOpenChange={setShowUserSettings}
-      />
-      <InviteDialog
-        open={showInvite}
-        onOpenChange={setShowInvite}
-        serverId={inviteServerId}
-      />
-      <ServerSettingsDialog
-        open={showServerSettings}
-        onOpenChange={setShowServerSettings}
-      />
+      <MountWhenOpened open={showCreateServer}>
+        <CreateServerDialog
+          open={showCreateServer}
+          onOpenChange={setShowCreateServer}
+        />
+      </MountWhenOpened>
+      <MountWhenOpened open={createChannelOptions.open}>
+        <CreateChannelDialog
+          open={createChannelOptions.open}
+          onOpenChange={(open) => setCreateChannelOptions((prev) => ({ ...prev, open }))}
+          defaultType={createChannelOptions.defaultType}
+          defaultParentId={createChannelOptions.defaultParentId}
+        />
+      </MountWhenOpened>
+      <MountWhenOpened open={showUserSettings}>
+        <UserSettingsDialog
+          open={showUserSettings}
+          onOpenChange={setShowUserSettings}
+        />
+      </MountWhenOpened>
+      <MountWhenOpened open={showInvite}>
+        <InviteDialog
+          open={showInvite}
+          onOpenChange={setShowInvite}
+          serverId={inviteServerId}
+        />
+      </MountWhenOpened>
+      <MountWhenOpened open={showServerSettings}>
+        <ServerSettingsDialog
+          open={showServerSettings}
+          onOpenChange={setShowServerSettings}
+        />
+      </MountWhenOpened>
       <VoiceAudioSink />
     </div>
   );

@@ -15,7 +15,7 @@
 import { getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
-import { ServerMember } from '@/lib/models';
+import { Channel, ServerMember } from '@/lib/models';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 
 export interface ChannelActivityPayload {
@@ -136,13 +136,29 @@ export async function notifyChannelActivity(payload: ChannelActivityPayload): Pr
   }
 }
 
+function hasOverwrites(value: unknown): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
 async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
   const connectedUserIds = [...activeActivityConnections.keys()];
   if (connectedUserIds.length === 0 || !payload.serverId) return;
   const memberIds = await getServerMemberIds(payload.serverId);
-  const recipients = connectedUserIds.filter(
+  let recipients = connectedUserIds.filter(
     (id) => id !== payload.authorId && memberIds.has(id),
   );
+  if (recipients.length === 0) return;
+  // Channels with permission overwrites or private threads: only members who
+  // can actually see the channel may learn about its activity (name, author,
+  // @everyone pings). Open channels skip this per-recipient check.
+  const channel = await Channel.findById(payload.channelId).catch(() => null);
+  if (channel && (channel.type === 'private_thread' || hasOverwrites(channel.permissionOverwrites))) {
+    const { checkChannelAccess } = await import('@/lib/api/channels');
+    const allowed = await Promise.all(
+      recipients.map((id) => checkChannelAccess(id, payload.channelId).then((r) => r.hasAccess).catch(() => false)),
+    );
+    recipients = recipients.filter((_, i) => allowed[i]);
+  }
   if (recipients.length > 0) emitLocal(recipients, payload);
 }
 

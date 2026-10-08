@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
-import { CreateServerDialog } from "@/components/dialogs/CreateServerDialog";
-import { UserSettingsDialog } from "@/components/dialogs/UserSettingsDialog";
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
 import { ServerProvider } from "@/contexts/ServerContext";
@@ -13,6 +13,16 @@ import { useAppHotkeys } from "@/hooks/useAppHotkeys";
 import { onHotkey } from "@/lib/keybinds";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
+
+// Loaded on first open only (UserSettingsDialog alone is several hundred KB).
+const CreateServerDialog = dynamic(
+  () => import("@/components/dialogs/CreateServerDialog").then((m) => m.CreateServerDialog),
+  { ssr: false },
+);
+const UserSettingsDialog = dynamic(
+  () => import("@/components/dialogs/UserSettingsDialog").then((m) => m.UserSettingsDialog),
+  { ssr: false },
+);
 
 function DMContent({ children }: { children: React.ReactNode }) {
   const [showCreateServer, setShowCreateServer] = useState(false);
@@ -58,14 +68,18 @@ function DMContent({ children }: { children: React.ReactNode }) {
         {/* Dialogs */}
         <KeyboardShortcutsDialog />
         <QuickSwitcher />
-        <CreateServerDialog
-          open={showCreateServer}
-          onOpenChange={setShowCreateServer}
-        />
-        <UserSettingsDialog
-          open={showUserSettings}
-          onOpenChange={setShowUserSettings}
-        />
+        <MountWhenOpened open={showCreateServer}>
+          <CreateServerDialog
+            open={showCreateServer}
+            onOpenChange={setShowCreateServer}
+          />
+        </MountWhenOpened>
+        <MountWhenOpened open={showUserSettings}>
+          <UserSettingsDialog
+            open={showUserSettings}
+            onOpenChange={setShowUserSettings}
+          />
+        </MountWhenOpened>
         <VoiceAudioSink />
       </div>
     );
@@ -81,14 +95,18 @@ function DMContent({ children }: { children: React.ReactNode }) {
       </div>
       <KeyboardShortcutsDialog />
       <QuickSwitcher />
-      <CreateServerDialog
-        open={showCreateServer}
-        onOpenChange={setShowCreateServer}
-      />
-      <UserSettingsDialog
-        open={showUserSettings}
-        onOpenChange={setShowUserSettings}
-      />
+      <MountWhenOpened open={showCreateServer}>
+        <CreateServerDialog
+          open={showCreateServer}
+          onOpenChange={setShowCreateServer}
+        />
+      </MountWhenOpened>
+      <MountWhenOpened open={showUserSettings}>
+        <UserSettingsDialog
+          open={showUserSettings}
+          onOpenChange={setShowUserSettings}
+        />
+      </MountWhenOpened>
       <VoiceAudioSink />
     </div>
   );

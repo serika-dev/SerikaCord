@@ -342,6 +342,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           isEmptyRef.current = true;
           setIsEmpty(true);
           setHasMarkdown(false);
+          // Let the parent know (it mirrors the text for draft saving).
+          onChange("", 0);
         }
       },
       getText: serialize,
@@ -361,7 +363,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       replaceRangeWithMention: (start: number, end: number, mention: ComposerMention) => {
         domReplaceRange(start, end, makeMentionSpan(mention));
       },
-    }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange]);
+    }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange, onChange]);
 
     // ----- Event handlers ----------------------------------------------------
 

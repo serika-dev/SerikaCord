@@ -164,6 +164,8 @@ function MessageListInner<M extends ChatMessage>(
   // instant cached paint lands mid-list.
   useLayoutEffect(() => {
     if (resetKey === undefined) return;
+    pendingScrollRestoreRef.current = false;
+    prevScrollHeightRef.current = 0;
     prevMessageCountRef.current = 0;
     prevGroupCountRef.current = 0;
     isAtBottomRef.current = true;
@@ -385,7 +387,14 @@ function MessageListInner<M extends ChatMessage>(
       ) {
         prevScrollHeightRef.current = viewport.scrollHeight;
         pendingScrollRestoreRef.current = true;
-        void latestRef.current.loadOlderMessages();
+        void Promise.resolve(latestRef.current.loadOlderMessages()).then((loaded) => {
+          // Nothing older came back (empty page / error): there is no restore
+          // to do, and leaving the flag set disables auto-scroll for good.
+          if (!loaded) {
+            pendingScrollRestoreRef.current = false;
+            prevScrollHeightRef.current = 0;
+          }
+        });
       }
     });
   }, [hasMoreOlder, hasMoreNewer, isLoadingMore]);

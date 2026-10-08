@@ -106,6 +106,23 @@ export async function sendSystemDM(
       },
     });
     publishToDm(channel.id, { type: 'message', message: messageData });
+    // Badge + notification for the recipient even when the DM list isn't open.
+    void (async () => {
+      try {
+        const { fanoutToUsers } = await import('@/lib/api/activity');
+        await fanoutToUsers({ userIds: [recipientId] }, {
+          type: 'dm_activity',
+          channelId: channel.id,
+          messageId: message.id,
+          authorId: fromId,
+          authorName: (author as { displayName?: string; username?: string })?.displayName
+            || (author as { username?: string })?.username,
+          authorAvatar: (author as { avatar?: string | null })?.avatar ?? null,
+          preview: trimmed.slice(0, 120),
+          createdAt: new Date(message.createdAt ?? Date.now()).toISOString(),
+        });
+      } catch { /* best-effort */ }
+    })();
 
     return message.id;
   } catch (err) {

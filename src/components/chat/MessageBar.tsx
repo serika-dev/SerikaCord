@@ -248,6 +248,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     // new one whenever draftKey changes. Reads the live composer text at save
     // time (empty right after a send), so sent messages never leave a stale draft.
     const prevDraftKeyRef = useRef<string | undefined>(undefined);
+    // Mirror of the composer text. On unmount the composer's handle is already
+    // detached (React clears child refs first), so reading it there returned ""
+    // and deleted the draft instead of saving it.
+    const latestTextRef = useRef("");
     useEffect(() => {
       const prev = prevDraftKeyRef.current;
       if (prev === draftKey) return;
@@ -256,6 +260,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       if (composer && draftKey !== undefined) {
         composer.clear();
         const draft = loadDraft(draftKey);
+        latestTextRef.current = draft || "";
         if (draft) composer.insertTextAtCaret(draft);
       }
       prevDraftKeyRef.current = draftKey;
@@ -266,7 +271,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     useEffect(() => {
       const save = () => {
         if (prevDraftKeyRef.current !== undefined) {
-          persistDraft(prevDraftKeyRef.current, composerRef.current?.getText() ?? "");
+          persistDraft(prevDraftKeyRef.current, composerRef.current?.getText() ?? latestTextRef.current);
         }
       };
       const onVisibility = () => { if (document.visibilityState === "hidden") save(); };
@@ -665,6 +670,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
 
     // ---- Handlers ----
     const handleComposerChange = useCallback((value: string, caret: number) => {
+      latestTextRef.current = value;
       setHasText(value.trim().length > 0);
       onChange(value, caret);
     }, [onChange]);

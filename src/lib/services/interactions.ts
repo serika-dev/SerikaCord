@@ -1,4 +1,4 @@
-import { Application, Message, User, ServerMember } from '@/lib/models';
+import { Application, Channel, Message, User, ServerMember } from '@/lib/models';
 import { AppCommand } from '@/lib/models/AppCommand';
 import { signInteraction } from '@/lib/services/appIdentity';
 import { OPTION_TYPES, type AppCommandOption } from '@/lib/services/appCommands';
@@ -466,6 +466,34 @@ async function sendBotResponse(
     } else {
       const { publishToDm } = await import('@/lib/api/dms');
       publishToDm(channelId, { type: 'message', message: messageResponse });
+    }
+  } catch {}
+  try {
+    const { signalChannelMessage, signalDmMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
+    const botName = (authorObj as { displayName?: string; username?: string } | null)?.displayName
+      || (authorObj as { username?: string } | null)?.username;
+    if (serverId) {
+      const ch = await Channel.findById(channelId);
+      void signalChannelMessage({
+        channel: { id: channelId, serverId, name: ch?.name },
+        messageId: msg.id,
+        authorId: botId,
+        authorName: botName,
+        mentionedUserIds: extractUserMentionIds(data.content),
+        createdAt: msg.createdAt,
+      });
+    } else {
+      const ch = await Channel.findById(channelId);
+      void signalDmMessage({
+        channelId,
+        recipientIds: (ch?.recipientIds || []) as string[],
+        messageId: msg.id,
+        authorId: botId,
+        authorName: botName,
+        authorAvatar: (authorObj as { avatar?: string | null } | null)?.avatar ?? null,
+        content: data.content ?? '',
+        createdAt: msg.createdAt,
+      });
     }
   } catch {}
   try {

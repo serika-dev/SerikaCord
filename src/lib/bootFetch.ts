@@ -16,7 +16,7 @@ declare global {
 }
 
 /** How long a prefetched startup response may be reused. */
-const BOOT_TTL_MS = 8000;
+const BOOT_TTL_MS = 4000;
 
 const inflight = new Map<string, Promise<Response>>();
 
