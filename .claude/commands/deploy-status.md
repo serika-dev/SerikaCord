@@ -1,6 +1,6 @@
 ---
 description: Read-only check of the latest Coolify deployment of the canary app
-allowed-tools: Bash(curl:*)
+allowed-tools: Bash(curl -fsS -H "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_URL/api/v1/:*)
 ---
 
 Report the state of the latest SerikaCord canary deployment on Coolify.
