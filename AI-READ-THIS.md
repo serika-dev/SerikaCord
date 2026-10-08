@@ -1,35 +1,52 @@
 # AI-READ-THIS: Development Guide
 
-## ⚠️ Fork Requirement
+> **Start with [`CLAUDE.md`](CLAUDE.md)** (architecture, commands, conventions,
+> safety rules, verification checklist) and [`AGENTS.md`](AGENTS.md). Deep
+> dives are in [`docs/architecture/`](docs/architecture/). This file covers
+> forks, the changelog and releases, and the full i18n guide.
 
-**You MUST have your own fork of this repository.** The git remote must NOT be set to `https://github.com/serika-dev/SerikaCord`.
+## Safety first
 
-Before doing anything:
+- The Postgres and Redis behind canary are **production data shared with
+  prod**. No destructive SQL, no `drizzle-kit push`/`migrate`. Schema changes
+  are additive and idempotent (`drizzle/manual_*.sql`), see
+  `docs/architecture/data-model.md`.
+- Never test in public servers or with real users.
+- The owner may have uncommitted work in the tree: never stash, reset or
+  commit it.
+
+## Forks and branches
+
+External contributors work from their own fork:
+
 1. Fork the repository on GitHub.
-2. Update your remote to point to your fork:
+2. Point `origin` at your fork:
    ```bash
    git remote set-url origin https://github.com/<YOUR_USERNAME>/SerikaCord.git
+   git remote -v   # must show your fork, not serika-dev/SerikaCord
    ```
-3. Verify:
-   ```bash
-   git remote -v
-   ```
-   The output must show your fork URL, not `serika-dev/SerikaCord`.
+3. Open pull requests against **`canary`** (see `CONTRIBUTING.md`).
 
-This is required because pushes to `serika-dev/SerikaCord` will be rejected. All work must be done on your own fork and submitted via pull requests.
+`canary` is the development branch and deploys automatically (Coolify);
+`main` is production and only receives release merges. Agents never push,
+tag or force-push unless the owner explicitly asks.
 
 ---
 
 ## Changelog
 
-The full project changelog lives in `CHANGELOG.md` at the repository root. It covers all releases from v0.0.1 to the current version, organized by release tag and categorized by type (Security, Features, Bug Fixes, Performance, etc.).
+The project changelog is `CHANGELOG.md` at the repository root, organized by
+release with an `## Unreleased` section at the top.
 
-### When to update the changelog
+### Canary changes
 
-- **After pushing a new release** — Add a new `## vX.Y.Z — YYYY-MM-DD` section at the top (below the header, above the previous release) with a summary of changes, then commit and push.
-- **After significant unreleased changes** — Update the `## Unreleased` section with new entries grouped by category.
+Every user-visible change pushed to `canary` adds a bullet under
+`## Unreleased`, in the matching category (`### Features`, `### Bug Fixes`,
+`### Performance`, `### Security`):
 
-### Format
+```md
+- **Short bold summary** — what the user notices now, in plain words. (CORD-12)
+```
 
 Each release section should include:
 - **Tag and commit hash** (e.g. `**Tag:** v1.1.0 · **Commit:** fa0c0ce`)
@@ -70,20 +87,17 @@ The tag push triggers the GitHub Actions `Release Build` workflow (Tauri desktop
 
 **The UI never hard-codes a version.** Import `APP_VERSION` / `VERSION_LABEL` / `BUILD_SHA` from `src/lib/version.ts`. `next.config.ts` inlines the version from `package.json` and the commit from `SOURCE_COMMIT` / `COOLIFY_GIT_COMMIT_SHA` / `GIT_COMMIT` / `VERCEL_GIT_COMMIT_SHA` (else `git rev-parse HEAD`, else `dev`). `GET /api/version` returns `{ version, commit, builtAt, environment }` for the running deployment.
 
----
+Internal refactors, docs and tests don't need an entry. Pushes do **not** bump
+the version. The `/changelog` slash command (`.claude/commands/changelog.md`)
+writes an entry for you.
 
-## Versioning Rules
+### Releases
 
-### Every push MUST bump the patch version
-
-**Rule:** Every time you push changes to the repository, you MUST bump the patch version (e.g. `v1.2.2` → `v1.2.3`). This applies to all pushes, not just releases.
-
-**Steps before every push:**
-1. Make sure `## Unreleased` in `CHANGELOG.md` describes the changes (`bun run changelog ...`).
-2. `bun run release patch --commit --tag` (preview first with `bun run release:dry`).
-3. Push, then push the tag: `git push origin vX.Y.Z`.
-
-**Minor/major version bumps** are reserved for significant feature additions or breaking changes, respectively. When in doubt, bump patch.
+Releases are cut by the maintainer (not by agents) with the release script described
+under "Releasing a new version" above: `bun run release:dry`, then
+`bun run release <patch|minor|major> --commit --tag`, merge `canary` into `main`,
+and push the tag. Tags matching `v*` trigger the GitHub Actions `Release Build`
+(Tauri + Android) and `Release Build (Qt)` workflows.
 
 ---
 
@@ -238,6 +252,10 @@ bun run translate:status # Check completion stats
 4. **Don't use `<T>` for text in styled spans** — use `gt()` for each segment instead
 5. **Always run `npx gt translate` after adding strings** — otherwise they won't appear in translation files
 6. **The `gt-preload.ts` import MUST be first in `server.ts`** — it patches module resolution before gt-next loads
+7. **`gt()` takes a string literal only** — `gt(label)` or `gt(cond ? "a" : "b")` fails `next build` (the compile-time plugin rejects it). Map dynamic values to separate literal `gt()` calls
+8. **Interpolated strings inside chat components** go through `useChatGt()` and must be listed in the `map` in `src/components/chat/ChatGtContext.tsx`
+9. **Never build with Turbopack** — gt-next's compile-time hashing only runs under webpack; without it every `gt()` re-hashes on each render for non-English locales (`--webpack` in `package.json`, `webpack: true` in `server.ts`)
+10. **`getLocale.ts` must stay at the repository root** — gt-next only looks there; it reads the `generaltranslation.locale` cookie
 
 ## File Reference
 

@@ -11,6 +11,7 @@
     "start:next": "next start",
     "gateway": "bun scripts/gateway.ts",
     "lint": "eslint",
+    "test": "bun test tests",
     "desktop": "cd desktop-QT/build && ./SerikaCord",
     "desktop:dev": "cmake --build desktop-QT/build --config Debug",
     "desktop:build": "cmake --build desktop-QT/build --config Release",

@@ -1,0 +1,34 @@
+---
+description: SerikaCord safety rules and conventions (read CLAUDE.md for the full guide)
+globs:
+alwaysApply: true
+---
+
+# SerikaCord
+
+Read `CLAUDE.md` (full guide) and `AGENTS.md` before making changes;
+`docs/architecture/` has the realtime, data model, API, frontend and security
+deep dives.
+
+Safety:
+- Canary's Postgres and Redis are PRODUCTION data shared with prod. No
+  destructive SQL, no `drizzle-kit push`/`migrate`, no ad-hoc writes.
+- Schema changes: additive + idempotent SQL in `drizzle/manual_*.sql` and
+  `src/lib/db/schema.ts`; the owner applies them.
+- Never test in public servers or with real users.
+- Never push/tag/force-push. Never stash, reset, restore or commit the owner's
+  uncommitted work; stage only your own paths.
+
+Conventions:
+- `gt("literal")` / `<T>` for every user-facing string.
+- Theme colors via CSS variables (`var(--app-*)`), never hard-coded hex.
+- One chat engine for channels and DMs (`useChatSession`, `MessageList`).
+- Live events via `publishToChannel` / `publishToDm` / `fanoutToUsers`;
+  registries via `processShared()`; bot/webhook/system messages call
+  `messageSignals`.
+- Models silently ignore unknown `find`/`findOne` filter keys.
+- Webpack only, never Turbopack.
+
+Verify: `npx tsc --noEmit -p tsconfig.json`, `npx eslint <files>`,
+`bun run test`, `bun run check:theme`; add a `## Unreleased` changelog bullet
+for user-visible changes.
