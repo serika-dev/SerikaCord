@@ -92,6 +92,24 @@ export default function DirectMessagesPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("online");
+  // `?tab=add` (e.g. from the mobile Messages "Add friend" button) opens that
+  // tab directly; the param is then dropped so back/refresh don't force it.
+  useEffect(() => {
+    const isTab = (t: unknown): t is Tab =>
+      t === "online" || t === "all" || t === "pending" || t === "blocked" || t === "add";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (isTab(t)) {
+      setActiveTab(t);
+      router.replace("/channels/me");
+    }
+    // Already on this page (no remount): switch tab via event instead.
+    const onOpenTab = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab?: string } | undefined>).detail?.tab;
+      if (isTab(tab)) setActiveTab(tab);
+    };
+    window.addEventListener("openFriendsTab", onOpenTab);
+    return () => window.removeEventListener("openFriendsTab", onOpenTab);
+  }, [router]);
   const [contextMenuFriendId, setContextMenuFriendId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [addFriendUsername, setAddFriendUsername] = useState("");

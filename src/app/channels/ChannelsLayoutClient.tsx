@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
@@ -14,6 +14,8 @@ import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
+import { voiceService } from "@/lib/services/voiceService";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { AnimatePresence, motion } from "framer-motion";
@@ -143,12 +145,25 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
     defaultParentId?: string;
   }>({ open: false });
   const [showUserSettings, setShowUserSettings] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteServerId, setInviteServerId] = useState<string | null>(null);
   const [showServerSettings, setShowServerSettings] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const { currentServer, setCurrentServer, setCurrentChannel } = useServer();
+  const { currentServer, currentChannel, channels, setCurrentServer, setCurrentChannel } = useServer();
+
+  // Live voice room id (null when not connected) so the mobile VoiceBar can
+  // show the channel's name instead of the raw "channel-<id>" room id.
+  const voiceRoomId = useSyncExternalStore(
+    (onChange) => voiceService.subscribe(() => onChange()),
+    () => (voiceService.connected ? voiceService.currentRoomId : null),
+    () => null,
+  );
+  const voiceChannelName = useMemo(
+    () => (voiceRoomId ? channels.find((c) => `channel-${c.id}` === voiceRoomId)?.name : undefined),
+    [channels, voiceRoomId],
+  );
 
   // Global Discord-style keyboard shortcuts (navigation handled internally;
   // UI actions arrive as broadcast events, wired below).
@@ -156,8 +171,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubs = [
       onHotkey("create-server", () => setShowCreateServer(true)),
-      onHotkey("create-group-dm", () => setShowCreateServer(true)),
-      onHotkey("open-user-settings", () => setShowUserSettings(true)),
+      onHotkey("open-user-settings", () => { setSettingsInitialTab(null); setShowUserSettings(true); }),
     ];
     return () => unsubs.forEach((u) => u());
   }, []);
@@ -182,7 +196,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
   // Listen for custom events from UserPanel and mobile views
   useEffect(() => {
-    const handleOpenSettings = () => setShowUserSettings(true);
+    const handleOpenSettings = (e: Event) => {
+      setSettingsInitialTab((e as CustomEvent<{ tab?: string } | undefined>).detail?.tab ?? null);
+      setShowUserSettings(true);
+    };
     const handleOpenInvite = () => { setInviteServerId(null); setShowInvite(true); };
     const handleOpenServerSettings = () => setShowServerSettings(true);
     window.addEventListener('openUserSettings', handleOpenSettings);
@@ -217,6 +234,8 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Check if we're in a specific channel
   const isInChannel = pathname?.match(/\/channels\/[^/]+\/[^/]+$/);
   const isSettingsRoute = pathname?.startsWith("/channels/settings");
+  // Voice channel pages show full controls in the main area.
+  const showInFlowVoiceBar = !!isInChannel && !!voiceRoomId && currentChannel?.type !== "voice";
 
   // Transition key: only animate server switches/explore/settings, bypass channel switching within the same server to prevent snapping.
   const contentKey = useMemo(() => {
@@ -256,7 +275,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pb-[var(--mobile-content-pb)]"
+                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
               >
                 {children}
               </motion.main>
@@ -271,7 +290,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]"
+                className={cn(
+                  "flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe",
+                  !showInFlowVoiceBar && "pb-[env(safe-area-inset-bottom)]"
+                )}
               >
                 {children}
               </motion.main>
@@ -281,10 +303,16 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
               onBack={() => {
                 setCurrentChannel(null);
                 setCurrentServer(null);
+                // Leave /channels/<serverId>, otherwise the server page
+                // remounts and selects the server again.
+                router.push("/channels/me");
               }}
             />
           ) : mobileView === "messages" ? (
-            <MobileMessagesView onAddFriend={() => router.push("/channels/me")} />
+            <MobileMessagesView onAddFriend={() => {
+                  router.push("/channels/me?tab=add");
+                  window.dispatchEvent(new CustomEvent("openFriendsTab", { detail: { tab: "add" } }));
+                }} />
           ) : mobileView === "notifications" ? (
             <MobileNotificationsView />
           ) : mobileView === "profile" ? (
@@ -300,16 +328,30 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
                 transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex min-w-0 min-h-0 overflow-hidden pb-[var(--mobile-content-pb)]"
+                className="flex-1 flex min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
               >
                 {children}
               </motion.main>
             </AnimatePresence>
           )}
+
+          {/* Inside a conversation the bottom nav is hidden: keep the voice bar
+              in normal flow so the chat shrinks instead of being covered. */}
+          {showInFlowVoiceBar && (
+            <VoiceBar
+              channelName={voiceChannelName}
+              className="md:hidden pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+            />
+          )}
         </div>
 
-        {/* Voice Bar (above bottom nav when in call, but not on voice channel page) */}
-        <VoiceBar className="fixed bottom-14 left-0 right-0 z-40 md:hidden" />
+        {/* Voice Bar above the bottom nav when in a call (not inside a chat or settings) */}
+        {!isInChannel && !isSettingsRoute && (
+          <VoiceBar
+            channelName={voiceChannelName}
+            className="fixed bottom-[var(--mobile-content-pb)] left-0 right-0 z-40 md:hidden"
+          />
+        )}
         <VoiceAudioSink />
 
         {/* Bottom Navigation */}
@@ -336,6 +378,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           <UserSettingsDialog
             open={showUserSettings}
             onOpenChange={setShowUserSettings}
+            initialTab={settingsInitialTab}
           />
         </MountWhenOpened>
         <MountWhenOpened open={showInvite}>
@@ -412,6 +455,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         <UserSettingsDialog
           open={showUserSettings}
           onOpenChange={setShowUserSettings}
+          initialTab={settingsInitialTab}
         />
       </MountWhenOpened>
       <MountWhenOpened open={showInvite}>

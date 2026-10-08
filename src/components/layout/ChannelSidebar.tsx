@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { emitHotkey } from "@/lib/keybinds";
 
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
@@ -1121,7 +1122,10 @@ export function ChannelSidebar({
       <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
         {/* DM Header */}
         <div className="h-12 px-3 flex items-center border-b border-[var(--border-subtle)] shrink-0">
-          <button className="w-full h-7 px-2.5 rounded-md bg-[var(--bg-sidebar-elevated)] text-[var(--text-muted)] text-sm text-left hover:brightness-110 transition-all truncate">
+          <button
+            type="button"
+            onClick={() => emitHotkey("goto-dm")}
+            className="w-full h-7 px-2.5 rounded-md bg-[var(--bg-sidebar-elevated)] text-[var(--text-muted)] text-sm text-left hover:brightness-110 transition-all truncate">
             {gt("Find or start a conversation")}
           </button>
         </div>
@@ -1149,7 +1153,16 @@ export function ChannelSidebar({
               <span className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide">
                 <T>Direct Messages</T>
               </span>
-              <button className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  router.push("/channels/me?tab=add");
+                  window.dispatchEvent(new CustomEvent("openFriendsTab", { detail: { tab: "add" } }));
+                }}
+                aria-label={gt("Create DM")}
+                title={gt("Create DM")}
+                className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
+              >
                 <PlusCircle className="w-4 h-4" />
               </button>
             </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useUnread } from "@/contexts/UnreadContext";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -36,6 +37,7 @@ export function MobileNotificationsView() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "mentions" | "unread">("all");
+  const { markChannelRead } = useUnread();
 
   useEffect(() => {
     // Fetch notifications
@@ -97,13 +99,14 @@ export function MobileNotificationsView() {
     }
   };
 
-  const handleMarkAllRead = async () => {
-    try {
-      await fetch("/api/notifications/read-all", { method: "POST" });
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-    } catch (error) {
-      console.error("Failed to mark all as read:", error);
-    }
+  const handleMarkAllRead = () => {
+    // Ack every channel with an unread notification through the cross-device
+    // read markers (persists server-side and clears the unread/mention badges).
+    const channelIds = new Set(
+      notifications.filter((n) => !n.isRead && n.channelId).map((n) => n.channelId as string)
+    );
+    channelIds.forEach((id) => markChannelRead(id));
+    setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
   };
 
   const filteredNotifications = notifications.filter(n => {

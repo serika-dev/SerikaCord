@@ -907,8 +907,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
         serverToRoles.set(m.serverId, (m.roles || []).map((r: string) => r));
       }
 
-      // Get all channels in those servers
-      const channels = await Channel.find({ serverId: { in: serverIds } });
+      // Get all channels in those servers the user can actually view (private
+      // channels' @everyone/role mentions must not leak to every member).
+      const channels = await filterViewableChannels(user.id, await Channel.find({ serverId: { in: serverIds } }));
       const channelIds = channels.map(c => c.id);
 
       // Map channelId -> { serverId, name }
@@ -2943,6 +2944,26 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
   });
 
 // Notifications routes
+/**
+ * Drop server channels the user can't view (permission overwrites, private
+ * threads). Channels without overwrites are visible to every member, so only
+ * restricted ones pay for a full access check.
+ */
+async function filterViewableChannels<C extends { id: string; type?: string | null; permissionOverwrites?: unknown }>(
+  userId: string,
+  channels: C[],
+): Promise<C[]> {
+  const { checkChannelAccess } = await import('./channels');
+  const visible = await Promise.all(
+    channels.map((c) =>
+      c.type === 'private_thread' || (Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0)
+        ? checkChannelAccess(userId, c.id).then((r) => r.hasAccess).catch(() => false)
+        : true,
+    ),
+  );
+  return channels.filter((_, i) => visible[i]);
+}
+
 const notificationsRoutes = new Elysia({ prefix: '/notifications' })
   .get('/', async ({ headers, cookie, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -2966,8 +2987,8 @@ const notificationsRoutes = new Elysia({ prefix: '/notifications' })
         serverToRoles.set(m.serverId, (m.roles || []).map((r: string) => r));
       }
 
-      // Get all channels in those servers
-      const channels = await Channel.find({ serverId: { in: serverIds } });
+      // Get all channels in those servers the user can actually view
+      const channels = await filterViewableChannels(user.id, await Channel.find({ serverId: { in: serverIds } }));
       const channelIds = channels.map(c => c.id);
 
       // Map channelId -> { serverId, name }
@@ -2996,25 +3017,23 @@ const notificationsRoutes = new Elysia({ prefix: '/notifications' })
         for (const rid of roleIds) allUserRoleIds.add(rid);
       }
 
-      // Fetch messages in channels and filter manually
-      const mentionedMessages = await Message.find({
-        channelId: { in: channelIds },
-        isDeleted: false,
+      // Mentions filtered and limited in SQL (was a full-history scan).
+      const filteredMessages = await Message.findMentionsOf({
+        channelIds,
+        userId: user.id,
+        roleIds: [...allUserRoleIds],
+        since: sevenDaysAgo,
+        limit: 50,
       });
 
-      const filteredMessages = mentionedMessages
-        .filter(msg => new Date(msg.createdAt ?? 0) >= sevenDaysAgo)
-        .filter(msg => {
-          const mentionedUsers = msg.mentionedUserIds || [];
-          const mentionEveryone = msg.mentionEveryone || false;
-          const mentionedRoles = msg.mentionedRoleIds || [];
-          if (mentionedUsers.includes(user.id)) return true;
-          if (mentionEveryone) return true;
-          if (allUserRoleIds.size > 0 && mentionedRoles.some((r: string) => allUserRoleIds.has(r))) return true;
-          return false;
-        })
-        .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
-        .slice(0, 50);
+      // Read state comes from the cross-device read markers.
+      const { ChannelReadState } = await import('@/lib/models/ChannelReadState');
+      const mentionChannelIds = [...new Set(filteredMessages.map(m => m.channelId))];
+      const readRows = await ChannelReadState.findByUserChannels(user.id, mentionChannelIds);
+      const lastReadAt = new Map<string, number>();
+      for (const r of readRows) {
+        if (r.lastReadAt) lastReadAt.set(r.channelId, new Date(r.lastReadAt).getTime());
+      }
 
       // Batch fetch authors
       const authorIds = [...new Set(filteredMessages.map(m => m.authorId))];
@@ -3048,7 +3067,7 @@ const notificationsRoutes = new Elysia({ prefix: '/notifications' })
           description: `${mentionType === 'everyone' ? '@everyone' : 'mentioned you'} in #${channelName}`,
           avatar: author ? author.avatar : null,
           timestamp: msg.createdAt instanceof Date ? msg.createdAt.toISOString() : String(msg.createdAt),
-          isRead: false,
+          isRead: new Date(msg.createdAt ?? 0).getTime() <= (lastReadAt.get(channelId) ?? 0),
           serverId,
           channelId,
           serverName,
@@ -3062,16 +3081,6 @@ const notificationsRoutes = new Elysia({ prefix: '/notifications' })
       console.error('Failed to fetch notifications:', error);
       return { notifications: [] };
     }
-  })
-  .post('/read-all', async ({ headers, cookie, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
-      set.status = 401;
-      return { error: authError || 'Unauthorized' };
-    }
-
-    // For now, just return success - read status tracking would need a notification model
-    return { success: true };
   });
 
 // IGDB proxy — resolves a running app/executable name to game metadata without

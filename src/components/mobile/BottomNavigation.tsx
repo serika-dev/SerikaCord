@@ -102,8 +102,11 @@ export function BottomNavigation({
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-app)]/95 backdrop-blur-2xl border-t border-[var(--border-subtle)] md:hidden">
-      <div className="flex items-center justify-around h-[56px] px-1" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-app)]/95 backdrop-blur-2xl border-t border-[var(--border-subtle)] md:hidden"
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+    >
+      <div className="flex items-center justify-around h-[56px] px-1">
         {navItems.map((item) => {
           const isActive = getIsActive(item.href);
           const Icon = item.icon;

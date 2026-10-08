@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnread } from "@/contexts/UnreadContext";
@@ -42,7 +42,13 @@ interface ExtendedChannel {
 export function MobileServerView({ onBack }: MobileServerViewProps) {
   const router = useRouter();
   const gt = useGT();
-  const { currentServer, channels, setCurrentChannel } = useServer();
+  const { currentServer, channels, setCurrentChannel, fetchChannels, fetchServers } = useServer();
+  // Re-render on voice connect/leave so the active voice channel highlight is live.
+  const voiceRoomId = useSyncExternalStore(
+    (onChange) => voiceService.subscribe(() => onChange()),
+    () => (voiceService.connected ? voiceService.currentRoomId : null),
+    () => null,
+  );
   const { isChannelUnread, getMentionCount } = useUnread();
   const { can, isAdmin } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
@@ -58,13 +64,20 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
   const groupedChannels = useMemo(() => {
     const categories: Array<{ id: string | null; name: string; channels: typeof channels }> = [];
     const channelsByParent: Record<string, typeof channels> = {};
-    const categoryChannels = channels.filter(c => c.type === 'category');
-    const nonCategoryChannels = channels.filter(c => c.type !== 'category');
+    const byPosition = (a: { position?: number | null }, b: { position?: number | null }) =>
+      (a.position ?? 0) - (b.position ?? 0);
+    const categoryChannels = channels.filter(c => c.type === 'category').sort(byPosition);
+    const categoryIds = new Set(categoryChannels.map(c => c.id));
+    // Threads live under their parent channel/forum, not in the list.
+    const nonCategoryChannels = channels
+      .filter(c => c.type !== 'category' && c.type !== 'public_thread' && c.type !== 'private_thread')
+      .sort(byPosition);
 
-    // Group non-category channels by parentId
+    // Group non-category channels by parentId. A channel whose category was
+    // deleted is shown as uncategorized instead of vanishing (as on desktop).
     nonCategoryChannels.forEach(channel => {
       const extChannel = channel as typeof channel & ExtendedChannel;
-      const parentId = extChannel.parentId || 'uncategorized';
+      const parentId = extChannel.parentId && categoryIds.has(extChannel.parentId) ? extChannel.parentId : 'uncategorized';
       if (!channelsByParent[parentId]) {
         channelsByParent[parentId] = [];
       }
@@ -106,11 +119,14 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
   }, [groupedChannels, searchQuery]);
 
   const handleRefresh = useCallback(async () => {
-    if (isRefreshing) return;
+    if (isRefreshing || !currentServer) return;
     setIsRefreshing(true);
-    // Refresh will happen via context
-    setTimeout(() => setIsRefreshing(false), 1000);
-  }, [isRefreshing]);
+    try {
+      await Promise.all([fetchChannels(currentServer.id), fetchServers()]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing, currentServer, fetchChannels, fetchServers]);
 
   // Pull to refresh handlers
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -209,7 +225,9 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
         {/* Back button (for navigation) */}
         <button
           onClick={onBack}
-          className="absolute top-4 left-4 p-2 rounded-full bg-black/40 backdrop-blur-sm text-white active:scale-95 transition-transform"
+          aria-label={gt("Back")}
+          style={{ top: "calc(1rem + env(safe-area-inset-top, 0px))" }}
+          className="absolute left-4 p-2 rounded-full bg-black/40 backdrop-blur-sm text-white active:scale-95 transition-transform"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
@@ -338,7 +356,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
                           className={cn(
                             "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-150",
                             "hover:bg-[var(--bg-hover)]/80 active:bg-[var(--bg-hover)] active:scale-[0.98]",
-                            isVoice && voiceService.currentRoomId === channel.id
+                            isVoice && voiceRoomId === `channel-${channel.id}`
                               ? "bg-green-500/10 text-green-400"
                               : unread
                                 ? "text-[var(--text-primary)] font-semibold"
@@ -352,7 +370,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
                           )}>
                             {channel.name}
                           </span>
-                          {isVoice && voiceService.currentRoomId === channel.id && (
+                          {isVoice && voiceRoomId === `channel-${channel.id}` && (
                             <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                           )}
                           {mentions > 0 ? (

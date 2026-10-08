@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft,  Trash2, Camera, Image, Lock, RotateCcw, Check, Pencil } from "lucide-react";
+import { ArrowLeft,  Trash2, Camera, Image, Lock, RotateCcw, Check, Pencil, ExternalLink } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
@@ -138,7 +138,6 @@ export default function MobileSettingsSectionPage() {
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [supportText, setSupportText] = useState("");
 
   // Profiles states
   const [displayName, setDisplayName] = useState("");
@@ -540,23 +539,20 @@ export default function MobileSettingsSectionPage() {
 
         {(section === "help" || section === "bug-report" || section === "feedback") && (
           <div className="space-y-3">
-            <textarea
-              value={supportText}
-              onChange={(e) => setSupportText(e.target.value)}
-              placeholder={section === "bug-report" ? gt("Describe the bug...") : gt("Write your message...")}
-              className="w-full min-h-[140px] rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-[var(--text-primary)]"
-            />
-            <button
-              onClick={() => {
-                if (!supportText.trim()) return;
-                localStorage.setItem(`support-${section}-${Date.now()}`, supportText.trim());
-                setSupportText("");
-                toast.success(gt("Submitted. Thank you."));
-              }}
-              className="px-4 py-2 rounded-md bg-[var(--app-accent)] text-white hover:opacity-90 transition-opacity"
+            <p className="text-sm text-[var(--text-secondary)]">
+              {section === "bug-report"
+                ? gt("Bug reports go to the Serika issue tracker, where the team can follow up on them.")
+                : gt("Get help or share feedback with the Serika team and community.")}
+            </p>
+            <a
+              href={section === "bug-report" ? "https://issues.serika.dev/issues/new?project=serikacord" : "https://serika.cc/serika"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-[var(--app-accent)] text-white hover:opacity-90 transition-opacity"
             >
-              {gt("Submit")}
-            </button>
+              {section === "bug-report" ? gt("Report a Bug") : section === "help" ? gt("Get Help") : gt("Give Feedback")}
+              <ExternalLink className="w-4 h-4" />
+            </a>
           </div>
         )}
 

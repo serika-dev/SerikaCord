@@ -96,6 +96,8 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 interface UserSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Tab to show when the dialog opens (e.g. from an `openUserSettings` event's `detail.tab`). */
+  initialTab?: string | null;
 }
 
 type SettingsTab =
@@ -836,14 +838,21 @@ function VoiceVideoTab({
   );
 }
 
-export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
+export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
   const confirmDialog = useConfirm();
   const { list: badgeDefinitions, resolve: resolveBadges } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const { servers } = useServer();
-  const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
+  const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab | null | undefined) || "profiles");
+  // Jump to the requested tab each time the dialog opens (state adjusted
+  // during render rather than in an effect).
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open && initialTab) setActiveTab(initialTab as SettingsTab);
+  }
   const [displayName, setDisplayName] = useState("");
   const [profileTab, setProfileTab] = useState<"main" | "server">("main");
   const [selectedServerId, setSelectedServerId] = useState<string>("");

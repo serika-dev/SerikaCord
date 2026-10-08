@@ -5,6 +5,9 @@ import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Plus, Compass, Download } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
+import { useUnread } from "@/contexts/UnreadContext";
+import { useMentions } from "@/hooks/useMentions";
+import { useServerMutes } from "@/hooks/useServerMutes";
 
 interface MobileServerListProps {
   onServerSelect?: (server: any) => void;
@@ -14,6 +17,10 @@ interface MobileServerListProps {
 export function MobileServerList({ onServerSelect, onCreateServer }: MobileServerListProps) {
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, setCurrentChannel } = useServer();
+  // Same unread/mention sources as the desktop ServerSidebar.
+  const { isServerUnread, getServerMentionCount } = useUnread();
+  const { serverMentionCounts } = useMentions();
+  const { isMuted } = useServerMutes();
 
   const handleServerClick = (server: typeof servers[0]) => {
     setCurrentServer(server);
@@ -37,13 +44,9 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
     router.push("/channels/explore");
   };
 
-  // Helper to get unread count (optional property)
-  const getUnreadCount = (server: any): number => server.unreadCount || 0;
-  const hasNotification = (server: any): boolean => server.hasNotification || false;
-
   return (
     <div className="flex flex-col w-[76px] min-w-[76px] h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] pt-safe">
-      <div className="flex-1 overflow-y-auto scrollbar-hide py-3">
+      <div className="flex-1 overflow-y-auto scrollbar-hide pt-3 pb-[calc(var(--mobile-content-pb)+0.75rem)]">
         <div className="flex flex-col items-center gap-3 px-3">
           {/* Home Button (DMs) */}
           <div className="relative group">
@@ -72,8 +75,9 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
 
           {/* Server List */}
           {servers.map((server) => {
-            const unreadCount = getUnreadCount(server);
-            const hasUnread = hasNotification(server);
+            const muted = isMuted(server.id);
+            const unreadCount = muted ? 0 : Math.max(serverMentionCounts.get(server.id) || 0, getServerMentionCount(server.id));
+            const hasUnread = !muted && isServerUnread(server.id);
             const isActive = currentServer?.id === server.id;
             
             return (

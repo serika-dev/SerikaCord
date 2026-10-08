@@ -108,12 +108,13 @@ function LoginForm() {
               <Label className="text-sm font-medium text-[#888888]">
                 {gt("Password")}
               </Label>
-              <Link
-                href="/forgot-password"
+              {/* Passwords are owned by Serika Accounts, which serves the reset flow. */}
+              <a
+                href="https://accounts.serika.dev/forgot-password"
                 className="text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-colors"
               >
                 <T>Forgot password?</T>
-              </Link>
+              </a>
             </div>
             <div className="relative">
               <Input

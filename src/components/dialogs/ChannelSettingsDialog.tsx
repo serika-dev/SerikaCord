@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Minus, Smile, Bold, Italic, Underline, Strikethrough, Eye, EyeOff, Copy, Lock, ChevronRight, ChevronDown, Link, Radio, Info, Search, MessageSquare, AlertCircle } from "lucide-react";
+import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Minus, Bold, Italic, Underline, Strikethrough, Eye, EyeOff, Copy, Lock, ChevronRight, ChevronDown, Link, Radio, Info, Search, MessageSquare, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { CHANNEL_PERMISSIONS } from "@/lib/constants/channels";
 import { parsePermissionBitfield, stringifyPermissionBitfield } from "@/lib/roles/bitfield";
@@ -698,11 +698,8 @@ export function ChannelSettingsDialog({
                           }
                         }}
                         maxLength={100}
-                        className="pl-9 pr-9 bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--app-accent)] h-10"
+                        className="pl-9 bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--app-accent)] h-10"
                       />
-                      <button className="absolute right-3 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
-                        <Smile className="w-4 h-4" />
-                      </button>
                     </div>
                   </div>
 
@@ -773,10 +770,6 @@ export function ChannelSettingsDialog({
                               <Eye className="w-3.5 h-3.5" />
                             </button>
                           </div>
-
-                          <button className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all">
-                            <Smile className="w-3.5 h-3.5" />
-                          </button>
                         </div>
 
                         {/* Editor / Preview text content */}

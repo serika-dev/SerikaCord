@@ -137,9 +137,10 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
               </span>
               <span className="text-xs font-semibold text-green-400 flex-shrink-0">{gt("Voice Connected")}</span>
-              {(channelName || currentChannel) && (
+              {/* Never show the raw room id ("channel-<uuid>") as a name. */}
+              {channelName && (
                 <span className="text-[11px] text-[var(--app-muted-2)] truncate">
-                  — {channelName || currentChannel}
+                  — {channelName}
                 </span>
               )}
             </div>
@@ -178,12 +179,12 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
           </div>
 
           {/* Controls */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2 sm:gap-1">
             <button
               onClick={handleMute}
               title={isMuted ? gt("Unmute") : gt("Mute")}
               className={cn(
-                "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
+                "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
                 isMuted
                   ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
                   : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
@@ -196,7 +197,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
               onClick={handleDeafen}
               title={isDeafened ? gt("Undeafen") : gt("Deafen")}
               className={cn(
-                "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
+                "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
                 isDeafened
                   ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
                   : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
@@ -209,7 +210,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
               onClick={handleVideo}
               title={isVideoOn ? gt("Turn Off Camera") : gt("Turn On Camera")}
               className={cn(
-                "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
+                "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
                 isVideoOn
                   ? "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
                   : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
@@ -225,7 +226,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                 onClick={handleScreenShare}
                 title={gt("Stop Sharing")}
                 className={cn(
-                  "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
+                  "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
                   "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
                 )}
               >
@@ -238,7 +239,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
             <button
               onClick={handleDisconnect}
               title={gt("Disconnect")}
-              className="flex items-center justify-center w-8 h-8 rounded-lg bg-[#ef4444]/15 text-[#ef4444] hover:bg-[#ef4444]/25 transition-all active:scale-95"
+              className="flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg bg-[#ef4444]/15 text-[#ef4444] hover:bg-[#ef4444]/25 transition-all active:scale-95"
             >
               <PhoneOff className="w-4 h-4" />
             </button>

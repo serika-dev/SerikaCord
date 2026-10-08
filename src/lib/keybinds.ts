@@ -41,7 +41,6 @@ export type HotkeyAction =
   | "scroll-down"
   | "jump-oldest-unread"
   | "create-server"
-  | "create-group-dm"
   | "upload-file"
   | "toggle-mute"
   | "toggle-deafen"
@@ -51,11 +50,8 @@ export type HotkeyAction =
   | "search-all"
   | "answer-call"
   | "decline-call"
-  | "start-dm-call"
   | "return-to-voice"
-  | "toggle-streamer-mode"
-  | "edit-last-message"
-  | "toggle-soundboard";
+  | "edit-last-message";
 
 export interface Hotkey {
   action: HotkeyAction;
@@ -123,17 +119,13 @@ export const HOTKEYS: Hotkey[] = [
   { action: "toggle-deafen", key: "d", ctrl: true, shift: true, worksWhileTyping: true, label: "Toggle deafen", category: "Voice" },
   { action: "answer-call", key: "enter", ctrl: true, worksWhileTyping: true, label: "Answer incoming call", category: "Voice" },
   { action: "decline-call", key: "escape", worksWhileTyping: true, label: "Decline incoming call", category: "Voice" },
-  { action: "start-dm-call", key: "[", ctrl: true, worksWhileTyping: true, label: "Start call in current DM", category: "Voice" },
   { action: "return-to-voice", key: "v", ctrl: true, shift: true, alt: true, worksWhileTyping: true, label: "Return to voice channel", category: "Voice" },
-  { action: "toggle-soundboard", key: "b", ctrl: true, shift: true, worksWhileTyping: true, label: "Open soundboard", category: "Voice" },
 
   // ---- Application ----
   { action: "create-server", key: "n", ctrl: true, shift: true, worksWhileTyping: true, label: "Create or join a server", category: "Application" },
-  { action: "create-group-dm", key: "t", ctrl: true, shift: true, worksWhileTyping: true, label: "Create a private group", category: "Application" },
   { action: "toggle-help", key: "/", ctrl: true, worksWhileTyping: true, label: "Toggle keyboard shortcuts", category: "Application" },
   { action: "open-help-center", key: "h", ctrl: true, shift: true, worksWhileTyping: true, label: "Open help center", category: "Application" },
   { action: "open-user-settings", key: ",", ctrl: true, worksWhileTyping: true, label: "Open user settings", category: "Application" },
-  { action: "toggle-streamer-mode", key: "s", ctrl: true, shift: true, alt: true, worksWhileTyping: true, label: "Toggle streamer mode", category: "Application" },
 ];
 
 /** Match a keyboard event against the binding table (most-specific first).

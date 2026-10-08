@@ -25,14 +25,14 @@ const UserSettingsDialog = dynamic(
 function DMContent({ children }: { children: React.ReactNode }) {
   const [showCreateServer, setShowCreateServer] = useState(false);
   const [showUserSettings, setShowUserSettings] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
   useAppHotkeys();
   useEffect(() => {
     const unsubs = [
       onHotkey("create-server", () => setShowCreateServer(true)),
-      onHotkey("create-group-dm", () => setShowCreateServer(true)),
-      onHotkey("open-user-settings", () => setShowUserSettings(true)),
+      onHotkey("open-user-settings", () => { setSettingsInitialTab(null); setShowUserSettings(true); }),
     ];
     return () => unsubs.forEach((u) => u());
   }, []);
@@ -46,7 +46,10 @@ function DMContent({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    const handleOpenSettings = () => setShowUserSettings(true);
+    const handleOpenSettings = (e: Event) => {
+      setSettingsInitialTab((e as CustomEvent<{ tab?: string } | undefined>).detail?.tab ?? null);
+      setShowUserSettings(true);
+    };
     window.addEventListener('openUserSettings', handleOpenSettings);
     return () => window.removeEventListener('openUserSettings', handleOpenSettings);
   }, []);
@@ -57,7 +60,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
       <div className="h-dvh flex flex-col bg-[var(--bg-app)] overflow-hidden">
         {/* Main DM Content — full height; the bottom nav hides itself
             inside open conversations, so no space is reserved for it. */}
-        <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <main className="flex-1 flex flex-col min-h-0 overflow-hidden pb-[env(safe-area-inset-bottom)]">
           {children}
         </main>
 
@@ -76,6 +79,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
           <UserSettingsDialog
             open={showUserSettings}
             onOpenChange={setShowUserSettings}
+            initialTab={settingsInitialTab}
           />
         </MountWhenOpened>
         <VoiceAudioSink />
@@ -103,6 +107,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
         <UserSettingsDialog
           open={showUserSettings}
           onOpenChange={setShowUserSettings}
+          initialTab={settingsInitialTab}
         />
       </MountWhenOpened>
       <VoiceAudioSink />
