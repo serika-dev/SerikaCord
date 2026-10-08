@@ -19,6 +19,7 @@ import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { callPreviewText, parseCallData } from '@/lib/voice/callMessage';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -361,7 +362,9 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               if (msg) {
                 const decryptedContent = lastContentMap.get(msg.id) || '';
                 let displayContent = decryptedContent;
-                if (!displayContent) {
+                if (msg.type === 'call') {
+                  displayContent = callPreviewText(parseCallData(msg.call), user.id);
+                } else if (!displayContent) {
                   if (msg.attachments && (msg.attachments as unknown[]).length > 0) {
                     displayContent = 'Sent an attachment';
                   } else if (msg.sticker) {
@@ -373,6 +376,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
                   content: displayContent,
                   authorId: msg.authorId,
                   createdAt: msg.createdAt,
+                  ...(msg.type === 'call' ? { type: 'call' as const } : {}),
                 };
               }
             } catch (err) {
@@ -634,6 +638,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         sticker: msg.sticker || undefined,
         interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
         suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
+        // DM call log row ("started a call", "missed call").
+        ...(msg.type === 'call' ? { type: 'call' as const, call: parseCallData(msg.call) } : {}),
       };
     });
 

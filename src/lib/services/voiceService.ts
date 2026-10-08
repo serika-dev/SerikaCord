@@ -1,6 +1,7 @@
 import type SimplePeer from "simple-peer";
 import { isPttKeyEvent, normalizePttKey, readVoiceCallSettings, shouldTransmit, DEFAULT_PTT_KEY } from "@/lib/voice/settings";
 import { isPolitePeer, peerRetryDelayMs, signalRetryDelayMs } from "@/lib/voice/callState";
+import { isListenOnlyError, mediaAttempts, mediaOutcome, micIssue, type MicIssue } from "@/lib/voice/media";
 
 // simple-peer (+ its stream polyfills, ~95KB) is only needed once you join
 // voice, so it's loaded then instead of with every page.
@@ -66,6 +67,8 @@ export type VoiceEvent =
   | { type: "deafen_toggled"; deafened: boolean }
   | { type: "soundboard_played"; userId: string; username: string; soundName: string }
   | { type: "call_declined"; userId: string }
+  /** No usable mic: in the call listen-only (others can't hear you), or back to normal. */
+  | { type: "listen_only"; enabled: boolean; reason?: MicIssue }
   | { type: "meta_changed" };
 
 type VoiceListener = (event: VoiceEvent) => void;
@@ -140,6 +143,9 @@ class VoiceService {
     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
   ];
   private isMuted = false;
+  // Joined without a microphone (listen-only). Unmuting asks for it again.
+  private micMissing = false;
+  private micRetry: Promise<boolean> | null = null;
   private isDeafened = false;
   private isVideoOn = false;
   private isScreenSharing = false;
@@ -473,46 +479,54 @@ class VoiceService {
     this.isDeafened = false;
     this.isScreenSharing = false;
 
-    // Get mic (and optionally camera)
+    // Get mic (and optionally camera). No usable mic (none plugged in,
+    // permission refused, busy) isn't fatal: join listen-only and let the mute
+    // button ask again later.
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       this.resetLocalJoin();
       this.emitError("insecure");
       return;
     }
-    let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: this.audioConstraints,
-        video: withVideo ? { width: 1280, height: 720 } : false,
-      });
-    } catch (err) {
-      // Camera refused but a mic may still work: join with voice only.
-      if (withVideo && !cancelled()) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints, video: false });
-          withVideo = false;
-          this.emitError("camera-denied");
-        } catch (audioErr) {
-          if (!cancelled()) {
-            this.resetLocalJoin();
-            this.emitError(mediaErrorCode(audioErr, false));
-          }
-          return;
-        }
-      } else {
-        if (!cancelled()) {
+    let stream: MediaStream | null = null;
+    let lastErr: unknown = null;
+    for (const request of mediaAttempts(withVideo)) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: request.audio ? this.audioConstraints : false,
+          video: request.video ? { width: 1280, height: 720 } : false,
+        });
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (cancelled()) return;
+        // Something other than a device problem: the call can't work.
+        if (!isListenOnlyError(err)) {
           this.resetLocalJoin();
           this.emitError(mediaErrorCode(err, withVideo));
+          return;
         }
-        return;
       }
     }
     if (cancelled()) {
-      stream.getTracks().forEach((t) => t.stop());
+      stream?.getTracks().forEach((t) => t.stop());
       return;
     }
+    // Listen-only: an empty stream still lets peers connect and receive.
+    if (!stream) stream = new MediaStream();
+    const outcome = mediaOutcome({
+      wantVideo: withVideo,
+      gotAudio: stream.getAudioTracks().length > 0,
+      gotVideo: stream.getVideoTracks().length > 0,
+    });
+    withVideo = stream.getVideoTracks().length > 0;
     this.localStream = stream;
     this.isVideoOn = withVideo;
+    this.micMissing = outcome.listenOnly;
+    this.isMuted = outcome.listenOnly;
+    if (outcome.cameraMissing) this.emitError("camera-denied");
+    if (outcome.listenOnly) {
+      this.emit({ type: "listen_only", enabled: true, reason: micIssue(lastErr) });
+    }
     const rawAudio = stream.getAudioTracks()[0];
     if (rawAudio) {
       const sent = this.wrapWithInputGain(rawAudio);
@@ -531,7 +545,7 @@ class VoiceService {
       const joinRes = await fetch(`/api/voice/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId: channelId, audio: true, video: withVideo, sessionId }),
+        body: JSON.stringify({ roomId: channelId, audio: !this.micMissing, video: withVideo, sessionId }),
       });
       if (!joinRes.ok) {
         const data = await joinRes.json().catch(() => null) as { error?: string } | null;
@@ -591,6 +605,7 @@ class VoiceService {
     this.localStream = null;
     this.teardownInputGain();
     this.isVideoOn = false;
+    this.micMissing = false;
     this.roomId = null;
     this.joined = false;
     this.sessionId = null;
@@ -901,7 +916,11 @@ class VoiceService {
 
     const peer = new SimplePeerCtor({
       initiator,
-      stream: this.localStream,
+      // A listen-only (no mic) or camera-less side has nothing to send, so
+      // always ask to receive both: the offer still carries audio/video
+      // m-lines and the other side's mic and camera come through.
+      stream: this.localStream.getTracks().length > 0 ? this.localStream : undefined,
+      offerOptions: { offerToReceiveAudio: true, offerToReceiveVideo: true },
       trickle: true,
       config: {
         // Use the ICE servers fetched from /api/voice/token — this includes the
@@ -1078,6 +1097,7 @@ class VoiceService {
     this.teardownInputGain();
     this.isVideoOn = false;
     this.isMuted = false;
+    this.micMissing = false;
     this.isDeafened = false;
 
     // Destroy all peers
@@ -1211,6 +1231,11 @@ class VoiceService {
   }
 
   toggleMute(): boolean {
+    // Listen-only: "unmute" means try to get a microphone again.
+    if (this.micMissing) {
+      void this.retryMicrophone();
+      return this.isMuted;
+    }
     this.isMuted = !this.isMuted;
     this.applyMicState();
     if (this.roomId) {
@@ -1222,6 +1247,57 @@ class VoiceService {
     }
     this.emit({ type: "mute_toggled", muted: this.isMuted });
     return this.isMuted;
+  }
+
+  /**
+   * Ask for the microphone again while in a call listen-only (the browser
+   * prompts if permission can still be granted). On success the mic is sent
+   * to everyone already connected (renegotiating each peer) and you're
+   * unmuted. Resolves to whether you now have a mic.
+   */
+  retryMicrophone(): Promise<boolean> {
+    if (!this.micMissing) return Promise.resolve(true);
+    if (this.micRetry) return this.micRetry;
+    const roomId = this.roomId;
+    const attempt = (async () => {
+      let track: MediaStreamTrack | undefined;
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints, video: false });
+        track = micStream.getAudioTracks()[0];
+        if (!track) throw Object.assign(new Error("no audio track"), { name: "NotFoundError" });
+      } catch (err) {
+        if (this.roomId === roomId && this.micMissing) {
+          this.emit({ type: "listen_only", enabled: true, reason: micIssue(err) });
+        }
+        return false;
+      }
+      // Left (or moved rooms) while the prompt was open.
+      if (!roomId || this.roomId !== roomId || !this.localStream) {
+        track.stop();
+        return false;
+      }
+      const stream = this.localStream;
+      const sent = this.wrapWithInputGain(track);
+      stream.addTrack(sent);
+      this.peers.forEach((peer) => {
+        try { peer.addTrack(sent, stream); } catch { /* peer closing; a retry re-offers with it */ }
+      });
+      this.micMissing = false;
+      this.isMuted = false;
+      this.applyMicState();
+      fetch(`/api/voice/state/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio: true }),
+      }).catch(() => {});
+      this.emit({ type: "listen_only", enabled: false });
+      this.emit({ type: "mute_toggled", muted: false });
+      return true;
+    })().finally(() => {
+      this.micRetry = null;
+    });
+    this.micRetry = attempt;
+    return attempt;
   }
 
   toggleDeafen(): boolean {
@@ -1588,6 +1664,8 @@ class VoiceService {
   }
 
   get muted() { return this.isMuted; }
+  /** In the call without a microphone (others can't hear you). */
+  get listenOnly() { return this.micMissing; }
   get myId() { return this.getMyUserId(); }
   /** Snapshot of who is currently speaking (userId -> speaking). */
   get speakingSnapshot(): Map<string, boolean> { return new Map(this.speakingState); }

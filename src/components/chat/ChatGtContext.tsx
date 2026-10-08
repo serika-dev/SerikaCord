@@ -102,6 +102,16 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "Joined {name}": gt("Joined {name}", { name: "{name}" }),
       // MessageGroupHeader — timeout indicator
       "Timed out — {time} remaining": gt("Timed out — {time} remaining", { time: "{time}" }),
+      // CallMessageRow — DM call log rows
+      "Call": gt("Call"),
+      "Join call": gt("Join call"),
+      "You started a call.": gt("You started a call."),
+      "{caller} started a call.": gt("{caller} started a call.", { caller: "{caller}" }),
+      "You started a call that lasted {duration}.": gt("You started a call that lasted {duration}.", { duration: "{duration}" }),
+      "{caller} started a call that lasted {duration}.": gt("{caller} started a call that lasted {duration}.", { caller: "{caller}", duration: "{duration}" }),
+      "You missed a call from {caller}.": gt("You missed a call from {caller}.", { caller: "{caller}" }),
+      "{callee} missed your call.": gt("{callee} missed your call.", { callee: "{callee}" }),
+      "Nobody answered your call.": gt("Nobody answered your call."),
     };
 
     return (str, params) => {

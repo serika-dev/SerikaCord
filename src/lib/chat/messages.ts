@@ -71,7 +71,9 @@ export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGrou
 
     const lastGroup = groups[groups.length - 1];
     const lastMessage = lastGroup?.messages[lastGroup.messages.length - 1];
-    const sameAuthor = !!lastMessage && messageGroupKey(lastMessage) === messageGroupKey(message);
+    // Call log rows ("X started a call.") always stand alone.
+    const isCallRow = message.type === "call" || lastMessage?.type === "call";
+    const sameAuthor = !isCallRow && !!lastMessage && messageGroupKey(lastMessage) === messageGroupKey(message);
     const withinWindow =
       !!lastMessage &&
       new Date(message.createdAt).getTime() - new Date(lastMessage.createdAt).getTime() < GROUP_WINDOW_MS;

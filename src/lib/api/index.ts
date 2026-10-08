@@ -3746,6 +3746,10 @@ export async function initializeAPI() {
     // built-in badge constants on failure).
     const { ensureBadgesTable } = await import('@/lib/services/badgeRegistry');
     await ensureBadgesTable();
+    // DM call log messages: 'call' message type + messages.call column.
+    // Idempotent, never throws.
+    const { ensureCallMessageSchema } = await import('@/lib/services/dmCallMessages');
+    await ensureCallMessageSchema();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

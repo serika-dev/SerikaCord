@@ -44,6 +44,7 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
 
   const [participants, setParticipants] = useState<VoiceParticipant[]>(() => voiceService.currentParticipants);
   const [muted, setMuted] = useState(() => voiceService.muted);
+  const [listenOnly, setListenOnly] = useState(() => voiceService.listenOnly);
   const [deafened, setDeafened] = useState(() => voiceService.deafened);
   const [videoOn, setVideoOn] = useState(() => voiceService.videoOn);
   const [sharing, setSharing] = useState(() => voiceService.screenSharing);
@@ -53,12 +54,14 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
     switch (event.type) {
       case "participants_changed": setParticipants(event.participants); break;
       case "mute_toggled": setMuted(event.muted); break;
+      case "listen_only": setListenOnly(event.enabled); break;
       case "deafen_toggled": setDeafened(event.deafened); if (event.deafened) setMuted(true); break;
       case "video_toggled": setVideoOn(event.enabled); break;
       case "screen_share_toggled": setSharing(event.enabled); break;
       case "connected":
         setParticipants(voiceService.currentParticipants);
         setMuted(voiceService.muted);
+        setListenOnly(voiceService.listenOnly);
         setDeafened(voiceService.deafened);
         setVideoOn(voiceService.videoOn);
         setSharing(voiceService.screenSharing);
@@ -66,6 +69,7 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
       case "disconnected":
         setParticipants([]);
         setMuted(false);
+        setListenOnly(false);
         setDeafened(false);
         setVideoOn(false);
         setSharing(false);
@@ -153,18 +157,36 @@ export function DmCallPanel({ roomId, me, peer }: { roomId: string; me: Person; 
         {status}
       </p>
 
+      {listenOnly && voiceRoom === roomId && (
+        <p
+          role="status"
+          className="mx-auto mt-2 flex max-w-sm items-center justify-center gap-1.5 text-center text-xs text-[var(--text-secondary)]"
+        >
+          <MicOff className="h-3.5 w-3.5 shrink-0" aria-hidden />
+          {gt("No microphone — you can listen but others can't hear you")}
+        </p>
+      )}
+
       <VideoGrid className="mt-3 rounded-lg border-t-0 bg-transparent p-0" />
 
       <div className="mt-4 flex items-center justify-center gap-3">
         <button
           type="button"
           onClick={toggleMute}
-          title={muted ? gt("Unmute") : gt("Mute")}
-          aria-label={muted ? gt("Unmute") : gt("Mute")}
+          title={listenOnly ? gt("No microphone — press to try again") : muted ? gt("Unmute") : gt("Mute")}
+          aria-label={listenOnly ? gt("No microphone — press to try again") : muted ? gt("Unmute") : gt("Mute")}
           aria-pressed={muted}
-          className={cn(controlBase, muted ? off : neutral)}
+          className={cn(controlBase, "relative", muted ? off : neutral)}
         >
           {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+          {listenOnly && (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[#ef4444] text-[10px] font-bold leading-none text-white"
+            >
+              !
+            </span>
+          )}
         </button>
         <button
           type="button"

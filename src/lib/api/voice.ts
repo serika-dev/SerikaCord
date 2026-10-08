@@ -11,6 +11,7 @@ import { checkChannelAccess } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { parseVoiceRoomId, isDmRoomPeer, hasRoomForParticipant, canSignalBetween } from '@/lib/voice/rooms';
+import { onDmCallJoin, onDmCallRoomEmpty } from '@/lib/services/dmCallMessages';
 
 const sseEncoder = new TextEncoder();
 
@@ -172,10 +173,14 @@ function evictFromRoom(roomId: string, userId: string) {
   const room = roomState.get(roomId);
   if (!room || !room.has(userId)) return;
   room.delete(userId);
-  if (room.size === 0) roomState.delete(roomId);
+  const empty = room.size === 0;
+  if (empty) roomState.delete(roomId);
   publishMembership(roomId, 'leave', { userId });
   broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
   stopRingingIfEmpty(roomId);
+  // Last one out of a DM call: close its call message ("lasted 5 minutes" /
+  // "missed call").
+  if (empty) void onDmCallRoomEmpty(roomId);
 }
 
 // Subscribe this process to the voice buses. Call once at startup with a
@@ -384,6 +389,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       }
     }
 
+    // Nobody at all (not even another device of ours) was in the room: this
+    // join starts a new call.
+    const roomWasEmpty = (existing?.size ?? 0) === 0;
     const room = getRoom(body.roomId);
     const userId = user.id;
     const prev = room.get(userId);
@@ -417,6 +425,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
 
     if (callee && !resumed) {
+      // The "started a call" message in the DM (created once per call, then
+      // updated as people join). Best-effort: never blocks the join.
+      void onDmCallJoin(body.roomId, user, roomWasEmpty);
       const calleeKey = callee.toLowerCase();
       const answering = Array.from(room.keys()).some((id) => id.toLowerCase() === calleeKey);
       if (answering) {

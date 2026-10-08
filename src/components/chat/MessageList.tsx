@@ -19,6 +19,7 @@ import { useGT, useLocale } from "gt-next";
 import { ChatGtProvider } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
+import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
 import { MessageSkeleton } from "@/components/ui/skeleton";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
 import type { PickerEmoji } from "@/components/chat/MessageHoverActions";
@@ -89,6 +90,8 @@ interface MessageListProps<M extends ChatMessage> {
   /** Jump to a message (e.g. a reply preview), loading its window if it isn't
    *  rendered. Defaults to scrolling to an already-rendered row. */
   onJumpToMessage?: (messageId: string) => void;
+  /** DMs: the other person, for call log rows ("X missed your call", Join call). */
+  dmPeer?: CallRowPeer;
 }
 
 function MessageListInner<M extends ChatMessage>(
@@ -121,6 +124,7 @@ function MessageListInner<M extends ChatMessage>(
     onAtBottomChange,
     resetKey,
     onJumpToMessage,
+    dmPeer,
   }: MessageListProps<M>,
   ref: Ref<MessageListHandle>
 ) {
@@ -537,6 +541,14 @@ function MessageListInner<M extends ChatMessage>(
                   )}
                   style={shouldAnimate ? { animationDelay: `${Math.min(idx * 35, 350)}ms` } : undefined}
                 >
+                {group.messages[0].type === "call" ? (
+                <CallMessageRow
+                  message={group.messages[0]}
+                  currentUserId={currentUserId}
+                  peer={dmPeer}
+                  formattedTimestamp={formattedTimestamps[idx]}
+                />
+                ) : (
                 <MessageGroup
                   group={group}
                   currentUserId={currentUserId}
@@ -573,6 +585,7 @@ function MessageListInner<M extends ChatMessage>(
                   formattedTimestamp={formattedTimestamps[idx]}
                   newSeparatorBeforeId={midGroupSeparatorId}
                 />
+                )}
                 </div>
                 </Fragment>
                 );

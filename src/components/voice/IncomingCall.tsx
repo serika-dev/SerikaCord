@@ -127,6 +127,24 @@ export function IncomingCall() {
     else if (notice.reason === "peer-left") toast(gt("Call ended"));
   }), [gt]);
 
+  // Joined without a microphone: a heads-up, not an error (the call works).
+  useEffect(() => voiceService.subscribe((event) => {
+    if (event.type !== "listen_only") return;
+    if (!event.enabled) {
+      toast.dismiss("voice-listen-only");
+      return;
+    }
+    const why = event.reason === "mic-denied"
+      ? gt("Allow microphone access in your browser's site settings, then press the mic button.")
+      : event.reason === "mic-busy"
+        ? gt("Your microphone is being used by another app. Press the mic button to try again.")
+        : gt("Plug in a microphone, then press the mic button.");
+    toast.warning(gt("No microphone — you can listen but others can't hear you"), {
+      id: "voice-listen-only",
+      description: why,
+    });
+  }), [gt]);
+
   // Voice errors (mic blocked, join refused, moved to another device...) are
   // shown here once for every surface: DM calls, voice channels, the voice bar.
   useEffect(() => voiceService.subscribe((event) => {

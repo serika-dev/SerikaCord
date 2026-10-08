@@ -1,6 +1,7 @@
 /**
  * Shared chat message types used by both server channels (ChatArea) and DMs.
  */
+import type { CallMessageData } from "@/lib/voice/callMessage";
 
 export interface MessageAuthor {
   id: string;
@@ -99,7 +100,7 @@ export interface ReferencedMessage {
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system";
+  type?: "default" | "reply" | "system" | "call";
   authorId: string;
   author: MessageAuthor;
   channelId: string;
@@ -129,6 +130,8 @@ export interface ChatMessage {
   suppressEmbeds?: boolean;
   /** Set when an incoming channel webhook posted this message (authorId is then the webhook's id). */
   webhookId?: string;
+  /** DM call log row (type "call"): who called, when, whether it was answered. */
+  call?: CallMessageData | null;
 }
 
 export interface MessageGroupData<M extends ChatMessage = ChatMessage> {

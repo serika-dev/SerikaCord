@@ -7,6 +7,8 @@
 ## Unreleased
 
 ### Features
+- **Call messages in DMs** — starting a DM call leaves a line in the conversation like Discord: "Alex started a call." with a Join call button while it's going, then "…started a call that lasted 5 minutes." once it ends. Unanswered calls show "You missed a call from Alex." (red phone) for the person called and "Alex missed your call." for the caller, and the DM list preview reads "📞 Missed call".
+- **Call without a microphone** — no mic, a blocked mic permission or a mic busy in another app no longer stops you from starting, answering or joining a call or voice channel. You join listen-only (you hear and see everyone; a notice and the mic button say others can't hear you), and pressing the mic button asks for the microphone again and puts you on the call once it works. Video calls work with just a camera too.
 - **What's new page and version info** — User Settings and the mobile profile show the running version and commit (`SerikaCord v2.0.0 (abc1234)`) with a "What's new" link to the new `/changelog` page. Bug reports pick up the real version, and `/api/version` reports what's deployed.
 
 ### Bug Fixes

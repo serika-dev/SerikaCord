@@ -16,6 +16,7 @@ import {
 import { buildGalleryFromMessages } from "@/lib/chat/media";
 import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
+import { parseCallData } from "@/lib/voice/callMessage";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -720,6 +721,9 @@ export function useChatSession<M extends ChatMessage>({
         // not replace their pending bubble or skip the incoming-message path.
         const isOwnMessage = !incoming.webhookId
           && (incoming.authorId === user?.id || incoming.author?.id === user?.id);
+        // A call log row is posted by the server, never by the composer: it
+        // must not stand in for a pending bubble.
+        const isCallRow = incoming.type === "call";
         // Their message landed: they're no longer "typing".
         if (incoming.author?.username) clearTypingUser(incoming.author.username);
 
@@ -736,7 +740,7 @@ export function useChatSession<M extends ChatMessage>({
 
         setMessages((prev) => {
           if (prev.some((m) => m.id === incoming.id)) return prev;
-          if (isOwnMessage) {
+          if (isOwnMessage && !isCallRow) {
             // Replace the most recent temp message from this user (content
             // match is best-effort — server may normalise differently).
             const isOwnTemp = (m: M) => m.id.startsWith("temp-") && m.authorId === user?.id;
@@ -788,6 +792,16 @@ export function useChatSession<M extends ChatMessage>({
                 }
               : m
           )
+        );
+        return;
+      }
+
+      if (data.type === "call_update") {
+        // A DM call's log row changed (answered, ended).
+        const call = parseCallData(data.call);
+        if (!call) return;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === data.messageId ? { ...m, call } : m))
         );
         return;
       }

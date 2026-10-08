@@ -26,6 +26,9 @@ const forumModeEnum = pgEnum('forum_mode', ['posts', 'tickets']);
 const messageTypeEnum = pgEnum('message_type', [
   'default', 'reply', 'system', 'member_join', 'member_leave',
   'channel_pinned_message', 'user_premium_guild_subscription',
+  // DM call log row. Added at boot by ensureCallMessageSchema() (see
+  // drizzle/manual_call_messages.sql).
+  'call',
 ]);
 const inviteTypeEnum = pgEnum('invite_type', ['normal', 'vanity']);
 const applicationStatusEnum = pgEnum('application_status', ['pending', 'approved', 'rejected', 'interviewed']);
@@ -227,6 +230,9 @@ export const messages = pgTable('messages', {
   interaction: jsonb('interaction'),
   discordMessageId: text('discord_message_id'),
   suppressEmbeds: boolean('suppress_embeds').default(false),
+  // Call metadata for type 'call' (CallMessageData in lib/voice/callMessage).
+  // Added at boot by ensureCallMessageSchema().
+  call: jsonb('call'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

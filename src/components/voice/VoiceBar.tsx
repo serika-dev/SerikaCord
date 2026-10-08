@@ -39,6 +39,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
   // also what the server rendered.
   const [isConnected, setIsConnected] = useState(() => voiceService.connected);
   const [isMuted, setIsMuted] = useState(() => voiceService.muted);
+  const [listenOnly, setListenOnly] = useState(() => voiceService.listenOnly);
   const [isDeafened, setIsDeafened] = useState(() => voiceService.deafened);
   const [isVideoOn, setIsVideoOn] = useState(() => voiceService.videoOn);
   const [isScreenSharing, setIsScreenSharing] = useState(() => voiceService.screenSharing);
@@ -52,11 +53,13 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
         setIsConnected(true);
         setCurrentChannel(voiceService.currentRoomId);
         setIsMuted(voiceService.muted);
+        setListenOnly(voiceService.listenOnly);
         setIsDeafened(voiceService.deafened);
       } else if (event.type === "disconnected") {
         setIsConnected(false);
         setCurrentChannel(null);
         setIsMuted(false);
+        setListenOnly(false);
         setIsDeafened(false);
         setIsVideoOn(false);
         setIsScreenSharing(false);
@@ -69,6 +72,8 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
         setIsScreenSharing(event.enabled);
       } else if (event.type === "mute_toggled") {
         setIsMuted(event.muted);
+      } else if (event.type === "listen_only") {
+        setListenOnly(event.enabled);
       } else if (event.type === "deafen_toggled") {
         setIsDeafened(event.deafened);
         if (event.deafened) setIsMuted(true);
@@ -164,6 +169,16 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
             </span>
           </div>
 
+          {listenOnly && (
+            <div
+              role="status"
+              className="mb-2 flex items-center gap-1.5 rounded-md bg-[#ef4444]/10 px-2 py-1 text-[11px] text-[var(--text-primary)]"
+            >
+              <MicOff className="h-3 w-3 shrink-0 text-[#ef4444]" aria-hidden />
+              <span className="min-w-0">{gt("No microphone — you can listen but others can't hear you")}</span>
+            </div>
+          )}
+
           {/* Participant avatars with speaking rings */}
           <div className="flex items-center gap-3 mb-3 flex-wrap">
             <div className="flex flex-col items-center gap-1">
@@ -197,7 +212,8 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
           <div className="flex items-center gap-2 sm:gap-1">
             <button
               onClick={handleMute}
-              title={isMuted ? gt("Unmute") : gt("Mute")}
+              title={listenOnly ? gt("No microphone — press to try again") : isMuted ? gt("Unmute") : gt("Mute")}
+              aria-label={listenOnly ? gt("No microphone — press to try again") : isMuted ? gt("Unmute") : gt("Mute")}
               className={cn(
                 "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
                 isMuted

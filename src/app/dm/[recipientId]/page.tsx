@@ -243,6 +243,13 @@ export default function DMConversationPage() {
     recipientRef.current = recipient;
   }, [recipient]);
 
+  // The other person, for the call log rows in the message list.
+  const recipientAvatar = recipient?.id === recipientId ? recipient?.avatar ?? null : null;
+  const dmPeer = useMemo(
+    () => (recipientId ? { id: recipientId, name: recipientName, avatar: recipientAvatar } : undefined),
+    [recipientId, recipientName, recipientAvatar],
+  );
+
   const startCall = useCallback((video: boolean) => {
     if (!user?.id || !recipientId) return;
     voiceService.setUserId(user.id);
@@ -594,6 +601,7 @@ export default function DMConversationPage() {
           welcomeHeader={welcomeHeader}
           emptyText={`${gt("Say hi to")} ${recipientName || gt("your friend")}!`}
           resetKey={recipientId}
+          dmPeer={dmPeer}
         />
 
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />
