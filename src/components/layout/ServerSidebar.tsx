@@ -30,6 +30,7 @@ import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout";
 import { usePolling } from "@/hooks/usePolling";
 import { useGT } from "gt-next";
+import { useIsClient } from "@/hooks/useIsClient";
 import { ServerBadge } from "@/components/ui/badges";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -88,6 +89,10 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
     Math.max(serverMentionCounts.get(serverId) || 0, getServerMentionCount(serverId));
   const { isMuted, toggleMute } = useServerMutes();
   const pathname = usePathname();
+  // `window` checks in markup must wait for hydration: the server renders no
+  // Download button, so rendering it on the first client pass broke hydration
+  // (React #418) on /dm/* pages, whose layout renders this sidebar on the server.
+  const isClient = useIsClient();
 
   // Defensive: drop entries without an id and de-duplicate by id.
   const uniqueServers = useMemo(() => {
@@ -824,7 +829,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
         </Tooltip>
 
         {/* Download — only on web browser, hidden on Tauri & Capacitor */}
-        {typeof window !== "undefined" && !window.__TAURI__ && !window.Capacitor?.isNativePlatform?.() && (
+        {isClient && !window.__TAURI__ && !window.Capacitor?.isNativePlatform?.() && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button

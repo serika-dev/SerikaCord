@@ -10,6 +10,11 @@
 - **What's new page and version info** — User Settings and the mobile profile show the running version and commit (`SerikaCord v2.0.0 (abc1234)`) with a "What's new" link to the new `/changelog` page. Bug reports pick up the real version, and `/api/version` reports what's deployed.
 
 ### Bug Fixes
+- **DM calls feel like Discord** — calling someone shows a call area at the top of the DM with both avatars, "Calling…" and a ringback tone until they pick up, then a call timer and mute/deafen/camera/screen share/hang-up buttons. Unanswered calls stop after 40 seconds ("didn't answer"), a declined call says so, and when the other person leaves a 1:1 call it ends for you too. The voice bar names the DM (or channel) you're in on every page and links back to it, and gains a screen share button on desktop.
+- **Calls survive network blips** — a short drop no longer ends the call or leaves frozen audio; the connection is re-established automatically. Joining a call from a second device moves it there instead of playing audio twice.
+- **Clear call errors** — a blocked or missing microphone, a busy mic, a full channel or someone you can't call now shows a specific message in DMs too (it used to fail silently). Turning the camera off no longer leaves a frozen frame for the other person, and noise suppression no longer plays your own mic back to you.
+- **"Call" from a user menu works when that DM is already open** — it used to do nothing.
+- **No more page error on opening a DM** — fixed a hydration error (React #418) on `/dm/...` pages.
 - **Settings apply right away** — chat-side toggles (TTS, inline media, message previews, emoji picker, developer mode) take effect without a reload; sliders no longer jump back or spam "Settings saved"; your theme, notification and DND settings and saved language load after signing in or switching accounts.
 - **Privacy toggles work on desktop** — "Allow DMs from non-friends" and "Allow friend requests" now really block strangers, and there's a "Share activity status" switch. Bots can only DM people they share a server with who allow DMs.
 - **Notification fixes** — "Mute @everyone and @here" also applies to the channel you have open, and turning off "Mentions only" notifies for messages in other channels.

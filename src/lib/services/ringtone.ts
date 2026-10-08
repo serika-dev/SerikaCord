@@ -1,14 +1,26 @@
-// Incoming-call ringtone: the intro plays once, then the loop repeats until the
-// call is answered, declined or missed; a missed/cancelled call ends on the
-// outro. Played through Web Audio so the loop repeats sample-accurately (an
+// Call ringtones.
+//
+// Incoming: the intro plays once, then the loop repeats until the call is
+// answered, declined or missed; a missed/cancelled call ends on the outro.
+// Outgoing (the caller's "ringback" while waiting for an answer): the same
+// loop, quieter, with no intro or outro.
+//
+// Played through Web Audio so the loop repeats sample-accurately (an
 // <audio loop> leaves a gap at every repeat). Files: public/sounds/<set>/.
+// Both respect the notification sound toggle and volume; only the incoming
+// ring is silenced by Do Not Disturb (your own ringback isn't a notification).
 import { getNotificationVolume, isDndActive, isNotificationSoundEnabled } from "./notificationUX";
+import { ringAllowed, type RingKind } from "@/lib/voice/callState";
 
 type Part = "intro" | "loop" | "outro";
+export type { RingKind };
+
+const KIND_GAIN: Record<RingKind, number> = { incoming: 0.8, outgoing: 0.4 };
 
 let ctx: AudioContext | null = null;
-let playing: { gain: GainNode; sources: AudioBufferSourceNode[] } | null = null;
-let generation = 0; // invalidates a start that is still loading when stop() is called
+const playing = new Map<RingKind, { gain: GainNode; sources: AudioBufferSourceNode[] }>();
+// Invalidates a start that is still loading when stop() is called.
+const generation: Record<RingKind, number> = { incoming: 0, outgoing: 0 };
 const buffers = new Map<string, Promise<AudioBuffer | null>>();
 
 /** The Halloween ringtone plays through October. */
@@ -50,46 +62,58 @@ function load(ac: AudioContext, part: Part): Promise<AudioBuffer | null> {
   return buffer;
 }
 
-function output(ac: AudioContext): GainNode {
+function output(ac: AudioContext, kind: RingKind): GainNode {
   const gain = ac.createGain();
-  gain.gain.value = 0.8 * getNotificationVolume();
+  gain.gain.value = KIND_GAIN[kind] * getNotificationVolume();
   gain.connect(ac.destination);
   return gain;
 }
 
-export async function startRingtone(): Promise<void> {
-  stopRingtone();
-  if (!isNotificationSoundEnabled() || isDndActive()) return;
+export function isRinging(kind: RingKind = "incoming"): boolean {
+  return playing.has(kind);
+}
+
+export async function startRingtone(kind: RingKind = "incoming"): Promise<void> {
+  stopRingtone(false, kind);
+  if (!ringAllowed(kind, { soundEnabled: isNotificationSoundEnabled(), dnd: isDndActive() })) return;
   const ac = getCtx();
   if (!ac) return;
-  const gen = ++generation;
+  const gen = ++generation[kind];
   if (ac.state === "suspended") await ac.resume().catch(() => {});
-  const [intro, loop] = await Promise.all([load(ac, "intro"), load(ac, "loop")]);
-  void load(ac, "outro");
-  if (gen !== generation || !intro || !loop) return;
+  const withIntro = kind === "incoming";
+  const [intro, loop] = await Promise.all([withIntro ? load(ac, "intro") : Promise.resolve(null), load(ac, "loop")]);
+  if (withIntro) void load(ac, "outro");
+  if (gen !== generation[kind] || !loop || (withIntro && !intro)) return;
 
-  const gain = output(ac);
+  const gain = output(ac, kind);
   const at = ac.currentTime + 0.05;
-  const introSrc = ac.createBufferSource();
-  introSrc.buffer = intro;
-  introSrc.connect(gain);
-  introSrc.start(at);
+  const sources: AudioBufferSourceNode[] = [];
+  let loopAt = at;
+  if (intro) {
+    const introSrc = ac.createBufferSource();
+    introSrc.buffer = intro;
+    introSrc.connect(gain);
+    introSrc.start(at);
+    sources.push(introSrc);
+    loopAt = at + intro.duration;
+  }
   const loopSrc = ac.createBufferSource();
   loopSrc.buffer = loop;
   loopSrc.loop = true;
   loopSrc.connect(gain);
-  loopSrc.start(at + intro.duration);
-  playing = { gain, sources: [introSrc, loopSrc] };
+  loopSrc.start(loopAt);
+  sources.push(loopSrc);
+  playing.set(kind, { gain, sources });
 }
 
 /**
  * Stop ringing. With `outro` (missed call / caller hung up) the closing phrase
  * plays; otherwise (answered / declined) it just fades out quickly.
  */
-export function stopRingtone(outro = false): void {
-  generation++;
-  const current = playing;
-  playing = null;
+export function stopRingtone(outro = false, kind: RingKind = "incoming"): void {
+  generation[kind]++;
+  const current = playing.get(kind);
+  playing.delete(kind);
   const ac = ctx;
   if (!current || !ac) return;
 
@@ -106,10 +130,10 @@ export function stopRingtone(outro = false): void {
   }
   setTimeout(() => current.gain.disconnect(), (fade + 0.2) * 1000);
 
-  if (outro) {
+  if (outro && kind === "incoming") {
     void load(ac, "outro").then((buffer) => {
-      if (!buffer || playing) return;
-      const gain = output(ac);
+      if (!buffer || playing.has(kind)) return;
+      const gain = output(ac, kind);
       const src = ac.createBufferSource();
       src.buffer = buffer;
       src.connect(gain);

@@ -62,6 +62,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { T, useGT } from "gt-next";
+import { useIsClient } from "@/hooks/useIsClient";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
@@ -508,13 +509,14 @@ export function ChannelSidebar({
 
   // iOS detection (or ?platform=ios query param for testing).
   // Must stay above any early return so hook order is stable (React #310).
+  const isClient = useIsClient();
   const isIOS = useMemo(() => {
-    if (typeof window === "undefined") return false;
+    if (!isClient) return false; // same as the server render until hydrated
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get("platform") === "ios") return true;
     const ua = navigator.userAgent;
     return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  }, []);
+  }, [isClient]);
 
   // Group channels by type & category
   const voiceChannels = useMemo(() => channels.filter(c => c.type === "voice"), [channels]);

@@ -8,12 +8,14 @@ import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
 import { useGT } from "gt-next";
 
-export function VideoGrid() {
+export function VideoGrid({ className }: { className?: string } = {}) {
   const gt = useGT();
-  const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
-  const [isVideoOn, setIsVideoOn] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  // Start from the live call so tiles show right away when this mounts
+  // mid-call (navigating back to the DM), not only after the next event.
+  const [participants, setParticipants] = useState<VoiceParticipant[]>(() => voiceService.currentParticipants);
+  const [isVideoOn, setIsVideoOn] = useState(() => voiceService.videoOn);
+  const [isScreenSharing, setIsScreenSharing] = useState(() => voiceService.screenSharing);
+  const [isConnected, setIsConnected] = useState(() => voiceService.connected);
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const speakingUsers = useSpeakingUsers();
@@ -76,7 +78,7 @@ export function VideoGrid() {
         initial={{ opacity: 0, height: 0 }}
         animate={{ opacity: 1, height: "auto" }}
         exit={{ opacity: 0, height: 0 }}
-        className="border-t border-[#1e2637] bg-[#0a0d15] p-3 overflow-hidden"
+        className={cn("border-t border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 overflow-hidden", className)}
       >
         <div className={cn(
           "grid gap-2",
@@ -87,7 +89,7 @@ export function VideoGrid() {
         )}>
           {/* Local video */}
           {isVideoOn && (
-            <div className="relative rounded-lg overflow-hidden bg-[#131a28] aspect-video min-h-[120px]">
+            <div className="relative rounded-lg overflow-hidden bg-[var(--bg-card)] aspect-video min-h-[120px]">
               <video
                 ref={localVideoRef}
                 autoPlay
@@ -103,7 +105,7 @@ export function VideoGrid() {
 
           {/* Local screen share */}
           {isScreenSharing && (
-            <div className="relative rounded-lg overflow-hidden bg-[#131a28] aspect-video min-h-[120px] col-span-full">
+            <div className="relative rounded-lg overflow-hidden bg-[var(--bg-card)] aspect-video min-h-[120px] col-span-full">
               <video
                 ref={screenVideoRef}
                 autoPlay
@@ -168,7 +170,7 @@ function RemoteVideo({
   return (
     <div
       className={cn(
-        "relative rounded-lg overflow-hidden bg-[#131a28] aspect-video min-h-[120px] transition-shadow duration-100",
+        "relative rounded-lg overflow-hidden bg-[var(--bg-card)] aspect-video min-h-[120px] transition-shadow duration-100",
         isScreen && "col-span-full",
         !isScreen && speaking && participant.audio && "ring-2 ring-[#22c55e] shadow-[0_0_16px_rgba(34,197,94,0.4)]"
       )}

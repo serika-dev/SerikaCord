@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, Monitor, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Maximize2, Music, X, Sparkles, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
+import { voiceErrorText } from "@/components/voice/IncomingCall";
 import { cn, cdnImage } from "@/lib/utils";
 import { usePolling } from "@/hooks/usePolling";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -118,14 +119,14 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
           return next;
         });
       } else if (event.type === "error") {
-        setVoiceError(event.message);
-        toast.error(event.message);
+        // The toast itself is shown app-wide by IncomingCall.
+        setVoiceError(voiceErrorText(gt, event.code, event.message));
       } else if (event.type === "soundboard_played") {
         toast(gt("{username} played {soundName}", { username: event.username, soundName: event.soundName }), { icon: "🔊" });
       }
     });
     return unsub;
-  }, [syncFromService]);
+  }, [syncFromService, gt]);
 
   // Poll participants when not connected so users can see who's in VC
   // (visibility-aware: pauses in background tabs, refreshes on focus)
@@ -166,8 +167,14 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
     setIsJoining(true);
     setVoiceError(null);
     try {
-      await voiceService.joinChannel(roomId, false);
-      toast.success(gt("Joined #{name}", { name: channelName }));
+      await voiceService.joinChannel(roomId, false, {
+        label: channelName,
+        href: serverId ? `/channels/${serverId}/${channelId}` : undefined,
+      });
+      // joinChannel reports failures as error events rather than throwing.
+      if (voiceService.connected && voiceService.currentRoomId === roomId) {
+        toast.success(gt("Joined #{name}", { name: channelName }));
+      }
     } catch (err) {
       setVoiceError(gt("Failed to join voice channel."));
       toast.error(gt("Failed to join voice channel"));

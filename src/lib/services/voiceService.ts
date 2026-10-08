@@ -1,5 +1,6 @@
 import type SimplePeer from "simple-peer";
 import { isPttKeyEvent, normalizePttKey, readVoiceCallSettings, shouldTransmit, DEFAULT_PTT_KEY } from "@/lib/voice/settings";
+import { isPolitePeer, peerRetryDelayMs, signalRetryDelayMs } from "@/lib/voice/callState";
 
 // simple-peer (+ its stream polyfills, ~95KB) is only needed once you join
 // voice, so it's loaded then instead of with every page.
@@ -24,12 +25,39 @@ export interface VoiceParticipant {
   // so it's tracked independently and never clobbers `stream` (which carries
   // the audio the AudioSink plays).
   screenStream?: MediaStream;
+  /** Which device/tab this participant joined from (a new one replaces the old). */
+  sessionId?: string;
+}
+
+/**
+ * Why voice failed, so the UI can show a translated, specific message.
+ * `message` on the error event stays as an English fallback.
+ */
+export type VoiceErrorCode =
+  | "mic-denied"
+  | "mic-missing"
+  | "mic-busy"
+  | "insecure"
+  | "camera-denied"
+  | "room-full"
+  | "call-blocked"
+  | "join-failed"
+  | "disconnected"
+  | "moved"
+  | "screen-unsupported"
+  | "screen-failed"
+  | "soundboard";
+
+/** What the voice bar shows for the current room and where it links back to. */
+export interface VoiceRoomMeta {
+  label?: string;
+  href?: string;
 }
 
 export type VoiceEvent =
   | { type: "participants_changed"; participants: VoiceParticipant[] }
   | { type: "speaking"; userId: string; speaking: boolean }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; code?: VoiceErrorCode }
   | { type: "connected" }
   | { type: "disconnected" }
   | { type: "video_toggled"; enabled: boolean }
@@ -37,9 +65,56 @@ export type VoiceEvent =
   | { type: "mute_toggled"; muted: boolean }
   | { type: "deafen_toggled"; deafened: boolean }
   | { type: "soundboard_played"; userId: string; username: string; soundName: string }
-  | { type: "call_declined"; userId: string };
+  | { type: "call_declined"; userId: string }
+  | { type: "meta_changed" };
 
 type VoiceListener = (event: VoiceEvent) => void;
+
+function newSessionId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  } catch {
+    // fall through
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Map a getUserMedia failure to a specific, user-fixable reason. */
+function mediaErrorCode(err: unknown, withVideo: boolean): VoiceErrorCode {
+  const name = (err as { name?: string } | null)?.name;
+  if (name === "NotFoundError" || name === "DevicesNotFoundError" || name === "OverconstrainedError") return "mic-missing";
+  if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") return "mic-busy";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError") {
+    return withVideo ? "camera-denied" : "mic-denied";
+  }
+  return "mic-denied";
+}
+
+const ERROR_FALLBACK: Record<VoiceErrorCode, string> = {
+  "mic-denied": "Microphone access was blocked. Allow it in your browser's site settings to join calls.",
+  "mic-missing": "No microphone was found. Plug one in and try again.",
+  "mic-busy": "Your microphone is being used by another app.",
+  insecure: "Voice needs a secure (https) connection.",
+  "camera-denied": "Camera access was blocked. Allow it in your browser's site settings.",
+  "room-full": "This voice channel is full.",
+  "call-blocked": "You can't call this user.",
+  "join-failed": "Could not connect to voice. Please try again.",
+  disconnected: "Disconnected from voice.",
+  moved: "You joined this call on another device.",
+  "screen-unsupported": "Screen sharing isn't supported on this device or browser.",
+  "screen-failed": "Could not start screen share.",
+  soundboard: "Failed to play sound.",
+};
+
+type PeerMeta = {
+  initiator: boolean;
+  /** Our RTCPeerConnection's id, sent with every signal we post. */
+  pcId: string;
+  /** The remote connection we're paired with (learned from its offer/answer). */
+  remotePcId: string | null;
+};
+
+type RemoteSignal = Record<string, unknown> & { type?: string };
 
 // Keys typed into a text field must never trigger push-to-talk.
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -70,6 +145,21 @@ class VoiceService {
   private isScreenSharing = false;
   private screenStream: MediaStream | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private reconnectAttempt = 0;
+  // Identifies this tab's membership. Re-joins after a network blip reuse it so
+  // the server treats them as a resume; a join from another device replaces it.
+  private sessionId: string | null = null;
+  // Bumped by every join/leave so a join still awaiting the mic or the server
+  // can tell it was cancelled (hung up mid-dial) and back out.
+  private joinSeq = 0;
+  private joining: { roomId: string; promise: Promise<void> } | null = null;
+  private joined = false;
+  private meta: VoiceRoomMeta = {};
+  private peerMeta: Map<string, PeerMeta> = new Map();
+  // Signals that arrived before we knew which remote connection they belong to.
+  private pendingSignals: Map<string, Array<{ pcId: string | null; signal: RemoteSignal }>> = new Map();
+  private peerRetryTimers: Map<string, NodeJS.Timeout> = new Map();
+  private peerRetryAttempts: Map<string, number> = new Map();
   private speakingAnalysers: Map<string, { analyser: AnalyserNode; ctx: AudioContext }> = new Map();
   private speakingInterval: NodeJS.Timeout | null = null;
   private speakingState: Map<string, boolean> = new Map();
@@ -156,8 +246,21 @@ class VoiceService {
     window.addEventListener("keyup", this.onPttKeyUp, true);
     window.addEventListener("blur", this.onPttRelease);
     document.addEventListener("visibilitychange", this.onPttVisibility);
+    window.addEventListener("pagehide", this.onPageHide);
     this.pttListening = true;
   }
+
+  // Closing/reloading the tab: leave right away so the other person's call
+  // ends now, not after the server's dropped-connection grace period.
+  private onPageHide = (e: PageTransitionEvent) => {
+    if (e.persisted || !this.roomId) return; // bfcache: the page may come back
+    try {
+      const body = new Blob([JSON.stringify({ roomId: this.roomId, sessionId: this.sessionId })], { type: "application/json" });
+      navigator.sendBeacon?.("/api/voice/leave", body);
+    } catch {
+      // best effort; the server evicts after the grace period anyway
+    }
+  };
 
   private detachPttListeners() {
     this.pttHeld = false;
@@ -166,6 +269,7 @@ class VoiceService {
     window.removeEventListener("keyup", this.onPttKeyUp, true);
     window.removeEventListener("blur", this.onPttRelease);
     document.removeEventListener("visibilitychange", this.onPttVisibility);
+    window.removeEventListener("pagehide", this.onPageHide);
     this.pttListening = false;
   }
 
@@ -291,6 +395,7 @@ class VoiceService {
   private noiseAnalyser: AnalyserNode | null = null;
   private noiseInterval: NodeJS.Timeout | null = null;
   private processedStream: MediaStream | null = null;
+  private noiseSourceTrack: MediaStreamTrack | null = null;
 
   private myUserId: string = "";
 
@@ -325,62 +430,131 @@ class VoiceService {
     this.emit({ type: "participants_changed", participants: list });
   }
 
-  async joinChannel(channelId: string, withVideo = false): Promise<void> {
+  private emitError(code: VoiceErrorCode, message = ERROR_FALLBACK[code]) {
+    this.emit({ type: "error", code, message });
+  }
+
+  /**
+   * Join a voice room. `meta` labels it in the voice bar (channel or DM name)
+   * and says where "return to call" goes.
+   */
+  joinChannel(channelId: string, withVideo = false, meta?: VoiceRoomMeta): Promise<void> {
+    if (meta) {
+      const sameRoom = this.roomId === channelId || this.joining?.roomId === channelId;
+      if (sameRoom) this.meta = { ...this.meta, ...meta };
+    }
     // Already connected to this exact room — just re-emit current state so UI syncs
-    if (this.roomId === channelId) {
+    if (this.roomId === channelId && !this.joining) {
       this.emit({ type: "connected" });
       this.emitParticipants();
-      return;
+      return Promise.resolve();
     }
-    await loadSimplePeer();
-    if (this.roomId) await this.leaveChannel();
+    // A double-clicked Call button (or Call + ?call= at once) joins once.
+    if (this.joining?.roomId === channelId) return this.joining.promise;
+    const promise = this.doJoin(channelId, withVideo, meta ?? {}).finally(() => {
+      if (this.joining?.promise === promise) this.joining = null;
+    });
+    this.joining = { roomId: channelId, promise };
+    return promise;
+  }
 
+  private async doJoin(channelId: string, withVideo: boolean, meta: VoiceRoomMeta): Promise<void> {
+    await loadSimplePeer();
+    // Switching rooms: leave the old one without cancelling this join.
+    if (this.roomId) await this.leaveChannel({ keepPendingJoin: true });
+
+    const seq = ++this.joinSeq;
+    const cancelled = () => seq !== this.joinSeq;
     this.roomId = channelId;
+    this.meta = meta;
+    this.sessionId = newSessionId();
+    this.reconnectAttempt = 0;
     this.isMuted = false;
     this.isDeafened = false;
     this.isScreenSharing = false;
 
     // Get mic (and optionally camera)
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      this.resetLocalJoin();
+      this.emitError("insecure");
+      return;
+    }
+    let stream: MediaStream;
     try {
-      this.localStream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         audio: this.audioConstraints,
         video: withVideo ? { width: 1280, height: 720 } : false,
       });
-      this.isVideoOn = withVideo;
-      const rawAudio = this.localStream.getAudioTracks()[0];
-      if (rawAudio) {
-        const sent = this.wrapWithInputGain(rawAudio);
-        if (sent !== rawAudio) {
-          this.localStream.removeTrack(rawAudio);
-          this.localStream.addTrack(sent);
+    } catch (err) {
+      // Camera refused but a mic may still work: join with voice only.
+      if (withVideo && !cancelled()) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints, video: false });
+          withVideo = false;
+          this.emitError("camera-denied");
+        } catch (audioErr) {
+          if (!cancelled()) {
+            this.resetLocalJoin();
+            this.emitError(mediaErrorCode(audioErr, false));
+          }
+          return;
         }
+      } else {
+        if (!cancelled()) {
+          this.resetLocalJoin();
+          this.emitError(mediaErrorCode(err, withVideo));
+        }
+        return;
       }
-      // Push-to-talk: start silent until the key is held.
-      this.pttHeld = false;
-      this.applyMicState();
-    } catch {
-      this.emit({ type: "error", message: "Microphone/camera access denied." });
-      this.roomId = null;
+    }
+    if (cancelled()) {
+      stream.getTracks().forEach((t) => t.stop());
       return;
     }
+    this.localStream = stream;
+    this.isVideoOn = withVideo;
+    const rawAudio = stream.getAudioTracks()[0];
+    if (rawAudio) {
+      const sent = this.wrapWithInputGain(rawAudio);
+      if (sent !== rawAudio) {
+        stream.removeTrack(rawAudio);
+        stream.addTrack(sent);
+      }
+    }
+    // Push-to-talk: start silent until the key is held.
+    this.pttHeld = false;
+    this.applyMicState();
 
     // Register with server
+    const sessionId = this.sessionId;
     try {
       const joinRes = await fetch(`/api/voice/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId: channelId, audio: true, video: withVideo }),
+        body: JSON.stringify({ roomId: channelId, audio: true, video: withVideo, sessionId }),
       });
       if (!joinRes.ok) {
-        throw new Error(`join failed: ${joinRes.status}`);
+        const data = await joinRes.json().catch(() => null) as { error?: string } | null;
+        const code: VoiceErrorCode = data?.error === "This voice channel is full"
+          ? "room-full"
+          : data?.error === "You cannot call this user"
+            ? "call-blocked"
+            : "join-failed";
+        throw Object.assign(new Error(data?.error || `join failed: ${joinRes.status}`), { code });
       }
-    } catch {
-      this.localStream?.getTracks().forEach((t) => t.stop());
-      this.localStream = null;
-      this.teardownInputGain();
-      this.isVideoOn = false;
-      this.roomId = null;
-      this.emit({ type: "error", message: "Could not connect to voice. Please try again." });
+    } catch (err) {
+      if (cancelled()) return;
+      this.resetLocalJoin();
+      this.emitError(((err as { code?: VoiceErrorCode }).code) || "join-failed");
+      return;
+    }
+    if (cancelled()) {
+      // Hung up while the join was in flight: undo it server-side.
+      void fetch("/api/voice/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId: channelId, sessionId }),
+      }).catch(() => {});
       return;
     }
 
@@ -401,12 +575,29 @@ class VoiceService {
     } catch {
       // Keep the STUN fallback already set.
     }
+    if (cancelled()) return;
 
     // Connect SSE signaling
     this.attachPttListeners();
     this.connectSignaling(channelId);
     this.startSpeakingDetection();
+    this.joined = true;
     this.emit({ type: "connected" });
+  }
+
+  /** Undo a join that failed before it reached the server. */
+  private resetLocalJoin() {
+    this.localStream?.getTracks().forEach((t) => t.stop());
+    this.localStream = null;
+    this.teardownInputGain();
+    this.isVideoOn = false;
+    this.roomId = null;
+    this.joined = false;
+    this.sessionId = null;
+    this.meta = {};
+    this.joining = null;
+    // Let the UI drop any "connecting" state it showed for this attempt.
+    this.emit({ type: "disconnected" });
   }
 
   private connectSignaling(roomId: string) {
@@ -414,9 +605,16 @@ class VoiceService {
       this.signalingEs.close();
     }
 
-    this.signalingEs = new EventSource(`/api/voice/signal/${roomId}`);
+    const session = this.sessionId ? `?session=${encodeURIComponent(this.sessionId)}` : "";
+    const es = new EventSource(`/api/voice/signal/${roomId}${session}`);
+    this.signalingEs = es;
 
-    this.signalingEs.onmessage = (e) => {
+    es.onopen = () => {
+      if (this.signalingEs === es) this.reconnectAttempt = 0;
+    };
+
+    es.onmessage = (e) => {
+      if (this.signalingEs !== es) return;
       try {
         const msg = JSON.parse(e.data);
         this.handleSignalingMessage(msg);
@@ -425,37 +623,51 @@ class VoiceService {
       }
     };
 
-    this.signalingEs.onerror = () => {
+    es.onerror = () => {
+      if (this.signalingEs !== es) return;
+      // Don't let EventSource silently reconnect on its own: the server may
+      // have dropped us from the room, so every reconnect goes through /join.
+      es.close();
+      this.signalingEs = null;
       if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+      const delay = signalRetryDelayMs(this.reconnectAttempt++);
       this.reconnectTimeout = setTimeout(() => {
-        if (this.roomId) void this.resumeAfterSignalDrop(this.roomId);
-      }, 3000);
+        this.reconnectTimeout = null;
+        if (this.roomId === roomId) void this.resumeAfterSignalDrop(roomId);
+      }, delay);
     };
   }
 
-  // The server drops us from the room when our last signaling stream closes,
-  // and only joined participants may exchange offers. So re-join before
-  // reconnecting the stream.
+  // The server drops us from the room when our signaling stream stays closed
+  // for a while, and only joined participants may exchange offers. So re-join
+  // (with the same session, which the server treats as a resume) before
+  // reconnecting the stream. Peer connections that survived the blip are kept.
   private async resumeAfterSignalDrop(roomId: string) {
     try {
       const res = await fetch(`/api/voice/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomId, audio: !this.isMuted, video: this.isVideoOn }),
+        body: JSON.stringify({ roomId, audio: !this.isMuted, video: this.isVideoOn, sessionId: this.sessionId }),
       });
       if (this.roomId !== roomId) return;
       if (res.status === 400 || res.status === 403 || res.status === 404) {
         // Lost access to the room (or it's full): stop retrying.
-        this.emit({ type: "error", message: "Disconnected from voice." });
+        this.emitError("disconnected");
         await this.leaveChannel();
         return;
       }
-      if (res.ok && (this.isDeafened || this.isScreenSharing)) {
-        fetch(`/api/voice/state/${roomId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deafened: this.isDeafened, screenShare: this.isScreenSharing }),
-        }).catch(() => {});
+      if (res.ok) {
+        const data = await res.json().catch(() => null) as { resumed?: boolean } | null;
+        // The server had already let us go: everyone else dropped their
+        // connection to us, so start over and offer to them again.
+        if (!data?.resumed) this.resetAllPeers();
+        if (this.isDeafened || this.isScreenSharing) {
+          fetch(`/api/voice/state/${roomId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deafened: this.isDeafened, screenShare: this.isScreenSharing }),
+          }).catch(() => {});
+        }
       }
     } catch {
       // Network still down; reconnecting the stream will error and retry.
@@ -463,17 +675,39 @@ class VoiceService {
     if (this.roomId === roomId) this.connectSignaling(roomId);
   }
 
+  private resetAllPeers() {
+    for (const userId of Array.from(this.peers.keys())) this.destroyPeer(userId);
+    this.emitParticipants();
+  }
+
+  /** Torn down locally only — another device took over, or the server let us go. */
+  private async dropLocally(code: VoiceErrorCode) {
+    this.emitError(code);
+    await this.leaveChannel({ notifyServer: false });
+  }
+
   private handleSignalingMessage(msg: Record<string, unknown>) {
     switch (msg.type) {
       case "voice:state": {
         // Server tells us our own id for reliable self-identification
         if (msg.self) this.myUserId = msg.self as string;
+        const me = this.getMyUserId();
         const parts = (msg.participants as VoiceParticipant[]) || [];
+        // Our own entry belongs to a newer session (we joined somewhere else).
+        const mine = parts.find((p) => p.userId === me);
+        if (mine?.sessionId && this.sessionId && mine.sessionId !== this.sessionId) {
+          void this.dropLocally("moved");
+          break;
+        }
         this.participants = new Map(parts.map((p) => [p.userId, p]));
-        // We are the newcomer: initiate connections to all existing participants.
-        // Existing members will receive our offer and create non-initiator peers.
+        // Connections to people who are gone are stale.
+        for (const userId of Array.from(this.peers.keys())) {
+          if (!this.participants.has(userId)) this.destroyPeer(userId);
+        }
+        // We are the newcomer (or just reconnected): offer to everyone we don't
+        // already have a working connection with. Existing members answer.
         parts.forEach((p) => {
-          if (p.userId !== this.getMyUserId()) {
+          if (p.userId !== me && !this.peers.has(p.userId)) {
             this.createPeer(p.userId, true);
           }
         });
@@ -482,7 +716,16 @@ class VoiceService {
       }
       case "voice:participant_joined": {
         const p = msg.participant as VoiceParticipant;
-        if (p.userId === this.getMyUserId()) break;
+        if (!p?.userId) break;
+        if (p.userId === this.getMyUserId()) {
+          // Our account joined from another tab/device: it takes the call over.
+          if (p.sessionId && this.sessionId && p.sessionId !== this.sessionId) void this.dropLocally("moved");
+          break;
+        }
+        const prev = this.participants.get(p.userId);
+        // Same person from a new device/tab, or back after the server let them
+        // go: the old connection is dead. They offer to us; wait for it.
+        if (prev && prev.sessionId !== p.sessionId) this.destroyPeer(p.userId);
         this.participants.set(p.userId, p);
         // Do NOT initiate here — the newcomer initiates to us, and their offer
         // will arrive via voice:offer which creates the non-initiator peer.
@@ -490,43 +733,37 @@ class VoiceService {
         this.emitParticipants();
         break;
       }
+      case "voice:replaced": {
+        if (msg.sessionId && this.sessionId && msg.sessionId !== this.sessionId) void this.dropLocally("moved");
+        break;
+      }
       case "voice:call_declined": {
-        // The person we're calling declined. Hang up unless someone else is here.
+        // The person we're calling declined. The DM call controller hangs up.
         this.emit({ type: "call_declined", userId: msg.userId as string });
-        const others = Array.from(this.participants.keys()).filter((id) => id !== this.getMyUserId());
-        if (others.length === 0) void this.leaveChannel();
         break;
       }
       case "voice:participant_left": {
         const userId = msg.userId as string;
+        if (userId === this.getMyUserId()) {
+          // The server dropped *us* (our stream was gone too long). Re-join.
+          if (this.roomId && this.signalingEs) {
+            const roomId = this.roomId;
+            void this.resumeAfterSignalDrop(roomId);
+          }
+          break;
+        }
         this.participants.delete(userId);
         this.destroyPeer(userId);
-        this.remoteStreams.delete(userId);
-        this.remoteScreenStreams.delete(userId);
         this.emitParticipants();
         break;
       }
-      case "voice:offer": {
-        const fromUserId = msg.fromUserId as string;
-        // Only accept connections from people who are visibly in the room.
-        if (!fromUserId || fromUserId === this.getMyUserId() || !this.participants.has(fromUserId)) break;
-        if (!this.peers.has(fromUserId)) {
-          this.createPeer(fromUserId, false);
-        }
-        const peer = this.peers.get(fromUserId);
-        if (peer) peer.signal(msg.signal as SimplePeer.SignalData);
-        break;
-      }
-      case "voice:answer": {
-        const fromUserId = msg.fromUserId as string;
-        const peer = this.peers.get(fromUserId);
-        if (peer) peer.signal(msg.signal as SimplePeer.SignalData);
-        break;
-      }
+      case "voice:offer":
+      case "voice:answer":
       case "voice:ice": {
         const fromUserId = msg.fromUserId as string;
-        const peer = this.peers.get(fromUserId);
-        if (peer) peer.signal(msg.candidate as SimplePeer.SignalData);
+        const signal = (msg.type === "voice:ice" ? msg.candidate : msg.signal) as RemoteSignal | undefined;
+        if (!fromUserId || !signal || typeof signal !== "object") break;
+        this.handleRemoteSignal(fromUserId, signal, typeof msg.pcId === "string" ? msg.pcId : null);
         break;
       }
       case "voice:soundboard": {
@@ -568,6 +805,84 @@ class VoiceService {
     }
   }
 
+  /**
+   * Route an offer/answer/ICE signal to the right peer connection. Every
+   * signal carries the sender's connection id (`pcId`), so leftovers from a
+   * connection that was replaced (glare, a retry, a rejoin) never reach the
+   * new one — feeding them in used to kill fresh connections.
+   */
+  private handleRemoteSignal(fromUserId: string, signal: RemoteSignal, pcId: string | null) {
+    const me = this.getMyUserId();
+    // Only accept connections from people who are visibly in the room.
+    if (fromUserId === me || !this.participants.has(fromUserId)) return;
+
+    let peer = this.peers.get(fromUserId);
+    let meta = this.peerMeta.get(fromUserId);
+
+    if (signal.type === "offer") {
+      if (peer && meta) {
+        const samePair = pcId !== null && meta.remotePcId === pcId;
+        if (!samePair) {
+          const glare = meta.initiator && !peer.connected && meta.remotePcId === null;
+          // Both of us offered at once: the impolite side keeps its own offer.
+          if (glare && !isPolitePeer(me, fromUserId)) return;
+          // Polite side, or they started a brand-new connection: take theirs.
+          this.destroyPeer(fromUserId);
+          peer = undefined;
+          meta = undefined;
+        }
+      }
+      if (!peer) {
+        this.createPeer(fromUserId, false);
+        peer = this.peers.get(fromUserId);
+        meta = this.peerMeta.get(fromUserId);
+      }
+      if (!peer || !meta) return;
+      meta.remotePcId = pcId;
+      this.safeSignal(peer, signal);
+      this.flushPendingSignals(fromUserId);
+      return;
+    }
+
+    if (signal.type === "answer") {
+      if (!peer || !meta || !meta.initiator) return;
+      if (meta.remotePcId === null) meta.remotePcId = pcId;
+      if (pcId !== null && meta.remotePcId !== pcId) return;
+      this.safeSignal(peer, signal);
+      this.flushPendingSignals(fromUserId);
+      return;
+    }
+
+    // ICE candidates, renegotiation requests and transceiver requests.
+    if (!peer || !meta || meta.remotePcId === null) {
+      const queue = this.pendingSignals.get(fromUserId) ?? [];
+      if (queue.length < 64) queue.push({ pcId, signal });
+      this.pendingSignals.set(fromUserId, queue);
+      return;
+    }
+    if (pcId !== null && meta.remotePcId !== pcId) return; // stale connection
+    this.safeSignal(peer, signal);
+  }
+
+  private flushPendingSignals(userId: string) {
+    const queue = this.pendingSignals.get(userId);
+    const peer = this.peers.get(userId);
+    const meta = this.peerMeta.get(userId);
+    if (!queue || !peer || !meta || meta.remotePcId === null) return;
+    this.pendingSignals.delete(userId);
+    for (const item of queue) {
+      if (item.pcId === null || item.pcId === meta.remotePcId) this.safeSignal(peer, item.signal);
+    }
+  }
+
+  private safeSignal(peer: SimplePeer.Instance, signal: RemoteSignal) {
+    try {
+      peer.signal(signal as unknown as SimplePeer.SignalData);
+    } catch {
+      // A destroyed peer throws; its close handler already cleaned up.
+    }
+  }
+
   private getMyUserId(): string {
     if (this.myUserId) return this.myUserId;
     try {
@@ -581,6 +896,8 @@ class VoiceService {
   private createPeer(targetUserId: string, initiator: boolean) {
     if (this.peers.has(targetUserId)) return;
     if (!this.localStream || !this.roomId || !SimplePeerCtor) return;
+    const roomId = this.roomId;
+    const pcId = newSessionId();
 
     const peer = new SimplePeerCtor({
       initiator,
@@ -589,23 +906,31 @@ class VoiceService {
       config: {
         // Use the ICE servers fetched from /api/voice/token — this includes the
         // configured TURN relay, which is REQUIRED for two peers that can't reach
-        // each other directly (different NATs/firewalls). Previously this was
-        // hardcoded to public STUN only, so cross-network calls never connected
-        // and the two clients couldn't hear or see each other.
+        // each other directly (different NATs/firewalls).
         iceServers: this.iceServers,
       },
     });
+    // Events from a connection we've since replaced must be ignored.
+    const current = () => this.peers.get(targetUserId) === peer && this.roomId === roomId;
 
     peer.on("signal", (signal) => {
-      const endpoint = initiator ? "offer" : "answer";
-      fetch(`/api/voice/signal/${this.roomId}/${endpoint}`, {
+      if (!current()) return;
+      // Every signal (offer, answer, ICE, renegotiation) goes through one relay;
+      // the receiver routes it by `signal.type` and `pcId`.
+      fetch(`/api/voice/signal/${roomId}/offer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetUserId, signal }),
-      });
+        body: JSON.stringify({ targetUserId, signal, pcId }),
+      }).catch(() => {});
+    });
+
+    peer.on("connect", () => {
+      if (!current()) return;
+      this.peerRetryAttempts.delete(targetUserId);
     });
 
     peer.on("stream", (stream) => {
+      if (!current()) return;
       // Respect an active deafen for streams that arrive after toggling
       stream.getAudioTracks().forEach((t) => {
         t.enabled = !this.isDeafened;
@@ -616,11 +941,12 @@ class VoiceService {
       // breaks and the camera tile disappears.
       if (!this.remoteStreams.has(targetUserId)) {
         this.remoteStreams.set(targetUserId, stream);
-      } else {
+      } else if (this.remoteStreams.get(targetUserId) !== stream) {
         this.remoteScreenStreams.set(targetUserId, stream);
         // When the screen stream's track ends (sharer stopped), drop it.
         stream.getVideoTracks().forEach((t) => {
           t.addEventListener("ended", () => {
+            if (this.remoteScreenStreams.get(targetUserId) !== stream) return;
             this.remoteScreenStreams.delete(targetUserId);
             this.emitParticipants();
           });
@@ -634,6 +960,7 @@ class VoiceService {
     // 'stream' event, depending on browser/WebRTC implementation. Without this
     // listener, screen share tracks are silently dropped on the remote side.
     peer.on("track", (track: MediaStreamTrack, stream: MediaStream) => {
+      if (!current()) return;
       if (track.kind === "video") {
         // If this track is part of the primary stream, it's the camera — not a screen share.
         const primary = this.remoteStreams.get(targetUserId);
@@ -646,6 +973,7 @@ class VoiceService {
           const screenStream = new MediaStream([track]);
           this.remoteScreenStreams.set(targetUserId, screenStream);
           track.addEventListener("ended", () => {
+            if (this.remoteScreenStreams.get(targetUserId) !== screenStream) return;
             this.remoteScreenStreams.delete(targetUserId);
             this.emitParticipants();
           });
@@ -658,44 +986,86 @@ class VoiceService {
         if (primary && stream.id === primary.id) return;
         if (primary && primary.getTracks().includes(track)) return;
 
-        if (this.remoteStreams.has(targetUserId)) {
-          this.remoteStreams.get(targetUserId)!.addTrack(track);
+        track.enabled = !this.isDeafened;
+        if (primary) {
+          primary.addTrack(track);
         } else {
-          const newStream = new MediaStream([track]);
-          track.enabled = !this.isDeafened;
-          this.remoteStreams.set(targetUserId, newStream);
+          this.remoteStreams.set(targetUserId, new MediaStream([track]));
         }
         this.emitParticipants();
       }
     });
 
-    peer.on("error", () => {
+    const onDead = () => {
+      if (!current()) return;
       this.destroyPeer(targetUserId);
-    });
-
-    peer.on("close", () => {
-      this.destroyPeer(targetUserId);
-    });
+      this.emitParticipants();
+      this.schedulePeerRetry(targetUserId);
+    };
+    peer.on("error", onDead);
+    peer.on("close", onDead);
 
     this.peers.set(targetUserId, peer);
+    this.peerMeta.set(targetUserId, { initiator, pcId, remotePcId: null });
+  }
+
+  /**
+   * A connection to someone still in the room failed (ICE failure, network
+   * change). Offer again after a short delay unless they beat us to it.
+   */
+  private schedulePeerRetry(userId: string) {
+    const roomId = this.roomId;
+    if (!roomId || !this.participants.has(userId)) return;
+    const existing = this.peerRetryTimers.get(userId);
+    if (existing) clearTimeout(existing);
+    const attempt = this.peerRetryAttempts.get(userId) ?? 0;
+    if (attempt >= 6) return;
+    this.peerRetryAttempts.set(userId, attempt + 1);
+    const timer = setTimeout(() => {
+      this.peerRetryTimers.delete(userId);
+      if (this.roomId !== roomId || !this.participants.has(userId) || this.peers.has(userId)) return;
+      this.createPeer(userId, true);
+    }, peerRetryDelayMs(this.getMyUserId(), userId, attempt));
+    this.peerRetryTimers.set(userId, timer);
   }
 
   private destroyPeer(userId: string) {
     const peer = this.peers.get(userId);
+    // Remove first so the peer's own close/error handlers see it as stale.
+    this.peers.delete(userId);
+    this.peerMeta.delete(userId);
+    this.pendingSignals.delete(userId);
+    // A new connection brings new streams; keeping the old ones would play a
+    // dead stream and misfile the new mic stream as a screen share.
+    this.remoteStreams.delete(userId);
+    this.remoteScreenStreams.delete(userId);
     if (peer) {
       try { peer.destroy(); } catch { /* ignore */ }
-      this.peers.delete(userId);
     }
   }
 
-  async leaveChannel() {
+  async leaveChannel(opts: { notifyServer?: boolean; keepPendingJoin?: boolean } = {}) {
+    if (!opts.keepPendingJoin) {
+      // Cancels a join that is still waiting on the mic or the server.
+      const wasJoining = this.joining !== null;
+      this.joinSeq++;
+      this.joining = null;
+      if (wasJoining && !this.roomId) {
+        this.emit({ type: "disconnected" });
+        return;
+      }
+    }
     if (!this.roomId) return;
 
     const roomId = this.roomId;
+    const sessionId = this.sessionId;
     this.roomId = null;
+    this.joined = false;
+    this.sessionId = null;
+    this.meta = {};
 
     // Stop screen share
-    this.stopScreenShare();
+    this.stopScreenShare(roomId);
     this.stopSpeakingDetection();
     this.cleanupNoiseSuppression();
 
@@ -707,10 +1077,17 @@ class VoiceService {
     }
     this.teardownInputGain();
     this.isVideoOn = false;
+    this.isMuted = false;
+    this.isDeafened = false;
 
     // Destroy all peers
-    this.peers.forEach((_, userId) => this.destroyPeer(userId));
+    for (const userId of Array.from(this.peers.keys())) this.destroyPeer(userId);
     this.peers.clear();
+    this.peerMeta.clear();
+    this.pendingSignals.clear();
+    this.peerRetryTimers.forEach((t) => clearTimeout(t));
+    this.peerRetryTimers.clear();
+    this.peerRetryAttempts.clear();
     this.remoteStreams.clear();
     this.remoteScreenStreams.clear();
     this.participants.clear();
@@ -725,16 +1102,19 @@ class VoiceService {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    this.reconnectAttempt = 0;
 
-    // Notify server
+    // Update the UI right away; telling the server can take a moment.
+    this.emit({ type: "disconnected" });
+    this.emitParticipants();
+
+    if (opts.notifyServer === false) return;
     await fetch("/api/voice/leave", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomId }),
+      body: JSON.stringify({ roomId, sessionId }),
+      keepalive: true,
     }).catch(() => {});
-
-    this.emit({ type: "disconnected" });
-    this.emitParticipants();
   }
 
   private startSpeakingDetection() {
@@ -904,11 +1284,12 @@ class VoiceService {
       this.noiseAnalyser = this.noiseCtx.createAnalyser();
       this.noiseAnalyser.fftSize = 512;
 
-      // Chain: source -> highpass -> analyser -> gate -> destination
+      // Chain: source -> highpass -> analyser -> gate -> (stream destination
+      // below). Never connect it to ctx.destination: that played your own mic
+      // back through your speakers (self-echo, and feedback into the call).
       source.connect(this.noiseHighPass);
       this.noiseHighPass.connect(this.noiseAnalyser);
       this.noiseAnalyser.connect(this.noiseGate);
-      this.noiseGate.connect(this.noiseCtx.destination);
 
       // Noise gate loop: open gate when signal above threshold, close when below
       const GATE_OPEN = 1.0;
@@ -958,6 +1339,7 @@ class VoiceService {
         // Keep the old track alive and enabled: it feeds the gate chain
         // above. Mute/push-to-talk act on the processed track that is sent.
         oldTrack.enabled = true;
+        this.noiseSourceTrack = oldTrack;
         this.applyMicState();
       }
 
@@ -975,10 +1357,6 @@ class VoiceService {
     }
 
     try {
-      // Restore the original audio track
-      const processedTracks = this.localStream.getAudioTracks();
-      const processedTrack = processedTracks.find(t => t.label === "" || t.id !== this.localStream?.getAudioTracks()[0]?.id);
-
       // We need the original track back — re-acquire it from getUserMedia
       // since we can't easily reverse the Web Audio processing
       navigator.mediaDevices.getUserMedia({
@@ -988,21 +1366,24 @@ class VoiceService {
         const rawTrack = origStream.getAudioTracks()[0];
         const origTrack = rawTrack ? this.wrapWithInputGain(rawTrack) : rawTrack;
         if (origTrack && this.localStream) {
-          // Remove all current audio tracks
-          this.localStream.getAudioTracks().forEach((t) => {
-            this.localStream?.removeTrack(t);
+          const stream = this.localStream;
+          const sent = stream.getAudioTracks()[0];
+          // Swap the sent track in place. Adding a second audio track instead
+          // made the other side treat it as a screen share and keep playing
+          // the old one.
+          if (sent) {
+            this.peers.forEach((peer) => {
+              try {
+                (peer as unknown as { replaceTrack: (o: MediaStreamTrack, n: MediaStreamTrack, s: MediaStream) => void })
+                  .replaceTrack(sent, origTrack, stream);
+              } catch { /* ignore */ }
+            });
+          }
+          stream.getAudioTracks().forEach((t) => {
+            stream.removeTrack(t);
             t.stop();
           });
-          this.localStream.addTrack(origTrack);
-
-          // Update peers
-          this.peers.forEach((peer) => {
-            try {
-              this.localStream?.getAudioTracks().forEach((newT) => {
-                peer.addTrack(newT, this.localStream!);
-              });
-            } catch { /* ignore */ }
-          });
+          stream.addTrack(origTrack);
 
           // Apply current mute / push-to-talk state
           this.applyMicState();
@@ -1030,22 +1411,28 @@ class VoiceService {
     this.noiseAnalyser = null;
     this.processedStream = null;
     this.noiseSuppressionOn = false;
+    // The mic track that fed the gate; leaving it running kept the mic on.
+    if (this.noiseSourceTrack) {
+      this.noiseSourceTrack.stop();
+      this.noiseSourceTrack = null;
+    }
   }
 
   async toggleVideo(): Promise<boolean> {
     if (!this.localStream || !this.roomId) return false;
 
     if (this.isVideoOn) {
-      // Turn off video
-      this.localStream.getVideoTracks().forEach((t) => {
+      // Turn off video: stop sending it to every peer first (simple-peer has
+      // no replaceStream, so the old code left the last frame frozen remotely).
+      const stream = this.localStream;
+      stream.getVideoTracks().forEach((t) => {
+        this.peers.forEach((peer) => {
+          try { peer.removeTrack(t, stream); } catch { /* not sent to this peer */ }
+        });
         t.stop();
-        this.localStream?.removeTrack(t);
+        stream.removeTrack(t);
       });
       this.isVideoOn = false;
-      // Update peers - replaceStream will remove video track
-      this.peers.forEach((peer) => {
-        try { (peer as unknown as { replaceStream: (s: MediaStream) => void }).replaceStream(this.localStream!); } catch { /* ignore */ }
-      });
     } else {
       // Turn on video
       try {
@@ -1057,15 +1444,14 @@ class VoiceService {
         if (videoTrack) {
           this.localStream.addTrack(videoTrack);
           this.isVideoOn = true;
-          // Update peers - add track or replace stream
+          // Send it to everyone already connected (renegotiates each peer).
+          const stream = this.localStream;
           this.peers.forEach((peer) => {
-            try { (peer as unknown as { addTrack: (t: MediaStreamTrack, s: MediaStream) => void }).addTrack(videoTrack, this.localStream!); } catch {
-              try { (peer as unknown as { replaceStream: (s: MediaStream) => void }).replaceStream(this.localStream!); } catch { /* ignore */ }
-            }
+            try { peer.addTrack(videoTrack, stream); } catch { /* peer closing */ }
           });
         }
       } catch {
-        this.emit({ type: "error", message: "Camera access denied." });
+        this.emitError("camera-denied");
         return false;
       }
     }
@@ -1087,7 +1473,7 @@ class VoiceService {
     // getDisplayMedia is unavailable on most mobile browsers (iOS Safari has no
     // support at all). Surface a clear message instead of a generic "denied".
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getDisplayMedia) {
-      this.emit({ type: "error", message: "Screen sharing isn't supported on this device or browser." });
+      this.emitError("screen-unsupported");
       return false;
     }
 
@@ -1127,7 +1513,7 @@ class VoiceService {
         // User dismissed the picker — not an error worth surfacing loudly.
         this.emit({ type: "screen_share_toggled", enabled: false });
       } else {
-        this.emit({ type: "error", message: `Could not start screen share${name ? ` (${name})` : ""}.` });
+        this.emitError("screen-failed", `Could not start screen share${name ? ` (${name})` : ""}.`);
       }
       this.screenStream = null;
       this.isScreenSharing = false;
@@ -1135,20 +1521,29 @@ class VoiceService {
     }
   }
 
-  stopScreenShare() {
-    if (this.screenStream) {
-      this.screenStream.getTracks().forEach((t) => t.stop());
+  stopScreenShare(roomId: string | null = this.roomId) {
+    const stream = this.screenStream;
+    if (stream) {
+      // Stop sending it before stopping it, so the other side's tile goes away.
+      const tracks = stream.getVideoTracks();
+      this.peers.forEach((peer) => {
+        tracks.forEach((t) => {
+          try { peer.removeTrack(t, stream); } catch { /* not added to this peer */ }
+        });
+      });
+      stream.getTracks().forEach((t) => t.stop());
       this.screenStream = null;
     }
-    if (this.isScreenSharing && this.roomId) {
-      this.isScreenSharing = false;
-      fetch(`/api/voice/state/${this.roomId}`, {
+    if (!this.isScreenSharing) return;
+    this.isScreenSharing = false;
+    if (roomId) {
+      fetch(`/api/voice/state/${roomId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ screenShare: false }),
       }).catch(() => {});
-      this.emit({ type: "screen_share_toggled", enabled: false });
     }
+    this.emit({ type: "screen_share_toggled", enabled: false });
   }
 
   // Local playback for soundboard sounds; respects deafen and clamps volume.
@@ -1180,14 +1575,14 @@ class VoiceService {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        this.emit({ type: "error", message: data?.error || "Failed to play sound" });
+        this.emitError("soundboard", data?.error || "Failed to play sound");
         return false;
       }
       const data = await res.json().catch(() => null);
       this.playSoundboardAudio(sound.url, typeof data?.volume === "number" ? data.volume : 100);
       return true;
     } catch {
-      this.emit({ type: "error", message: "Failed to play sound. Check your connection." });
+      this.emitError("soundboard", "Failed to play sound. Check your connection.");
       return false;
     }
   }
@@ -1199,9 +1594,21 @@ class VoiceService {
   get deafened() { return this.isDeafened; }
   get videoOn() { return this.isVideoOn; }
   get screenSharing() { return this.isScreenSharing; }
-  get connected() { return this.roomId !== null; }
+  get connected() { return this.joined && this.roomId !== null; }
   isConnectedTo(roomId: string) { return this.roomId === roomId; }
   get currentRoomId() { return this.roomId; }
+  /** Room id being joined right now (mic prompt / server round-trip), if any. */
+  get joiningRoomId() { return this.joining?.roomId ?? null; }
+  /** Label + link for the current room (set by whoever joined it). */
+  get roomMeta(): VoiceRoomMeta { return this.meta; }
+  /** Update the current room's label (e.g. once a DM recipient's name loads). */
+  setRoomMeta(roomId: string, meta: VoiceRoomMeta) {
+    if (this.roomId !== roomId && this.joining?.roomId !== roomId) return;
+    const next = { ...this.meta, ...meta };
+    if (next.label === this.meta.label && next.href === this.meta.href) return;
+    this.meta = next;
+    this.emit({ type: "meta_changed" });
+  }
   get currentParticipants(): VoiceParticipant[] {
     return Array.from(this.participants.values()).map((p) => ({
       ...p,

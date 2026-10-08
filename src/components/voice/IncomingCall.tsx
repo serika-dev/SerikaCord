@@ -10,14 +10,35 @@ import { useAuth } from "@/contexts/AuthContext";
 import { onCallEvent, type CallRing } from "@/lib/chat/dmCall";
 import { onHotkey } from "@/lib/keybinds";
 import { startRingtone, stopRingtone } from "@/lib/services/ringtone";
-import { voiceService } from "@/lib/services/voiceService";
+import { voiceService, type VoiceErrorCode } from "@/lib/services/voiceService";
+import { answerDmCall, isInDmCall, onCallNotice } from "@/lib/services/dmCallController";
+import { RING_TIMEOUT_MS } from "@/lib/voice/callState";
 import { cdnImage } from "@/lib/utils";
 
-// Stop ringing (as a missed call) if nobody picks up.
-const RING_TIMEOUT_MS = 45_000;
+type Gt = ReturnType<typeof useGT>;
 
-// Incoming DM call card + ringtone. Mounted in the DM and channels layouts next
-// to VoiceAudioSink, so it rings wherever the user is in the app.
+/** Translated text for a voice error (falls back to the service's English text). */
+export function voiceErrorText(gt: Gt, code: VoiceErrorCode | undefined, fallback: string): string {
+  switch (code) {
+    case "mic-denied": return gt("Microphone access is blocked. Allow it in your browser's site settings, then try again.");
+    case "mic-missing": return gt("No microphone was found. Plug one in and try again.");
+    case "mic-busy": return gt("Your microphone is being used by another app.");
+    case "insecure": return gt("Voice needs a secure (https) connection.");
+    case "camera-denied": return gt("Camera access is blocked. Allow it in your browser's site settings.");
+    case "room-full": return gt("This voice channel is full.");
+    case "call-blocked": return gt("You can't call this user.");
+    case "join-failed": return gt("Could not connect to voice. Please try again.");
+    case "disconnected": return gt("Disconnected from voice.");
+    case "moved": return gt("You joined this call on another device.");
+    case "screen-unsupported": return gt("Screen sharing isn't supported on this device or browser.");
+    case "screen-failed": return gt("Could not start screen share.");
+    default: return fallback;
+  }
+}
+
+// Incoming DM call card + ringtone, plus the app-wide call/voice toasts.
+// Mounted once in the DM and channels layouts next to VoiceAudioSink, so it
+// rings wherever the user is in the app.
 export function IncomingCall() {
   const gt = useGT();
   const router = useRouter();
@@ -32,15 +53,19 @@ export function IncomingCall() {
   }, []);
 
   const dismiss = useCallback((outro: boolean) => {
-    stopRingtone(outro);
+    stopRingtone(outro, "incoming");
     show(null);
   }, [show]);
 
   useEffect(() => onCallEvent((event) => {
     if (event.type === "call_ring") {
-      if (voiceService.isConnectedTo(event.roomId)) return;
+      // Already in (or joining) that call on this tab: nothing to ring for.
+      if (isInDmCall(event.roomId)) return;
+      const ringing = callRef.current?.roomId === event.roomId;
       show({ roomId: event.roomId, video: event.video, caller: event.caller });
-      void startRingtone();
+      // A repeated ring for the same call (caller reconnected) keeps the
+      // current ringtone instead of restarting it.
+      if (!ringing) void startRingtone("incoming");
     } else if (callRef.current?.roomId === event.roomId) {
       // Caller hung up → outro; answered/declined on another device → just stop.
       dismiss(event.reason === "ended");
@@ -49,18 +74,27 @@ export function IncomingCall() {
 
   useEffect(() => {
     if (!call) return;
-    const timer = setTimeout(() => dismiss(true), RING_TIMEOUT_MS);
+    // Missed: stop a little after the caller's own no-answer timeout.
+    const timer = setTimeout(() => dismiss(true), RING_TIMEOUT_MS + 5_000);
     return () => clearTimeout(timer);
   }, [call, dismiss]);
 
-  useEffect(() => () => stopRingtone(), []);
+  useEffect(() => () => stopRingtone(false, "incoming"), []);
 
   const accept = useCallback((withVideo = false) => {
     const current = callRef.current;
     if (!current || !user) return;
     dismiss(false);
     voiceService.setUserId(user.id);
-    void voiceService.joinChannel(current.roomId, withVideo);
+    void answerDmCall({
+      roomId: current.roomId,
+      caller: {
+        id: current.caller.id,
+        name: current.caller.displayName || current.caller.username,
+        avatar: current.caller.avatar,
+      },
+      video: withVideo,
+    });
     router.push(`/dm/${current.caller.id}`);
   }, [dismiss, router, user]);
 
@@ -85,9 +119,21 @@ export function IncomingCall() {
     };
   }, [call, accept, decline]);
 
-  // Caller side: say so when the other person declines.
+  // How a DM call ended, from the caller's side.
+  useEffect(() => onCallNotice((notice) => {
+    const name = notice.peer?.name || gt("They");
+    if (notice.reason === "declined") toast(gt("{name} declined the call", { name }));
+    else if (notice.reason === "no-answer") toast(gt("{name} didn't answer", { name }));
+    else if (notice.reason === "peer-left") toast(gt("Call ended"));
+  }), [gt]);
+
+  // Voice errors (mic blocked, join refused, moved to another device...) are
+  // shown here once for every surface: DM calls, voice channels, the voice bar.
   useEffect(() => voiceService.subscribe((event) => {
-    if (event.type === "call_declined") toast(gt("Call declined"));
+    if (event.type !== "error") return;
+    const text = voiceErrorText(gt, event.code, event.message);
+    if (event.code === "moved") toast(text);
+    else toast.error(text, { id: `voice-error-${event.code ?? "other"}` });
   }), [gt]);
 
   if (!call) return null;
@@ -95,8 +141,10 @@ export function IncomingCall() {
 
   return (
     <div
+      role="alertdialog"
       aria-live="assertive"
-      className="fixed left-1/2 top-4 z-[200] w-[min(360px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl border border-[var(--border-subtle,#2a2a3a)] bg-[var(--bg-card,#14141f)] p-4 shadow-2xl animate-in fade-in slide-in-from-top-2"
+      aria-label={call.video ? gt("Incoming video call") : gt("Incoming voice call")}
+      className="fixed left-1/2 top-4 z-[200] w-[min(360px,calc(100vw-32px))] -translate-x-1/2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 shadow-2xl animate-in fade-in slide-in-from-top-2"
     >
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">

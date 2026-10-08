@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnread } from "@/contexts/UnreadContext";
@@ -18,8 +18,9 @@ import { ImageLightbox } from "@/components/ui/image-lightbox";
 import { Skeleton, UserProfileSkeleton } from "@/components/ui/skeleton";
 import { voiceService } from "@/lib/services/voiceService";
 import { dmCallRoomId } from "@/lib/chat/dmCall";
+import { startDmCall, updateCallPeer } from "@/lib/services/dmCallController";
 import { VoiceBar } from "@/components/voice/VoiceBar";
-import { VideoGrid } from "@/components/voice/VideoGrid";
+import { DmCallPanel } from "@/components/voice/DmCallPanel";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
 import { DeleteMessageDialog } from "@/components/chat/DeleteMessageDialog";
@@ -64,6 +65,7 @@ export default function DMConversationPage() {
   const gt = useGT();
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const recipientId = params.recipientId as string;
   const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
@@ -232,18 +234,53 @@ export default function DMConversationPage() {
     }
   }, [user?.id]);
 
-  // Auto-start a call when arriving from a "Call"/"Video Call" menu action
-  // (e.g. from the member list), via ?call=voice|video.
+  const callRoomId = user?.id && recipientId ? dmCallRoomId(user.id, recipientId) : null;
+  const recipientName = recipient?.displayName || recipient?.username;
+  // Latest profile for the call handlers below without re-running them on
+  // every profile refresh.
+  const recipientRef = useRef(recipient);
   useEffect(() => {
-    if (!user?.id || !recipientId || typeof window === "undefined") return;
-    const call = new URLSearchParams(window.location.search).get("call");
-    if (call !== "voice" && call !== "video") return;
+    recipientRef.current = recipient;
+  }, [recipient]);
+
+  const startCall = useCallback((video: boolean) => {
+    if (!user?.id || !recipientId) return;
     voiceService.setUserId(user.id);
-    void voiceService.joinChannel(dmCallRoomId(user.id, recipientId), call === "video");
+    const r = recipientRef.current;
+    const loaded = r && r.id === recipientId ? r : null;
+    void startDmCall({
+      myId: user.id,
+      peer: {
+        id: recipientId,
+        name: loaded?.displayName || loaded?.username,
+        avatar: loaded?.avatar ?? null,
+      },
+      video,
+    });
+  }, [user?.id, recipientId]);
+
+  // Name the call (voice bar, call panel) once the recipient's profile loads.
+  useEffect(() => {
+    if (!callRoomId || !recipient || recipient.id !== recipientId) return;
+    updateCallPeer(callRoomId, {
+      id: recipientId,
+      name: recipient.displayName || recipient.username,
+      avatar: recipient.avatar ?? null,
+    });
+  }, [callRoomId, recipient, recipientId]);
+
+  // Start a call when arriving from a "Call"/"Video Call" menu action (member
+  // list, user menu) via ?call=voice|video. Keyed on the search params, so it
+  // also fires when that DM is already open (the page doesn't remount).
+  const callParam = searchParams.get("call");
+  useEffect(() => {
+    if (callParam !== "voice" && callParam !== "video") return;
+    if (!user?.id || !recipientId) return;
+    startCall(callParam === "video");
     const url = new URL(window.location.href);
     url.searchParams.delete("call");
-    window.history.replaceState(null, "", url.toString());
-  }, [user?.id, recipientId]);
+    router.replace(`${url.pathname}${url.search}${url.hash}`, { scroll: false });
+  }, [callParam, user?.id, recipientId, startCall, router]);
 
   // Cross-server emojis/stickers for the DM pickers (best-effort)
   useEffect(() => {
@@ -419,8 +456,6 @@ export default function DMConversationPage() {
     return null;
   }
 
-  const recipientName = recipient?.displayName || recipient?.username;
-
   const welcomeHeader = (
     <div className="flex flex-col items-start gap-2 mb-6 px-4 animate-fade-in-up">
       {recipientLoading ? (
@@ -484,20 +519,26 @@ export default function DMConversationPage() {
           </div>
 
           <div className="flex items-center gap-0.5 sm:gap-2">
-            <button
-              onClick={() => user?.id && recipientId && void voiceService.joinChannel(dmCallRoomId(user.id, recipientId))}
-              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
-              title={gt("Start Voice Call")}
-            >
-              <Phone className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => user?.id && recipientId && void voiceService.joinChannel(dmCallRoomId(user.id, recipientId), true)}
-              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
-              title={gt("Start Video Call")}
-            >
-              <Video className="w-5 h-5" />
-            </button>
+            {!recipient?.isSystem && (
+              <>
+                <button
+                  onClick={() => startCall(false)}
+                  className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+                  title={gt("Start Voice Call")}
+                  aria-label={gt("Start Voice Call")}
+                >
+                  <Phone className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => startCall(true)}
+                  className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+                  title={gt("Start Video Call")}
+                  aria-label={gt("Start Video Call")}
+                >
+                  <Video className="w-5 h-5" />
+                </button>
+              </>
+            )}
             <button
               onClick={() => setShowPins(true)}
               className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
@@ -518,6 +559,15 @@ export default function DMConversationPage() {
             </button>
           </div>
         </div>
+
+        {/* Discord-style call area while this DM's call is up */}
+        {callRoomId && (
+          <DmCallPanel
+            roomId={callRoomId}
+            me={{ id: user.id, name: user.displayName || user.username, avatar: user.avatar }}
+            peer={{ id: recipientId, name: recipientName || gt("your friend"), avatar: recipient?.avatar }}
+          />
+        )}
 
         {/* Messages */}
         <MessageList
@@ -579,9 +629,9 @@ export default function DMConversationPage() {
             />
           )}
 
-          {/* Voice call UI for DM calls */}
-          <VideoGrid />
-          <VoiceBar channelName={recipientName || gt("DM Call")} />
+          {/* Mobile has no sidebar voice bar: show a call in another room here
+              (this DM's own call has the panel above). */}
+          <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
         </div>
       </div>
 

@@ -9,6 +9,7 @@ import { isSystemUser } from '@/lib/services/systemUsers';
 import { fanoutToUsers } from './activity';
 import { checkChannelAccess } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { parseVoiceRoomId, isDmRoomPeer, hasRoomForParticipant, canSignalBetween } from '@/lib/voice/rooms';
 
 const sseEncoder = new TextEncoder();
@@ -32,20 +33,43 @@ type VoiceParticipant = {
   video: boolean;
   deafened: boolean;
   joinedAt: string;
+  /** The tab/device this membership belongs to; a join from another replaces it. */
+  sessionId?: string;
 };
 
 // Local mirror of every voice room's membership. Kept in sync across instances
 // via the Redis `voice:members` bus, so a client connecting to ANY instance
 // sees everyone in the room (WebRTC media stays fully P2P — only this small bit
 // of signaling/presence goes through the server).
-const roomState = new Map<string, Map<string, VoiceParticipant>>();
+// Process-shared (see processShared.ts) so every copy of this module sees the
+// same rooms and streams.
+const roomState = processShared('voice:roomState', () => new Map<string, Map<string, VoiceParticipant>>());
 
 // SSE connections per voice room: roomId -> userId -> controller set (per process)
-const voiceSignalingConnections = new Map<string, Map<string, Set<ReadableStreamDefaultController>>>();
+const voiceSignalingConnections = processShared(
+  'voice:signalConnections',
+  () => new Map<string, Map<string, Set<ReadableStreamDefaultController>>>(),
+);
+
+// A dropped signaling stream (network blip, laptop sleep, Wi-Fi switch) only
+// removes its user from the room after this grace period, so a quick
+// reconnect resumes the call instead of ending it for everyone.
+const SIGNAL_DROP_GRACE_MS = 12_000;
+const pendingEvictions = processShared('voice:pendingEvictions', () => new Map<string, ReturnType<typeof setTimeout>>());
+const evictionKey = (roomId: string, userId: string) => `${roomId}|${userId}`;
+
+function cancelEviction(roomId: string, userId: string) {
+  const key = evictionKey(roomId, userId);
+  const timer = pendingEvictions.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    pendingEvictions.delete(key);
+  }
+}
 
 // Cross-instance buses. `originId` lets an instance skip echoes of its own
 // publishes (it already delivered/applied them locally).
-const INSTANCE_ID = randomUUID();
+const INSTANCE_ID = PROCESS_INSTANCE_ID || randomUUID();
 const VOICE_SSE_BUS = 'voice:sse';       // client-bound SSE payloads
 const VOICE_MEMBERS_BUS = 'voice:members'; // room membership sync
 
@@ -130,14 +154,28 @@ function stopRingingIfEmpty(roomId: string) {
 type CallingUser = { id: string; friends?: string[] | null; blockedUsers?: string[] | null };
 
 // Same rule as sending a DM: nobody blocked either way, and either friends or
-// the callee accepts DMs from everyone.
-async function canCall(caller: CallingUser, calleeId: string): Promise<boolean> {
+// the callee accepts DMs from everyone. Returns the callee's stored id (the
+// exact key their activity stream is registered under), or null.
+async function canCall(caller: CallingUser, calleeId: string): Promise<string | null> {
   const callee = await User.findById(calleeId);
-  if (!callee || callee.isSystem || isSystemUser(callee.id)) return false;
+  if (!callee || callee.isSystem || isSystemUser(callee.id)) return null;
   const has = (list: string[] | null | undefined, id: string) => (list || []).some((x) => x.toLowerCase() === id.toLowerCase());
-  if (has(caller.blockedUsers, callee.id) || has(callee.blockedUsers, caller.id)) return false;
-  return has(caller.friends, callee.id)
+  if (has(caller.blockedUsers, callee.id) || has(callee.blockedUsers, caller.id)) return null;
+  const allowed = has(caller.friends, callee.id)
     || (callee.settings as IUserSettings | undefined)?.privacy?.directMessages === 'everyone';
+  return allowed ? callee.id : null;
+}
+
+/** Remove a user from a room and tell everyone (and stop a now-pointless ring). */
+function evictFromRoom(roomId: string, userId: string) {
+  cancelEviction(roomId, userId);
+  const room = roomState.get(roomId);
+  if (!room || !room.has(userId)) return;
+  room.delete(userId);
+  if (room.size === 0) roomState.delete(roomId);
+  publishMembership(roomId, 'leave', { userId });
+  broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
+  stopRingingIfEmpty(roomId);
 }
 
 // Subscribe this process to the voice buses. Call once at startup with a
@@ -163,7 +201,11 @@ export async function startVoiceBridge(): Promise<() => void> {
         // complete participant snapshot on connect.
         const room = getRoom(msg.roomId);
         if (msg.action === 'join' && msg.participant) {
-          room.set((msg.participant as VoiceParticipant).userId, msg.participant as VoiceParticipant);
+          const participant = msg.participant as VoiceParticipant;
+          // They (re)joined through another instance: a pending eviction here
+          // for a dropped stream is obsolete.
+          cancelEviction(msg.roomId, participant.userId);
+          room.set(participant.userId, participant);
         } else if (msg.action === 'leave' && msg.userId) {
           room.delete(msg.userId as string);
           if (room.size === 0) roomState.delete(msg.roomId);
@@ -335,8 +377,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         set.status = 403;
         return { error: 'Not part of this call' };
       }
-      callee = peers[0] === me ? peers[1] : peers[0];
-      if (!(await canCall(user, callee))) {
+      callee = await canCall(user, peers[0] === me ? peers[1] : peers[0]);
+      if (!callee) {
         set.status = 403;
         return { error: 'You cannot call this user' };
       }
@@ -344,6 +386,13 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
 
     const room = getRoom(body.roomId);
     const userId = user.id;
+    const prev = room.get(userId);
+    const sessionId = body.sessionId || undefined;
+    // Same tab coming back after a network blip: refresh, don't re-announce
+    // (that would make everyone tear down a connection that may still work)
+    // and don't ring the other person again.
+    const resumed = !!prev && !!sessionId && prev.sessionId === sessionId;
+    cancelEviction(body.roomId, userId);
     room.set(userId, {
       userId,
       username: user.username,
@@ -351,19 +400,25 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       avatar: user.avatar || undefined,
       audio: body.audio ?? true,
       video: body.video ?? false,
-      deafened: false,
-      joinedAt: new Date().toISOString(),
+      deafened: resumed && prev ? prev.deafened : false,
+      joinedAt: resumed && prev ? prev.joinedAt : new Date().toISOString(),
+      sessionId,
     });
 
     // Sync membership to other instances' mirrors, then notify participants.
     publishMembership(body.roomId, 'join', { participant: room.get(userId) });
-    broadcastToRoom(body.roomId, {
-      type: 'voice:participant_joined',
-      participant: room.get(userId),
-    }, userId);
+    if (!resumed) {
+      broadcastToRoom(body.roomId, {
+        type: 'voice:participant_joined',
+        participant: room.get(userId),
+      }, userId);
+      // Joined from another tab/device: that one hands the call over.
+      if (prev) sendToUser(body.roomId, userId, { type: 'voice:replaced', sessionId });
+    }
 
-    if (callee) {
-      const answering = Array.from(room.keys()).some((id) => id.toLowerCase() === callee);
+    if (callee && !resumed) {
+      const calleeKey = callee.toLowerCase();
+      const answering = Array.from(room.keys()).some((id) => id.toLowerCase() === calleeKey);
       if (answering) {
         // Picked up on one device — stop it ringing on the others.
         notifyCall([userId], { type: 'call_cancel', roomId: body.roomId, reason: 'answered' });
@@ -385,6 +440,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     return {
       success: true,
       roomId: body.roomId,
+      resumed,
       participants: Array.from(room.values()),
     };
   }, {
@@ -393,6 +449,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       channelId: t.Optional(t.String()),
       audio: t.Optional(t.Boolean()),
       video: t.Optional(t.Boolean()),
+      sessionId: t.Optional(t.String({ maxLength: 64 })),
     }),
   })
   .post('/leave', async ({ headers, cookie, body, set }) => {
@@ -408,18 +465,14 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
 
     const userId = user.id;
-    room.delete(userId);
-    if (room.size === 0) {
-      roomState.delete(body.roomId);
+    const current = room.get(userId);
+    // A late leave from a tab/device the call already moved away from must
+    // not kick the one that's in it now.
+    if (current && body.sessionId && current.sessionId && current.sessionId !== body.sessionId) {
+      return { success: true, roomId: body.roomId, participants: Array.from(room.values()) };
     }
 
-    // Sync membership to other instances, then notify remaining participants.
-    publishMembership(body.roomId, 'leave', { userId });
-    broadcastToRoom(body.roomId, {
-      type: 'voice:participant_left',
-      userId,
-    });
-    stopRingingIfEmpty(body.roomId);
+    evictFromRoom(body.roomId, userId);
 
     // Clean up signaling connections for this user in this room
     const roomConnections = voiceSignalingConnections.get(body.roomId);
@@ -433,11 +486,12 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     return {
       success: true,
       roomId: body.roomId,
-      participants: room ? Array.from(room.values()) : [],
+      participants: Array.from(roomState.get(body.roomId)?.values() ?? []),
     };
   }, {
     body: t.Object({
       roomId: t.String({ minLength: 1 }),
+      sessionId: t.Optional(t.String({ maxLength: 64 })),
     }),
   })
   // Decline an incoming DM call: tell the caller, stop ringing on my devices.
@@ -454,7 +508,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       return { error: 'Not part of this call' };
     }
 
-    broadcastToRoom(body.roomId, { type: 'voice:call_declined', userId: user.id }, user.id);
+    // Declining on one device while already in the call on another (or from
+    // a stale card) must not hang the caller up.
+    if (!roomState.get(body.roomId)?.has(user.id)) {
+      broadcastToRoom(body.roomId, { type: 'voice:call_declined', userId: user.id }, user.id);
+    }
     notifyCall([user.id], { type: 'call_cancel', roomId: body.roomId, reason: 'declined' });
     return { success: true };
   }, {
@@ -508,7 +566,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     query: t.Object({ rooms: t.String() }),
   })
   // SSE signaling stream for a voice room
-  .get('/signal/:roomId', async ({ headers, cookie, params }) => {
+  .get('/signal/:roomId', async ({ headers, cookie, params, query }) => {
     const sseHeaders = {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -545,6 +603,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
 
     let controllerRef: ReadableStreamDefaultController | null = null;
     let pingInterval: NodeJS.Timeout | null = null;
+    const streamSession = typeof query.session === 'string' && query.session.length <= 64 ? query.session : null;
 
     const stream = new ReadableStream({
       start(controller) {
@@ -557,6 +616,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
           roomConns.set(userId, new Set());
         }
         roomConns.get(userId)!.add(controller);
+        // Reconnected in time: keep them in the room.
+        const member = roomState.get(roomId)?.get(userId);
+        if (member && (!streamSession || !member.sessionId || member.sessionId === streamSession)) {
+          cancelEviction(roomId, userId);
+        }
 
         // Send current room state (include self so client can identify itself)
         const room = roomState.get(roomId);
@@ -583,18 +647,28 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
           userConns.delete(controllerRef);
           // When the user's last signaling stream for this room drops (tab
           // closed, navigated away, network died) without a clean POST /leave,
-          // evict them from the room mirror so they don't linger forever as a
-          // ghost participant — and tell the remaining members. A reconnect
-          // re-adds them via POST /join.
+          // evict them after a grace period so they don't linger as a ghost
+          // participant. A reconnect within the grace period (POST /join with
+          // the same session, then a new stream) cancels it.
           if (userConns.size === 0) {
             roomConns.delete(userId);
-            const room = roomState.get(roomId);
-            if (room && room.has(userId)) {
-              room.delete(userId);
-              if (room.size === 0) roomState.delete(roomId);
-              publishMembership(roomId, 'leave', { userId });
-              broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
-              stopRingingIfEmpty(roomId);
+            const member = roomState.get(roomId)?.get(userId);
+            // Only the stream of the session that's in the room counts; an old
+            // device closing after the call moved must not evict the new one.
+            const ownsMembership = !!member
+              && (!streamSession || !member.sessionId || member.sessionId === streamSession);
+            if (ownsMembership) {
+              const key = evictionKey(roomId, userId);
+              const existing = pendingEvictions.get(key);
+              if (existing) clearTimeout(existing);
+              pendingEvictions.set(key, setTimeout(() => {
+                pendingEvictions.delete(key);
+                // Back on this instance in the meantime?
+                if (voiceSignalingConnections.get(roomId)?.get(userId)?.size) return;
+                const still = roomState.get(roomId)?.get(userId);
+                if (!still || (streamSession && still.sessionId && still.sessionId !== streamSession)) return;
+                evictFromRoom(roomId, userId);
+              }, SIGNAL_DROP_GRACE_MS));
             }
           }
         }
@@ -607,6 +681,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     return new Response(stream, { headers: sseHeaders });
   }, {
     params: t.Object({ roomId: t.String() }),
+    query: t.Object({ session: t.Optional(t.String()) }),
   })
   // Send WebRTC offer to a specific peer
   .post('/signal/:roomId/offer', async ({ headers, cookie, params, body, set }) => {
@@ -616,10 +691,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     return relaySignal(params.roomId, user.id, body.targetUserId, {
       type: 'voice:offer',
       signal: body.signal,
+      pcId: body.pcId,
     }, set);
   }, {
     params: t.Object({ roomId: t.String() }),
-    body: t.Object({ targetUserId: t.String(), signal: t.Any() }),
+    body: t.Object({ targetUserId: t.String(), signal: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
   })
   // Send WebRTC answer to a specific peer
   .post('/signal/:roomId/answer', async ({ headers, cookie, params, body, set }) => {
@@ -629,10 +705,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     return relaySignal(params.roomId, user.id, body.targetUserId, {
       type: 'voice:answer',
       signal: body.signal,
+      pcId: body.pcId,
     }, set);
   }, {
     params: t.Object({ roomId: t.String() }),
-    body: t.Object({ targetUserId: t.String(), signal: t.Any() }),
+    body: t.Object({ targetUserId: t.String(), signal: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
   })
   // Send ICE candidate to a specific peer
   .post('/signal/:roomId/ice', async ({ headers, cookie, params, body, set }) => {
@@ -642,10 +719,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     return relaySignal(params.roomId, user.id, body.targetUserId, {
       type: 'voice:ice',
       candidate: body.candidate,
+      pcId: body.pcId,
     }, set);
   }, {
     params: t.Object({ roomId: t.String() }),
-    body: t.Object({ targetUserId: t.String(), candidate: t.Any() }),
+    body: t.Object({ targetUserId: t.String(), candidate: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
   })
   // Play a soundboard sound to everyone in a voice room
   .post('/soundboard/:roomId', async ({ headers, cookie, params, body, set }) => {

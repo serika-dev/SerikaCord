@@ -1,42 +1,52 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useSyncExternalStore } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, MicOff, Headphones, HeadphoneOff, PhoneOff, Video, VideoOff, Monitor, MonitorOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
+import { hangUp } from "@/lib/services/dmCallController";
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
 import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
 import { onHotkey } from "@/lib/keybinds";
 import { useGT } from "gt-next";
 
 interface VoiceBarProps {
+  /** Overrides the room label the call was joined with. */
   channelName?: string;
   serverId?: string;
   className?: string;
+  /** Don't render while connected to this room (a fuller call UI is on screen). */
+  hideForRoomId?: string | null;
 }
 
-export function VoiceBar({ channelName, className }: VoiceBarProps) {
+const subscribeVoice = (onChange: () => void) => voiceService.subscribe((e) => {
+  if (e.type === "connected" || e.type === "disconnected" || e.type === "meta_changed") onChange();
+});
+
+export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProps) {
   const gt = useGT();
-  const [isConnected, setIsConnected] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isDeafened, setIsDeafened] = useState(false);
-  const [isVideoOn, setIsVideoOn] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
-  const [currentChannel, setCurrentChannel] = useState<string | null>(null);
+  const router = useRouter();
+  // Label + link the call was joined with ("general", "@friend"), so the bar
+  // names the call on every page instead of a raw room id or nothing.
+  const metaLabel = useSyncExternalStore(subscribeVoice, () => voiceService.roomMeta.label ?? "", () => "");
+  const metaHref = useSyncExternalStore(subscribeVoice, () => voiceService.roomMeta.href ?? "", () => "");
+  const label = channelName || metaLabel;
+  // Start from the live call so the bar is right when it mounts mid-call
+  // (navigating between pages). Before any call this is all "off", which is
+  // also what the server rendered.
+  const [isConnected, setIsConnected] = useState(() => voiceService.connected);
+  const [isMuted, setIsMuted] = useState(() => voiceService.muted);
+  const [isDeafened, setIsDeafened] = useState(() => voiceService.deafened);
+  const [isVideoOn, setIsVideoOn] = useState(() => voiceService.videoOn);
+  const [isScreenSharing, setIsScreenSharing] = useState(() => voiceService.screenSharing);
+  const [participants, setParticipants] = useState<VoiceParticipant[]>(() => voiceService.currentParticipants);
+  const [currentChannel, setCurrentChannel] = useState<string | null>(() => voiceService.currentRoomId);
   const speakingUsers = useSpeakingUsers();
 
   useEffect(() => {
-    // Sync from service on mount
-    setIsConnected(voiceService.connected);
-    setIsMuted(voiceService.muted);
-    setIsDeafened(voiceService.deafened);
-    setIsVideoOn(voiceService.videoOn);
-    setIsScreenSharing(voiceService.screenSharing);
-    setParticipants(voiceService.currentParticipants);
-    setCurrentChannel(voiceService.currentRoomId);
-
     const unsub = voiceService.subscribe((event) => {
       if (event.type === "connected") {
         setIsConnected(true);
@@ -84,17 +94,12 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
       onHotkey("toggle-mute", () => { if (voiceService.connected) handleMute(); }),
       onHotkey("toggle-deafen", () => { if (voiceService.connected) handleDeafen(); }),
       onHotkey("return-to-voice", () => {
-        if (voiceService.connected && currentChannel) {
-          // currentChannel is a roomId string like "serverId:channelId"
-          const parts = currentChannel.split(":");
-          if (parts.length >= 2) {
-            window.location.href = `/channels/${parts[0]}/${parts[1]}`;
-          }
-        }
+        const href = voiceService.roomMeta.href;
+        if (voiceService.connected && href) router.push(href);
       }),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [handleMute, handleDeafen]);
+  }, [handleMute, handleDeafen, router]);
 
   const handleVideo = useCallback(async () => {
     const videoOn = await voiceService.toggleVideo();
@@ -112,12 +117,14 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
   }, [isScreenSharing]);
 
   const handleDisconnect = useCallback(async () => {
-    await voiceService.leaveChannel();
+    await hangUp();
   }, []);
+
+  const hidden = !!hideForRoomId && currentChannel === hideForRoomId;
 
   return (
     <AnimatePresence>
-      {isConnected && (
+      {isConnected && !hidden && (
         <motion.div
           key="voice-bar"
           initial={{ opacity: 0, y: 8 }}
@@ -138,14 +145,22 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
               </span>
               <span className="text-xs font-semibold text-green-400 flex-shrink-0">{gt("Voice Connected")}</span>
               {/* Never show the raw room id ("channel-<uuid>") as a name. */}
-              {channelName && (
+              {label && (metaHref ? (
+                <Link
+                  href={metaHref}
+                  title={gt("Return to call")}
+                  className="text-[11px] text-[var(--app-muted-2)] truncate hover:text-[var(--text-primary)] hover:underline"
+                >
+                  — {label}
+                </Link>
+              ) : (
                 <span className="text-[11px] text-[var(--app-muted-2)] truncate">
-                  — {channelName}
+                  — {label}
                 </span>
-              )}
+              ))}
             </div>
             <span className="text-[10px] text-[var(--app-muted-2)] flex-shrink-0">
-              {participants.length + 1} {gt("in call")}
+              {participants.filter((p) => p.userId !== voiceService.myId).length + 1} {gt("in call")}
             </span>
           </div>
 
@@ -219,20 +234,20 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
               {isVideoOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
             </button>
 
-            {/* Screen share — hidden on mobile (getDisplayMedia not supported) */}
-            {!isScreenSharing && null}
-            {isScreenSharing && (
-              <button
-                onClick={handleScreenShare}
-                title={gt("Stop Sharing")}
-                className={cn(
-                  "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
-                  "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
-                )}
-              >
-                <MonitorOff className="w-4 h-4" />
-              </button>
-            )}
+            {/* Screen share — start is desktop-only (getDisplayMedia isn't on mobile) */}
+            <button
+              onClick={handleScreenShare}
+              title={isScreenSharing ? gt("Stop Sharing") : gt("Share Your Screen")}
+              aria-pressed={isScreenSharing}
+              className={cn(
+                "items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
+                isScreenSharing
+                  ? "flex bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
+                  : "hidden md:flex bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
+              )}
+            >
+              {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4" />}
+            </button>
 
             <div className="flex-1" />
 
