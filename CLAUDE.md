@@ -114,10 +114,12 @@ All of these exist in `package.json` / `scripts/`:
 | `bun run translate:push` / `:pull` / `:sync` / `:status` / `:keys` | Serika Translate sync (`scripts/sync-translations.js`) |
 | `bun run gateway` | Optional standalone bot gateway |
 
-Releases: there is no `release` script in `package.json` yet. Releases are cut
-by the maintainer (version bump, changelog section, `v*` tag that triggers the
-GitHub `Release Build` workflows); agents don't cut releases. See
-`AI-READ-THIS.md`.
+Releases are cut by the maintainer with `bun run release:dry` then
+`bun run release <patch|minor|major> --commit --tag` (bumps every version file,
+moves `## Unreleased` into a dated section, never pushes); pushing the `v*` tag
+triggers the GitHub `Release Build` workflows. Agents don't cut releases; they
+add `## Unreleased` entries (`bun run changelog <Kind> "..."`). The UI reads the
+version from `src/lib/version.ts` — never hard-code it. See `AI-READ-THIS.md`.
 
 ## Core conventions
 
