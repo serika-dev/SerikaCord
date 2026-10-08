@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { config } from '@/lib/config';
 import { storage } from '@/lib/services/storage';
 import { checkRateLimit, getClientIP } from '@/lib/security';
+import { adjustServerMemberCount } from '@/lib/services/serverMembership';
 
 const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -1522,9 +1523,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
           joinedAt: new Date(),
         });
 
-        await Server.updateById(serverId, {
-          memberCount: (targetServer.memberCount ?? 0) + 1,
-        });
+        await adjustServerMemberCount(serverId, 1);
 
         const { emitGuildMemberAdd, emitGuildCreate } = await import('@/lib/services/gatewayEvents');
 

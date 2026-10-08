@@ -1,5 +1,4 @@
 import { Elysia, t } from 'elysia';
-import { invalidateServerMemberCache } from '@/lib/api/activity';
 import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
@@ -18,6 +17,7 @@ import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidat
 import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
+import { insertServerMember, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -212,25 +212,19 @@ async function checkCanModerateMember(
   return allowed ? null : 'You cannot moderate a member whose highest role is at or above yours';
 }
 
-// Add a user to a server (used by invites, discovery joins, and application approvals)
+// Add a user to a server (used by invites, discovery joins, and application approvals).
+// Returns null when the user is banned from the server; `created` is false when
+// they were already a member (including a concurrent duplicate join).
 async function addUserToServer(serverId: string, userId: string) {
+  if (await ServerBan.findOne({ serverId, userId })) return null;
+
   const existingMembership = await ServerMember.findOne({ serverId, userId });
-  if (existingMembership) return existingMembership;
+  if (existingMembership) return { membership: existingMembership, created: false };
 
   const everyoneRole = await Role.findOne({ serverId, isDefault: true });
-  const membership = await ServerMember.create({
-    serverId,
-    userId,
+  return insertServerMember(serverId, userId, {
     roles: everyoneRole ? [everyoneRole.id] : [],
   });
-  invalidateServerMemberCache(serverId);
-
-  const server = await Server.findById(serverId);
-  if (server) {
-    await Server.updateById(serverId, { memberCount: (server.memberCount ?? 0) + 1 });
-    await cache.del(`server:${serverId}`);
-  }
-  return membership;
 }
 
 interface PopulatedRole {
@@ -1710,16 +1704,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server owner cannot leave. Transfer ownership first or delete the server.' };
     }
 
-    const memberToDelete = await ServerMember.findOne({
-      serverId: params.serverId,
-      userId: user.id,
-    });
-    if (memberToDelete) {
-      await ServerMember.deleteById(memberToDelete.id);
+    // Only a real removal changes memberCount (atomically), invalidates the
+    // member caches and closes the user's open channel streams.
+    const removed = await removeServerMember(server.id, user.id);
+    if (!removed) {
+      set.status = 404;
+      return { error: 'You are not a member of this server' };
     }
-
-    // Update member count
-    await Server.updateById(server.id, { memberCount: Math.max(0, (server.memberCount || 0) - 1) });
 
     return { success: true };
   }, {
@@ -3507,20 +3498,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     // Upsert ban
-    const existingBan = await ServerBan.findOne({ serverId: params.serverId, userId: params.userId });
-    if (existingBan) {
-      await ServerBan.updateById(existingBan.id, { bannedBy: user.id, reason: body.reason || null });
-    } else {
-      await ServerBan.create({
-        serverId: params.serverId,
-        userId: params.userId,
-        bannedBy: user.id,
-        reason: body.reason || null,
-      });
-    }
+    await upsertServerBan(server.id, params.userId, user.id, body.reason || null);
 
-    await ServerMember.deleteById(targetUser.id);
-    await Server.updateById(server.id, { memberCount: Math.max(0, (server.memberCount || 0) - 1) });
+    await removeServerMember(server.id, params.userId);
 
     await AdminLog.create({
       adminId: user.id,
@@ -3585,9 +3565,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'User is not a server member' };
     }
 
-    await ServerMember.deleteById(targetMember.id);
-    await Server.updateById(server.id, { memberCount: Math.max(0, (server.memberCount || 0) - 1) });
-    await cache.del(`server:${params.serverId}`);
+    await removeServerMember(server.id, params.userId);
 
     await AdminLog.create({
       adminId: user.id,
@@ -4054,9 +4032,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       updates.rejectionReason = sanitizeInput(rejectionReason).slice(0, 500);
     }
 
-    // If approved, add user to server
+    // If approved, add user to server (never re-admits a user banned after applying)
     if (status === 'approved') {
-      await addUserToServer(server.id, application.userId);
+      const added = await addUserToServer(server.id, application.userId);
+      if (!added) {
+        set.status = 403;
+        return { error: 'This user is banned from this server' };
+      }
     }
 
     await ServerMemberApplication.updateById(application.id, updates);
@@ -4107,6 +4089,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'application_required' };
     }
 
+    const isBanned = await ServerBan.findOne({ serverId: server.id, userId: user.id });
+    if (isBanned) {
+      set.status = 403;
+      return { error: 'You are banned from this server' };
+    }
+
     // Check if already a member
     const existingMembership = await ServerMember.findOne({
       serverId: server.id,
@@ -4126,7 +4114,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: `You can only be in ${config.MAX_SERVERS_PER_USER} servers` };
     }
 
-    await addUserToServer(server.id, user.id);
+    const joined = await addUserToServer(server.id, user.id);
+    if (!joined) {
+      set.status = 403;
+      return { error: 'You are banned from this server' };
+    }
+    if (!joined.created) {
+      set.status = 400;
+      return { error: 'Already a member of this server' };
+    }
 
     return {
       success: true,
@@ -4762,6 +4758,12 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 404;
       return { error: 'Server not found' };
     }
+    // Only people who can manage the server's integrations may post test
+    // notifications (canManageServer also requires membership for non-owners).
+    if (!(await canManageServer(server, user.id))) {
+      set.status = 403;
+      return { error: 'You do not have permission to manage integrations' };
+    }
     const payload = body as { channelId?: string; [key: string]: unknown };
     const channelId = payload.channelId;
     if (!channelId) {
@@ -4858,6 +4860,12 @@ async function resolveInviteCode(code: string): Promise<
   const invite = await Invite.findOne({ code });
   if (invite) {
     if (invite.expiresAt && new Date(invite.expiresAt).getTime() <= Date.now()) return null;
+    // "Lock to Custom Invite": regular invite links stop working (they look
+    // expired) while the server still has its vanity URL.
+    const inviteServer = await Server.findById(invite.serverId);
+    if (inviteServer && (inviteServer.settings as IServerSettings | undefined)?.invites?.lockToVanity && inviteServer.vanityUrlCode) {
+      return null;
+    }
     return { kind: 'invite', invite, serverId: invite.serverId };
   }
 
@@ -4966,41 +4974,49 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
       return { error: `You can only be in ${config.MAX_SERVERS_PER_USER} servers` };
     }
 
-    // Check max uses
-    if (invite && invite.maxUses > 0 && invite.uses >= invite.maxUses) {
-      set.status = 400;
-      return { error: 'Invite has reached maximum uses' };
-    }
-
-    // Get @everyone role
-    const everyoneRole = await Role.findOne({
-      serverId: resolved.serverId,
-      isDefault: true,
-    });
-
-    // Create membership
-    await ServerMember.create({
-      serverId: resolved.serverId,
-      userId: user.id,
-      roles: everyoneRole ? [everyoneRole.id] : [],
-    });
-    invalidateServerMemberCache(resolved.serverId);
-
-    // Track uses on the invite doc, or on the server for vanity joins
+    // Claim one invite use atomically, so concurrent joins can't exceed maxUses.
     if (invite) {
-      await Invite.updateById(invite.id, { uses: (invite.uses || 0) + 1 });
-    } else {
-      const vanityServer = await Server.findById(resolved.serverId);
-      if (vanityServer) {
-        await Server.updateById(vanityServer.id, { vanityUrlUses: (vanityServer.vanityUrlUses || 0) + 1 });
+      const claimed = await db
+        .update(schema.invites)
+        .set({ uses: sql`COALESCE(${schema.invites.uses}, 0) + 1` })
+        .where(and(
+          eq(schema.invites.id, invite.id),
+          sql`(COALESCE(${schema.invites.maxUses}, 0) = 0 OR COALESCE(${schema.invites.uses}, 0) < ${schema.invites.maxUses})`,
+        ))
+        .returning({ id: schema.invites.id });
+      if (claimed.length === 0) {
+        set.status = 400;
+        return { error: 'Invite has reached maximum uses' };
       }
     }
 
-    // Update server member count
-    const server = await Server.findById(resolved.serverId);
-    if (server) {
-      await Server.updateById(server.id, { memberCount: (server.memberCount || 0) + 1 });
+    // Create membership (bans re-checked inside; a concurrent duplicate join is a no-op)
+    const joined = await addUserToServer(resolved.serverId, user.id);
+    if (!joined || !joined.created) {
+      // Give the claimed use back: this request didn't add a member.
+      if (invite) {
+        await db
+          .update(schema.invites)
+          .set({ uses: sql`GREATEST(COALESCE(${schema.invites.uses}, 0) - 1, 0)` })
+          .where(eq(schema.invites.id, invite.id));
+      }
+      if (!joined) {
+        set.status = 403;
+        return { error: 'You are banned from this server' };
+      }
+      set.status = 400;
+      return { error: 'Already a member of this server' };
     }
+
+    // Track vanity joins on the server
+    if (!invite) {
+      await db
+        .update(schema.servers)
+        .set({ vanityUrlUses: sql`COALESCE(${schema.servers.vanityUrlUses}, 0) + 1` })
+        .where(eq(schema.servers.id, normalizeId(resolved.serverId)));
+    }
+
+    const server = await Server.findById(resolved.serverId);
 
     return {
       success: true,

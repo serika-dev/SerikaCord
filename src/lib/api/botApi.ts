@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { config } from '@/lib/config';
 import { isValidObjectId } from '@/lib/security';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 
 // ─── Bot Auth Helper ───────────────────────────────────────
 
@@ -1100,10 +1101,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.guildId) || !isValidObjectId(params.userId)) {
     set.status = 404; return { code: 10007, message: 'Unknown Member' };
   }
-  const member = await ServerMember.findOne({ serverId: params.guildId, userId: params.userId });
-  if (member) await ServerMember.deleteById(member.id);
-  const server = await Server.findById(params.guildId);
-  if (server) await Server.updateById(params.guildId, { memberCount: Math.max(0, (server.memberCount ?? 1) - 1) });
+  // Only decrements memberCount (atomically) when a member was really removed.
+  await removeServerMember(params.guildId, params.userId);
   set.status = 204;
   return '';
 })
@@ -1118,18 +1117,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   }
   const { reason } = body as { reason?: string };
 
-  // Remove member if exists
-  const member = await ServerMember.findOne({ serverId: params.guildId, userId: params.userId });
-  if (member) await ServerMember.deleteById(member.id);
-  // Create ban
-  await ServerBan.create({
-    serverId: params.guildId,
-    userId: params.userId,
-    bannedBy: auth.botUser.id,
-    reason: reason ?? null,
-  });
-  const server = await Server.findById(params.guildId);
-  if (server) await Server.updateById(params.guildId, { memberCount: Math.max(0, (server.memberCount ?? 1) - 1) });
+  // Create or update the ban (re-banning is idempotent, like Discord's PUT)
+  await upsertServerBan(params.guildId, params.userId, auth.botUser.id, reason ?? null);
+  // Remove member if exists; memberCount only changes when a row was deleted
+  await removeServerMember(params.guildId, params.userId);
   set.status = 204;
   return '';
 })
@@ -1453,10 +1444,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const member = await ServerMember.findOne({ serverId: params.guildId, userId: auth.botUser.id });
-  if (member) await ServerMember.deleteById(member.id);
-  const server = await Server.findById(params.guildId);
-  if (server) await Server.updateById(params.guildId, { memberCount: Math.max(0, (server.memberCount ?? 1) - 1) });
+  await removeServerMember(params.guildId, auth.botUser.id);
   set.status = 204;
   return '';
 })

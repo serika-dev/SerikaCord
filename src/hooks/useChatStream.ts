@@ -64,11 +64,14 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
     let reconnectTimeout: NodeJS.Timeout | null = null;
     let reconnectAttempts = 0;
     let disposed = false;
+    // Set when the server revoked this stream (kicked/banned/lost access):
+    // reconnecting would only be refused, so stay closed.
+    let revoked = false;
     let hasConnected = false;
     let lastEventAt = Date.now();
 
     const connect = () => {
-      if (disposed) return;
+      if (disposed || revoked) return;
       eventSource?.close();
       lastEventAt = Date.now();
 
@@ -87,6 +90,13 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
         try {
           const data = JSON.parse(event.data) as ChatStreamEvent;
           if (data.type === "connected" || data.type === "ping") return;
+          if (data.type === "removed") {
+            revoked = true;
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            eventSource?.close();
+            onEventRef.current(data);
+            return;
+          }
           if (data.type === "typing") {
             addTypingUser(String(data.username ?? ""));
             return;
@@ -99,6 +109,7 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
 
       eventSource.onerror = () => {
         eventSource?.close();
+        if (revoked) return;
         const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_BACKOFF_MS);
         reconnectAttempts += 1;
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
@@ -109,7 +120,7 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
     connect();
 
     const reconnectNow = () => {
-      if (disposed) return;
+      if (disposed || revoked) return;
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       reconnectAttempts = 0;
       connect();

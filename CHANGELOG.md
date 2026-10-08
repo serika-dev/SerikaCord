@@ -49,6 +49,10 @@
 - **Bot tokens are limited to their own servers** — the bot API never checked that a bot could see a channel, so any bot token could read, post in or delete from any channel or DM by id. Bots now need view access to the channel (and membership for server routes), and message ids must belong to that channel.
 - **Role hierarchy is enforced** — Manage Roles could grant Administrator or assign roles above your own, and moderators could kick, ban or time out administrators. Members can now only edit, assign, reorder or delete roles below their highest role, only grant permissions they have, and only moderate members ranked below them. Role permission changes take effect within a minute at most (immediately on the same server).
 - **Permissions match what the app shows** — Manage Channels can create, edit, reorder and delete channels; Manage Server can save server settings, the vanity URL, and manage invites; Manage Roles no longer edits server settings; Create Invite is required to make invites. Deleting an invite or unbanning shows an error instead of a fake success when it fails.
+- **Bans stick** — banned users could rejoin a discoverable server from Explore, and approving an old application re-added them. Kicked, banned or departed members also stop receiving an open channel's messages right away instead of until they reload, and channels you lose access to through a role change close within a minute.
+- **"Lock to Custom Invite" disables old invite links** — existing regular invite links now stop working while the lock is on, not just new ones.
+- **Integration test notifications need Manage Server** — anyone could post the mock Twitch/YouTube/Discord notification into any server's channels.
+- Member counts no longer drift: leaving a server you weren't in, bot kicks/bans of non-members and double-clicked joins could skew them, and simultaneous joins could go past an invite's max uses.
 
 ---
 

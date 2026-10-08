@@ -119,9 +119,19 @@ async function getServerMemberIds(serverId: string): Promise<Set<string>> {
   return ids;
 }
 
-/** Invalidate the member cache for a server (call on join/leave/kick/ban). */
+/**
+ * Invalidate the member cache for a server (call on join/leave/kick/ban).
+ * The cache is per-process, so the invalidation is also fanned out to other
+ * instances over the activity bus.
+ */
 export function invalidateServerMemberCache(serverId: string): void {
   memberCache.delete(serverId);
+  const pub = getPublisher();
+  if (pub) {
+    pub
+      .publish(ACTIVITY_BUS, JSON.stringify({ originId: INSTANCE_ID, invalidateMembers: serverId }))
+      .catch(() => { /* best-effort cross-instance invalidation */ });
+  }
 }
 
 /**
@@ -253,9 +263,15 @@ export async function startActivitySSEBridge(): Promise<() => void> {
         void deliverUserFanout(target, payload);
         return;
       }
-      const { originId, payload } = JSON.parse(raw) as { originId: string; payload: ChannelActivityPayload };
+      const { originId, payload, invalidateMembers } = JSON.parse(raw) as {
+        originId: string; payload?: ChannelActivityPayload; invalidateMembers?: string;
+      };
       if (originId === INSTANCE_ID) return; // already delivered locally
-      void deliverLocally(payload);
+      if (invalidateMembers) {
+        memberCache.delete(invalidateMembers);
+        return;
+      }
+      if (payload) void deliverLocally(payload);
     } catch (err) {
       console.error('Activity SSE bridge: bad payload', err);
     }

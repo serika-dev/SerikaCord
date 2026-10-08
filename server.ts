@@ -55,7 +55,7 @@ const handle = app.getRequestHandler();
 // ─── SSE lazy imports (set after initializeAPI) ──────────
 // These are populated inside main() once the Elysia routes are wired up.
 // handleSSE references them — they're null only before the server starts.
-let registerChannelSSE: ((channelId: string, write: (data: string) => void) => () => void) | null = null;
+let registerChannelSSE: ((channelId: string, write: (data: string) => void, owner?: { userId: string; close: () => void }) => () => void) | null = null;
 let registerDmSSE: ((channelId: string, write: (data: string) => void) => () => void) | null = null;
 let checkChannelAccess: ((userId: string, channelId: string) => Promise<{ hasAccess: boolean; error?: string }>) | null = null;
 let getOrCreateDMChannel: ((userId: string, recipientId: string) => Promise<{ id: string }>) | null = null;
@@ -362,24 +362,41 @@ function parseCookies(cookieHeader: string | null | undefined): Record<string, s
 }
 
 function sseResponse(
-  setup: (write: (data: string) => void) => () => void,
+  setup: (write: (data: string) => void, close: () => void) => () => void,
 ): Response {
   const encoder = new TextEncoder();
   let pingInterval: ReturnType<typeof setInterval> | null = null;
   let cleanup: (() => void) | null = null;
+  let finished = false;
+  // Idempotent teardown: runs on client disconnect (cancel) or when the server
+  // ends the stream itself (e.g. the user lost access to the channel).
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (pingInterval) clearInterval(pingInterval);
+    if (cleanup) cleanup();
+  };
   const stream = new ReadableStream({
     start(controller) {
       const write = (data: string) => {
         try { controller.enqueue(encoder.encode(data)); } catch { /* closed */ }
       };
-      cleanup = setup(write);
+      const close = () => {
+        finish();
+        try { controller.close(); } catch { /* already closed */ }
+      };
+      cleanup = setup(write, close);
+      if (finished) {
+        // close() ran during setup: cleanup wasn't assigned yet when finish() ran.
+        cleanup();
+        return;
+      }
       pingInterval = setInterval(() => {
         write('data: {"type":"ping"}\n\n');
       }, SSE_PING_MS);
     },
     cancel() {
-      if (pingInterval) clearInterval(pingInterval);
-      if (cleanup) cleanup();
+      finish();
     },
   });
   return new Response(stream, { headers: SSE_HEADERS });
@@ -423,10 +440,13 @@ async function handleSSE(
     });
   }
 
-  return sseResponse((write) => {
+  return sseResponse((write, close) => {
     write('data: {"type":"connected"}\n\n');
-    const register = channelId ? registerChannelSSE! : registerDmSSE!;
-    const unregister = register(channelKey, (data: string) => write(data));
+    // Channel streams are tied to the user so they close when access is lost
+    // (kick/ban/leave/role change) instead of streaming until the tab closes.
+    const unregister = channelId
+      ? registerChannelSSE!(channelKey, (data: string) => write(data), { userId: user.id, close })
+      : registerDmSSE!(channelKey, (data: string) => write(data));
     return () => { unregister(); };
   });
 }

@@ -6,6 +6,13 @@ import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorag
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
+import {
+  CHANNEL_STREAM_RECHECK_MS,
+  CHANNEL_STREAM_REVOKED_EVENT,
+  recheckLocalUserChannelStreams,
+  setChannelStreamRecheckPublisher,
+  trackUserChannelStream,
+} from '@/lib/realtime/channelStreams';
 import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
 import { normalizeId } from '@/lib/db/normalizeId';
@@ -457,9 +464,15 @@ function deliverToLocalChannel(channelId: string, data: object) {
 // Register a raw SSE write callback into the channel's active connection set.
 // Used by server.ts to bypass Next.js response buffering — the raw HTTP response
 // writes go directly to the socket, so events are flushed immediately.
+//
+// When `owner` is given, the stream is tied to that user: its access is
+// re-checked periodically and whenever a membership change requests it
+// (kick/ban/leave), and `owner.close()` is called after a final "removed"
+// event once the user can no longer view the channel.
 export function registerRawSSEConnection(
   channelId: string,
   write: (data: string) => void,
+  owner?: { userId: string; close: () => void },
 ): () => void {
   const controller = {
     enqueue: (data: Uint8Array) => { try { write(sseDecoder.decode(data)); } catch { /* closed */ } },
@@ -470,7 +483,7 @@ export function registerRawSSEConnection(
   }
   activeConnections.get(channelId)!.add(controller);
 
-  return () => {
+  const detach = () => {
     const set = activeConnections.get(channelId);
     if (!set) return;
     set.delete(controller);
@@ -478,6 +491,50 @@ export function registerRawSSEConnection(
     // the map keeps one empty Set per channel ever streamed, forever.
     if (set.size === 0) activeConnections.delete(channelId);
   };
+
+  const disposeGuard = owner
+    ? attachChannelAccessGuard(owner.userId, channelId, () => {
+        detach();
+        try { write(CHANNEL_STREAM_REVOKED_EVENT); } catch { /* closed */ }
+        owner.close();
+      })
+    : () => {};
+
+  return () => {
+    disposeGuard();
+    detach();
+  };
+}
+
+/**
+ * Re-check a user's access to a channel while their stream is open: on a
+ * timer (backstop for role/overwrite edits) and on demand via
+ * requestUserChannelStreamRecheck (kick/ban/leave). Calls `revoke` once when
+ * access is gone. Returns a dispose function.
+ */
+function attachChannelAccessGuard(userId: string, channelId: string, revoke: () => void): () => void {
+  let done = false;
+  const revalidate = async () => {
+    if (done) return;
+    let hasAccess = true;
+    try {
+      ({ hasAccess } = await checkChannelAccess(userId, channelId));
+    } catch {
+      return; // transient DB error: keep the stream, try again next tick
+    }
+    if (hasAccess || done) return;
+    dispose();
+    revoke();
+  };
+  const timer = setInterval(() => { void revalidate(); }, CHANNEL_STREAM_RECHECK_MS);
+  const untrack = trackUserChannelStream(userId, { channelId, revalidate });
+  function dispose() {
+    if (done) return;
+    done = true;
+    clearInterval(timer);
+    untrack();
+  }
+  return dispose;
 }
 
 // Publish a channel event: deliver locally AND fan out over Redis so every
@@ -485,6 +542,16 @@ export function registerRawSSEConnection(
 // This is what makes chat realtime for all users regardless of which instance
 // they're connected to. Redis (not Postgres) is the right tool here — the
 // bottleneck was never the datastore, it was the missing pub/sub fan-out.
+// Cross-instance "re-check this user's channel streams" control message,
+// carried on the same bus (no channelId, so older instances ignore it).
+setChannelStreamRecheckPublisher((userId: string) => {
+  const pub = getPublisher();
+  if (!pub) return;
+  pub
+    .publish(SSE_BUS, JSON.stringify({ originId: INSTANCE_ID, control: 'recheck_user', userId }))
+    .catch(() => { /* best-effort cross-instance fan-out */ });
+});
+
 export function publishToChannel(channelId: string, data: object) {
   deliverToLocalChannel(channelId, data);
   const pub = getPublisher();
@@ -505,11 +572,16 @@ export async function startChannelSSEBridge(): Promise<() => void> {
   await sub.subscribe(SSE_BUS);
   sub.on('message', (_ch: string, payload: string) => {
     try {
-      const { originId, channelId, data } = JSON.parse(payload) as {
-        originId: string; channelId: string; data: object;
+      const { originId, channelId, data, control, userId } = JSON.parse(payload) as {
+        originId: string; channelId?: string; data?: object; control?: string; userId?: string;
       };
       // Skip events this instance already delivered locally.
       if (originId === INSTANCE_ID) return;
+      if (control === 'recheck_user') {
+        if (userId) void recheckLocalUserChannelStreams(userId);
+        return;
+      }
+      if (!channelId || !data) return;
       deliverToLocalChannel(channelId, data);
     } catch (err) {
       console.error('SSE bridge: bad payload', err);
@@ -2997,6 +3069,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const channelKey = params.channelId;
     let controllerRef: ReadableStreamDefaultController | null = null;
     let pingInterval: NodeJS.Timeout | null = null;
+    let disposeGuard: (() => void) | null = null;
 
     // Create SSE stream
     const stream = new ReadableStream({
@@ -3007,6 +3080,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           activeConnections.set(channelKey, new Set());
         }
         activeConnections.get(channelKey)!.add(controller);
+
+        // Close the stream once the user loses access (kick/ban/leave/role edit).
+        disposeGuard = attachChannelAccessGuard(user.id, channelKey, () => {
+          if (pingInterval) clearInterval(pingInterval);
+          const set = activeConnections.get(channelKey);
+          if (set) {
+            set.delete(controller);
+            if (set.size === 0) activeConnections.delete(channelKey);
+          }
+          try {
+            controller.enqueue(sseEncoder.encode(CHANNEL_STREAM_REVOKED_EVENT));
+            controller.close();
+          } catch { /* already closed */ }
+        });
 
         // Send initial ping
         controller.enqueue(sseEncoder.encode('data: {"type":"connected"}\n\n'));
@@ -3019,6 +3106,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             if (pingInterval) {
               clearInterval(pingInterval);
             }
+            disposeGuard?.();
             activeConnections.get(channelKey)?.delete(controller);
           }
         }, 15000);
@@ -3028,6 +3116,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         if (pingInterval) {
           clearInterval(pingInterval);
         }
+        disposeGuard?.();
         if (controllerRef) {
           const set = activeConnections.get(channelKey);
           if (set) {
