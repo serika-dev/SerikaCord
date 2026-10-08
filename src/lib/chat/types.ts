@@ -127,6 +127,8 @@ export interface ChatMessage {
   interaction?: { name: string; user: { id: string; username: string } };
   /** When true, link previews and rich embeds are hidden for this message. */
   suppressEmbeds?: boolean;
+  /** Set when an incoming channel webhook posted this message (authorId is then the webhook's id). */
+  webhookId?: string;
 }
 
 export interface MessageGroupData<M extends ChatMessage = ChatMessage> {

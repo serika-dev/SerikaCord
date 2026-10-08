@@ -60,4 +60,21 @@ export const UserConnection = {
   async deleteById(id: string) {
     await db.delete(schema.userConnections).where(eq(schema.userConnections.id, normalizeId(id)));
   },
+
+  /** Update a connection only if it belongs to `userId`; null when no such row. */
+  async updateByIdForUser(id: string, userId: string, data: Partial<typeof schema.userConnections.$inferInsert>) {
+    const [row] = await db.update(schema.userConnections)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(schema.userConnections.id, normalizeId(id)), eq(schema.userConnections.userId, normalizeId(userId))))
+      .returning();
+    return row || null;
+  },
+
+  /** Delete a connection only if it belongs to `userId`; false when no such row. */
+  async deleteByIdForUser(id: string, userId: string) {
+    const rows = await db.delete(schema.userConnections)
+      .where(and(eq(schema.userConnections.id, normalizeId(id)), eq(schema.userConnections.userId, normalizeId(userId))))
+      .returning({ id: schema.userConnections.id });
+    return rows.length > 0;
+  },
 };

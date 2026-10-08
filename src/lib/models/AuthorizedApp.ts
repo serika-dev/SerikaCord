@@ -58,4 +58,12 @@ export const AuthorizedApp = {
   async deleteById(id: string) {
     await db.delete(schema.authorizedApps).where(eq(schema.authorizedApps.id, normalizeId(id)));
   },
+
+  /** Delete an authorized app only if it belongs to `userId`; false when no such row. */
+  async deleteByIdForUser(id: string, userId: string) {
+    const rows = await db.delete(schema.authorizedApps)
+      .where(and(eq(schema.authorizedApps.id, normalizeId(id)), eq(schema.authorizedApps.userId, normalizeId(userId))))
+      .returning({ id: schema.authorizedApps.id });
+    return rows.length > 0;
+  },
 };

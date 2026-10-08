@@ -47,6 +47,16 @@ export function normalizeIncomingMessage<M extends ChatMessage>(raw: RawMessageP
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /**
+ * Identity used for grouping. Webhook posts can carry a different display name
+ * per message (bridges post as many people through one webhook), so the name
+ * is part of the key and different names never merge into one header.
+ */
+export function messageGroupKey(message: Pick<ChatMessage, "authorId" | "webhookId" | "author">): string {
+  if (message.webhookId) return `wh:${message.webhookId}:${message.author?.username ?? ""}`;
+  return message.authorId;
+}
+
+/**
  * Deduplicate by id and group consecutive messages from the same author
  * posted within a 5 minute window (Discord-style message grouping).
  */
@@ -61,7 +71,7 @@ export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGrou
 
     const lastGroup = groups[groups.length - 1];
     const lastMessage = lastGroup?.messages[lastGroup.messages.length - 1];
-    const sameAuthor = lastMessage?.authorId === message.authorId;
+    const sameAuthor = !!lastMessage && messageGroupKey(lastMessage) === messageGroupKey(message);
     const withinWindow =
       !!lastMessage &&
       new Date(message.createdAt).getTime() - new Date(lastMessage.createdAt).getTime() < GROUP_WINDOW_MS;

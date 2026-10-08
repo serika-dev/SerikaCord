@@ -14,6 +14,8 @@ import {
 import { cache } from '../db/redis';
 import { UserConnection, User } from '../models';
 import { getPlatformSettings } from '../models/PlatformSettings';
+import { OAUTH_VERIFIED_KEY } from '../connections/policy';
+import { checkRateLimit, getClientIP } from '../security';
 import {
   accountsRegister,
   accountsLogin,
@@ -278,10 +280,32 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
   },
 };
 
+/**
+ * Consume one point from each limiter bucket; on the first exhausted bucket
+ * stamp 429 + Retry-After and return the error body to send.
+ */
+async function authRateLimit(
+  set: { status?: number | string; headers: Record<string, string | number> },
+  buckets: Array<[Parameters<typeof checkRateLimit>[0], string]>,
+): Promise<{ error: string; retryAfter?: number } | null> {
+  for (const [limiter, id] of buckets) {
+    const result = await checkRateLimit(limiter, id);
+    if (!result.success) {
+      set.status = 429;
+      set.headers['Retry-After'] = String(result.retryAfter ?? 60);
+      return { error: 'Too many attempts. Please wait a moment and try again.', retryAfter: result.retryAfter };
+    }
+  }
+  return null;
+}
+
 export const authRoutes = new Elysia({ prefix: '/auth' })
   // Register - proxies to accounts.serika.dev
-  .post('/register', async ({ body, set }) => {
+  .post('/register', async ({ body, set, request }) => {
     const { email, username, password, displayName } = body;
+
+    const limited = await authRateLimit(set, [['register', getClientIP(request)]]);
+    if (limited) return limited;
 
     // Validate password strength
     if (password.length < 8) {
@@ -324,15 +348,23 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   })
 
   // Login - proxies to accounts.serika.dev
-  .post('/login', async ({ body, set, headers, cookie }) => {
+  .post('/login', async ({ body, set, headers, cookie, request }) => {
     const { email, password } = body;
+
+    const clientIp = getClientIP(request);
+    const limited = await authRateLimit(set, [
+      ['loginIp', clientIp],
+      ['login', `${clientIp}:${String(email).toLowerCase()}`],
+    ]);
+    if (limited) return limited;
 
     try {
       const { ok, status, data } = await accountsLogin(
         { email, password },
         {
           userAgent: headers['user-agent'],
-          ip: headers['x-forwarded-for'] || headers['x-real-ip'],
+          // Our own resolved client IP, never the raw (spoofable) header chain.
+          ip: clientIp,
         }
       );
 
@@ -456,12 +488,17 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
               } catch {
                 // Best-effort — avatar/name is non-critical
               }
+              // discordId comes from the accounts service (linked via OAuth there).
               if (existingDiscordConn) {
+                const prevMeta = (existingDiscordConn.metadata && typeof existingDiscordConn.metadata === 'object')
+                  ? existingDiscordConn.metadata as Record<string, unknown>
+                  : {};
                 await UserConnection.updateById(existingDiscordConn.id, {
                   accountId: discordId,
                   username: discordUsername || newUser.username,
                   displayName: discordDisplayName,
                   avatar: discordAvatar,
+                  metadata: { ...prevMeta, [OAUTH_VERIFIED_KEY]: true },
                 });
               } else {
                 await UserConnection.create({
@@ -471,6 +508,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
                   username: discordUsername || newUser.username,
                   displayName: discordDisplayName,
                   avatar: discordAvatar,
+                  metadata: { [OAUTH_VERIFIED_KEY]: true },
                 });
               }
             }
@@ -520,7 +558,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   //      stash the new tokens against the QR token.
   //   4. The waiting device's next poll returns "approved", we set its auth
   //      cookies from the stashed tokens, and burn the QR token (single-use).
-  .post('/qr/create', async ({ set }) => {
+  .post('/qr/create', async ({ set, request }) => {
+    const limited = await authRateLimit(set, [['qrCreate', getClientIP(request)]]);
+    if (limited) return limited;
     const token = randomBytes(32).toString('hex');
     const now = Date.now();
     const ttlSeconds = 120; // QR codes are short-lived
@@ -864,7 +904,12 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   })
 
   // Resend verification email (handled by the accounts service)
-  .post('/resend-verification', async ({ body }) => {
+  .post('/resend-verification', async ({ body, set, request }) => {
+    const limited = await authRateLimit(set, [
+      ['authEmail', `ip:${getClientIP(request)}`],
+      ['authEmail', `email:${body.email.toLowerCase()}`],
+    ]);
+    if (limited) return limited;
     try {
       await accountsResendVerification(body.email);
     } catch (error) {
@@ -882,7 +927,12 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   })
 
   // Request password reset — passwords live in the accounts service
-  .post('/forgot-password', async ({ body }) => {
+  .post('/forgot-password', async ({ body, set, request }) => {
+    const limited = await authRateLimit(set, [
+      ['authEmail', `ip:${getClientIP(request)}`],
+      ['authEmail', `email:${body.email.toLowerCase()}`],
+    ]);
+    if (limited) return limited;
     try {
       await accountsForgotPassword(body.email);
     } catch (error) {
@@ -901,7 +951,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
   // Reset password — proxy to accounts first (source of truth for
   // credentials), fall back to legacy local reset tokens.
-  .post('/reset-password', async ({ body, set }) => {
+  .post('/reset-password', async ({ body, set, request }) => {
+    const limited = await authRateLimit(set, [['passwordReset', getClientIP(request)]]);
+    if (limited) return limited;
     try {
       const { ok } = await accountsResetPassword(body.token, body.password);
       if (ok) {
@@ -1072,7 +1124,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             username: discordUser.username,
             displayName: discordUser.global_name || discordUser.username,
             avatar,
-            metadata: { accessToken: tokens.access_token },
+            metadata: { accessToken: tokens.access_token, [OAUTH_VERIFIED_KEY]: true },
           });
         } else {
           await UserConnection.create({
@@ -1082,7 +1134,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             username: discordUser.username,
             displayName: discordUser.global_name || discordUser.username,
             avatar,
-            metadata: { accessToken: tokens.access_token },
+            metadata: { accessToken: tokens.access_token, [OAUTH_VERIFIED_KEY]: true },
           });
         }
 
@@ -1280,7 +1332,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             username: lfmUsername,
             displayName: lfmUsername,
             avatar,
-            metadata: { sessionKey },
+            metadata: { sessionKey, [OAUTH_VERIFIED_KEY]: true },
           });
         } else {
           await UserConnection.create({
@@ -1290,7 +1342,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             username: lfmUsername,
             displayName: lfmUsername,
             avatar,
-            metadata: { sessionKey },
+            metadata: { sessionKey, [OAUTH_VERIFIED_KEY]: true },
           });
         }
 
@@ -1348,7 +1400,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             username: userInfo.username || userInfo.accountId,
             displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
             avatar: userInfo.avatar,
-            metadata: { steamId },
+            metadata: { steamId, [OAUTH_VERIFIED_KEY]: true },
           });
         } else {
           await UserConnection.create({
@@ -1358,7 +1410,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
             username: userInfo.username || userInfo.accountId,
             displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
             avatar: userInfo.avatar,
-            metadata: { steamId },
+            metadata: { steamId, [OAUTH_VERIFIED_KEY]: true },
           });
         }
         return oauthRedirect(`${redirectBase}&success=steam`, 'oauth2_state=; Path=/; Max-Age=0');
@@ -1406,7 +1458,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           username: userInfo.username || userInfo.accountId,
           displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
           avatar: userInfo.avatar,
-          metadata: { accessToken: tokenResp.access_token, refreshToken: tokenResp.refreshToken },
+          metadata: { accessToken: tokenResp.access_token, refreshToken: tokenResp.refreshToken, [OAUTH_VERIFIED_KEY]: true },
         });
       } else {
         await UserConnection.create({
@@ -1416,7 +1468,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           username: userInfo.username || userInfo.accountId,
           displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
           avatar: userInfo.avatar,
-          metadata: { accessToken: tokenResp.access_token, refreshToken: tokenResp.refreshToken },
+          metadata: { accessToken: tokenResp.access_token, refreshToken: tokenResp.refreshToken, [OAUTH_VERIFIED_KEY]: true },
         });
       }
 

@@ -760,7 +760,10 @@ export function useChatSession<M extends ChatMessage>({
     onEvent: (data) => {
       if (data.type === "message") {
         const incoming = normalizeIncomingMessage<M>(data.message);
-        const isOwnMessage = incoming.authorId === user?.id || incoming.author?.id === user?.id;
+        // A webhook post is never "own", even for the webhook's creator: it must
+        // not replace their pending bubble or skip the incoming-message path.
+        const isOwnMessage = !incoming.webhookId
+          && (incoming.authorId === user?.id || incoming.author?.id === user?.id);
         // Their message landed: they're no longer "typing".
         if (incoming.author?.username) clearTypingUser(incoming.author.username);
 

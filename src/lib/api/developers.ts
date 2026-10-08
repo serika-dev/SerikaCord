@@ -92,6 +92,16 @@ async function requireAppAccess(
   return { app, user };
 }
 
+/** Outbound webhook URLs must be plain http(s): no javascript:, file:, data: and so on. */
+function isHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 function generateToken(prefix: string): string {
   return `${prefix}${crypto.randomBytes(24).toString('hex')}`;
 }
@@ -478,10 +488,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 // ─── Application Emojis ────────────────────────────────────
 
 .get('/applications/:id/emojis', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Application not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const emojis = await AppEmoji.find({ applicationId: params.id });
   emojis.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -495,13 +503,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 })
 
 .post('/applications/:id/emojis', async ({ headers, cookie, params, body, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Application not found' }; }
-
-  const app = await Application.findById(params.id);
-  if (!app) { set.status = 404; return { error: 'Application not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const { name, image, animated } = body as { name?: string; image?: string; animated?: boolean };
   if (!name || !image) { set.status = 400; return { error: 'Name and image are required' }; }
@@ -522,10 +525,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 })
 
 .delete('/applications/:id/emojis/:emojiId', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const emoji = await AppEmoji.findById(params.emojiId);
   if (emoji && emoji.applicationId === params.id) {
@@ -537,10 +538,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 // ─── Application Webhooks ──────────────────────────────────
 
 .get('/applications/:id/webhooks', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const webhooks = await AppWebhook.find({ applicationId: params.id });
   webhooks.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -555,15 +554,13 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 })
 
 .post('/applications/:id/webhooks', async ({ headers, cookie, params, body, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const { name, url, events } = body as { name?: string; url?: string; events?: string[] };
   if (!name || !url) { set.status = 400; return { error: 'Name and URL are required' }; }
 
-  try { new URL(url); } catch { set.status = 400; return { error: 'Invalid URL' }; }
+  if (!isHttpUrl(url)) { set.status = 400; return { error: 'Invalid URL' }; }
 
   const webhook = await AppWebhook.create({
     applicationId: params.id,
@@ -583,10 +580,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 })
 
 .patch('/applications/:id/webhooks/:webhookId', async ({ headers, cookie, params, body, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const webhook = await AppWebhook.findById(params.webhookId);
   if (!webhook || webhook.applicationId !== params.id) {
@@ -598,7 +593,10 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   if (patch.active !== undefined) updateData.active = patch.active;
   if (patch.events !== undefined) updateData.events = patch.events;
   if (patch.name !== undefined) updateData.name = patch.name;
-  if (patch.url !== undefined) updateData.url = patch.url;
+  if (patch.url !== undefined) {
+    if (typeof patch.url !== 'string' || !isHttpUrl(patch.url)) { set.status = 400; return { error: 'Invalid URL' }; }
+    updateData.url = patch.url;
+  }
 
   await AppWebhook.updateById(webhook.id, updateData);
   const updated = await AppWebhook.findById(webhook.id);
@@ -612,10 +610,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 })
 
 .delete('/applications/:id/webhooks/:webhookId', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   const webhook = await AppWebhook.findById(params.webhookId);
   if (webhook && webhook.applicationId === params.id) {
@@ -627,13 +623,9 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 // ─── Application Team ──────────────────────────────────────
 
 .get('/applications/:id/team', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Not found' }; }
-
-  const app = await Application.findById(params.id);
-  if (!app) { set.status = 404; return { error: 'Application not found' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app } = access;
 
   if (!app.teamId) {
     // Solo owner — return just the owner
@@ -1020,8 +1012,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 // ─── Get Individual App Emoji ──────────────────────────────
 
 .get('/applications/:id/emojis/:emojiId', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   if (!params.emojiId) { set.status = 404; return { error: 'Emoji not found' }; }
   const emoji = await AppEmoji.findById(params.emojiId);
@@ -1039,8 +1031,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 // ─── Get Individual App Webhook ────────────────────────────
 
 .get('/applications/:id/webhooks/:webhookId', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
 
   if (!params.webhookId) { set.status = 404; return { error: 'Webhook not found' }; }
   const webhook = await AppWebhook.findById(params.webhookId);

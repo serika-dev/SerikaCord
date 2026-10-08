@@ -190,7 +190,11 @@ async function getOrCreateDiscordUser(discordAuthor: any): Promise<{ id: string;
   // 2. Check UserConnection table for a linked Discord account
   if (discordAuthor.id) {
     const connection = await UserConnection.findOne({ provider: 'discord', accountId: discordAuthor.id });
-    if (connection) {
+    // Only a connection made through Discord OAuth proves who owns that
+    // Discord id; a self-declared one would let anyone claim someone else's
+    // bridge identity (and skip their consent).
+    const { isOAuthVerifiedConnection } = await import('@/lib/connections/policy');
+    if (connection && isOAuthVerifiedConnection(connection)) {
       const linkedUser = await User.findById(connection.userId);
       if (linkedUser) {
         // Update discordId on the user if not set

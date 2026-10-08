@@ -1748,24 +1748,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isDiscord: true,
       });
     }
-    // Webhook posts are authored by the webhook's own id (not a user):
-    // render them as a bot with the webhook's name and avatar.
+    // Webhook posts are stored under the webhook's own id.
     const webhookAuthorIds = missingAuthorIds.filter((id) => !authorMap.has(id));
     if (webhookAuthorIds.length > 0) {
-      const { ChannelWebhook } = await import('@/lib/models');
-      const hooks = await ChannelWebhook.find({ id: { in: webhookAuthorIds } });
-      for (const w of hooks) {
-        authorMap.set(w.id, {
-          id: w.id,
-          username: w.name,
-          displayName: w.name,
-          avatar: w.avatar,
-          status: 'offline',
-          isBot: true,
-          isSystem: false,
-          isDiscord: w.name.toLowerCase().includes('discord'),
-        });
-      }
+      const { loadWebhookAuthors } = await import('@/lib/services/webhookAuthors');
+      for (const wa of await loadWebhookAuthors(webhookAuthorIds)) authorMap.set(wa.id, wa);
     }
     const refAuthorMap = new Map((refAuthors as any[]).map((a: any) => [a.id, a]));
     // Fetch Discord users for ref authors not found in User table
@@ -1900,6 +1887,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         sticker: msg.sticker || undefined,
         interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
         suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
+        webhookId: (authorData as { isWebhook?: boolean } | null)?.isWebhook ? msg.authorId : undefined,
       };
     });
 
@@ -1971,6 +1959,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           displayName: da.displayName,
           avatar: da.avatar,
         });
+      }
+      const webhookAuthorIds = missingAuthorIds.filter((id) => !authorMap.has(id));
+      if (webhookAuthorIds.length > 0) {
+        const { loadWebhookAuthors } = await import('@/lib/services/webhookAuthors');
+        for (const wa of await loadWebhookAuthors(webhookAuthorIds)) authorMap.set(wa.id, wa);
       }
     }
     const lowered = rawQuery.toLowerCase();
@@ -2553,6 +2546,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           isSystem: false,
           isDiscord: true,
         });
+      }
+      const webhookAuthorIds = missingAuthorIds.filter((id) => !authorMap.has(id));
+      if (webhookAuthorIds.length > 0) {
+        const { loadWebhookAuthors } = await import('@/lib/services/webhookAuthors');
+        for (const wa of await loadWebhookAuthors(webhookAuthorIds)) authorMap.set(wa.id, wa);
       }
     }
 
@@ -3403,24 +3401,27 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
     const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
-    // The list carries each webhook's secret token, so it is limited to people
-    // who could create/delete webhooks here (not every member who can view).
-    if (channel.serverId && !(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
-      set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
+    // The token/url is the webhook's secret: only people who can manage
+    // webhooks here (or the webhook's creator) get it.
+    let canManage = true;
+    if (channel.serverId) {
+      canManage = await canManageWebhooksInServer(channel.serverId, user.id, membership);
     }
     const { ChannelWebhook } = await import('@/lib/models');
     const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
-    return webhooks.map((w: any) => ({
-      id: w.id,
-      type: 1,
-      guild_id: channel.serverId ?? null,
-      channel_id: params.channelId,
-      name: w.name,
-      avatar: w.avatar,
-      token: w.token,
-      url: w.url,
-      creator_id: w.creatorId ?? null,
-    }));
+    return webhooks.map((w) => {
+      const showSecret = canManage || Boolean(w.creatorId && compareIds(w.creatorId, user.id));
+      return {
+        id: w.id,
+        type: 1,
+        guild_id: channel.serverId ?? null,
+        channel_id: params.channelId,
+        name: w.name,
+        avatar: w.avatar,
+        ...(showSecret ? { token: w.token, url: w.url } : {}),
+        creator_id: w.creatorId ?? null,
+      };
+    });
   })
   .post('/:channelId/webhooks', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);

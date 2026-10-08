@@ -4,7 +4,7 @@ import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
+import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { User, type IUser, type IUserSettings, type IPendingFriendRequests, type IRole, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
 import type { IAllowedFileType } from '@/lib/models/PlatformSettings';
 import { RichPresence, type IRichPresence } from '@/lib/models/RichPresence';
@@ -31,6 +31,7 @@ import { getLastFmNowPlaying } from '@/lib/services/lastfmService';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { getVersionInfo } from '@/lib/version';
 import { getServerBuildTime } from '@/lib/versionServer';
+import { filterVisibleConnections, isSelfDeclarableProvider, toOwnConnection } from '@/lib/connections/policy';
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -233,28 +234,19 @@ function emitFriendEvent(userIds: string[], payload: Record<string, unknown>) {
   }
 }
 
-// Rate limiting middleware
+// Rate limiting middleware. The hook must be `as: 'global'`: Elysia drops a
+// plugin's local hooks on `.use()`, which left this limiter inert before.
+// Checked in onBeforeHandle (not derive) so exempt paths never touch Redis.
 const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
-  .derive(async ({ request }) => {
-    const ip = getClientIP(request);
-    const result = await checkRateLimit('api', ip);
-    
-    return {
-      rateLimited: !result.success,
-      retryAfter: result.retryAfter,
-      remainingRequests: result.remaining,
-    };
-  })
-  .onBeforeHandle(({ rateLimited, retryAfter, set, path }) => {
-    // Skip rate limiting for admin routes — admin operations like broadcast
-    // should never be throttled by per-IP limits.
-    if (path.startsWith('/admin')) return;
-    if (rateLimited) {
+  .onBeforeHandle({ as: 'global' }, async ({ request, set, path }) => {
+    if (isGlobalRateLimitExempt(path, request.headers.get('authorization'))) return;
+    const result = await checkRateLimit('api', getClientIP(request));
+    if (!result.success) {
       set.status = 429;
-      set.headers['Retry-After'] = String(retryAfter);
+      set.headers['Retry-After'] = String(result.retryAfter ?? 1);
       return {
         error: 'Too many requests',
-        retryAfter,
+        retryAfter: result.retryAfter,
       };
     }
   });
@@ -1561,7 +1553,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    await AuthorizedApp.deleteById(params.appId);
+    // Scoped to the caller: another user's row id must not be deletable.
+    const deleted = isValidObjectId(normalizeId(params.appId))
+      && await AuthorizedApp.deleteByIdForUser(params.appId, authUser.id);
+    if (!deleted) {
+      set.status = 404;
+      return { error: 'Authorized app not found' };
+    }
     return { success: true };
   }, {
     params: t.Object({
@@ -1650,7 +1648,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    await UserDeviceSession.deleteById(params.deviceId);
+    const deleted = isValidObjectId(normalizeId(params.deviceId))
+      && await UserDeviceSession.deleteByIdForUser(params.deviceId, authUser.id);
+    if (!deleted) {
+      set.status = 404;
+      return { error: 'Device not found' };
+    }
     return { success: true };
   }, {
     params: t.Object({
@@ -1713,6 +1716,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
     const payload = body as Record<string, any>;
     const userId = authUser.id;
+    // Providers with an OAuth flow (discord, steam, lastfm, ...) are only ever
+    // created by their OAuth callbacks: a self-declared Discord id would
+    // otherwise hijack that person's Discord-bridge identity.
+    if (!isSelfDeclarableProvider(payload.provider)) {
+      set.status = 400;
+      return { error: 'This account type can only be linked through its sign-in flow' };
+    }
     // Check if connection already exists
     let connection = await UserConnection.findOne({
       userId,
@@ -1724,7 +1734,6 @@ const userRoutes = new Elysia({ prefix: '/users' })
         username: payload.username || null,
         displayName: payload.displayName || null,
         avatar: payload.avatar || null,
-        metadata: payload.metadata || null,
       }) || connection;
     } else {
       connection = await UserConnection.create({
@@ -1734,11 +1743,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
         username: payload.username || null,
         displayName: payload.displayName || null,
         avatar: payload.avatar || null,
-        metadata: payload.metadata || null,
+        // Client-supplied metadata is never stored: it is reserved for
+        // OAuth-issued data (tokens, verification markers).
+        metadata: null,
       });
     }
 
-    return { connection };
+    return { connection: toOwnConnection(connection) };
   }, {
     body: t.Object({
       provider: t.Union([
@@ -1772,7 +1783,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    await UserConnection.deleteById(params.connectionId);
+    const deleted = isValidObjectId(normalizeId(params.connectionId))
+      && await UserConnection.deleteByIdForUser(params.connectionId, authUser.id);
+    if (!deleted) {
+      set.status = 404;
+      return { error: 'Connection not found' };
+    }
     return { success: true };
   }, {
     params: t.Object({
@@ -1792,14 +1808,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
       update.visible = Boolean(payload.visible);
     }
 
-    const connection = await UserConnection.updateById(params.connectionId, update);
+    const connection = isValidObjectId(normalizeId(params.connectionId))
+      ? await UserConnection.updateByIdForUser(params.connectionId, authUser.id, update)
+      : null;
 
     if (!connection) {
       set.status = 404;
       return { error: 'Connection not found' };
     }
 
-    return { connection };
+    return { connection: toOwnConnection(connection) };
   }, {
     params: t.Object({
       connectionId: t.String(),
@@ -1832,12 +1850,10 @@ const userRoutes = new Elysia({ prefix: '/users' })
       // Not authenticated — leave isFriend false
     }
 
-    // Public connections — strip sensitive metadata (e.g. session keys)
-    let connQuery: Record<string, any> = { userId: targetUser.id };
-    if (!isSelf) {
-      connQuery.visible = true;
-    }
-    const rawConnections = await UserConnection.find(connQuery);
+    // Public connections — strip sensitive metadata (e.g. session keys).
+    // Hidden ones are filtered here: UserConnection.find has no 'visible' key,
+    // and the column is nullable (NULL means visible).
+    const rawConnections = filterVisibleConnections(await UserConnection.find({ userId: targetUser.id }), isSelf);
     const connections = rawConnections.map((c) => ({
       provider: c.provider,
       accountId: c.accountId,
@@ -3415,36 +3431,35 @@ export const api = new Elysia({ prefix: '/api' })
   })
   .post('/webhooks/:channelId/:token', async ({ params, body, set }) => {
     const { ChannelWebhook, Channel, Message } = await import('@/lib/models');
-    const { encryptForStorage, secureCompare, isValidObjectId, validateMessageContent, checkRateLimit } = await import('@/lib/security');
-    if (!isValidObjectId(params.channelId) || typeof params.token !== 'string' || params.token.length === 0) {
-      set.status = 404;
-      return { error: 'Webhook not found' };
-    }
+    const { secureCompare, validateMessageContent } = await import('@/lib/security');
+    const notFound = () => { set.status = 404; return { error: 'Webhook not found' }; };
+    if (!params.token || params.token.length > 128 || !isValidObjectId(normalizeId(params.channelId))) return notFound();
     const webhook = await ChannelWebhook.findOne({
       channelId: params.channelId,
       token: params.token,
     });
-    // Fail closed: the token must match exactly (constant-time compare).
-    if (!webhook || !secureCompare(webhook.token, params.token)) {
-      set.status = 404;
-      return { error: 'Webhook not found' };
+    // Second, timing-safe guard: a model whitelist regression must never turn
+    // this back into "first webhook in the channel".
+    if (!webhook || !webhook.token || !secureCompare(webhook.token, params.token)) return notFound();
+
+    const limit = await checkRateLimit('webhookExecute', webhook.id);
+    if (!limit.success) {
+      set.status = 429;
+      set.headers['Retry-After'] = String(limit.retryAfter ?? 1);
+      return { error: 'Too many requests', retry_after: limit.retryAfter };
     }
+
     const channel = await Channel.findById(params.channelId);
     if (!channel) {
       set.status = 404;
       return { error: 'Channel not found' };
-    }
-    const rateLimit = await checkRateLimit('message', `webhook:${webhook.id}`);
-    if (!rateLimit.success) {
-      set.status = 429;
-      return { error: 'Webhook rate limited', retryAfter: rateLimit.retryAfter };
     }
     const payload = (body ?? {}) as { content?: unknown; username?: unknown; avatar_url?: unknown };
     const rawContent = typeof payload.content === 'string' ? payload.content : '';
     const validation = validateMessageContent(rawContent);
     if (!validation.valid) {
       set.status = 400;
-      return { error: validation.error };
+      return { error: validation.error || 'Invalid message content' };
     }
     const { sanitizeMessageContent, publishToChannel } = await import('./channels');
     const content = sanitizeMessageContent(rawContent);
@@ -3452,39 +3467,31 @@ export const api = new Elysia({ prefix: '/api' })
       set.status = 400;
       return { error: 'Message content cannot be empty' };
     }
-    const username = (typeof payload.username === 'string' && payload.username.trim()
-      ? payload.username.trim()
-      : webhook.name).slice(0, 80);
-    const avatarUrl = typeof payload.avatar_url === 'string' && /^https:\/\//i.test(payload.avatar_url)
-      ? payload.avatar_url
-      : webhook.avatar;
+    const { buildWebhookAuthor } = await import('@/lib/chat/webhook');
+    const author = buildWebhookAuthor(
+      { id: webhook.id, name: webhook.name, avatar: webhook.avatar },
+      { username: payload.username, avatarUrl: payload.avatar_url },
+      'online',
+    );
+    const { encryptForStorage } = await import('@/lib/security');
     const encryptedContent = await encryptForStorage(content);
-    // Authored by the webhook's own id, not its creator's, so a leaked token
-    // can't post as the admin who made it. History renders it as a bot with
-    // the webhook's name/avatar (see GET /channels/:id/messages).
+    // Stored under the webhook's own id, not the creator's: a leaked token
+    // can't post as the admin who made it, and these never group with (or
+    // reload as) the creator's own messages.
     const message = await Message.create({
       channelId: channel.id,
-      serverId: channel.serverId,
+      serverId: channel.serverId ?? undefined,
       authorId: webhook.id,
       content: encryptedContent,
       type: 'default',
     });
     await Channel.updateById(channel.id, { lastMessageId: message.id, updatedAt: new Date() });
-    const isDiscord = username.toLowerCase().includes('discord') || webhook.name.toLowerCase().includes('discord');
     const messageResponse = {
       id: message.id,
       content: content,
-      authorId: message.authorId,
-      author: {
-        id: message.authorId,
-        username: username,
-        displayName: username,
-        avatar: avatarUrl,
-        status: 'online',
-        isBot: true,
-        isSystem: false,
-        isDiscord: isDiscord,
-      },
+      authorId: author.id,
+      author,
+      webhookId: webhook.id,
       channelId: message.channelId,
       serverId: channel.serverId,
       createdAt: message.createdAt,
@@ -3502,7 +3509,7 @@ export const api = new Elysia({ prefix: '/api' })
       messageId: message.id,
       // Not the creator's id: they should get unread for their webhook's posts too.
       authorId: `webhook:${webhook.id}`,
-      authorName: username,
+      authorName: author.username,
       mentionedUserIds: extractUserMentionIds(content),
       createdAt: message.createdAt,
     });
@@ -3640,13 +3647,19 @@ export const api = new Elysia({ prefix: '/api' })
   })
   // Fish Audio TTS proxy — hides the API key from the client.
   // Clients POST { text, reference_id, speed, volume } and receive raw audio bytes.
-  .post('/tts/fish', async ({ body, set }) => {
+  .post('/tts/fish', async ({ body, set, headers, cookie }) => {
+    // Paid upstream API: signed-in users only, known voices only, rate limited.
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
     const apiKey = process.env.FISH_API_KEY;
     if (!apiKey) {
       set.status = 503;
       return { error: 'Fish Audio TTS is not configured' };
     }
-    const { text, reference_id, speed, volume } = body as {
+    const { text, reference_id } = body as {
       text: string;
       reference_id: string;
       speed?: number;
@@ -3656,6 +3669,24 @@ export const api = new Elysia({ prefix: '/api' })
       set.status = 400;
       return { error: 'text and reference_id are required' };
     }
+    // Only voices configured by staff (enabled ones; staff may preview disabled ones).
+    const { TtsVoice } = await import('@/lib/models/TtsVoice');
+    const voices = await TtsVoice.find({});
+    const voice = voices.find((v) => v.referenceId === reference_id);
+    if (!voice || (voice.enabled === false && !user.isStaff)) {
+      set.status = 400;
+      return { error: 'Unknown voice' };
+    }
+    const limit = await checkRateLimit('ttsFish', user.id);
+    if (!limit.success) {
+      set.status = 429;
+      set.headers['Retry-After'] = String(limit.retryAfter ?? 1);
+      return { error: 'Too many requests', retryAfter: limit.retryAfter };
+    }
+    const clamp = (v: unknown, min: number, max: number, fallback: number) =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : fallback;
+    const speed = clamp((body as { speed?: unknown }).speed, 0.5, 2, 1);
+    const volume = clamp((body as { volume?: unknown }).volume, -20, 20, 0);
     try {
       const fishBody: Record<string, unknown> = {
         text,
@@ -3666,8 +3697,8 @@ export const api = new Elysia({ prefix: '/api' })
         latency: 'normal',
         chunk_length: 300,
         prosody: {
-          speed: speed ?? 1,
-          volume: volume ?? 0,
+          speed,
+          volume,
           normalize_loudness: true,
         },
       };
@@ -3702,8 +3733,8 @@ export const api = new Elysia({ prefix: '/api' })
     }
   }, {
     body: t.Object({
-      text: t.String(),
-      reference_id: t.String(),
+      text: t.String({ minLength: 1, maxLength: 1000 }),
+      reference_id: t.String({ minLength: 1, maxLength: 128 }),
       speed: t.Optional(t.Number()),
       volume: t.Optional(t.Number()),
     }),

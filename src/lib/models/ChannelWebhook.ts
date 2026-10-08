@@ -20,7 +20,10 @@ export const ChannelWebhook = {
         case 'id': conditions.push(buildCondition(schema.channelWebhooks.id, value, true)); break;
         case 'channelId': conditions.push(eq(schema.channelWebhooks.channelId, normalizeId(value as string))); break;
         case 'serverId': conditions.push(eq(schema.channelWebhooks.serverId, normalizeId(value as string))); break;
-        case 'token': conditions.push(eq(schema.channelWebhooks.token, value as string)); break;
+        case 'token': conditions.push(eq(schema.channelWebhooks.token, String(value))); break;
+        // An unknown key must never widen the match (it used to be dropped,
+        // which turned a token lookup into "first webhook in the channel").
+        default: throw new Error(`ChannelWebhook: unsupported filter key "${key}"`);
       }
     }
     let query = db.select().from(schema.channelWebhooks);
@@ -39,7 +42,10 @@ export const ChannelWebhook = {
         case 'id': conditions.push(buildCondition(schema.channelWebhooks.id, value, true)); break;
         case 'channelId': conditions.push(eq(schema.channelWebhooks.channelId, normalizeId(value as string))); break;
         case 'serverId': conditions.push(eq(schema.channelWebhooks.serverId, normalizeId(value as string))); break;
-        case 'token': conditions.push(eq(schema.channelWebhooks.token, value as string)); break;
+        case 'token': conditions.push(eq(schema.channelWebhooks.token, String(value))); break;
+        // An unknown key must never widen the match (it used to be dropped,
+        // which turned a token lookup into "first webhook in the channel").
+        default: throw new Error(`ChannelWebhook: unsupported filter key "${key}"`);
       }
     }
     let query = db.select().from(schema.channelWebhooks);

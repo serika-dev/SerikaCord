@@ -41,12 +41,23 @@ export function getRateLimiter(
 
 // Pre-configured rate limiters
 export const rateLimiters_config = {
-  // General API rate limit
-  api: { points: 100, duration: 60 }, // 100 requests per minute
-  
+  // General per-IP API budget (applied globally by rateLimitPlugin). Generous on
+  // purpose: a busy client plus several users behind one NAT must never hit it.
+  api: { points: 1200, duration: 60 },
+
   // Authentication rate limits
-  login: { points: 5, duration: 300, blockDuration: 900 }, // 5 attempts per 5 min, block 15 min
-  register: { points: 3, duration: 3600 }, // 3 registrations per hour
+  login: { points: 10, duration: 300, blockDuration: 600 }, // per IP+email: 10 attempts / 5 min, then 10 min block
+  loginIp: { points: 60, duration: 600 }, // per IP across all emails
+  register: { points: 10, duration: 3600 }, // 10 registrations per IP per hour
+  authEmail: { points: 5, duration: 900 }, // forgot-password / resend-verification, per IP and per email
+  passwordReset: { points: 10, duration: 900 }, // reset-password submissions per IP
+  qrCreate: { points: 60, duration: 600 }, // QR login codes per IP (the login page refreshes them every 2 min)
+
+  // Incoming channel webhooks, per webhook
+  webhookExecute: { points: 30, duration: 10 },
+
+  // Fish Audio TTS proxy (paid API), per user
+  ttsFish: { points: 30, duration: 60 },
   
   // Message rate limits
   message: { points: 10, duration: 10 }, // 10 messages per 10 seconds
@@ -290,17 +301,47 @@ export function getClientIP(request: Request): string {
   const cfConnectingIP = headers.get('cf-connecting-ip');
   if (cfConnectingIP) return cfConnectingIP;
   
-  // Standard proxy headers
-  const xForwardedFor = headers.get('x-forwarded-for');
+  return pickClientIpFromHeaders(
+    headers.get('x-forwarded-for'),
+    headers.get('x-real-ip'),
+  );
+}
+
+/**
+ * X-Forwarded-For entries left of our own proxy's hop are client-supplied and
+ * trivially spoofed, so only the right-most entry (appended by the reverse
+ * proxy in front of us) is trusted. Exported for tests.
+ */
+export function pickClientIpFromHeaders(xForwardedFor: string | null, xRealIP: string | null): string {
   if (xForwardedFor) {
-    // Take the first IP in the chain (original client)
-    return xForwardedFor.split(',')[0].trim();
+    const hops = xForwardedFor.split(',').map((h) => h.trim()).filter(Boolean);
+    const last = hops[hops.length - 1];
+    if (last) return last;
   }
-  
-  const xRealIP = headers.get('x-real-ip');
-  if (xRealIP) return xRealIP;
-  
+  if (xRealIP && xRealIP.trim()) return xRealIP.trim();
   return 'unknown';
+}
+
+/**
+ * Paths the global per-IP API budget skips: long-lived streams, health and
+ * presence/voice polling (heavy but cheap), admin tooling, and bot-token
+ * traffic (bots are many requests from one host and authenticate per call).
+ * `path` is the request pathname, with or without the `/api` prefix.
+ */
+export function isGlobalRateLimitExempt(path: string, authorization?: string | null): boolean {
+  const p = path.startsWith('/api/') ? path.slice(4) : path === '/api' ? '/' : path;
+  if (p.endsWith('/stream')) return true;
+  if (
+    p === '/health' ||
+    p === '/version' ||
+    p === '/users/@me/activity' ||
+    p === '/users/activity/batch' ||
+    p === '/voice/states'
+  ) return true;
+  if (p === '/admin' || p.startsWith('/admin/')) return true;
+  if (p.startsWith('/internal/')) return true;
+  if (typeof authorization === 'string' && /^Bot\s+\S/i.test(authorization)) return true;
+  return false;
 }
 
 // Validate UUID format (PostgreSQL primary keys)

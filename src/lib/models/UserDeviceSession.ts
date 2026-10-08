@@ -72,4 +72,12 @@ export const UserDeviceSession = {
   async deleteById(id: string) {
     await db.delete(schema.userDeviceSessions).where(eq(schema.userDeviceSessions.id, normalizeId(id)));
   },
+
+  /** Delete a device session only if it belongs to `userId`; false when no such row. */
+  async deleteByIdForUser(id: string, userId: string) {
+    const rows = await db.delete(schema.userDeviceSessions)
+      .where(and(eq(schema.userDeviceSessions.id, normalizeId(id)), eq(schema.userDeviceSessions.userId, normalizeId(userId))))
+      .returning({ id: schema.userDeviceSessions.id });
+    return rows.length > 0;
+  },
 };
