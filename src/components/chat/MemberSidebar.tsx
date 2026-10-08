@@ -1,10 +1,10 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { useState, useMemo, useEffect } from "react";
 import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, Clock, UserPlus, UserPlus2, ShieldAlert, Phone, Video } from "lucide-react";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
-import { InviteDialog } from "@/components/dialogs/InviteDialog";
-import { ModViewDialog } from "@/components/user/ModViewDialog";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUserActivity } from "@/hooks/useMoeActivity";
@@ -19,6 +19,10 @@ import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+
+const ModViewDialog = dynamic(() => import("@/components/user/ModViewDialog").then((m) => m.ModViewDialog), { ssr: false });
+
+const InviteDialog = dynamic(() => import("@/components/dialogs/InviteDialog").then((m) => m.InviteDialog), { ssr: false });
 
 interface MemberRole {
   id: string;
@@ -448,10 +452,10 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
-      {serverId && (
+      {serverId && inviteOpen && (
         <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
       )}
-      {serverId && (
+      {serverId && modViewOpen && (
         <ModViewDialog
           user={{ id: member.id, username: member.username, displayName: member.displayName, avatar: member.avatar }}
           serverId={serverId}

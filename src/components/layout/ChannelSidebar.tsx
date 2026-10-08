@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -58,9 +60,10 @@ import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
-import { ChannelSettingsDialog } from "@/components/dialogs/ChannelSettingsDialog";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
+
+const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 
 interface DMChannel {
   id: string;

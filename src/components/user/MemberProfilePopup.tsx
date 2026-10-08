@@ -1,5 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+
 import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -8,10 +11,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
-import { FullProfileDialog } from "@/components/user/FullProfileDialog";
-import { ModViewDialog } from "@/components/user/ModViewDialog";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
+
+const ModViewDialog = dynamic(() => import("@/components/user/ModViewDialog").then((m) => m.ModViewDialog), { ssr: false });
+
+const FullProfileDialog = dynamic(() => import("@/components/user/FullProfileDialog").then((m) => m.FullProfileDialog), { ssr: false });
 
 interface MemberProfilePopupProps {
   children: React.ReactNode;
@@ -200,18 +205,22 @@ function MemberProfilePopupBody({
         >
           {children}
         </div>
-        <FullProfileDialog
-          user={fullProfile}
-          open={fullProfileOpen}
-          onOpenChange={setFullProfileOpen}
-          isCurrentUser={currentUser?.id === member.id}
-          isFriend={fullProfile.isFriend}
-          serverId={serverId}
-          showOwnerCrown={Boolean(serverId)}
-          onOpenModView={serverId ? () => { setFullProfileOpen(false); setModViewOpen(true); } : undefined}
-        />
+        <MountWhenOpened open={fullProfileOpen}>
+          <FullProfileDialog
+            user={fullProfile}
+            open={fullProfileOpen}
+            onOpenChange={setFullProfileOpen}
+            isCurrentUser={currentUser?.id === member.id}
+            isFriend={fullProfile.isFriend}
+            serverId={serverId}
+            showOwnerCrown={Boolean(serverId)}
+            onOpenModView={serverId ? () => { setFullProfileOpen(false); setModViewOpen(true); } : undefined}
+          />
+        </MountWhenOpened>
         {serverId && (
+          <MountWhenOpened open={modViewOpen}>
           <ModViewDialog user={fullProfile} serverId={serverId} open={modViewOpen} onOpenChange={setModViewOpen} />
+        </MountWhenOpened>
         )}
       </>
     );
@@ -246,18 +255,22 @@ function MemberProfilePopupBody({
       </PopoverContent>
     </Popover>
 
-    <FullProfileDialog
-      user={fullProfile}
-      open={fullProfileOpen}
-      onOpenChange={setFullProfileOpen}
-      isCurrentUser={currentUser?.id === member.id}
-      isFriend={fullProfile.isFriend}
-      serverId={serverId}
-      showOwnerCrown={Boolean(serverId)}
-      onOpenModView={serverId ? () => { setFullProfileOpen(false); setModViewOpen(true); } : undefined}
-    />
+    <MountWhenOpened open={fullProfileOpen}>
+      <FullProfileDialog
+        user={fullProfile}
+        open={fullProfileOpen}
+        onOpenChange={setFullProfileOpen}
+        isCurrentUser={currentUser?.id === member.id}
+        isFriend={fullProfile.isFriend}
+        serverId={serverId}
+        showOwnerCrown={Boolean(serverId)}
+        onOpenModView={serverId ? () => { setFullProfileOpen(false); setModViewOpen(true); } : undefined}
+      />
+    </MountWhenOpened>
     {serverId && (
-      <ModViewDialog user={fullProfile} serverId={serverId} open={modViewOpen} onOpenChange={setModViewOpen} />
+      <MountWhenOpened open={modViewOpen}>
+          <ModViewDialog user={fullProfile} serverId={serverId} open={modViewOpen} onOpenChange={setModViewOpen} />
+        </MountWhenOpened>
     )}
     </>
   );

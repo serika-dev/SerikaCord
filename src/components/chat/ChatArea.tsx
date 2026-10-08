@@ -1,5 +1,8 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
@@ -30,11 +33,7 @@ import { toast } from "sonner";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
-import { DiscordBridgeConsentDialog } from "@/components/chat/DiscordBridgeConsentDialog";
-import { DeleteMessageDialog } from "@/components/chat/DeleteMessageDialog";
-import { PinnedMessagesDialog } from "@/components/chat/PinnedMessagesDialog";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import { ImageLightbox } from "@/components/ui/image-lightbox";
 import {
   incrementUnread,
   clearUnread,
@@ -76,6 +75,14 @@ import { EMOJI_NAMES } from "@/lib/constants/emojis";
 import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { canSendInChannel as canSendInChannelClient } from "@/lib/roles/channelPermissions";
+
+const ImageLightbox = dynamic(() => import("@/components/ui/image-lightbox").then((m) => m.ImageLightbox), { ssr: false });
+
+const PinnedMessagesDialog = dynamic(() => import("@/components/chat/PinnedMessagesDialog").then((m) => m.PinnedMessagesDialog), { ssr: false });
+
+const DeleteMessageDialog = dynamic(() => import("@/components/chat/DeleteMessageDialog").then((m) => m.DeleteMessageDialog), { ssr: false });
+
+const DiscordBridgeConsentDialog = dynamic(() => import("@/components/chat/DiscordBridgeConsentDialog").then((m) => m.DiscordBridgeConsentDialog), { ssr: false });
 
 type Message = ChatMessage;
 
@@ -1759,20 +1766,25 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         draftKey={currentChannel ? `channel:${currentChannel.id}` : undefined}
       />
 
-      <ImageLightbox
-        items={lightbox.lightboxItems}
-        currentIndex={lightbox.lightboxCurrentIndex}
-        isOpen={lightbox.isLightboxOpen}
-        onNavigate={lightbox.standaloneMedia ? undefined : lightbox.setLightboxIndex}
-        onClose={lightbox.closeMediaViewer}
-      />
+      <MountWhenOpened open={lightbox.isLightboxOpen}>
+        <ImageLightbox
+          items={lightbox.lightboxItems}
+          currentIndex={lightbox.lightboxCurrentIndex}
+          isOpen={lightbox.isLightboxOpen}
+          onNavigate={lightbox.standaloneMedia ? undefined : lightbox.setLightboxIndex}
+          onClose={lightbox.closeMediaViewer}
+        />
+      </MountWhenOpened>
 
-      <DeleteMessageDialog
-        message={chat.actions.deleteConfirmMessage}
-        onCancel={() => chat.actions.setDeleteConfirmMessage(null)}
-        onConfirm={() => void chat.actions.confirmDelete()}
-      />
+      <MountWhenOpened open={Boolean(chat.actions.deleteConfirmMessage)}>
+        <DeleteMessageDialog
+          message={chat.actions.deleteConfirmMessage}
+          onCancel={() => chat.actions.setDeleteConfirmMessage(null)}
+          onConfirm={() => void chat.actions.confirmDelete()}
+        />
+      </MountWhenOpened>
 
+      <MountWhenOpened open={showPins}>
       <PinnedMessagesDialog
         open={showPins}
         onOpenChange={setShowPins}
@@ -1782,6 +1794,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onJumpToMessage={(id) => void jumpToMessage(id)}
         onUnpin={(message) => void chat.actions.togglePin(message)}
       />
+      </MountWhenOpened>
 
       <Dialog open={showInbox} onOpenChange={setShowInbox}>
         <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
@@ -1880,7 +1893,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
       />
 
-      <DiscordBridgeConsentDialog open={bridgeConsentOpen} onOpenChange={setBridgeConsentOpen} />
+      <MountWhenOpened open={bridgeConsentOpen}>
+        <DiscordBridgeConsentDialog open={bridgeConsentOpen} onOpenChange={setBridgeConsentOpen} />
+      </MountWhenOpened>
     </div>
   );
 }
