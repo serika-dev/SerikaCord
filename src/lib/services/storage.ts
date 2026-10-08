@@ -189,9 +189,14 @@ export class StorageService {
 
     // Sanitize SVGs server-side to strip <script>, event handlers, etc.
     // This makes SVG uploads safe even if opened directly in a browser tab.
-    if (contentType === 'image/svg+xml') {
+    // SVG is also served as a download (Content-Disposition: attachment) so
+    // opening its URL never renders it as a document on the CDN origin; <img>
+    // embeds ignore the disposition. The sanitizer is defense in depth.
+    const isSvg = contentType.toLowerCase().split(';')[0].trim() === 'image/svg+xml';
+    if (isSvg) {
       buffer = sanitizeSvgBuffer(buffer);
     }
+    const contentDisposition = isSvg ? 'attachment' : undefined;
 
     // S3 metadata values must be ASCII — encode non-ASCII filenames
     const safeFilename = encodeURIComponent(filename || 'unknown');
@@ -205,6 +210,7 @@ export class StorageService {
           Key: key,
           Body: buffer,
           ContentType: contentType,
+          ContentDisposition: contentDisposition,
           CacheControl: 'public, max-age=31536000', // 1 year cache
           Metadata: {
             'original-filename': safeFilename,
@@ -220,6 +226,7 @@ export class StorageService {
         Key: key,
         Body: buffer,
         ContentType: contentType,
+        ContentDisposition: contentDisposition,
         CacheControl: 'public, max-age=31536000',
         Metadata: {
           'original-filename': safeFilename,

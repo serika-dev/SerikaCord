@@ -1,5 +1,8 @@
 import { Elysia, t } from 'elysia';
 import { getPlatformSettings } from '@/lib/models/PlatformSettings';
+import { authenticateRequest } from '@/lib/services/auth';
+import { safeFetch, checkUrlShape } from '@/lib/security/ssrf';
+import { sanitizePlayerUrl } from '@/lib/security/embedPlayer';
 
 interface OEmbedResponse {
   title?: string;
@@ -542,9 +545,21 @@ async function isWhitelistedDomainAsync(url: string): Promise<boolean> {
 }
 
 export const oembedRoutes = new Elysia({ prefix: '/oembed' })
-  .get('/', async ({ query, set }) => {
+  .get('/', async ({ query, set, headers, cookie }) => {
     const url = query.url;
-    
+
+    // Link previews are only fetched by the logged-in app; requiring a session
+    // keeps this server-side fetcher from being an anonymous proxy.
+    const authToken = (cookie as Record<string, { value?: unknown }>).auth_token?.value;
+    const { user } = await authenticateRequest(
+      headers.authorization ?? null,
+      typeof authToken === 'string' ? { auth_token: authToken } : {},
+    );
+    if (!user) {
+      set.status = 401;
+      return { error: 'Unauthorized' };
+    }
+
     if (!url) {
       set.status = 400;
       return { error: 'URL is required' };
@@ -552,7 +567,8 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
     
     // Validate URL
     try {
-      new URL(url);
+      // http(s) only, no credentials, common ports, no internal hosts/IPs.
+      checkUrlShape(url);
     } catch {
       set.status = 400;
       return { error: 'Invalid URL' };
@@ -601,7 +617,9 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       const timeout = setTimeout(() => controller.abort(), fetchTimeout);
       
       const isKlipy = /klipy\.(com|dev)/.test(url);
-      const response = await fetch(url, {
+      // safeFetch re-validates every redirect hop and refuses private
+      // addresses after DNS resolution (SSRF guard).
+      const response = await safeFetch(url, {
         signal: controller.signal,
         headers: {
           'User-Agent': isKlipy
@@ -609,27 +627,17 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
             : 'SerikaCord/1.0 (Link Preview Bot)',
           'Accept': 'text/html',
         },
-        redirect: 'follow',
       });
-      
-      clearTimeout(timeout);
-      
-      if (!response.ok) {
-        set.status = 404;
-        return { error: 'Could not fetch URL' };
-      }
-      
+
+      // Every failure below returns the same status + message so the
+      // endpoint can't be used to tell open/closed/non-HTML targets apart.
       const contentType = response.headers.get('content-type') || '';
-      if (!contentType.includes('text/html')) {
-        set.status = 400;
-        return { error: 'URL does not return HTML' };
-      }
-      
-      // Only read first 50KB to avoid memory issues
-      const reader = response.body?.getReader();
+      const reader = response.ok && contentType.includes('text/html') ? response.body?.getReader() : undefined;
       if (!reader) {
-        set.status = 500;
-        return { error: 'Could not read response' };
+        clearTimeout(timeout);
+        try { await response.body?.cancel(); } catch { /* ignore */ }
+        set.status = 502;
+        return { error: 'Could not fetch URL' };
       }
       
       let html = '';
@@ -643,30 +651,29 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
         bytesRead += value.length;
       }
       
+      clearTimeout(timeout);
       reader.cancel();
-      
+
       const data = extractMetaTags(html);
       data.url = url;
 
-      // Only expose twitter:player iframe URLs for whitelisted domains.
-      // This prevents arbitrary iframe embedding from untrusted sources.
-      if (!whitelisted) {
+      // Only expose twitter:player iframe URLs for whitelisted pages, and only
+      // when the player itself is https: on a known embed-player host (the
+      // page whitelist includes user-content hosts like netlify.app).
+      const player = whitelisted ? sanitizePlayerUrl(data.player) : undefined;
+      if (player) {
+        data.player = player;
+      } else {
         data.player = undefined;
         data.playerWidth = undefined;
         data.playerHeight = undefined;
-        data.card = undefined;
+        if (!whitelisted || data.card === 'player') data.card = undefined;
       }
 
       return data;
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        set.status = 408;
-        return { error: 'Request timeout' };
-      }
-      
-      console.error('OEmbed fetch error:', error);
-      set.status = 500;
-      return { error: 'Failed to fetch URL' };
+    } catch {
+      set.status = 502;
+      return { error: 'Could not fetch URL' };
     }
   }, {
     query: t.Object({
@@ -692,7 +699,11 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 20000);
-      const upstream = await fetch(url, { headers: upstreamHeaders, signal: controller.signal, redirect: 'follow' });
+      const upstream = await safeFetch(
+        url,
+        { headers: upstreamHeaders, signal: controller.signal },
+        { allowHost: (h) => MEDIA_PROXY_HOSTS.has(h) },
+      );
       clearTimeout(timeout);
 
       if (!upstream.ok && upstream.status !== 206) {

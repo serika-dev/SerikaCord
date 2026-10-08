@@ -142,10 +142,6 @@ const nextConfig: NextConfig = {
             value: 'on',
           },
           {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN',
-          },
-          {
             key: 'X-Content-Type-Options',
             value: 'nosniff',
           },
@@ -156,6 +152,27 @@ const nextConfig: NextConfig = {
           {
             key: 'Permissions-Policy',
             value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=()',
+          },
+        ],
+      },
+      // Clickjacking protection everywhere except the public, read-only
+      // server widget (/widget/<id>), which owners embed on their own sites.
+      // 'widget/' with the slash keeps /widget-editor protected.
+      {
+        source: '/((?!widget/).*)',
+        headers: [
+          {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+        ],
+      },
+      {
+        source: '/widget/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: 'frame-ancestors *',
           },
         ],
       },

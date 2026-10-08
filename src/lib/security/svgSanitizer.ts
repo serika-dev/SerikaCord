@@ -28,11 +28,37 @@ const DANGEROUS_ELEMENTS = [
 const DANGEROUS_ATTR_PATTERNS = [
   // Event handlers: onclick, onload, onmouseover, onerror, etc.
   /\bon\w+\s*=/gi,
-  // javascript: / data: / vbscript: in href / xlink:href / src attributes
-  /\b(?:href|xlink:href|src|action|formaction)\s*=\s*["']?\s*(?:javascript|data|vbscript)\s*:/gi,
   // set / animate that can target event handlers
   /\battributeName\s*=\s*["']?\s*on\w+/gi,
 ];
+
+// URL-bearing attributes whose value is checked for script schemes after
+// entity decoding (browsers decode `&#106;avascript:` before use).
+const URL_ATTR = /\b(?:href|xlink:href|src|action|formaction)\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi;
+const DANGEROUS_SCHEME = /^(?:javascript|data|vbscript):/i;
+
+const NAMED_ENTITIES: Record<string, string> = {
+  colon: ':', tab: '\t', newline: '\n', lpar: '(', rpar: ')', amp: '&', quot: '"', apos: "'", lt: '<', gt: '>',
+};
+
+/** Decode numeric and the few relevant named entities in an attribute value. */
+export function decodeAttrEntities(value: string): string {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);?/gi, (m, body: string) => {
+    if (body[0] === '#') {
+      const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
+      return Number.isFinite(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+    }
+    const named = NAMED_ENTITIES[body.toLowerCase()];
+    return named ?? m;
+  });
+}
+
+function isDangerousUrlValue(raw: string): boolean {
+  const unquoted = raw.replace(/^["']|["']$/g, '');
+  // Browsers ignore ASCII whitespace/control chars inside the scheme.
+  const decoded = decodeAttrEntities(unquoted).replace(/[\u0000-\u0020]/g, '');
+  return DANGEROUS_SCHEME.test(decoded);
+}
 
 /**
  * Remove an entire element (open tag through close tag, or self-closing) from
@@ -58,10 +84,9 @@ function stripElement(svg: string, tagName: string): string {
 }
 
 /**
- * Sanitize an SVG string by removing all dangerous elements and attributes.
- * Returns the cleaned SVG as a string.
+ * One sanitization pass (see sanitizeSvg, which repeats it to a fixpoint).
  */
-export function sanitizeSvg(svgSource: string): string {
+function sanitizeOnce(svgSource: string): string {
   let svg = svgSource;
 
   // 1. Strip dangerous elements
@@ -85,6 +110,9 @@ export function sanitizeSvg(svgSource: string): string {
     );
   }
 
+  // URL attributes with script schemes (entity-decoded)
+  svg = svg.replace(URL_ATTR, (m, value: string) => (isDangerousUrlValue(value) ? '' : m));
+
   // 3. Strip <!-- ... --> HTML comments that might hide payloads
   // (keep XML processing instructions like <?xml ... ?>)
   // Actually, SVG comments are harmless — skip this to preserve valid files.
@@ -100,6 +128,22 @@ export function sanitizeSvg(svgSource: string): string {
   );
 
   return svg;
+}
+
+/**
+ * Sanitize an SVG string by removing all dangerous elements and attributes.
+ * Runs to a fixpoint: a single regex pass can rebuild a tag from fragments
+ * (`<scr<script>ipt>`), so repeat until the output stops changing.
+ */
+export function sanitizeSvg(svgSource: string): string {
+  let svg = svgSource;
+  for (let i = 0; i < 20; i++) {
+    const next = sanitizeOnce(svg);
+    if (next === svg) return svg;
+    svg = next;
+  }
+  // Still changing after many passes: input is adversarial, refuse it.
+  return '<svg xmlns="http://www.w3.org/2000/svg"></svg>';
 }
 
 /**

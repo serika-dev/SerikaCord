@@ -1300,6 +1300,9 @@ function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: O
           height={height}
           title={preview.title || "Embedded player"}
           allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+          // No allow-top-navigation: a player frame must never redirect the app.
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox"
+          referrerPolicy="no-referrer"
           loading="lazy"
           className="border-0 block"
           style={{ width: "100%", height }}
@@ -1517,10 +1520,10 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
     return <KlipyEmbed url={url} preview={preview || undefined} onMediaClick={onMediaClick} />;
   }
 
-  // Twitter Card player: show iframe embed for whitelisted domains that
-  // expose twitter:player. The server only returns player data for
-  // whitelisted domains, so this is safe by construction.
-  if (preview?.card === "player" && preview.player) {
+  // Twitter Card player: the server only returns https: player URLs on a
+  // known embed-host allowlist; the https check here and the iframe sandbox
+  // in PlayerCardEmbed are a second layer.
+  if (preview?.card === "player" && preview.player?.startsWith("https://")) {
     return <PlayerCardEmbed url={url} preview={preview} onSuppress={onSuppress} />;
   }
 
