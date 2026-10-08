@@ -4,8 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useAuth } from "@/contexts/AuthContext";
-import { ServerProvider, useServer } from "@/contexts/ServerContext";
-import { UnreadProvider } from "@/contexts/UnreadContext";
+import { useServer } from "@/contexts/ServerContext";
 import { useAppHotkeys } from "@/hooks/useAppHotkeys";
 import { onHotkey } from "@/lib/keybinds";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
@@ -438,13 +437,11 @@ export default function ChannelsLayoutClient({
 }: {
   children: React.ReactNode;
 }) {
+  // Server/unread providers live in AppProviders (root layout) so they
+  // survive switching between DMs and servers.
   return (
-    <ServerProvider>
-      <UnreadProvider>
-        <AuthGate>
-          <ChannelsContent>{children}</ChannelsContent>
-        </AuthGate>
-      </UnreadProvider>
-    </ServerProvider>
+    <AuthGate>
+      <ChannelsContent>{children}</ChannelsContent>
+    </AuthGate>
   );
 }

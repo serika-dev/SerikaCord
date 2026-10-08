@@ -7,8 +7,6 @@ import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { BottomNavigation } from "@/components/mobile";
 import { VoiceAudioSink } from "@/components/voice/VoiceAudioSink";
-import { ServerProvider } from "@/contexts/ServerContext";
-import { UnreadProvider } from "@/contexts/UnreadContext";
 import { useAppHotkeys } from "@/hooks/useAppHotkeys";
 import { onHotkey } from "@/lib/keybinds";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
@@ -113,11 +111,7 @@ function DMContent({ children }: { children: React.ReactNode }) {
 }
 
 export default function DMLayoutClient({ children }: { children: React.ReactNode }) {
-  return (
-    <ServerProvider>
-      <UnreadProvider>
-        <DMContent>{children}</DMContent>
-      </UnreadProvider>
-    </ServerProvider>
-  );
+  // Server/unread providers live in AppProviders (root layout) so they
+  // survive switching between DMs and servers.
+  return <DMContent>{children}</DMContent>;
 }
