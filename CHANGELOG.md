@@ -23,9 +23,27 @@
 - **Settings page titles match the sidebar** — "Text Images" now reads "Text & Images", and other pages use their translated names. (CORD-40)
 - **Headings keep their size with emoji, mentions or links in them** — the heading used to stop at the first custom emoji, mention or link. (CORD-48)
 - **Desktop activity no longer shows Figma when it is closed** — Figma's background font helper (`figma_agent`) was counted as Figma. Ships with the next desktop build. (CORD-58)
+- **Messages no longer go missing** — pressing Enter while the previous message was still sending dropped the new one; sends are now queued in order. Chats also fetch anything missed after a dropped connection, a sleeping laptop or a background tab, and opening a channel no longer loses messages that arrived while it loaded.
+- **Realtime delivery doesn't depend on Redis any more** — the server delivered every event through a Redis round-trip (and silently dropped it when Redis hiccuped) because the stream registry was split between two copies of the API code.
+- **Notifications for DMs and mentions** — DMs and mentions in other channels now play your notification sound, show a desktop notification when SerikaCord is in the background and a toast when it isn't. The "Direct Messages" and "Mentions" switches are honored, and sounds work in tabs that were never clicked.
+- **Correct DM unread counts** — the last read message was counted as unread, and every new DM was counted twice.
+- **Badges and notifications survive server restarts** — the activity stream gave up for good after a 401/502/503; it now reconnects.
+- **Edits show up live** — edited messages in server channels only updated for others after a reload.
+- **Presence** — closing or reloading a tab could leave you "offline" (and wiped DND/idle), and background tabs showed people offline while the app was open.
+- **Reactions you add on another device show live**; "is typing…" clears when their message arrives; new forum posts appear live; failed uploads keep your files and text; a channel deleted while you're in it sends you back to the server.
+- **Drafts survive leaving a channel**, and scrolling to the top of a short chat no longer stops new messages from scrolling into view.
+- **No more crash screen after an update** — an open tab reloads to the new version instead of failing to load a page.
+- **Private channels stay private** — activity (name, author, @everyone pings) from channels with permission overwrites only reaches members who can see them.
+
+### Performance
+- Startup requests start while the page is still loading instead of after the app boots, duplicate requests are shared, and the open channel's messages are fetched in the same burst.
+- About a third less JavaScript at startup: settings, server settings, profile and chat dialogs and the voice library load on first use.
+- Switching between DMs and servers keeps app state instead of rebuilding it.
+- Faster API: requests skip an internal proxy hop, `/@me` no longer waits on badge checks, server online counts are one query, mentions are filtered in the database, token checks are shared, and member/voice activity is polled in batches.
 
 ### Security
 - **@everyone/@here and role mentions now respect permissions** — the server never checked `MENTION_EVERYONE`, so turning off "Mention @everyone" for a role or channel did nothing and anyone could ping the whole server. Members without it (after channel overwrites) now send @everyone/@here as plain text, and can only ping roles marked mentionable. Applies to messages, edits and forum posts. Owners and administrators are unaffected. (CORD-59)
+- **Bot tokens are limited to their own servers** — the bot API never checked that a bot could see a channel, so any bot token could read, post in or delete from any channel or DM by id. Bots now need view access to the channel (and membership for server routes), and message ids must belong to that channel.
 
 ---
 
