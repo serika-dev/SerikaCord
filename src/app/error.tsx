@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { RefreshCw, Home } from "lucide-react";
 import { T } from "gt-next";
+import { isChunkLoadError, reloadForNewBuild } from "@/lib/chunkReload";
 
 export default function ErrorBoundary({
   error,
@@ -13,6 +14,8 @@ export default function ErrorBoundary({
   reset: () => void;
 }) {
   useEffect(() => {
+    // A deploy replaced the chunks this tab was built against: reload.
+    if (isChunkLoadError(error) && reloadForNewBuild()) return;
     console.error("Route error:", error);
   }, [error]);
 

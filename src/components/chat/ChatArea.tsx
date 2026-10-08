@@ -510,7 +510,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         isTabVisible,
       });
 
-      if (decision.incrementBadge) {
+      // The title count is for messages that arrive while you're away.
+      if (decision.incrementBadge && !isTabVisible) {
         incrementUnread();
       }
 

@@ -6,6 +6,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { LocaleSync } from "@/components/LocaleSync";
 import { NetworkStatus } from "@/components/ui/network-status";
 import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
+import { ChunkReloadGuard } from "@/components/boot/ChunkReloadGuard";
 import { TauriUpdater } from "@/components/TauriUpdater";
 import { buildRootMetadata } from "@/lib/seo";
 import "./globals.css";
@@ -154,6 +155,7 @@ export default function RootLayout({
               {children}
               <NetworkStatus />
               <ToasterWrapper />
+              <ChunkReloadGuard />
               <TauriUpdater />
             </AuthProvider>
           </ThemeProvider>

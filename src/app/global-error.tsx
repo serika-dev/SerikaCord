@@ -1,5 +1,7 @@
 "use client";
+import { useEffect } from "react";
 import { GTProvider, useGT } from "gt-next";
+import { isChunkLoadError, reloadForNewBuild } from "@/lib/chunkReload";
 
 function GlobalErrorContent({ reset }: { reset: () => void }) {
 	const gt = useGT();
@@ -41,11 +43,18 @@ function GlobalErrorContent({ reset }: { reset: () => void }) {
 }
 
 export default function GlobalError({
-	reset,
+	error,
 }: {
 	error: Error & { digest?: string };
 	reset: () => void;
 }) {
+	useEffect(() => {
+		// A deploy replaced the chunks this tab was built against: reload.
+		if (isChunkLoadError(error) && reloadForNewBuild()) return;
+		console.error("Global error:", error);
+	}, [error]);
+	// reset() re-renders the same broken tree here; a real reload recovers.
+	const reload = () => window.location.reload();
 	return (
 		<html>
 			<body
@@ -57,7 +66,7 @@ export default function GlobalError({
 				}}
 			>
 				<GTProvider>
-					<GlobalErrorContent reset={reset} />
+					<GlobalErrorContent reset={reload} />
 				</GTProvider>
 			</body>
 		</html>
