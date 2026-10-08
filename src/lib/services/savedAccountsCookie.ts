@@ -1,75 +1,44 @@
 "use client";
 
-export interface SavedAccountToken {
+/**
+ * Saved accounts for the account switcher. The `saved_accounts` cookie holds
+ * every saved account's tokens, so it is HttpOnly: page scripts can't read or
+ * write it. The server exposes a token-free list instead, and switching goes
+ * through POST /api/auth/switch, which reads the tokens server-side.
+ */
+export interface SavedAccountSummary {
   email: string;
   username: string;
   displayName?: string;
   avatar?: string;
-  token: string;
-  refreshToken?: string;
   savedAt: number;
+  /** A token is saved for this account, so it can be switched to without a password. */
+  switchable: boolean;
 }
 
-export const SAVED_ACCOUNTS_COOKIE = "saved_accounts";
-
-export function parseSavedAccountsCookie(): SavedAccountToken[] {
-  if (typeof document === "undefined") return [];
+export async function fetchSavedAccounts(): Promise<SavedAccountSummary[]> {
   try {
-    const cookies = document.cookie.split(';');
-    for (const cookie of cookies) {
-      const [name, value] = cookie.trim().split('=');
-      if (name === SAVED_ACCOUNTS_COOKIE && value) {
-        const decoded = decodeURIComponent(value);
-        const parsed: SavedAccountToken[] = JSON.parse(decoded);
-        // Deduplicate by email (case-insensitive), keeping the most recent
-        const seen = new Map<string, SavedAccountToken>();
-        for (const acct of parsed) {
-          const key = acct.email.toLowerCase();
-          const existing = seen.get(key);
-          if (!existing || acct.savedAt > existing.savedAt) {
-            seen.set(key, acct);
-          }
-        }
-        return Array.from(seen.values());
-      }
-    }
-    return [];
+    const res = await fetch("/api/auth/saved-accounts", { credentials: "same-origin" });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { accounts?: SavedAccountSummary[] };
+    return Array.isArray(data.accounts) ? data.accounts : [];
   } catch {
     return [];
   }
 }
 
-export function setSavedAccountsCookie(accounts: SavedAccountToken[]) {
-  if (typeof document === "undefined") return;
+export async function removeSavedAccount(email: string): Promise<SavedAccountSummary[] | null> {
   try {
-    const encoded = encodeURIComponent(JSON.stringify(accounts));
-    const expires = new Date();
-    expires.setFullYear(expires.getFullYear() + 1);
-    document.cookie = `${SAVED_ACCOUNTS_COOKIE}=${encoded}; expires=${expires.toUTCString()}; path=/; SameSite=Lax`;
+    const res = await fetch("/api/auth/saved-accounts/remove", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { accounts?: SavedAccountSummary[] };
+    return Array.isArray(data.accounts) ? data.accounts : [];
   } catch {
-    // ignore
+    return null;
   }
-}
-
-export function upsertSavedAccountToken(
-  account: SavedAccountToken
-) {
-  const accounts = parseSavedAccountsCookie();
-  const emailLower = account.email.toLowerCase();
-  const index = accounts.findIndex((a) => a.email.toLowerCase() === emailLower);
-  const newAccount = { ...account, savedAt: Date.now() };
-
-  if (index >= 0) {
-    accounts[index] = newAccount;
-  } else {
-    accounts.push(newAccount);
-  }
-
-  setSavedAccountsCookie(accounts);
-}
-
-export function removeSavedAccountToken(email: string) {
-  const emailLower = email.toLowerCase();
-  const accounts = parseSavedAccountsCookie().filter((a) => a.email.toLowerCase() !== emailLower);
-  setSavedAccountsCookie(accounts);
 }

@@ -6,6 +6,7 @@ import { RefreshCw, Smartphone, CheckCircle2 } from "lucide-react";
 import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader } from "@/components/ui/Loader";
+import { safeRedirect } from "@/lib/safeRedirect";
 
 type QrStatus = "loading" | "pending" | "scanned" | "approved" | "expired" | "error";
 
@@ -55,7 +56,7 @@ export function QRLoginPanel({ redirectTo, onApproved }: QRLoginPanelProps) {
           clearPoll();
           // Cookies were set by the status response; sync the session then go.
           await refresh();
-          onApproved(redirectTo);
+          onApproved(safeRedirect(redirectTo));
           return;
         }
         if (data.status === "scanned") {

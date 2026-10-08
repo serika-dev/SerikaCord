@@ -11,13 +11,16 @@ import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader } from "@/components/ui/Loader";
 import { QRLoginPanel } from "@/components/auth/QRLoginPanel";
+import { safeRedirect } from "@/lib/safeRedirect";
 
 function LoginForm() {
   const gt = useGT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading: authLoading, login } = useAuth();
-  const redirectTo = searchParams.get("redirect") || "/channels/me";
+  // Only same-site paths: a raw ?redirect= reaches router.replace(), which
+  // would follow javascript: or off-site URLs.
+  const redirectTo = safeRedirect(searchParams.get("redirect"));
   // QR login is the default on desktop (scan with your phone). On mobile there's
   // no second device to scan with, so we go straight to the password form and
   // don't offer QR at all.
@@ -158,7 +161,7 @@ function LoginForm() {
           <p className="text-sm text-center text-[#888888] pt-3 border-t border-white/[0.06]">
             <T>Don&apos;t have an account?</T>{" "}
             <Link
-              href={`/register${redirectTo !== "/channels/me" ? `?redirect=${redirectTo}` : ""}`}
+              href={`/register${redirectTo !== "/channels/me" ? `?redirect=${encodeURIComponent(redirectTo)}` : ""}`}
               className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
             >
               <T>Sign up</T>
@@ -170,7 +173,7 @@ function LoginForm() {
         <div className="space-y-6">
           <QRLoginPanel
             redirectTo={redirectTo}
-            onApproved={(to) => router.replace(to)}
+            onApproved={(to) => router.replace(safeRedirect(to))}
           />
 
           {/* Switch to password/email login */}
@@ -186,7 +189,7 @@ function LoginForm() {
           <p className="text-sm text-center text-[#888888] pt-3 border-t border-white/[0.06]">
             <T>Don&apos;t have an account?</T>{" "}
             <Link
-              href={`/register${redirectTo !== "/channels/me" ? `?redirect=${redirectTo}` : ""}`}
+              href={`/register${redirectTo !== "/channels/me" ? `?redirect=${encodeURIComponent(redirectTo)}` : ""}`}
               className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors font-medium"
             >
               <T>Sign up</T>

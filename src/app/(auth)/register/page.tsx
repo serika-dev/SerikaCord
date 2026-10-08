@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { T, useGT } from "gt-next";
 import { useAuth } from "@/contexts/AuthContext";
 import { Loader } from "@/components/ui/Loader";
+import { safeRedirect } from "@/lib/safeRedirect";
 
 const passwordRequirements = [
   { id: 'length', labelKey: 'At least 8 characters', test: (p: string) => p.length >= 8 },
@@ -23,7 +24,7 @@ function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { user, isLoading: authLoading, register } = useAuth();
-  const redirectTo = searchParams.get("redirect") || "/channels/me";
+  const redirectTo = safeRedirect(searchParams.get("redirect"));
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");

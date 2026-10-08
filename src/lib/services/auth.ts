@@ -3,6 +3,7 @@ import { User, type IUser } from '../models';
 import { cache } from '../db';
 import { accountsInternalVerify } from './accountsClient';
 import { BoundedMap } from '../utils/boundedMap';
+import { canAdoptLocalUser, dedupeUsername } from './authPolicy';
 import * as jose from 'jose';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -163,6 +164,18 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; payl
       if (tokenVerifyInflight.get(tokenHash) === lookup) tokenVerifyInflight.delete(tokenHash);
     }
   }
+}
+
+/**
+ * Forget the cached accounts verification for a token (L1 + Redis L2), so a
+ * token revoked on logout stops validating immediately instead of after the
+ * cache window.
+ */
+export async function invalidateTokenVerifyCache(token: string): Promise<void> {
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
+  tokenVerifyCache.delete(tokenHash);
+  tokenVerifyInflight.delete(tokenHash);
+  await cache.del(`tokenverify:${tokenHash}`);
 }
 
 async function verifyWithAccounts(
@@ -345,26 +358,44 @@ export async function authenticateRequest(
     // If user not found locally but we have accountsUser from verification, create locally
     if (!dbUser && verification.accountsUser) {
       const accountsUser = verification.accountsUser;
-      
-      // Check if username is already taken by a different user ID.
-      const existingByUsername = await User.findOne({ username: accountsUser.username });
-      if (existingByUsername) {
+      const accountsUsername = typeof accountsUser.username === 'string' ? accountsUser.username.trim() : '';
+      if (!accountsUsername) {
+        // findOne({ username: undefined }) would drop the filter and match an
+        // arbitrary row — never guess.
+        return { user: null, error: 'User not found' };
+      }
+
+      // A local row with this username but a different id is only adopted for
+      // legacy pre-accounts users (same verified email, not a bot/system row).
+      // Otherwise this accounts user gets their own row under a de-duplicated
+      // username — never someone else's identity (bots, system users,
+      // Discord-created users exist only locally).
+      const existingByUsername = await User.findOne({ username: accountsUsername });
+      if (existingByUsername && canAdoptLocalUser(existingByUsername, {
+        id: userId,
+        email: accountsUser.email,
+        isVerified: accountsUser.isVerified,
+      })) {
         dbUser = existingByUsername;
         const updateFields: Record<string, any> = {
           isPremium: accountsUser.isPremium || false,
           isVerified: accountsUser.isVerified || true,
         };
-          if (accountsUser.email && !dbUser.email) {
-          updateFields.email = accountsUser.email;
-        }
         dbUser = await User.updateById(dbUser.id, updateFields) || dbUser;
       } else {
-        // Username is free — safe to create
+        let username = accountsUsername;
+        if (existingByUsername) {
+          username = dedupeUsername(accountsUsername, userId);
+          if (await User.findOne({ username })) username = dedupeUsername(accountsUsername, userId, 1);
+        }
+        // email is UNIQUE locally: don't collide with a row we refused to adopt.
+        let email: string | undefined = accountsUser.email ? String(accountsUser.email).toLowerCase() : `${username}@serika.dev`;
+        if (email && await User.findOne({ email })) email = undefined;
         dbUser = await User.create({
           id: userId,
-          username: accountsUser.username,
-          email: accountsUser.email || `${accountsUser.username}@serika.dev`,
-          displayName: accountsUser.displayName || accountsUser.username,
+          username,
+          email,
+          displayName: accountsUser.displayName || accountsUsername,
           status: 'online',
           avatar: accountsUser.avatar,
           banner: accountsUser.banner,
@@ -582,11 +613,16 @@ export async function invalidateUserCache(userId: string): Promise<void> {
   await cache.del(`user:${userId}`);
 }
 
-// Discord OAuth
+// Discord OAuth (login via GET /api/auth/discord). Only logs in users whose
+// discordId is already linked (through the authenticated connection flow) or
+// creates a fresh account. It never links by email: Discord returns `email`
+// even when it is unverified, so matching on it would hand any account to
+// whoever set that address on their Discord profile.
 export async function handleDiscordOAuth(discordUser: {
   id: string;
   username: string;
   email?: string;
+  verified?: boolean;
   avatar?: string;
 }, options?: { userAgent?: string; ipAddress?: string }): Promise<{ user?: IUser; tokens?: TokenPair; isNew: boolean; error?: string }> {
   // Find existing user with Discord ID
@@ -603,29 +639,31 @@ export async function handleDiscordOAuth(discordUser: {
     return { user: user as IUser, tokens, isNew: false };
   }
 
-  // Check if email already exists
-  if (discordUser.email) {
-    user = await User.findOne({ email: discordUser.email.toLowerCase() });
-    if (user) {
-      // Link Discord to existing account
-      user = await User.updateById(user.id, {
-        discordId: discordUser.id,
-        discordUsername: discordUser.username,
-      }) || user;
+  const verifiedEmail = discordUser.verified === true && discordUser.email
+    ? discordUser.email.toLowerCase()
+    : undefined;
 
-      const { tokens } = await createSession(user.id, options);
-      return { user: user as IUser, tokens, isNew: false };
-    }
+  // An account with this email already exists: its owner links Discord from
+  // Settings → Connections while signed in, not by logging in here.
+  if (verifiedEmail && await User.findOne({ email: verifiedEmail })) {
+    return { isNew: false, error: 'account_exists_link_from_settings' };
+  }
+
+  let username = (discordUser.username || '').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 32) || 'user';
+  if (await User.findOne({ username })) {
+    const base = username;
+    username = dedupeUsername(base, discordUser.id);
+    if (await User.findOne({ username })) username = dedupeUsername(base, discordUser.id, 1);
   }
 
   // Create new user — do NOT set avatar from Discord; it belongs only in the connection
   user = await User.create({
     discordId: discordUser.id,
     discordUsername: discordUser.username,
-    username: discordUser.username,
+    username,
     displayName: discordUser.username,
-    email: discordUser.email?.toLowerCase(),
-    isVerified: !!discordUser.email,
+    email: verifiedEmail,
+    isVerified: !!verifiedEmail,
   });
 
   const { tokens } = await createSession(user.id, options);

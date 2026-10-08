@@ -6,6 +6,7 @@ import {
   resetPassword,
   deleteSession,
   verifyToken,
+  invalidateTokenVerifyCache,
   handleDiscordOAuth,
   authenticateRequest,
   createSession,
@@ -22,57 +23,65 @@ import {
   accountsForgotPassword,
   accountsResetPassword,
   accountsInternalGetUser,
+  accountsLogout,
   type AccountsUser,
 } from '../services/accountsClient';
-
-interface SavedAccountEntry {
-  email: string;
-  username: string;
-  displayName?: string;
-  avatar?: string;
-  token?: string;
-  refreshToken?: string;
-  savedAt: number;
-}
-
-function parseSavedAccounts(cookieValue: unknown): SavedAccountEntry[] {
-  if (Array.isArray(cookieValue)) return cookieValue as SavedAccountEntry[];
-  if (!cookieValue || typeof cookieValue !== 'string') return [];
-  try {
-    return JSON.parse(decodeURIComponent(cookieValue));
-  } catch {
-    return [];
-  }
-}
-
-function encodeSavedAccountsCookie(accounts: SavedAccountEntry[]): string {
-  const expires = new Date();
-  expires.setFullYear(expires.getFullYear() + 1);
-  return `saved_accounts=${encodeURIComponent(JSON.stringify(accounts))}; Path=/; SameSite=Lax; Expires=${expires.toUTCString()}`;
-}
+import {
+  parseSavedAccounts,
+  encodeSavedAccountsCookie,
+  upsertSavedAccount,
+  removeSavedAccount,
+  toPublicSavedAccounts,
+  parseOAuthStateCookie,
+  checkSteamAssertion,
+  buildSteamCheckAuthBody,
+  isSteamCheckAuthValid,
+  STEAM_OPENID_ENDPOINT,
+} from '../services/authPolicy';
 
 function getAccountEmail(user: { email?: string | null; username: string }): string {
   return user.email || `${user.username}@serika.dev`;
 }
 
-function upsertSavedAccount(
-  accounts: SavedAccountEntry[],
-  entry: SavedAccountEntry
-): SavedAccountEntry[] {
-  const entryEmail = entry.email.toLowerCase();
-  const entryUsername = entry.username.toLowerCase();
-  const filtered = accounts.filter((a) => {
-    if (a.email.toLowerCase() === entryEmail) return false;
-    if (a.username.toLowerCase() === entryUsername) return false;
-    return true;
-  });
-  filtered.push(entry);
-  return filtered;
-}
-
 async function getLocalUserFromToken(token: string) {
   const result = await authenticateRequest(`Bearer ${token}`, { auth_token: token });
   return result.user;
+}
+
+// Emit several cookies. Elysia only splits an array into separate Set-Cookie
+// headers under the lowercase key; a 'Set-Cookie' array (or a ', ' join) is
+// sent as ONE header, which browsers parse as a single mangled cookie.
+function setCookies(set: { headers: unknown }, cookies: string[]): void {
+  (set.headers as Record<string, string | string[]>)['set-cookie'] = cookies;
+}
+
+const CLEAR_AUTH_COOKIES = [
+  'auth_token=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
+  'refresh_token=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=0',
+];
+
+// ── OAuth connection state ──────────────────────────────────────────────────
+// The state cookie carries `<provider>:<random nonce>`; the nonce maps to the
+// user who started the flow in Redis. A cookie naming a user id directly could
+// be hand-crafted to attach a connection (or a Discord login identity) to
+// someone else's account.
+const OAUTH_STATE_TTL = 600;
+
+async function createOAuthState(provider: string, userId: string): Promise<string> {
+  const nonce = randomBytes(24).toString('hex');
+  await cache.set(`oauthstate:${nonce}`, { provider, userId }, OAUTH_STATE_TTL);
+  return `${provider}:${nonce}`;
+}
+
+/** Resolve (and burn) a state cookie to the user that initiated the flow. */
+async function consumeOAuthState(provider: string, cookieValue: unknown): Promise<string | null> {
+  const nonce = parseOAuthStateCookie(cookieValue, provider);
+  if (!nonce) return null;
+  const key = `oauthstate:${nonce}`;
+  const entry = await cache.get<{ provider?: string; userId?: string }>(key);
+  if (!entry || entry.provider !== provider || !entry.userId) return null;
+  await cache.del(key);
+  return entry.userId;
 }
 
 // Raw 302 redirect. Elysia's `redirect()` helper mutates an immutable Response
@@ -217,7 +226,7 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     },
     fetchUser: async (steamId: string) => {
       const apiKey = process.env.STEAM_API_KEY || '';
-      const resp = await fetch(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${apiKey}&steamids=${steamId}`);
+      const resp = await fetch(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${encodeURIComponent(apiKey)}&steamids=${encodeURIComponent(steamId)}`);
       const data = await resp.json() as { response?: { players?: Array<{ personaname?: string; avatarfull?: string }> } };
       const p = data.response?.players?.[0];
       if (!p) return { accountId: steamId };
@@ -473,11 +482,11 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
       // Set cookies from accounts response (accounts returns token/refreshToken directly)
       if (data.token) {
-        (set.headers as Record<string, string | string[]>)['Set-Cookie'] = [
+        setCookies(set, [
           `auth_token=${data.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
           `refresh_token=${data.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
           encodeSavedAccountsCookie(savedAccounts),
-        ];
+        ]);
       }
 
       return {
@@ -542,10 +551,10 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       // Hand the freshly-minted session to this device, then burn the token so
       // it can never be replayed.
       await cache.del(`qrlogin:${params.token}`);
-      (set.headers as Record<string, string | string[]>)['Set-Cookie'] = [
+      setCookies(set, [
         `auth_token=${entry.tokens.accessToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
         `refresh_token=${entry.tokens.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
-      ];
+      ]);
       return {
         status: 'approved',
         user: entry.user ?? null,
@@ -721,13 +730,13 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }
 
     // Set the new auth_token cookie and update saved_accounts
-    (set.headers as Record<string, string | string[]>)['Set-Cookie'] = [
+    setCookies(set, [
       `auth_token=${targetAccount.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
       targetAccount.refreshToken
         ? `refresh_token=${targetAccount.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`
         : 'refresh_token=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=0',
       encodeSavedAccountsCookie(savedAccounts),
-    ];
+    ]);
 
     return { success: true };
   }, {
@@ -736,26 +745,66 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }),
   })
 
+  // Saved accounts for the account switcher. The cookie is HttpOnly (it holds
+  // bearer tokens), so the client reads this token-free list instead.
+  .get('/saved-accounts', ({ cookie }) => {
+    return { accounts: toPublicSavedAccounts(parseSavedAccounts(cookie.saved_accounts?.value as unknown)) };
+  })
+
+  // Forget one saved account on this browser.
+  .post('/saved-accounts/remove', ({ body, cookie, set }) => {
+    const savedAccounts = removeSavedAccount(parseSavedAccounts(cookie.saved_accounts?.value as unknown), { email: body.email });
+    set.headers['Set-Cookie'] = encodeSavedAccountsCookie(savedAccounts);
+    return { success: true, accounts: toPublicSavedAccounts(savedAccounts) };
+  }, {
+    body: t.Object({
+      email: t.String({ maxLength: 320 }),
+    }),
+  })
+
   // Logout
   .post('/logout', async ({ headers, cookie, set }) => {
     const authHeader = headers.authorization;
     const cookieToken = cookie.auth_token?.value;
-    const token = authHeader?.startsWith('Bearer ') 
-      ? authHeader.slice(7) 
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
       : (typeof cookieToken === 'string' ? cookieToken : undefined);
 
+    let savedAccounts = parseSavedAccounts(cookie.saved_accounts?.value as unknown);
+
     if (token) {
-      const verification = await verifyToken(token);
-      if (verification.valid && verification.payload && verification.payload.sid) {
-        await deleteSession(verification.payload.sid);
+      // Who is logging out, so their entry (and token) leaves the switcher too.
+      try {
+        const current = await getLocalUserFromToken(token);
+        if (current) {
+          savedAccounts = removeSavedAccount(savedAccounts, { email: getAccountEmail(current), username: current.username });
+        }
+      } catch {
+        // best-effort
+      }
+      // Drop any switcher entry holding this exact token as well.
+      savedAccounts = savedAccounts.filter((a) => a.token !== token);
+
+      try {
+        const verification = await verifyToken(token);
+        if (verification.valid && verification.payload) {
+          if (verification.payload.sid) {
+            // Local session token.
+            await deleteSession(verification.payload.sid, verification.payload.sub);
+          } else {
+            // accounts.serika.dev token: revoke it there, then forget our
+            // cached verification so it stops working right away.
+            await accountsLogout(token).catch(() => {});
+            await invalidateTokenVerifyCache(token);
+          }
+        }
+      } catch (err) {
+        console.error('Logout revoke error:', err);
       }
     }
 
-    // Clear cookies
-    set.headers['Set-Cookie'] = [
-      'auth_token=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
-      'refresh_token=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=0',
-    ].join(', ');
+    // Clear cookies — one Set-Cookie header each.
+    setCookies(set, [...CLEAR_AUTH_COOKIES, encodeSavedAccountsCookie(savedAccounts)]);
 
     return { success: true };
   })
@@ -910,14 +959,21 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
   // Discord OAuth - initiate
   .get('/discord', () => {
+    // CSRF state: echoed back by Discord and compared with this cookie on the
+    // callback, so nobody can complete a login flow into someone else's browser.
+    const loginState = randomBytes(24).toString('hex');
     const params = new URLSearchParams({
       client_id: config.DISCORD_CLIENT_ID,
       redirect_uri: config.DISCORD_REDIRECT_URI,
       response_type: 'code',
       scope: 'identify email',
+      state: loginState,
     });
 
-    return oauthRedirect(`https://discord.com/api/oauth2/authorize?${params}`);
+    return oauthRedirect(
+      `https://discord.com/api/oauth2/authorize?${params}`,
+      `discord_login_state=${loginState}; HttpOnly; Secure; Path=/api/auth/discord; Max-Age=600; SameSite=Lax`,
+    );
   })
 
   // Discord OAuth - callback (handles both login AND connection linking)
@@ -925,15 +981,36 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     const { code, error: discordError } = query;
     const base = config.FRONTEND_URL || config.API_BASE_URL;
     const redirectBase = `${base}/channels/me?openSettings=connections`;
+    const cookies = cookie as Record<string, { value?: unknown }>;
+    const connectionState = cookies.oauth2_state?.value;
+    const isConnection = typeof connectionState === 'string'
+      && (connectionState.startsWith('discord:') || connectionState.startsWith('discord%3A'));
+    const clearLoginState = 'discord_login_state=; HttpOnly; Secure; Path=/api/auth/discord; Max-Age=0';
 
     if (discordError || !code) {
       // Check if this was a connection attempt
-      const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
-      if (state && state.startsWith('discord:')) {
+      if (isConnection) {
         return oauthRedirect(`${redirectBase}&error=discord_denied`, 'oauth2_state=; Path=/; Max-Age=0');
       }
       set.status = 400;
       return { error: discordError || 'No authorization code provided' };
+    }
+
+    // Resolve who this flow belongs to BEFORE spending the code.
+    let connectionUserId: string | null = null;
+    if (isConnection) {
+      connectionUserId = await consumeOAuthState('discord', connectionState);
+      if (!connectionUserId) {
+        return oauthRedirect(`${redirectBase}&error=discord_state_missing`, 'oauth2_state=; Path=/; Max-Age=0');
+      }
+    } else {
+      const expected = cookies.discord_login_state?.value;
+      const got = (query as Record<string, unknown>).state;
+      if (typeof expected !== 'string' || !expected || typeof got !== 'string' || got !== expected) {
+        set.status = 400;
+        set.headers['Set-Cookie'] = clearLoginState;
+        return { error: 'Invalid or missing OAuth state' };
+      }
     }
 
     try {
@@ -976,13 +1053,13 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         username: string;
         global_name?: string;
         email?: string;
+        verified?: boolean;
         avatar?: string;
       };
 
-      // ── Check if this is a CONNECTION request (via oauth2_state cookie) ──
-      const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
-      if (state && state.startsWith('discord:')) {
-        const userId = state.split(':')[1];
+      // ── CONNECTION request (oauth2_state cookie → user who started it) ──
+      if (connectionUserId) {
+        const userId = connectionUserId;
         const avatar = discordUser.avatar
           ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.${discordUser.avatar.startsWith('a_') ? 'gif' : 'png'}`
           : undefined;
@@ -1030,6 +1107,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
       if (result.error || !result.tokens) {
         set.status = 400;
+        set.headers['Set-Cookie'] = clearLoginState;
         return { error: result.error || 'Authentication failed' };
       }
 
@@ -1037,8 +1115,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       const authCookies = [
         `auth_token=${result.tokens.accessToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
         `refresh_token=${result.tokens.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
+        clearLoginState,
       ];
-      set.headers['Set-Cookie'] = authCookies.join(', ');
+      setCookies(set, authCookies);
 
       // Redirect to app (or return JSON for API clients)
       if (headers.accept?.includes('text/html')) {
@@ -1068,8 +1147,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   }, {
     query: t.Object({
       code: t.Optional(t.String()),
+      state: t.Optional(t.String()),
       error: t.Optional(t.String()),
-    }),
+    }, { additionalProperties: true }),
   })
 
   // ── OAuth provider routes (Last.fm + generic OAuth2) ───────────────────────
@@ -1113,7 +1193,8 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         return oauthRedirect(`${base}/channels/me?openSettings=connections&error=lastfm_not_configured`);
       }
 
-      const stateCookie = `lastfm_state=${userId}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
+      const lastfmState = await createOAuthState('lastfm', userId);
+      const stateCookie = `lastfm_state=${encodeURIComponent(lastfmState)}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
       const callbackUrl = encodeURIComponent(`${base}/api/auth/lastfm/callback`);
       return oauthRedirect(`https://www.last.fm/api/auth/?api_key=${apiKey}&cb=${callbackUrl}`, stateCookie);
     }
@@ -1124,7 +1205,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return oauthRedirect(`${base}/channels/me?openSettings=connections&error=${provider}_not_configured`);
     }
 
-    const state = `${provider}:${userId}`;
+    const state = await createOAuthState(provider, userId);
     const stateCookie = `oauth2_state=${encodeURIComponent(state)}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
     const callbackUrl = encodeURIComponent(`${base}/api/auth/${provider}/callback`);
     const authUrl = prov.getAuthUrl(prov.clientId, callbackUrl, prov.scopes);
@@ -1138,11 +1219,11 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     // ── Last.fm callback ─────────────────────────────────────────────────────
     if (provider === 'lastfm') {
       const { token } = query as { token?: string };
-      const userId = (cookie as Record<string, { value?: string }>).lastfm_state?.value;
 
       if (!token) {
         return oauthRedirect(`${redirectBase}&error=lastfm_denied`);
       }
+      const userId = await consumeOAuthState('lastfm', (cookie as Record<string, { value?: unknown }>).lastfm_state?.value);
       if (!userId) {
         return oauthRedirect(`${redirectBase}&error=lastfm_state_missing`);
       }
@@ -1224,23 +1305,39 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
     // Steam uses OpenID — extract SteamID from openid.identity
     if (provider === 'steam') {
-      const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
-      if (!state || !state.startsWith('steam:')) {
-        return oauthRedirect(`${redirectBase}&error=steam_state_missing`);
-      }
-      const userId = state.split(':')[1];
       const prov = OAUTH2_PROVIDERS.steam;
       if (!prov.clientId) {
         return oauthRedirect(`${redirectBase}&error=steam_not_configured`);
       }
-      const openidIdentity = (query as Record<string, string>)['openid.identity'] as string | undefined;
-      if (!openidIdentity) {
+      const q = query as Record<string, unknown>;
+      if (!q['openid.identity'] || q['openid.mode'] !== 'id_res') {
         return oauthRedirect(`${redirectBase}&error=steam_denied`);
       }
-      // Extract SteamID from the identity URL
-      const steamId = openidIdentity.split('/').pop() || '';
-      if (!steamId) {
+      const userId = await consumeOAuthState('steam', (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
+      if (!userId) {
+        return oauthRedirect(`${redirectBase}&error=steam_state_missing`);
+      }
+      // The query string is attacker-controlled: check the assertion's shape,
+      // then have Steam confirm its signature before trusting the SteamID.
+      const steamReturnTo = `${config.FRONTEND_URL || config.API_BASE_URL}/api/auth/steam/callback`;
+      const assertion = checkSteamAssertion(q, steamReturnTo);
+      if ('error' in assertion) {
         return oauthRedirect(`${redirectBase}&error=steam_session_failed`);
+      }
+      const steamId = assertion.steamId;
+      try {
+        const verifyResp = await fetch(STEAM_OPENID_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: buildSteamCheckAuthBody(q),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!verifyResp.ok || !isSteamCheckAuthValid(await verifyResp.text())) {
+          return oauthRedirect(`${redirectBase}&error=steam_session_failed`);
+        }
+      } catch (err) {
+        console.error('Steam OpenID verification error:', err);
+        return oauthRedirect(`${redirectBase}&error=steam_error`);
       }
       try {
         const userInfo = await prov.fetchUser(steamId);
@@ -1272,16 +1369,15 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }
 
     const code = (query as Record<string, string>).code as string | undefined;
-    const state = (cookie as Record<string, { value?: string }>).oauth2_state?.value as string | undefined;
 
     if (!code) {
       return oauthRedirect(`${redirectBase}&error=${provider}_denied`);
     }
-    if (!state || !state.startsWith(`${provider}:`)) {
+    const userId = await consumeOAuthState(provider, (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
+    if (!userId) {
       return oauthRedirect(`${redirectBase}&error=${provider}_state_missing`);
     }
 
-    const userId = state.split(':')[1];
     const prov = OAUTH2_PROVIDERS[provider];
     if (!prov || !prov.clientId || !prov.clientSecret) {
       return oauthRedirect(`${redirectBase}&error=${provider}_not_configured`);

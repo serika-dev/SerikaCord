@@ -131,6 +131,14 @@ export function accountsRefresh(refreshToken: string) {
   );
 }
 
+/** Revoke an accounts-issued session (the accounts /logout reads auth_token from the cookie). */
+export function accountsLogout(accessToken: string) {
+  return accountsFetch('/api/auth/logout', {
+    method: 'POST',
+    headers: { Cookie: `auth_token=${accessToken}` },
+  });
+}
+
 export function accountsVerifyEmail(token: string) {
   return accountsFetch(`/api/auth/verify/${encodeURIComponent(token)}`, { method: 'GET' });
 }

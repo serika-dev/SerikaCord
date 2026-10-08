@@ -7,11 +7,24 @@ import { X, Plus, Check, ChevronLeft, LogOut } from "lucide-react";
 import { useGT } from "gt-next";
 import { cn, cdnImage } from "@/lib/utils";
 import {
-  type SavedAccountToken,
-  parseSavedAccountsCookie,
-  removeSavedAccountToken,
+  type SavedAccountSummary,
+  fetchSavedAccounts,
+  removeSavedAccount,
 } from "@/lib/services/savedAccountsCookie";
 import { clearMessageCache } from "@/hooks/useChatSession";
+
+// Only accounts with a saved token (switchable), one per username.
+function switchableAccounts(list: SavedAccountSummary[]): SavedAccountSummary[] {
+  const seen = new Set<string>();
+  return list
+    .filter((a) => a.switchable)
+    .filter((a) => {
+      const key = a.username.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
 
 export function SwitchAccountsDialog({
   open,
@@ -22,9 +35,9 @@ export function SwitchAccountsDialog({
 }) {
   const { user, login, logout } = useAuth();
   const gt = useGT();
-  const [accounts, setAccounts] = useState<SavedAccountToken[]>([]);
+  const [accounts, setAccounts] = useState<SavedAccountSummary[]>([]);
   const [mode, setMode] = useState<"list" | "login">("list");
-  const [selectedAccount, setSelectedAccount] = useState<SavedAccountToken | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<SavedAccountSummary | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -32,33 +45,29 @@ export function SwitchAccountsDialog({
 
   useEffect(() => {
     if (open) {
-      // Only show accounts that have a saved token (switchable) and dedupe by username
-      const seen = new Set<string>();
-      setAccounts(
-        parseSavedAccountsCookie()
-          .filter((a) => a.token)
-          .filter((a) => {
-            const key = a.username.toLowerCase();
-            if (seen.has(key)) return false;
-            seen.add(key);
-            return true;
-          })
-      );
+      let cancelled = false;
+      // The saved_accounts cookie is HttpOnly; ask the server for the token-free list.
+      void fetchSavedAccounts().then((list) => {
+        if (!cancelled) setAccounts(switchableAccounts(list));
+      });
       setMode("list");
       setSelectedAccount(null);
       setError("");
       setPassword("");
+      return () => {
+        cancelled = true;
+      };
     }
   }, [open]);
 
-  const handleSelectAccount = async (account: SavedAccountToken) => {
+  const handleSelectAccount = async (account: SavedAccountSummary) => {
     setIsLoading(true);
     setError("");
     try {
       // Server handles saving current account before switching
 
       // Use server endpoint to switch accounts
-      if (account.token) {
+      if (account.switchable) {
         const response = await fetch("/api/auth/switch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -116,10 +125,12 @@ export function SwitchAccountsDialog({
     }
   };
 
-  const handleRemoveAccount = (accountEmail: string, e: React.MouseEvent) => {
+  const handleRemoveAccount = async (accountEmail: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    removeSavedAccountToken(accountEmail);
-    setAccounts(parseSavedAccountsCookie().filter((a) => a.token));
+    const emailLower = accountEmail.toLowerCase();
+    setAccounts((prev) => prev.filter((a) => a.email.toLowerCase() !== emailLower));
+    const updated = await removeSavedAccount(accountEmail);
+    setAccounts(switchableAccounts(updated ?? (await fetchSavedAccounts())));
   };
 
   const handleLogoutAndSwitch = async () => {
@@ -231,7 +242,7 @@ export function SwitchAccountsDialog({
                       </div>
                     </button>
                     <button
-                      onClick={(e) => handleRemoveAccount(account.email, e)}
+                      onClick={(e) => void handleRemoveAccount(account.email, e)}
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[#2a2a2a] transition-all"
                       title={gt("Remove account")}
                     >

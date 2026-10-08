@@ -298,14 +298,35 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
         const { invalidateUserCache } = await import('@/lib/services/auth');
         await invalidateUserCache(userId);
       } else {
-        // Double check username uniqueness
-        const existing = await User.findOne({ username: payload.username });
-        if (existing) {
-          user = await User.updateById(existing.id, { id: userId, ...userData }) || existing;
+        // A local row already owns this username. Never rewrite its id or
+        // credentials onto this accounts user unless it is the same person
+        // (legacy row: same verified email, not a bot/system user); otherwise
+        // give the accounts user their own row under a de-duplicated username.
+        const { canAdoptLocalUser, dedupeUsername } = await import('@/lib/services/authPolicy');
+        const requestedUsername = typeof payload.username === 'string' ? payload.username : '';
+        if (!requestedUsername) {
+          // findOne({ username: undefined }) would match an arbitrary row.
+          set.status = 400;
+          return { error: 'username is required to create a user', success: false };
+        }
+        const existing = await User.findOne({ username: requestedUsername });
+        if (existing && canAdoptLocalUser(existing, { id: userId, email: payload.email, isVerified: payload.isVerified })) {
+          user = await User.updateById(existing.id, userData) || existing;
+          const { invalidateUserCache } = await import('@/lib/services/auth');
+          await invalidateUserCache(existing.id);
         } else {
+          let username = requestedUsername;
+          if (existing) {
+            username = dedupeUsername(requestedUsername, userId);
+            if (await User.findOne({ username })) username = dedupeUsername(requestedUsername, userId, 1);
+          }
+          let email = userData.email;
+          if (email && await User.findOne({ email })) email = undefined;
           user = await User.create({
             id: userId,
             ...userData,
+            username,
+            email,
             status: 'offline',
           });
           action = 'created';
@@ -314,15 +335,17 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
 
       // Sync serika.moe connection if present in sync payload
       if (payload.serikaMoeUsername) {
+        // An adopted legacy row keeps its own id.
+        const localUserId = user?.id ?? userId;
         const connData = {
-          userId,
+          userId: localUserId,
           provider: 'serika' as const,
           accountId: payload.serikaMoeUsername as string,
           displayName: payload.serikaMoeUsername as string,
           visible: true,
           metadata: { serikaMoeId: payload.serikaMoeId || null },
         };
-        const existingConn = await UserConnection.findOne({ userId, provider: 'serika' });
+        const existingConn = await UserConnection.findOne({ userId: localUserId, provider: 'serika' });
         if (existingConn) {
           await UserConnection.updateById(existingConn.id, connData);
         } else {
