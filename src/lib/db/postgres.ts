@@ -22,9 +22,11 @@ const g = globalThis as unknown as PgGlobal;
 function createPool(): Pool {
   const p = new Pool({
     connectionString: config.POSTGRES_URI,
-    max: config.POSTGRES_MAX_POOL_SIZE ?? 8,
-    min: 1,
-    idleTimeoutMillis: 10_000,
+    max: config.POSTGRES_MAX_POOL_SIZE ?? 20,
+    // Keep a few warm connections: the app's startup burst used to pay for
+    // new TCP + auth handshakes after every 10s of quiet.
+    min: 4,
+    idleTimeoutMillis: 5 * 60_000,
     connectionTimeoutMillis: 5_000,
   });
 
@@ -37,7 +39,7 @@ function createPool(): Pool {
     g.__pgConnected = false;
   });
 
-  console.log('✅ PostgreSQL pool created (max=' + (config.POSTGRES_MAX_POOL_SIZE ?? 8) + ')');
+  console.log('✅ PostgreSQL pool created (max=' + (config.POSTGRES_MAX_POOL_SIZE ?? 20) + ')');
   return p;
 }
 

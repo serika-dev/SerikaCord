@@ -12,6 +12,12 @@ import * as crypto from 'crypto';
 // Bounded: keyed by token hash, so unique keys accumulate as tokens rotate.
 const tokenVerifyCache = new BoundedMap<string, { result: any; expiresAt: number }>(5000);
 const TOKEN_VERIFY_CACHE_TTL_MS = 30_000;
+// Past the TTL a cached success is still served (and re-verified in the
+// background) for this long, so an idle tab's first burst of requests doesn't
+// all wait on the accounts service.
+const TOKEN_VERIFY_STALE_MS = 5 * 60_000;
+// One accounts round-trip per token at a time; concurrent requests share it.
+const tokenVerifyInflight = new Map<string, Promise<any>>();
 
 // Session interface
 interface Session {
@@ -133,7 +139,38 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; payl
     if (cached && cached.expiresAt > Date.now()) {
       return cached.result;
     }
+    if (cached && cached.result?.valid && cached.expiresAt + TOKEN_VERIFY_STALE_MS > Date.now()) {
+      if (!tokenVerifyInflight.has(tokenHash)) {
+        const refresh = verifyWithAccounts(token, tokenHash, localError)
+          .then((result) => { if (!result.valid) tokenVerifyCache.delete(tokenHash); })
+          .catch(() => {})
+          .finally(() => tokenVerifyInflight.delete(tokenHash));
+        tokenVerifyInflight.set(tokenHash, refresh);
+      }
+      return cached.result;
+    }
+    const pending = tokenVerifyInflight.get(tokenHash);
+    if (pending) {
+      await pending.catch(() => {});
+      const fresh = tokenVerifyCache.get(tokenHash);
+      if (fresh && fresh.expiresAt > Date.now()) return fresh.result;
+    }
+    const lookup = verifyWithAccounts(token, tokenHash, localError);
+    tokenVerifyInflight.set(tokenHash, lookup);
+    try {
+      return await lookup;
+    } finally {
+      if (tokenVerifyInflight.get(tokenHash) === lookup) tokenVerifyInflight.delete(tokenHash);
+    }
+  }
+}
 
+async function verifyWithAccounts(
+  token: string,
+  tokenHash: string,
+  localError: unknown,
+): Promise<{ valid: boolean; payload?: JWTPayload; error?: string; accountsUser?: any }> {
+  {
     const redisKey = `tokenverify:${tokenHash}`;
     const l2 = await cache.get<{ valid: boolean; payload?: JWTPayload; accountsUser?: any }>(redisKey);
     if (l2) {

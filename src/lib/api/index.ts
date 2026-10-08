@@ -10,7 +10,7 @@ import type { IAllowedFileType } from '@/lib/models/PlatformSettings';
 import { RichPresence, type IRichPresence } from '@/lib/models/RichPresence';
 import { ActivityHistory } from '@/lib/models/ActivityHistory';
 import { authRoutes } from './auth';
-import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCount } from './servers';
+import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCounts } from './servers';
 import { channelRoutes } from './channels';
 import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
@@ -536,6 +536,65 @@ const rpcPresenceExtras = {
   partySize: t.Optional(t.Array(t.Number(), { minItems: 2, maxItems: 2 })),
 };
 
+const EMPTY_ACTIVITY = { activity: null, music: null, game: null, activities: [] as unknown[] };
+
+function isUuidLike(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/**
+ * Live activity for a user: "now watching" (serika.moe), Last.fm scrobble and
+ * game/rich presence. Respects the "show activity" privacy setting. Cached in
+ * Redis for 5s so concurrent polls collapse. null = no such user.
+ */
+async function loadUserActivity(userId: string): Promise<Record<string, unknown> | null> {
+  const cacheKey = `activity:${userId}`;
+  const cached = await cache.get<string>(cacheKey).catch(() => null);
+  if (cached) {
+    try { return typeof cached === 'string' ? JSON.parse(cached) : (cached as Record<string, unknown>); } catch { /* recompute */ }
+  }
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser) return null;
+
+  const showActivity = (targetUser.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
+  if (!showActivity) return { ...EMPTY_ACTIVITY };
+
+  const now = new Date();
+  const [watchActivity, richPresenceDocs, lastfmConnection] = await Promise.all([
+    getMoeActivity(userId).catch(() => null),
+    RichPresence.find({ userId: targetUser.id }).catch(() => []),
+    UserConnection.findOne({ userId: targetUser.id, provider: 'lastfm' }).catch(() => null),
+  ]);
+
+  const activeRichPresence = richPresenceDocs.filter((doc: any) => doc.expiresAt && new Date(doc.expiresAt) > now);
+
+  let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
+  if (lastfmConnection?.accountId) {
+    music = await getLastFmNowPlaying(lastfmConnection.accountId).catch(() => null);
+  }
+
+  const activities = sortActivitiesByPriority((activeRichPresence as IRichPresence[]).map((doc) => ({
+    type: doc.type,
+    name: doc.name,
+    details: doc.details ?? null,
+    state: doc.state ?? null,
+    largeImageUrl: doc.largeImageUrl ?? null,
+    largeImageText: doc.largeImageText ?? null,
+    smallImageUrl: doc.smallImageUrl ?? null,
+    smallImageText: doc.smallImageText ?? null,
+    startedAt: doc.startedAt ?? null,
+    endsAt: doc.endsAt ?? null,
+    applicationId: doc.applicationId ?? null,
+    assets: doc.assets ?? null,
+    buttons: doc.buttons ?? null,
+  })));
+
+  const result = { activity: watchActivity, music, game: activities[0] ?? null, activities };
+  await cache.set(cacheKey, JSON.stringify(result), 5).catch(() => {});
+  return result;
+}
+
 const userRoutes = new Elysia({ prefix: '/users' })
   .onBeforeHandle(rejectInvalidObjectIdParams)
   // Support both /me and /@me for compatibility
@@ -578,9 +637,14 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fire-and-forget badge recalculation to keep auto-badges in sync
-    const { recalculateUserBadges } = await import('@/lib/services/badges');
-    const updatedBadges = await recalculateUserBadges(user.id);
+    // Badge recalculation is ~6 sequential queries: don't make every app load
+    // wait for it. Return the stored badges; the recalculated set is saved for
+    // the next request.
+    const updatedBadges = user.badges ?? [];
+    void import('@/lib/services/badges')
+      .then(({ recalculateUserBadges }) => recalculateUserBadges(user.id))
+      .catch(() => {});
+
 
     return {
       id: user.id,
@@ -622,11 +686,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const servers = serverIds.length > 0 ? await Server.find({ id: { in: serverIds } }) : [];
     const serverMap = new Map(servers.map(s => [s.id, s]));
 
+    const onlineCounts = await computeOnlineCounts(servers.map((s) => s.id)).catch(() => new Map<string, number>());
     const result = await Promise.all(memberships
       .filter(m => serverMap.has(m.serverId))
       .map(async (m) => {
         const server = serverMap.get(m.serverId)!;
-        const onlineCount = await computeOnlineCount(server.id);
+        const onlineCount = onlineCounts.get(server.id) ?? 0;
         return {
           id: server.id,
           name: server.name,
@@ -1874,75 +1939,31 @@ const userRoutes = new Elysia({ prefix: '/users' })
   // Live activity for a user: "now watching" (serika.moe), Last.fm scrobble, and game/rich presence.
   // Respects the target user's "show activity" privacy setting.
   .get('/:userId/activity', async ({ params, set }) => {
-    // Short Redis cache to prevent DB pool exhaustion from 5s client polling.
-    const cacheKey = `activity:${params.userId}`;
-    const cached = await cache.get<string>(cacheKey).catch(() => null);
-    if (cached) {
-      set.headers['Content-Type'] = 'application/json';
-      return cached;
-    }
-
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
+    const result = await loadUserActivity(params.userId);
+    if (!result) {
       set.status = 404;
       return { error: 'User not found' };
     }
-
-    const showActivity = (targetUser.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
-    if (!showActivity) {
-      return { activity: null, music: null, game: null, activities: [] };
-    }
-
-    const userId = params.userId;
-
-    // Fetch all three in parallel — each is wrapped so one failure doesn't crash the endpoint
-    const now = new Date();
-    const [watchActivity, richPresenceDocs, lastfmConnection] = await Promise.all([
-      getMoeActivity(userId).catch(() => null),
-      RichPresence.find({ userId: targetUser.id }).catch(() => []),
-      UserConnection.findOne({ userId: targetUser.id, provider: 'lastfm' }).catch(() => null),
-    ]);
-
-    // Filter non-expired rich presence
-    const activeRichPresence = richPresenceDocs.filter((doc: any) => doc.expiresAt && new Date(doc.expiresAt) > now);
-
-    // Fetch Last.fm now playing if connected
-    let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
-    if (lastfmConnection?.accountId) {
-      music = await getLastFmNowPlaying(lastfmConnection.accountId).catch(() => null);
-    }
-
-    const activities = sortActivitiesByPriority((activeRichPresence as IRichPresence[]).map((doc) => ({
-      type: doc.type,
-      name: doc.name,
-      details: doc.details ?? null,
-      state: doc.state ?? null,
-      largeImageUrl: doc.largeImageUrl ?? null,
-      largeImageText: doc.largeImageText ?? null,
-      smallImageUrl: doc.smallImageUrl ?? null,
-      smallImageText: doc.smallImageText ?? null,
-      startedAt: doc.startedAt ?? null,
-      endsAt: doc.endsAt ?? null,
-      applicationId: doc.applicationId ?? null,
-      assets: doc.assets ?? null,
-      buttons: doc.buttons ?? null,
-    })));
-
-    const result = {
-      activity: watchActivity,
-      music,
-      game: activities[0] ?? null,
-      activities,
-    };
-
-    // Cache for 5 seconds — short enough for live activity, long enough to dedupe concurrent polls
-    await cache.set(cacheKey, JSON.stringify(result), 5).catch(() => {});
-
     return result;
   }, {
     params: t.Object({
       userId: t.String(),
     }),
+  })
+  // Same data for many users in one request (member list, DM list): the
+  // client batches every visible user into one poll instead of one per row.
+  .get('/activity/batch', async ({ query, set }) => {
+    const ids = [...new Set(String(query.ids || '').split(',').map((id) => id.trim()).filter(isUuidLike))].slice(0, 100);
+    if (ids.length === 0) {
+      set.status = 400;
+      return { error: 'ids is required' };
+    }
+    const results = await Promise.all(ids.map((id) => loadUserActivity(id).catch(() => null)));
+    const activities: Record<string, unknown> = {};
+    ids.forEach((id, i) => { if (results[i]) activities[id] = results[i]; });
+    return { activities };
+  }, {
+    query: t.Object({ ids: t.String() }),
   })
   // Public recent-activity history for a user's profile. Respects the target
   // user's "show activity" privacy setting (same gate as live activity).

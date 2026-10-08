@@ -2,6 +2,7 @@
 
 import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
@@ -525,15 +526,31 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     fetchServers();
   }, [fetchServers]);
 
+  // Home (/channels/me, DMs) has no server: drop the previous selection, or
+  // the sidebar keeps showing that server's channels after a kick, a ban
+  // redirect or browser Back, and its member/voice polls keep running.
+  const pathname = usePathname();
+  const isHomeRoute = pathname === "/channels/me" || Boolean(pathname?.startsWith("/channels/me/")) || Boolean(pathname?.startsWith("/dm"));
+  // Only on arriving at a home route: clicking a server from home selects it
+  // a moment before the URL changes, and that must not be undone.
   useEffect(() => {
-    if (currentServer) {
-      fetchChannels(currentServer.id);
-      fetchMembers(currentServer.id);
+    if (isHomeRoute && activeServerIdRef.current) setCurrentServer(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  // Keyed on the id: the 25s server-list poll replaces currentServer with a
+  // fresh object, which used to refetch channels and up to 1000 members
+  // every time.
+  const currentServerId = currentServer?.id ?? null;
+  useEffect(() => {
+    if (currentServerId) {
+      fetchChannels(currentServerId);
+      fetchMembers(currentServerId);
     } else {
       setMembers([]);
       lastMembersServerIdRef.current = null;
     }
-  }, [currentServer, fetchChannels, fetchMembers]);
+  }, [currentServerId, fetchChannels, fetchMembers]);
 
   usePolling(
     () => {

@@ -11,24 +11,36 @@ import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
 import { resolveEffectiveStatus, PRESENCE_TIMEOUT_MS } from '@/lib/services/presence';
 import { parseCustomEmojis, batchParseCustomEmojis } from '@/lib/services/emoji';
 import { User } from '@/lib/models';
+import { db, schema } from '@/lib/db/postgres';
+import { and, eq, gte, inArray, notInArray, sql } from 'drizzle-orm';
+import { normalizeId } from '@/lib/db/normalizeId';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
 // is never written to and must not be trusted as a source of truth.
+// One grouped COUNT in SQL — this used to load every member's full user row
+// for every server on each /@me/servers call.
+export async function computeOnlineCounts(serverIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (serverIds.length === 0) return counts;
+  const since = new Date(Date.now() - PRESENCE_TIMEOUT_MS);
+  const rows = await db
+    .select({ serverId: schema.serverMembers.serverId, count: sql<number>`count(*)::int` })
+    .from(schema.serverMembers)
+    .innerJoin(schema.users, eq(schema.users.id, schema.serverMembers.userId))
+    .where(and(
+      inArray(schema.serverMembers.serverId, serverIds.map((id) => normalizeId(id))),
+      notInArray(schema.users.status, ['offline', 'invisible']),
+      gte(schema.users.presenceLastHeartbeatAt, since),
+    ))
+    .groupBy(schema.serverMembers.serverId);
+  for (const row of rows) counts.set(String(row.serverId), Number(row.count));
+  return counts;
+}
+
 export async function computeOnlineCount(serverId: string): Promise<number> {
-  const members = await ServerMember.find({ serverId });
-  const userIds = members.map(m => m.userId);
-  const users = userIds.length > 0 ? await User.find({ id: { in: userIds } }) : [];
-  const userMap = new Map(users.map(u => [u.id, u]));
-  const now = Date.now();
-  return members.filter(m => {
-    const u = userMap.get(m.userId);
-    if (!u) return false;
-    if (u.status === 'offline' || u.status === 'invisible') return false;
-    const hb = u.presenceLastHeartbeatAt;
-    if (!hb) return false;
-    return new Date(hb).getTime() >= now - PRESENCE_TIMEOUT_MS;
-  }).length;
+  const counts = await computeOnlineCounts([serverId]);
+  return counts.get(normalizeId(serverId)) ?? counts.get(serverId) ?? 0;
 }
 
 // Helper function for auth

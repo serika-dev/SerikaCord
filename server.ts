@@ -20,7 +20,7 @@ import { createServer } from 'node:http';
 import next from 'next';
 import type { ServerWebSocket } from 'bun';
 import { connectDB } from '@/lib/db';
-import { initializeAPI } from '@/lib/api';
+import { api, initializeAPI } from '@/lib/api';
 import { authenticateRequest } from '@/lib/services/auth';
 import {
   GatewayHub,
@@ -179,6 +179,14 @@ async function main() {
         return handleActivitySSE(req);
       }
 
+      // ─── REST API straight to Elysia ─────────────────────────
+      // Skips the loopback hop through Next (and its middleware) for every API
+      // call, and keeps all API state (SSE registries, caches) in this one
+      // module copy instead of splitting it between Bun's and Next's.
+      if (pathname === '/api' || pathname.startsWith('/api/')) {
+        return handleApiRequest(req);
+      }
+
       // ─── Proxy everything else to internal Next.js server ───
       // req.url is absolute in Bun.serve; use only the path+query to route to
       // the internal loopback server. Original headers (including Host) are
@@ -313,6 +321,19 @@ main().catch((err: unknown) => {
   console.error('Fatal server error:', err);
   process.exit(1);
 });
+
+// ─── API handler ──────────────────────────────────────────
+async function handleApiRequest(req: Request): Promise<Response> {
+  try {
+    return await api.handle(req);
+  } catch (err) {
+    console.error('[API] Unhandled error:', err);
+    return new Response(JSON.stringify({ error: 'Internal server error' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
 
 // ─── SSE handler ──────────────────────────────────────────
 // Writes events directly to the raw HTTP socket instead of going through
