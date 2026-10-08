@@ -648,6 +648,9 @@ export function ChannelSidebar({
     setCollapsedCategories(new Set());
   }, [currentServer?.id]);
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
+  // Until the first /api/dms answer, show placeholders rather than "No direct
+  // messages yet" (which flashed on every load for people with DMs).
+  const [dmsLoaded, setDmsLoaded] = useState(false);
   // Closed DMs (the X on a DM row): channel id → last message id when it was closed.
   // A DM comes back as soon as a newer message arrives, like on Discord. Kept per device.
   const [closedDms, setClosedDms] = useState<Record<string, string>>({});
@@ -969,6 +972,8 @@ export function ChannelSidebar({
       }
     } catch (error) {
       console.error("Failed to fetch DM channels:", error);
+    } finally {
+      setDmsLoaded(true);
     }
   }, [seedDmCounts]);
 
@@ -1199,6 +1204,15 @@ export function ChannelSidebar({
                     </Link>
                   );
                 })}
+              </div>
+            ) : !dmsLoaded ? (
+              <div className="space-y-1 px-2 py-1" aria-hidden>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-2 py-[5px]">
+                    <div className="w-8 h-8 rounded-full bg-[var(--bg-sidebar-elevated)] animate-pulse" />
+                    <div className="h-3 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" style={{ width: `${45 + ((i * 17) % 40)}%` }} />
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="text-center text-[var(--text-muted)] text-sm py-8">
