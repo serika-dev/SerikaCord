@@ -4,6 +4,7 @@ import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
 import { upsertSavedAccount } from "@/lib/services/savedAccounts";
 import { clearMessageCache } from "@/hooks/useChatSession";
+import { shouldPromoteToOnline, toClientStatus, toServerStatus } from "@/lib/presenceChoice";
 import type { BuiltinBadgeId } from "@/lib/constants/badges";
 
 // Built-in ids keep autocomplete; badges created in the DB are plain strings.
@@ -87,17 +88,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     statusUpdatePending.current = true;
     
     try {
-      // Use sendBeacon for offline status to ensure it completes even on page close
-      if (status === "offline" && typeof navigator !== 'undefined' && navigator.sendBeacon) {
-        navigator.sendBeacon('/api/users/me', JSON.stringify({ status }));
-      } else {
-        await fetch("/api/users/me", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status }),
-          keepalive: true, // Ensures request completes even on page close
-        });
-      }
+      // "offline" here is the Invisible choice; it's stored as "invisible"
+      // so a reload doesn't mistake it for a stale offline and go online.
+      await fetch("/api/users/me", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: toServerStatus(status) }),
+        keepalive: true, // Ensures request completes even on page close
+      });
       
       setUser(prev => prev ? { ...prev, status } : null);
     } catch (error) {
@@ -126,13 +124,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json();
-        setUser(data);
+        const rawStatus = data?.status as string | undefined;
+        // The UI models Invisible as "offline" (the server stores "invisible").
+        setUser(data ? { ...data, status: toClientStatus(rawStatus) } : data);
         upsertSavedAccount(data);
 
         // Set user online when refreshing auth. Fire-and-forget so the app shell
         // paints as soon as we know who the user is, rather than blocking first
-        // render on a second serial round-trip.
-        if (data && data.status !== "dnd" && data.status !== "invisible") {
+        // render on a second serial round-trip. Explicit DND / Invisible stick.
+        if (data && shouldPromoteToOnline(rawStatus)) {
           setUser(prev => prev ? { ...prev, status: "online" } : null);
           void fetch("/api/users/me", {
             method: "PUT",
@@ -189,8 +189,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Handle page hide (mobile background)
     const handlePageHide = (e: PageTransitionEvent) => {
       if (e.persisted) {
-        // Page is going into bfcache, set idle
-        void setOnlineStatus("idle");
+        // Page is going into bfcache: only an online user goes idle (same rule
+        // as hiding the tab). DND / Invisible / idle are left untouched.
+        if (user.status === "online") {
+          void setOnlineStatus("idle");
+        }
       } else {
         // Page is being unloaded
         sendDisconnect();
@@ -265,12 +268,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    // Set offline before logging out
-    try { await setOnlineStatus("offline"); } catch {}
+    // End this device's presence (the server only goes offline when no other
+    // tab/device is connected) without overwriting the chosen status, so
+    // DND / Invisible survive a logout and the next login.
+    try {
+      await fetch("/api/users/me/presence/disconnect", { method: "POST", keepalive: true });
+    } catch {}
     try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
     clearMessageCache();
     setUser(null);
-  }, [setOnlineStatus]);
+  }, []);
 
   const updateUser = useCallback((updates: Partial<User>) => {
     setUser(prev => prev ? { ...prev, ...updates } : null);

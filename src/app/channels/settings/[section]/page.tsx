@@ -17,6 +17,7 @@ import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/namep
 import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
+import { toServerStatus } from "@/lib/presenceChoice";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -218,7 +219,8 @@ export default function MobileSettingsSectionPage() {
           timezone: timezone || null,
           showTimezone,
           customStatus,
-          status,
+          // Invisible is "offline" in the UI but stored as "invisible".
+          status: toServerStatus(status),
           customization: {
             displayNameStyle,
             profileColor,
@@ -346,7 +348,7 @@ export default function MobileSettingsSectionPage() {
               const response = await fetch("/api/users/me", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status }),
+                body: JSON.stringify({ status: toServerStatus(status) }),
               });
               if (response.ok) {
                 updateUser({ status: status as "online" | "idle" | "dnd" | "offline" });

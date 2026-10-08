@@ -258,7 +258,10 @@ function MemberItem({ member, serverId, canModerate }: MemberItemProps) {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        toast.success(gt("Friend request sent to {name}", { name: member.displayName || member.username }));
+        const name = member.displayName || member.username;
+        // The server auto-accepts when they had already sent us a request.
+        if (data?.accepted || data?.user) toast.success(gt("You are now friends with {name}!", { name }));
+        else toast.success(gt("Friend request sent to {name}", { name }));
       } else {
         toast.error(data?.error || gt("Failed to send friend request"));
       }

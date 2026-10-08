@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useAuth, type BadgeId } from "@/contexts/AuthContext";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
+import { usePolling } from "@/hooks/usePolling";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -111,6 +112,8 @@ export default function DirectMessagesPage() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const hadOpenedRef = useRef(false);
+  const hasLoadedActiveRef = useRef(false);
 
   // Fetch friends data
   const fetchFriends = useCallback(async () => {
@@ -128,7 +131,9 @@ export default function DirectMessagesPage() {
   }, []);
 
   const fetchActiveFriends = useCallback(async () => {
-    setIsLoadingActive(true);
+    // Only the first load shows the spinner; background refreshes keep the
+    // current cards on screen instead of flashing a loader every poll.
+    if (!hasLoadedActiveRef.current) setIsLoadingActive(true);
     try {
       const response = await fetch("/api/friends/active");
       if (response.ok) {
@@ -138,16 +143,20 @@ export default function DirectMessagesPage() {
     } catch (error) {
       console.error("Failed to fetch active friends:", error);
     } finally {
+      hasLoadedActiveRef.current = true;
       setIsLoadingActive(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchFriends();
-    fetchActiveFriends();
-    const timer = setInterval(fetchActiveFriends, 30_000);
-    return () => clearInterval(timer);
+  // Load now, then refresh every 30s while the tab is visible (paused in
+  // background tabs, refreshed as soon as the tab is visible again). The
+  // friends list is included so presence that went stale without an event
+  // (a friend's app killed, missed SSE while asleep) still resolves.
+  const refreshFriendsPage = useCallback(() => {
+    void fetchFriends();
+    void fetchActiveFriends();
   }, [fetchFriends, fetchActiveFriends]);
+  usePolling(refreshFriendsPage, 30_000);
 
   useEffect(() => {
     const connectSSE = () => {
@@ -159,7 +168,15 @@ export default function DirectMessagesPage() {
       eventSourceRef.current = source;
 
       source.onopen = () => {
+        // Events sent while the stream was down are lost, so resync after a
+        // reconnect (not on the first open, which the initial load covers).
+        const wasReconnect = hadOpenedRef.current;
+        hadOpenedRef.current = true;
         reconnectAttemptsRef.current = 0;
+        if (wasReconnect) {
+          void fetchFriends();
+          void fetchActiveFriends();
+        }
       };
 
       source.onmessage = (event) => {
@@ -189,7 +206,7 @@ export default function DirectMessagesPage() {
       if (eventSourceRef.current) eventSourceRef.current.close();
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
-  }, [fetchFriends]);
+  }, [fetchFriends, fetchActiveFriends]);
 
   // Add friend handler
   const handleAddFriend = async () => {

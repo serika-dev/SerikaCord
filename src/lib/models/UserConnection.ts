@@ -1,5 +1,5 @@
 import { eq, and, type SQL } from 'drizzle-orm';
-import { normalizeId } from '../db/normalizeId';
+import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
 export type IUserConnection = typeof schema.userConnections.$inferSelect;
@@ -36,7 +36,8 @@ export const UserConnection = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
-        case 'userId': conditions.push(eq(schema.userConnections.userId, normalizeId(value as string))); break;
+        // Accepts a single id or `{ in: [...] }` for batched lookups.
+        case 'userId': conditions.push(buildCondition(schema.userConnections.userId, value, true)); break;
         case 'provider': conditions.push(eq(schema.userConnections.provider, value as typeof schema.userConnections.provider.enumValues[number])); break;
       }
     }

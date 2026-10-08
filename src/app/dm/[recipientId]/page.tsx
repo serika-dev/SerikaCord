@@ -34,6 +34,7 @@ import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { toast } from "sonner";
 
 const statusColors = {
   online: "#23A559",
@@ -369,14 +370,22 @@ export default function DMConversationPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: recipient.username }),
       });
+      const data = await response.json().catch(() => null);
+      const name = recipient.displayName || recipient.username;
       if (response.ok) {
-        setRecipient((prev) => prev ? { ...prev, friendRequestSent: true } : prev);
+        // The server auto-accepts when they had already sent us a request.
+        if (data?.accepted || data?.user) {
+          setRecipient((prev) => prev ? { ...prev, isFriend: true, friendRequestSent: false } : prev);
+          toast.success(gt("You are now friends with {name}!", { name }));
+        } else {
+          setRecipient((prev) => prev ? { ...prev, friendRequestSent: true } : prev);
+          toast.success(gt("Friend request sent to {name}", { name }));
+        }
       } else {
-        const data = await response.json().catch(() => null);
-        console.error("Failed to send friend request:", data?.error);
+        toast.error(data?.error || gt("Failed to send friend request"));
       }
     } catch {
-      console.error("Failed to send friend request");
+      toast.error(gt("Failed to send friend request. Check your connection."));
     }
   };
 

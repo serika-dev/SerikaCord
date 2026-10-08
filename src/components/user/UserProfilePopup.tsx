@@ -34,6 +34,7 @@ import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getProfileBannerStyle, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { useGT } from "gt-next";
 import { statusLabelInvisible } from "@/lib/statusLabels";
+import { toServerStatus } from "@/lib/presenceChoice";
 
 interface UserProfilePopupProps {
   children: React.ReactNode;
@@ -80,7 +81,9 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
       const response = await fetch("/api/users/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        // Invisible ("offline" in the UI) is stored as "invisible" so it
+        // survives a reload instead of being promoted back to online.
+        body: JSON.stringify({ status: toServerStatus(status) }),
       });
       if (!response.ok) {
         // If update failed, refresh to get the correct status back

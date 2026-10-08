@@ -89,6 +89,7 @@ import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
 import { APP_VERSION, BUILD_COMMIT_URL, BUILD_SHA, BUILD_TIME, VERSION_LABEL } from "@/lib/version";
+import { toServerStatus } from "@/lib/presenceChoice";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -1300,7 +1301,8 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             timezone: timezone || null,
             showTimezone,
             customStatus,
-            status,
+            // Invisible is "offline" in the UI but stored as "invisible".
+            status: toServerStatus(status),
             customization: {
               displayNameStyle,
               profileColor,

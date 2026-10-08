@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
-import { authenticateRequest } from '@/lib/services/auth';
-import { storage } from '@/lib/services/storage';
+import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
+import { storage, keyFromUrl } from '@/lib/services/storage';
+import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { config } from '@/lib/config';
 import { Server, ServerMember, User } from '@/lib/models';
@@ -16,6 +17,20 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
     cookies.auth_token = authToken;
   }
   return authenticateRequest(authHeader, cookies);
+}
+
+/**
+ * Best-effort, fire-and-forget delete of a replaced avatar/banner/icon. Runs
+ * only after the new upload and the DB update succeeded (so a failed upload
+ * never leaves the row pointing at a deleted file), handles both CDN and
+ * legacy B2 URLs via keyFromUrl, and only deletes keys inside the owner's own
+ * upload prefix, so a URL pointing at someone else's object is never removed.
+ */
+function cleanupOldMedia(oldUrl: string | null | undefined, newUrl: string, ownerPrefix: string): void {
+  if (!oldUrl || oldUrl === newUrl) return;
+  const oldKey = keyFromUrl(oldUrl);
+  if (!isOwnedMediaKey(oldKey, ownerPrefix)) return;
+  void storage.delete(oldKey).catch((e) => console.error('Failed to delete replaced media:', e));
 }
 
 // Type guard for file validation
@@ -80,15 +95,6 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     try {
-      // Delete old avatar if exists
-      if (user.avatar && user.avatar.includes(config.B2_BUCKET_NAME)) {
-        try {
-          await storage.deleteByUrl(user.avatar);
-        } catch (e) {
-          console.error('Failed to delete old avatar:', e);
-        }
-      }
-
       // Upload new avatar
       const result = await storage.uploadFromFormData(file, 'avatars', {
         userId: user.id,
@@ -97,6 +103,10 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       // Update user, mirroring the change to the accounts service
       await User.updateById(user.id, { avatar: result.url });
       void accountsSyncProfile(user.email ?? '', { avatar: result.url });
+      // The 5-minute auth cache still holds the old URL; drop it so /@me,
+      // refresh() and new messages pick up the new avatar right away.
+      await invalidateUserCache(user.id);
+      cleanupOldMedia(user.avatar, result.url, `avatars/${user.id}/`);
 
       return {
         success: true,
@@ -158,15 +168,6 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     try {
-      // Delete old banner if exists
-      if (user.banner && user.banner.includes(config.B2_BUCKET_NAME)) {
-        try {
-          await storage.deleteByUrl(user.banner);
-        } catch (e) {
-          console.error('Failed to delete old banner:', e);
-        }
-      }
-
       // Upload new banner
       const result = await storage.uploadFromFormData(file, 'banners', {
         userId: user.id,
@@ -175,6 +176,8 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       // Update user, mirroring the change to the accounts service
       await User.updateById(user.id, { banner: result.url });
       void accountsSyncProfile(user.email ?? '', { banner: result.url });
+      await invalidateUserCache(user.id);
+      cleanupOldMedia(user.banner, result.url, `banners/${user.id}/`);
 
       return {
         success: true,
@@ -229,20 +232,13 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     try {
-      if (member.avatar && member.avatar.includes(config.B2_BUCKET_NAME)) {
-        try {
-          await storage.deleteByUrl(member.avatar);
-        } catch (e) {
-          console.error('Failed to delete old server avatar:', e);
-        }
-      }
-
       const result = await storage.uploadFromFormData(file, 'avatars', {
         userId: user.id,
         serverId: params.serverId,
       });
 
       await ServerMember.updateById(member.id, { avatar: result.url });
+      cleanupOldMedia(member.avatar, result.url, `avatars/${params.serverId}/${user.id}/`);
 
       return {
         success: true,
@@ -303,20 +299,13 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     try {
-      if (member.banner && member.banner.includes(config.B2_BUCKET_NAME)) {
-        try {
-          await storage.deleteByUrl(member.banner);
-        } catch (e) {
-          console.error('Failed to delete old server banner:', e);
-        }
-      }
-
       const result = await storage.uploadFromFormData(file, 'banners', {
         userId: user.id,
         serverId: params.serverId,
       });
 
       await ServerMember.updateById(member.id, { banner: result.url });
+      cleanupOldMedia(member.banner, result.url, `banners/${params.serverId}/${user.id}/`);
 
       return {
         success: true,
@@ -383,15 +372,6 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     try {
-      // Delete old icon if exists
-      if (server.icon && server.icon.includes(config.B2_BUCKET_NAME)) {
-        try {
-          await storage.deleteByUrl(server.icon);
-        } catch (e) {
-          console.error('Failed to delete old server icon:', e);
-        }
-      }
-
       // Upload new icon
       const result = await storage.uploadFromFormData(file, 'server-icons', {
         serverId: params.serverId,
@@ -399,6 +379,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
       // Update server
       await Server.updateById(server.id, { icon: result.url });
+      cleanupOldMedia(server.icon, result.url, `server-icons/${params.serverId}/`);
 
       return {
         success: true,
@@ -465,19 +446,12 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     }
 
     try {
-      if (server.banner && server.banner.includes(config.B2_BUCKET_NAME)) {
-        try {
-          await storage.deleteByUrl(server.banner);
-        } catch (e) {
-          console.error('Failed to delete old server banner:', e);
-        }
-      }
-
       const result = await storage.uploadFromFormData(file, 'server-banners', {
         serverId: params.serverId,
       });
 
       await Server.updateById(server.id, { banner: result.url });
+      cleanupOldMedia(server.banner, result.url, `server-banners/${params.serverId}/`);
 
       return {
         success: true,

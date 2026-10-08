@@ -32,6 +32,12 @@ import { normalizeId } from '@/lib/db/normalizeId';
 import { getVersionInfo } from '@/lib/version';
 import { getServerBuildTime } from '@/lib/versionServer';
 import { filterVisibleConnections, isSelfDeclarableProvider, toOwnConnection } from '@/lib/connections/policy';
+import { mutateFriendPair, type FriendPairOutcome } from '@/lib/services/friendPairLock';
+import { addId, dedupeIds, hasId, removeId } from '@/lib/social/friendLists';
+import { normalizeDisplayName } from '@/lib/utils/normalizeDisplayName';
+import { db, schema } from '@/lib/db/postgres';
+import { inArray } from 'drizzle-orm';
+import { getRedis } from '@/lib/db/redis';
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -232,6 +238,28 @@ function emitFriendEvent(userIds: string[], payload: Record<string, unknown>) {
       activeFriendStreamConnections.delete(userId);
     }
   }
+}
+
+/**
+ * Shared tail of every friend-graph route: map the locked mutation's outcome
+ * to a response and, when something was written, notify both users' friend
+ * streams. (mutateFriendPair already dropped both users' auth caches.)
+ */
+function finishFriendMutation(
+  outcome: FriendPairOutcome | null,
+  meId: string,
+  targetId: string,
+  set: { status?: number | string },
+): Record<string, unknown> {
+  if (!outcome) {
+    set.status = 404;
+    return { error: 'User not found' };
+  }
+  if (outcome.changed) {
+    emitFriendEvent([normalizeId(meId), normalizeId(targetId)], { type: 'friends:update', timestamp: Date.now() });
+  }
+  if (outcome.status) set.status = outcome.status;
+  return outcome.body;
 }
 
 // Rate limiting middleware. The hook must be `as: 'global'`: Elysia drops a
@@ -560,57 +588,121 @@ function isUuidLike(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
-/**
- * Live activity for a user: "now watching" (serika.moe), Last.fm scrobble and
- * game/rich presence. Respects the "show activity" privacy setting. Cached in
- * Redis for 5s so concurrent polls collapse. null = no such user.
- */
-async function loadUserActivity(userId: string): Promise<Record<string, unknown> | null> {
-  const cacheKey = `activity:${userId}`;
-  const cached = await cache.get<string>(cacheKey).catch(() => null);
-  if (cached) {
-    try { return typeof cached === 'string' ? JSON.parse(cached) : (cached as Record<string, unknown>); } catch { /* recompute */ }
+// Matches the clients' 15s activity poll so most polls are cache hits. Rich
+// presence writes delete `activity:<id>`, so game status still updates at once.
+const ACTIVITY_CACHE_TTL_SECONDS = 15;
+
+// Postgres returns lower-case UUIDs; key everything the same way.
+function activityUserKey(id: string): string {
+  return normalizeId(id).toLowerCase();
+}
+
+function parseCachedActivity(raw: unknown): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    let value: unknown = raw;
+    // Stored double-encoded (cache.set JSON-encodes an already JSON string).
+    for (let i = 0; i < 2 && typeof value === 'string'; i++) value = JSON.parse(value);
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  } catch {
+    return null;
   }
+}
 
-  const targetUser = await User.findById(userId);
-  if (!targetUser) return null;
+/**
+ * Live activity for many users at once: "now watching" (serika.moe), Last.fm
+ * scrobble and game/rich presence. Respects each user's "show activity"
+ * privacy setting. One Redis MGET for the cached snapshots, then three batched
+ * queries (users, rich presence, Last.fm connections) for the misses instead
+ * of ~4 queries per user. Missing users are absent from the returned map.
+ */
+async function loadUserActivities(userIds: string[]): Promise<Map<string, Record<string, unknown>>> {
+  const out = new Map<string, Record<string, unknown>>();
+  const ids = [...new Set(userIds.map(activityUserKey))];
+  if (ids.length === 0) return out;
 
-  const showActivity = (targetUser.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
-  if (!showActivity) return { ...EMPTY_ACTIVITY };
+  const redis = getRedis();
+  let cachedValues: (string | null)[] = [];
+  if (redis) {
+    try { cachedValues = await redis.mget(...ids.map((id) => `activity:${id}`)); } catch { cachedValues = []; }
+  }
+  const misses: string[] = [];
+  ids.forEach((id, i) => {
+    const hit = parseCachedActivity(cachedValues[i]);
+    if (hit) out.set(id, hit);
+    else misses.push(id);
+  });
+  if (misses.length === 0) return out;
 
-  const now = new Date();
-  const [watchActivity, richPresenceDocs, lastfmConnection] = await Promise.all([
-    getMoeActivity(userId).catch(() => null),
-    RichPresence.find({ userId: targetUser.id }).catch(() => []),
-    UserConnection.findOne({ userId: targetUser.id, provider: 'lastfm' }).catch(() => null),
+  const [userRows, presenceRows, lastfmRows] = await Promise.all([
+    db.select({ id: schema.users.id, settings: schema.users.settings })
+      .from(schema.users)
+      .where(inArray(schema.users.id, misses))
+      .catch(() => [] as { id: string; settings: unknown }[]),
+    RichPresence.find({ userId: { in: misses } }).catch(() => [] as IRichPresence[]),
+    UserConnection.find({ userId: { in: misses }, provider: 'lastfm' }).catch(() => []),
   ]);
 
-  const activeRichPresence = richPresenceDocs.filter((doc: any) => doc.expiresAt && new Date(doc.expiresAt) > now);
-
-  let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
-  if (lastfmConnection?.accountId) {
-    music = await getLastFmNowPlaying(lastfmConnection.accountId).catch(() => null);
+  const now = new Date();
+  const presenceByUser = new Map<string, IRichPresence[]>();
+  for (const doc of presenceRows as IRichPresence[]) {
+    if (!doc.expiresAt || new Date(doc.expiresAt) <= now) continue;
+    const list = presenceByUser.get(doc.userId);
+    if (list) list.push(doc);
+    else presenceByUser.set(doc.userId, [doc]);
+  }
+  const lastfmByUser = new Map<string, string>();
+  for (const conn of lastfmRows as { userId: string; accountId?: string | null }[]) {
+    if (conn.accountId && !lastfmByUser.has(conn.userId)) lastfmByUser.set(conn.userId, conn.accountId);
   }
 
-  const activities = sortActivitiesByPriority((activeRichPresence as IRichPresence[]).map((doc) => ({
-    type: doc.type,
-    name: doc.name,
-    details: doc.details ?? null,
-    state: doc.state ?? null,
-    largeImageUrl: doc.largeImageUrl ?? null,
-    largeImageText: doc.largeImageText ?? null,
-    smallImageUrl: doc.smallImageUrl ?? null,
-    smallImageText: doc.smallImageText ?? null,
-    startedAt: doc.startedAt ?? null,
-    endsAt: doc.endsAt ?? null,
-    applicationId: doc.applicationId ?? null,
-    assets: doc.assets ?? null,
-    buttons: doc.buttons ?? null,
-  })));
+  const computed = await Promise.all(userRows.map(async (row) => {
+    const showActivity = (row.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
+    if (!showActivity) return [row.id, { ...EMPTY_ACTIVITY }] as const;
 
-  const result = { activity: watchActivity, music, game: activities[0] ?? null, activities };
-  await cache.set(cacheKey, JSON.stringify(result), 5).catch(() => {});
-  return result;
+    const lastfmAccount = lastfmByUser.get(row.id);
+    const [watchActivity, music] = await Promise.all([
+      getMoeActivity(row.id).catch(() => null),
+      lastfmAccount ? getLastFmNowPlaying(lastfmAccount).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    const activities = sortActivitiesByPriority((presenceByUser.get(row.id) || []).map((doc) => ({
+      type: doc.type,
+      name: doc.name,
+      details: doc.details ?? null,
+      state: doc.state ?? null,
+      largeImageUrl: doc.largeImageUrl ?? null,
+      largeImageText: doc.largeImageText ?? null,
+      smallImageUrl: doc.smallImageUrl ?? null,
+      smallImageText: doc.smallImageText ?? null,
+      startedAt: doc.startedAt ?? null,
+      endsAt: doc.endsAt ?? null,
+      applicationId: doc.applicationId ?? null,
+      assets: doc.assets ?? null,
+      buttons: doc.buttons ?? null,
+    })));
+
+    return [row.id, { activity: watchActivity, music, game: activities[0] ?? null, activities }] as const;
+  }));
+
+  for (const [id, result] of computed) out.set(id, result as Record<string, unknown>);
+
+  if (redis && computed.length > 0) {
+    try {
+      const pipeline = redis.pipeline();
+      for (const [id, result] of computed) {
+        pipeline.setex(`activity:${id}`, ACTIVITY_CACHE_TTL_SECONDS, JSON.stringify(result));
+      }
+      await pipeline.exec();
+    } catch { /* cache is best-effort */ }
+  }
+  return out;
+}
+
+/** Single-user form of loadUserActivities. null = no such user. */
+async function loadUserActivity(userId: string): Promise<Record<string, unknown> | null> {
+  const results = await loadUserActivities([userId]);
+  return results.get(activityUserKey(userId)) ?? null;
 }
 
 const userRoutes = new Elysia({ prefix: '/users' })
@@ -1154,7 +1246,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
-      if (displayName !== undefined) updateFields.displayName = displayName;
+      if (displayName !== undefined) updateFields.displayName = normalizeDisplayName(displayName);
       if (bio !== undefined) updateFields.bio = bio;
       if (pronouns !== undefined) updateFields.pronouns = pronouns;
       if (timezone !== undefined) updateFields.timezone = timezone || null;
@@ -1294,7 +1386,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
-      if (displayName !== undefined) updateFields.displayName = displayName;
+      if (displayName !== undefined) updateFields.displayName = normalizeDisplayName(displayName);
       if (bio !== undefined) updateFields.bio = bio;
       if (pronouns !== undefined) updateFields.pronouns = pronouns;
       if (timezone !== undefined) updateFields.timezone = timezone || null;
@@ -1984,9 +2076,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
       set.status = 400;
       return { error: 'ids is required' };
     }
-    const results = await Promise.all(ids.map((id) => loadUserActivity(id).catch(() => null)));
+    const results = await loadUserActivities(ids).catch(() => new Map<string, Record<string, unknown>>());
     const activities: Record<string, unknown> = {};
-    ids.forEach((id, i) => { if (results[i]) activities[id] = results[i]; });
+    for (const id of ids) {
+      const result = results.get(activityUserKey(id));
+      if (result) activities[id] = result;
+    }
     return { activities };
   }, {
     query: t.Object({ ids: t.String() }),
@@ -2055,37 +2150,28 @@ const userRoutes = new Elysia({ prefix: '/users' })
         partySize: item.partySize ?? null,
       };
 
-      const existing = await RichPresence.findOne({ userId: authUserId, type, name });
-      if (existing) {
-        await RichPresence.updateById(existing.id, {
-          details: item.details ?? null,
-          state: item.state ?? null,
-          largeImageUrl: item.largeImageUrl ?? null,
-          largeImageText: item.largeImageText ?? null,
-          smallImageUrl: item.smallImageUrl ?? null,
-          smallImageText: item.smallImageText ?? null,
-          startedAt: item.startedAt ? new Date(item.startedAt) : null,
-          endsAt: item.endsAt ? new Date(item.endsAt) : null,
-          expiresAt,
-          ...rpcExtras,
+      const fields = {
+        details: item.details ?? null,
+        state: item.state ?? null,
+        largeImageUrl: item.largeImageUrl ?? null,
+        largeImageText: item.largeImageText ?? null,
+        smallImageUrl: item.smallImageUrl ?? null,
+        smallImageText: item.smallImageText ?? null,
+        startedAt: item.startedAt ? new Date(item.startedAt) : null,
+        endsAt: item.endsAt ? new Date(item.endsAt) : null,
+        expiresAt,
+        ...rpcExtras,
+      };
+
+      // One atomic upsert per (user, type, name) on the existing unique index:
+      // each activity keeps its own row, and two overlapping heartbeats can't
+      // race into a unique violation.
+      await db.insert(schema.richPresence)
+        .values({ userId: authUserId, type, name, ...fields })
+        .onConflictDoUpdate({
+          target: [schema.richPresence.userId, schema.richPresence.type, schema.richPresence.name],
+          set: { ...fields, updatedAt: new Date() },
         });
-      } else {
-        await RichPresence.create({
-          userId: authUserId,
-          type,
-          name,
-          details: item.details ?? null,
-          state: item.state ?? null,
-          largeImageUrl: item.largeImageUrl ?? null,
-          largeImageText: item.largeImageText ?? null,
-          smallImageUrl: item.smallImageUrl ?? null,
-          smallImageText: item.smallImageText ?? null,
-          startedAt: item.startedAt ? new Date(item.startedAt) : null,
-          endsAt: item.endsAt ? new Date(item.endsAt) : null,
-          expiresAt,
-          ...rpcExtras,
-        });
-      }
     }
 
     // Anything not reported in this batch is no longer active.
@@ -2209,17 +2295,20 @@ const userRoutes = new Elysia({ prefix: '/users' })
 const friendsRoutes = new Elysia({ prefix: '/friends' })
   .onBeforeHandle(rejectInvalidObjectIdParams)
   .get('/', async ({ headers, cookie, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    // Read the friend lists fresh: the auth user is a 5-minute cached copy.
+    const user = (await User.findById(authUser.id).catch(() => null)) || authUser;
 
-    // Batch fetch friends, pending requests, and blocked users
-    const friendIds = (user.friends || []) as string[];
-    const incomingIds = ((user.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    const outgoingIds = ((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-    const blockedIds = (user.blockedUsers || []) as string[];
+    // Batch fetch friends, pending requests, and blocked users (deduped so
+    // rows duplicated by older concurrent writes render once)
+    const friendIds = dedupeIds(user.friends);
+    const incomingIds = dedupeIds((user.pendingFriendRequests as IPendingFriendRequests)?.incoming);
+    const outgoingIds = dedupeIds((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing);
+    const blockedIds = dedupeIds(user.blockedUsers);
     
     const allIds = [...new Set([...friendIds, ...incomingIds, ...outgoingIds, ...blockedIds])];
     const allUsers = allIds.length > 0 ? await User.find({ id: { in: allIds } }) : [];
@@ -2262,81 +2351,61 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
     };
   })
   .get('/active', async ({ headers, cookie, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    // Read the friend list fresh: the auth user is a 5-minute cached copy.
+    const user = (await User.findById(authUser.id).catch(() => null)) || authUser;
 
-    const friendIds = (user.friends || []) as string[];
+    const friendIds = dedupeIds(user.friends);
     if (friendIds.length === 0) return { active: [] };
 
     const friends = await User.find({ id: { in: friendIds } });
-    const now = new Date();
 
-    const activeEntries = await Promise.all(
-      friends.map(async (friend) => {
-        const showActivity = (friend.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
-        if (!showActivity) return null;
+    // Online friends who share their activity. Offline users never show in
+    // Active Now.
+    const candidates = friends
+      .filter((friend) => ((friend.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true))
+      .map((friend) => ({ friend, effectiveStatus: getPublicPresenceStatus(friend) }))
+      .filter(({ effectiveStatus }) => effectiveStatus !== 'offline');
+    if (candidates.length === 0) return { active: [] };
 
-        // Don't show offline users in Active Now
-        const effectiveStatus = getPublicPresenceStatus(friend);
-        if (effectiveStatus === 'offline') return null;
+    // One batched (and shared-cache) activity lookup for every candidate
+    // instead of two queries per friend.
+    const activityById = await loadUserActivities(candidates.map(({ friend }) => friend.id))
+      .catch(() => new Map<string, Record<string, unknown>>());
 
-        const friendId = friend.id;
-        const [watchActivity, richPresenceDocs, lastfmConnection] = await Promise.all([
-          getMoeActivity(friendId).catch(() => null),
-          RichPresence.find({ userId: friendId }).catch(() => []),
-          UserConnection.findOne({ userId: friendId, provider: 'lastfm' }).catch(() => null),
-        ]);
+    const active = candidates.flatMap(({ friend, effectiveStatus }) => {
+      const entry = activityById.get(activityUserKey(friend.id)) as
+        | { activity?: unknown; music?: unknown; game?: unknown; activities?: unknown[] }
+        | undefined;
+      if (!entry) return [];
+      const activities = Array.isArray(entry.activities) ? entry.activities : [];
+      const hasActivity = entry.activity || activities.length > 0 || entry.music;
+      if (!hasActivity) return [];
+      return [{
+        friend: {
+          id: friend.id,
+          username: friend.username,
+          displayName: friend.displayName,
+          avatar: friend.avatar,
+          status: effectiveStatus,
+          customStatus: friend.customStatus,
+          isPremium: friend.isPremium,
+          badges: friend.badges || [],
+        },
+        activity: {
+          activity: entry.activity ?? null,
+          music: entry.music ?? null,
+          game: entry.game ?? activities[0] ?? null,
+          activities,
+        },
+      }];
+    });
 
-        const activeRichPresence = (richPresenceDocs as IRichPresence[]).filter((doc) => doc.expiresAt && new Date(doc.expiresAt) > now);
-        const activities = sortActivitiesByPriority(activeRichPresence.map((doc) => ({
-          type: doc.type,
-          name: doc.name,
-          details: doc.details ?? null,
-          state: doc.state ?? null,
-          largeImageUrl: doc.largeImageUrl ?? null,
-          largeImageText: doc.largeImageText ?? null,
-          smallImageUrl: doc.smallImageUrl ?? null,
-          smallImageText: doc.smallImageText ?? null,
-          startedAt: doc.startedAt ?? null,
-          endsAt: doc.endsAt ?? null,
-          applicationId: doc.applicationId ?? null,
-          assets: doc.assets ?? null,
-          buttons: doc.buttons ?? null,
-        })));
-
-        let music: import('@/lib/services/lastfmService').LastFmTrack | null = null;
-        if (lastfmConnection?.accountId) {
-          music = await getLastFmNowPlaying(lastfmConnection.accountId).catch(() => null);
-        }
-
-        const hasActivity = watchActivity || activities.length > 0 || music;
-        if (!hasActivity) return null;
-
-        return {
-          friend: {
-            id: friend.id,
-            username: friend.username,
-            displayName: friend.displayName,
-            avatar: friend.avatar,
-            status: effectiveStatus,
-            customStatus: friend.customStatus,
-            isPremium: friend.isPremium,
-            badges: friend.badges || [],
-          },
-          activity: {
-            activity: watchActivity,
-            music,
-            game: activities[0] ?? null,
-            activities,
-          },
-        };
-      })
-    );
-
-    return { active: activeEntries.filter(Boolean) };
+    return { active };
   })
   .get('/stream', async ({ headers, cookie }) => {
     const sseHeaders = {
@@ -2412,123 +2481,105 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: 'Too many friend requests', retryAfter: rateLimit.retryAfter };
     }
 
-    // Fetch actual user documents
-    const user = await User.findById(authUserId);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
-
     // Find user by username (case insensitive - Drizzle doesn't support regex, so try exact then lowercased)
-    let targetUser = await User.findOne({ username });
-    if (!targetUser) {
+    let foundUser = await User.findOne({ username });
+    if (!foundUser) {
       // Try case-insensitive by fetching all and filtering
       const allUsers = await User.find({});
       const found = allUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
-      if (found) targetUser = found;
+      if (found) foundUser = found;
     }
-    
-    if (!targetUser) {
+
+    if (!foundUser) {
       set.status = 404;
       return { error: `User "${username}" not found. Make sure you entered the correct username.` };
     }
 
-    if (compareIds(targetUser.id, user.id)) {
+    if (compareIds(foundUser.id, authUserId)) {
       set.status = 400;
       return { error: 'You cannot send a friend request to yourself' };
     }
 
-    // Block friend requests to system users
-    if (targetUser.isSystem) {
-      set.status = 403;
-      return { error: 'You cannot send a friend request to a system user' };
-    }
+    // Both rows are re-read and locked inside the transaction, so every check
+    // below sees the current state and concurrent requests can't clobber it.
+    const outcome = await mutateFriendPair(authUserId, foundUser.id, async (user, targetUser, save) => {
+      const targetName = targetUser.displayName || targetUser.username;
 
-    // Check if already friends
-    if ((user.friends || []).some((f: string) => compareIds(f, targetUser.id))) {
-      set.status = 400;
-      return { error: `You're already friends with ${targetUser.displayName || targetUser.username}` };
-    }
+      // Block friend requests to system users
+      if (targetUser.isSystem) {
+        return { status: 403, body: { error: 'You cannot send a friend request to a system user' } };
+      }
 
-    // Check if blocked
-    if ((user.blockedUsers || []).some((b: string) => compareIds(b, targetUser.id))) {
-      set.status = 400;
-      return { error: 'You have blocked this user. Unblock them first to send a friend request.' };
-    }
+      // Check if already friends
+      if (hasId(user.friends, targetUser.id)) {
+        return { status: 400, body: { error: `You're already friends with ${targetName}` } };
+      }
 
-    // Check if target blocked the user
-    if ((targetUser.blockedUsers || []).some((b: string) => compareIds(b, user.id))) {
-      set.status = 403;
-      return { error: 'Unable to send friend request to this user' };
-    }
+      // Check if blocked
+      if (hasId(user.blockedUsers, targetUser.id)) {
+        return { status: 400, body: { error: 'You have blocked this user. Unblock them first to send a friend request.' } };
+      }
 
-    // Check privacy settings
-    if ((targetUser.settings as IUserSettings | undefined)?.privacy?.friendRequests === 'none') {
-      set.status = 403;
-      return { error: `${targetUser.displayName || targetUser.username} is not accepting friend requests` };
-    }
+      // Check if target blocked the user
+      if (hasId(targetUser.blockedUsers, user.id)) {
+        return { status: 403, body: { error: 'Unable to send friend request to this user' } };
+      }
 
-    // Check if request already pending
-    const outgoing = ((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-    if (outgoing.some((p: string) => compareIds(p, targetUser.id))) {
-      set.status = 400;
-      return { error: `You already sent a friend request to ${targetUser.displayName || targetUser.username}` };
-    }
+      // Check privacy settings
+      if ((targetUser.settings as IUserSettings | undefined)?.privacy?.friendRequests === 'none') {
+        return { status: 403, body: { error: `${targetName} is not accepting friend requests` } };
+      }
 
-    // Check if they sent us a request - auto-accept
-    const incoming = ((user.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    if (incoming.some((p: string) => compareIds(p, targetUser.id))) {
-      // Accept the friend request
-      const newIncoming = incoming.filter((p: string) => !compareIds(p, targetUser.id));
-      const targetOutgoing = ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-      const newTargetOutgoing = targetOutgoing.filter((p: string) => !compareIds(p, user.id));
-      
-      const userFriends = [...(user.friends || []), targetUser.id];
-      const targetFriends = [...(targetUser.friends || []), user.id];
-      
-      await Promise.all([
-        User.updateById(user.id, {
-          friends: userFriends,
-          pendingFriendRequests: { incoming: newIncoming, outgoing },
-        }),
-        User.updateById(targetUser.id, {
-          friends: targetFriends,
-          pendingFriendRequests: { incoming: ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.incoming || []), outgoing: newTargetOutgoing },
-        }),
-      ]);
-      emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
+      // Check if request already pending
+      const userPending = user.pendingFriendRequests as IPendingFriendRequests | null;
+      const targetPending = targetUser.pendingFriendRequests as IPendingFriendRequests | null;
+      const outgoing = (userPending?.outgoing || []) as string[];
+      const incoming = (userPending?.incoming || []) as string[];
+      if (hasId(outgoing, targetUser.id)) {
+        return { status: 400, body: { error: `You already sent a friend request to ${targetName}` } };
+      }
 
-      return { 
-        success: true, 
-        message: `You are now friends with ${targetUser.displayName || targetUser.username}!`,
-        user: {
-          id: targetUser.id,
-          username: targetUser.username,
-          displayName: targetUser.displayName,
-          avatar: targetUser.avatar,
-          status: getPublicPresenceStatus(targetUser),
-        },
+      // Check if they sent us a request - auto-accept
+      if (hasId(incoming, targetUser.id)) {
+        await save(user.id, {
+          friends: addId(user.friends, targetUser.id),
+          pendingFriendRequests: { incoming: removeId(incoming, targetUser.id), outgoing: dedupeIds(outgoing) },
+        });
+        await save(targetUser.id, {
+          friends: addId(targetUser.friends, user.id),
+          pendingFriendRequests: { incoming: dedupeIds(targetPending?.incoming), outgoing: removeId(targetPending?.outgoing, user.id) },
+        });
+        return {
+          changed: true,
+          body: {
+            success: true,
+            accepted: true,
+            message: `You are now friends with ${targetName}!`,
+            user: {
+              id: targetUser.id,
+              username: targetUser.username,
+              displayName: targetUser.displayName,
+              avatar: targetUser.avatar,
+              status: getPublicPresenceStatus(targetUser),
+            },
+          },
+        };
+      }
+
+      // Send friend request
+      await save(user.id, {
+        pendingFriendRequests: { incoming: dedupeIds(incoming), outgoing: addId(outgoing, targetUser.id) },
+      });
+      await save(targetUser.id, {
+        pendingFriendRequests: { incoming: addId(targetPending?.incoming, user.id), outgoing: dedupeIds(targetPending?.outgoing) },
+      });
+      return {
+        changed: true,
+        body: { success: true, message: `Friend request sent to ${targetName}` },
       };
-    }
+    });
 
-    // Send friend request
-    const newOutgoing = [...outgoing, targetUser.id];
-    const targetIncoming = [...((targetUser.pendingFriendRequests as IPendingFriendRequests)?.incoming || []), user.id];
-
-    await Promise.all([
-      User.updateById(user.id, {
-        pendingFriendRequests: { incoming, outgoing: newOutgoing },
-      }),
-      User.updateById(targetUser.id, {
-        pendingFriendRequests: { incoming: targetIncoming, outgoing: ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) },
-      }),
-    ]);
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { 
-      success: true, 
-      message: `Friend request sent to ${targetUser.displayName || targetUser.username}` 
-    };
+    return finishFriendMutation(outcome, authUserId, foundUser.id, set);
   }, {
     body: t.Object({
       username: t.String({ minLength: 1 }),
@@ -2542,50 +2593,34 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch actual user document
-    const user = await User.findById(authUser.id);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+    const outcome = await mutateFriendPair(authUser.id, params.userId, async (user, targetUser, save) => {
+      // Check if there's a pending request (re-checked under the lock, so a
+      // double-click or a second device can't accept twice)
+      const userPending = user.pendingFriendRequests as IPendingFriendRequests | null;
+      const targetPending = targetUser.pendingFriendRequests as IPendingFriendRequests | null;
+      if (!hasId(userPending?.incoming, targetUser.id)) {
+        return { status: 400, body: { error: 'No pending friend request from this user' } };
+      }
 
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+      await save(user.id, {
+        friends: addId(user.friends, targetUser.id),
+        pendingFriendRequests: { incoming: removeId(userPending?.incoming, targetUser.id), outgoing: dedupeIds(userPending?.outgoing) },
+      });
+      await save(targetUser.id, {
+        friends: addId(targetUser.friends, user.id),
+        pendingFriendRequests: { incoming: dedupeIds(targetPending?.incoming), outgoing: removeId(targetPending?.outgoing, user.id) },
+      });
 
-    // Check if there's a pending request
-    const incoming = ((user.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    if (!incoming.some((p: string) => compareIds(p, targetUser.id))) {
-      set.status = 400;
-      return { error: 'No pending friend request from this user' };
-    }
+      return {
+        changed: true,
+        body: {
+          success: true,
+          message: `You are now friends with ${targetUser.displayName || targetUser.username}!`,
+        },
+      };
+    });
 
-    // Accept the request
-    const newIncoming = incoming.filter((p: string) => !compareIds(p, targetUser.id));
-    const targetOutgoing = ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-    const newTargetOutgoing = targetOutgoing.filter((p: string) => !compareIds(p, user.id));
-    
-    const userFriends = [...(user.friends || []), targetUser.id];
-    const targetFriends = [...(targetUser.friends || []), user.id];
-
-    await Promise.all([
-      User.updateById(user.id, {
-        friends: userFriends,
-        pendingFriendRequests: { incoming: newIncoming, outgoing: ((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) },
-      }),
-      User.updateById(targetUser.id, {
-        friends: targetFriends,
-        pendingFriendRequests: { incoming: ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.incoming || []), outgoing: newTargetOutgoing },
-      }),
-    ]);
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { 
-      success: true, 
-      message: `You are now friends with ${targetUser.displayName || targetUser.username}!`,
-    };
+    return finishFriendMutation(outcome, authUser.id, params.userId, set);
   }, {
     params: t.Object({
       userId: t.String(),
@@ -2599,42 +2634,26 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch actual user document
-    const user = await User.findById(authUser.id);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+    const outcome = await mutateFriendPair(authUser.id, params.userId, async (user, targetUser, save) => {
+      // Remove from outgoing
+      const userPending = user.pendingFriendRequests as IPendingFriendRequests | null;
+      const targetPending = targetUser.pendingFriendRequests as IPendingFriendRequests | null;
+      await save(user.id, {
+        pendingFriendRequests: { incoming: dedupeIds(userPending?.incoming), outgoing: removeId(userPending?.outgoing, targetUser.id) },
+      });
+      await save(targetUser.id, {
+        pendingFriendRequests: { incoming: removeId(targetPending?.incoming, user.id), outgoing: dedupeIds(targetPending?.outgoing) },
+      });
+      return { changed: true, body: { success: true, message: 'Friend request cancelled' } };
+    });
 
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
-
-    // Remove from outgoing
-    const outgoing = ((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-    const newOutgoing = outgoing.filter((p: string) => !compareIds(p, targetUser.id));
-    const targetIncoming = ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    const newTargetIncoming = targetIncoming.filter((p: string) => !compareIds(p, user.id));
-
-    await Promise.all([
-      User.updateById(user.id, {
-        pendingFriendRequests: { incoming: ((user.pendingFriendRequests as IPendingFriendRequests)?.incoming || []), outgoing: newOutgoing },
-      }),
-      User.updateById(targetUser.id, {
-        pendingFriendRequests: { incoming: newTargetIncoming, outgoing: ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) },
-      }),
-    ]);
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { success: true, message: 'Friend request cancelled' };
+    return finishFriendMutation(outcome, authUser.id, params.userId, set);
   }, {
     params: t.Object({
       userId: t.String(),
     }),
   })
-  // Decline incoming friend request  
+  // Decline incoming friend request
   .delete('/decline/:userId', async ({ headers, cookie, params, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {
@@ -2642,36 +2661,20 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch actual user document
-    const user = await User.findById(authUser.id);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+    const outcome = await mutateFriendPair(authUser.id, params.userId, async (user, targetUser, save) => {
+      // Remove from incoming
+      const userPending = user.pendingFriendRequests as IPendingFriendRequests | null;
+      const targetPending = targetUser.pendingFriendRequests as IPendingFriendRequests | null;
+      await save(user.id, {
+        pendingFriendRequests: { incoming: removeId(userPending?.incoming, targetUser.id), outgoing: dedupeIds(userPending?.outgoing) },
+      });
+      await save(targetUser.id, {
+        pendingFriendRequests: { incoming: dedupeIds(targetPending?.incoming), outgoing: removeId(targetPending?.outgoing, user.id) },
+      });
+      return { changed: true, body: { success: true, message: 'Friend request declined' } };
+    });
 
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
-
-    // Remove from incoming
-    const incoming = ((user.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    const newIncoming = incoming.filter((p: string) => !compareIds(p, targetUser.id));
-    const targetOutgoing = ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-    const newTargetOutgoing = targetOutgoing.filter((p: string) => !compareIds(p, user.id));
-
-    await Promise.all([
-      User.updateById(user.id, {
-        pendingFriendRequests: { incoming: newIncoming, outgoing: ((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) },
-      }),
-      User.updateById(targetUser.id, {
-        pendingFriendRequests: { incoming: ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.incoming || []), outgoing: newTargetOutgoing },
-      }),
-    ]);
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { success: true, message: 'Friend request declined' };
+    return finishFriendMutation(outcome, authUser.id, params.userId, set);
   }, {
     params: t.Object({
       userId: t.String(),
@@ -2685,62 +2688,34 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch actual user document
-    const user = await User.findById(authUser.id);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
-
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
-
-    if (compareIds(targetUser.id, user.id)) {
+    if (compareIds(params.userId, authUser.id)) {
       set.status = 400;
       return { error: 'You cannot block yourself' };
     }
 
-    // Already blocked?
-    if ((user.blockedUsers || []).some((b: string) => compareIds(b, targetUser.id))) {
-      set.status = 400;
-      return { error: 'User is already blocked' };
-    }
+    const outcome = await mutateFriendPair(authUser.id, params.userId, async (user, targetUser, save) => {
+      // Already blocked?
+      if (hasId(user.blockedUsers, targetUser.id)) {
+        return { status: 400, body: { error: 'User is already blocked' } };
+      }
 
-    // Remove from friends if present
-    const userFriends = (user.friends || []).filter((f: string) => !compareIds(f, targetUser.id));
-    const targetFriends = (targetUser.friends || []).filter((f: string) => !compareIds(f, user.id));
+      const userPending = user.pendingFriendRequests as IPendingFriendRequests | null;
+      const targetPending = targetUser.pendingFriendRequests as IPendingFriendRequests | null;
 
-    // Remove any pending requests
-    const userIncoming = ((user.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    const userOutgoing = ((user.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-    const targetIncoming = ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-    const targetOutgoing = ((targetUser.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
+      // Remove from friends, drop any pending requests, add to blocked list
+      await save(user.id, {
+        friends: removeId(user.friends, targetUser.id),
+        blockedUsers: addId(user.blockedUsers, targetUser.id),
+        pendingFriendRequests: { incoming: removeId(userPending?.incoming, targetUser.id), outgoing: removeId(userPending?.outgoing, targetUser.id) },
+      });
+      await save(targetUser.id, {
+        friends: removeId(targetUser.friends, user.id),
+        pendingFriendRequests: { incoming: removeId(targetPending?.incoming, user.id), outgoing: removeId(targetPending?.outgoing, user.id) },
+      });
+      return { changed: true, body: { success: true, message: 'User blocked' } };
+    });
 
-    const newUserIncoming = userIncoming.filter((p: string) => !compareIds(p, targetUser.id));
-    const newUserOutgoing = userOutgoing.filter((p: string) => !compareIds(p, targetUser.id));
-    const newTargetIncoming = targetIncoming.filter((p: string) => !compareIds(p, user.id));
-    const newTargetOutgoing = targetOutgoing.filter((p: string) => !compareIds(p, user.id));
-
-    // Add to blocked list
-    const newBlockedUsers = [...(user.blockedUsers || []), targetUser.id];
-
-    await Promise.all([
-      User.updateById(user.id, {
-        friends: userFriends,
-        blockedUsers: newBlockedUsers,
-        pendingFriendRequests: { incoming: newUserIncoming, outgoing: newUserOutgoing },
-      }),
-      User.updateById(targetUser.id, {
-        friends: targetFriends,
-        pendingFriendRequests: { incoming: newTargetIncoming, outgoing: newTargetOutgoing },
-      }),
-    ]);
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { success: true, message: 'User blocked' };
+    return finishFriendMutation(outcome, authUser.id, params.userId, set);
   }, {
     params: t.Object({
       userId: t.String(),
@@ -2754,24 +2729,12 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch actual user document
-    const user = await User.findById(authUser.id);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+    const outcome = await mutateFriendPair(authUser.id, params.userId, async (user, targetUser, save) => {
+      await save(user.id, { blockedUsers: removeId(user.blockedUsers, targetUser.id) });
+      return { changed: true, body: { success: true, message: 'User unblocked' } };
+    });
 
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
-
-    const newBlockedUsers = (user.blockedUsers || []).filter((b: string) => !compareIds(b, targetUser.id));
-    await User.updateById(user.id, { blockedUsers: newBlockedUsers });
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { success: true, message: 'User unblocked' };
+    return finishFriendMutation(outcome, authUser.id, params.userId, set);
   }, {
     params: t.Object({
       userId: t.String(),
@@ -2785,36 +2748,18 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch actual user document
-    const user = await User.findById(authUser.id);
-    if (!user) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+    const outcome = await mutateFriendPair(authUser.id, params.userId, async (user, targetUser, save) => {
+      // Check if actually friends
+      if (!hasId(user.friends, targetUser.id)) {
+        return { status: 400, body: { error: 'You are not friends with this user' } };
+      }
 
-    const targetUser = await User.findById(params.userId);
-    if (!targetUser) {
-      set.status = 404;
-      return { error: 'User not found' };
-    }
+      await save(user.id, { friends: removeId(user.friends, targetUser.id) });
+      await save(targetUser.id, { friends: removeId(targetUser.friends, user.id) });
+      return { changed: true, body: { success: true, message: 'Friend removed' } };
+    });
 
-    // Check if actually friends
-    if (!(user.friends || []).some((f: string) => compareIds(f, targetUser.id))) {
-      set.status = 400;
-      return { error: 'You are not friends with this user' };
-    }
-
-    // Remove from friends
-    const userFriends = (user.friends || []).filter((f: string) => !compareIds(f, targetUser.id));
-    const targetFriends = (targetUser.friends || []).filter((f: string) => !compareIds(f, user.id));
-
-    await Promise.all([
-      User.updateById(user.id, { friends: userFriends }),
-      User.updateById(targetUser.id, { friends: targetFriends }),
-    ]);
-    emitFriendEvent([user.id, targetUser.id], { type: 'friends:update', timestamp: Date.now() });
-
-    return { success: true, message: 'Friend removed' };
+    return finishFriendMutation(outcome, authUser.id, params.userId, set);
   }, {
     params: t.Object({
       userId: t.String(),

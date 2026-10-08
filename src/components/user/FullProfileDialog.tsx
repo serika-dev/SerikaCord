@@ -103,6 +103,9 @@ export function FullProfileDialog({
   const [activeTab, setActiveTab] = useState<TabId>("board");
   const [copied, setCopied] = useState(false);
   const [friendRequestSent, setFriendRequestSent] = useState(user.friendRequestSent ?? false);
+  // Set when Add Friend auto-accepted their pending request (we're friends now).
+  const [becameFriend, setBecameFriend] = useState(false);
+  const isFriendNow = isFriend || becameFriend;
   const [memberRoles, setMemberRoles] = useState(user.roles || []);
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
@@ -239,11 +242,18 @@ export function FullProfileDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: user.username }),
       });
+      const data = await response.json().catch(() => null);
       if (response.ok) {
-        setFriendRequestSent(true);
-        toast.success(gt("Friend request sent to {name}", { name: displayName }));
+        // They had already sent us a request, so the server made us friends.
+        if (data?.accepted || data?.user) {
+          setBecameFriend(true);
+          setFriendRequestSent(false);
+          toast.success(gt("You are now friends with {name}!", { name: displayName }));
+        } else {
+          setFriendRequestSent(true);
+          toast.success(gt("Friend request sent to {name}", { name: displayName }));
+        }
       } else {
-        const data = await response.json().catch(() => null);
         toast.error(data?.error || gt("Failed to send friend request"));
       }
     } catch {
@@ -337,7 +347,7 @@ export function FullProfileDialog({
                       <MessageSquare className="w-4 h-4" />
                       {gt("Message")}
                     </button>
-                    {!isFriend && !fullUser.isDiscord && (
+                    {!isFriendNow && !fullUser.isDiscord && (
                       friendRequestSent ? (
                         <button
                           disabled

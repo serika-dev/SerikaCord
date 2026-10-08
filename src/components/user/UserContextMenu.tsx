@@ -40,7 +40,10 @@ export function UserMenuItems({ user, onDone }: { user: ContextMenuUser; onDone:
         body: JSON.stringify({ username: user.username }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) toast.success(gt("Friend request sent to {name}", { name: user.displayName || user.username }));
+      const name = user.displayName || user.username;
+      // The server auto-accepts when they had already sent us a request.
+      if (res.ok && (data?.accepted || data?.user)) toast.success(gt("You are now friends with {name}!", { name }));
+      else if (res.ok) toast.success(gt("Friend request sent to {name}", { name }));
       else toast.error(data?.error || gt("Failed to send friend request"));
     } catch {
       toast.error(gt("Failed to send friend request"));

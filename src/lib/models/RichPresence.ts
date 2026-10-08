@@ -1,5 +1,5 @@
 import { eq, and, type SQL } from 'drizzle-orm';
-import { normalizeId } from '../db/normalizeId';
+import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
 export type IRichPresence = typeof schema.richPresence.$inferSelect;
@@ -17,7 +17,9 @@ export const RichPresence = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
-        case 'userId': conditions.push(eq(schema.richPresence.userId, normalizeId(value as string))); break;
+        case 'userId': conditions.push(buildCondition(schema.richPresence.userId, value, true)); break;
+        case 'type': conditions.push(eq(schema.richPresence.type, value as string)); break;
+        case 'name': conditions.push(eq(schema.richPresence.name, value as string)); break;
       }
     }
     let query = db.select().from(schema.richPresence);
@@ -33,7 +35,9 @@ export const RichPresence = {
     for (const [key, value] of Object.entries(filter)) {
       if (value === undefined || value === null) continue;
       switch (key) {
-        case 'userId': conditions.push(eq(schema.richPresence.userId, normalizeId(value as string))); break;
+        case 'userId': conditions.push(buildCondition(schema.richPresence.userId, value, true)); break;
+        case 'type': conditions.push(eq(schema.richPresence.type, value as string)); break;
+        case 'name': conditions.push(eq(schema.richPresence.name, value as string)); break;
       }
     }
     let query = db.select().from(schema.richPresence);
