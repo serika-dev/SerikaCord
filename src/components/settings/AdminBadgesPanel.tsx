@@ -68,7 +68,7 @@ const EMPTY_FORM: BadgeForm = {
 };
 
 const inputClass =
-  "w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none disabled:opacity-60";
+  "w-full px-3 py-2 rounded-lg bg-[var(--bg-app)] text-[var(--text-primary)] text-sm border border-[var(--border-subtle)] focus:border-[var(--app-accent)] outline-none disabled:opacity-60";
 const labelClass = "block text-xs font-medium text-[var(--text-secondary)] mb-1";
 
 function formFromBadge(b: AdminBadge): BadgeForm {
@@ -122,7 +122,7 @@ export function AdminBadgesPanel() {
     try {
       const res = await fetch("/api/admin/badges", { cache: "no-store" });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "Failed to load badges");
+      if (!res.ok) throw new Error(data?.error || gt("Failed to load badges"));
       setBadges(Array.isArray(data?.badges) ? data.badges : []);
       setAuthoritative(data?.authoritative !== false);
     } catch (err) {
@@ -196,7 +196,7 @@ export function AdminBadgesPanel() {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "Failed to save badge");
+      if (!res.ok) throw new Error(data?.error || gt("Failed to save badge"));
       toast.success(editing ? gt("Badge updated") : gt("Badge created"));
       setEditorOpen(false);
       await Promise.all([fetchBadges(), refreshBadges()]);
@@ -213,7 +213,7 @@ export function AdminBadgesPanel() {
     try {
       const res = await fetch(`/api/admin/badges/${encodeURIComponent(deleteTarget.id)}`, { method: "DELETE" });
       const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(data?.error || "Failed to delete badge");
+      if (!res.ok) throw new Error(data?.error || gt("Failed to delete badge"));
       toast.success(gt("Badge deleted"));
       setDeleteTarget(null);
       await Promise.all([fetchBadges(), refreshBadges()]);
@@ -247,7 +247,7 @@ export function AdminBadgesPanel() {
       </div>
 
       {!authoritative && (
-        <div className="p-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-card)] text-sm text-[var(--text-secondary)]">
+        <div className="p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] text-sm text-[var(--text-secondary)]">
           {gt("The badge database could not be reached, so these are the built-in defaults. Editing is disabled until it is back.")}
         </div>
       )}
@@ -261,7 +261,7 @@ export function AdminBadgesPanel() {
           {query ? gt("No badges match your search.") : gt("No badges yet.")}
         </div>
       ) : (
-        <div className="rounded-xl border border-[var(--border-color)] overflow-hidden divide-y divide-[var(--border-color)]">
+        <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden divide-y divide-[var(--border-subtle)]">
           {filtered.map((badge) => (
             <div key={badge.id} className={cn("flex items-center gap-3 px-3 sm:px-4 py-2.5 bg-[var(--bg-card)]", badge.hidden && "opacity-60")}>
               <div
@@ -340,7 +340,7 @@ export function AdminBadgesPanel() {
 
           <div className="space-y-4">
             {/* Live preview */}
-            <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
               <div
                 className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0"
                 style={{ backgroundColor: `${previewColor}20` }}
@@ -407,7 +407,7 @@ export function AdminBadgesPanel() {
                     value={previewColor}
                     onChange={(e) => patchForm({ color: e.target.value })}
                     aria-label={gt("Pick color")}
-                    className="w-10 h-9 shrink-0 rounded-lg border border-[var(--border-color)] bg-transparent cursor-pointer p-0.5"
+                    className="w-10 h-9 shrink-0 rounded-lg border border-[var(--border-subtle)] bg-transparent cursor-pointer p-0.5"
                   />
                   <input
                     value={form.color}
@@ -435,7 +435,7 @@ export function AdminBadgesPanel() {
 
             {/* Icon or image */}
             <div>
-              <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] w-fit mb-2">
+              <div className="flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] w-fit mb-2">
                 <button
                   type="button"
                   onClick={() => patchForm({ iconMode: "icon" })}
@@ -468,7 +468,7 @@ export function AdminBadgesPanel() {
                     placeholder={gt("Search icons")}
                     className={inputClass}
                   />
-                  <div className="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-40 overflow-y-auto p-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)]">
+                  <div className="grid grid-cols-8 sm:grid-cols-10 gap-1 max-h-40 overflow-y-auto p-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)]">
                     {filteredIcons.map((name) => (
                       <button
                         key={name}
@@ -505,7 +505,7 @@ export function AdminBadgesPanel() {
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
               <div>
                 <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Hidden")}</p>
                 <p className="text-xs text-[var(--text-muted)]">{gt("Hidden badges stay assigned but render nowhere.")}</p>

@@ -55,12 +55,22 @@ function buildRegistry(list: BadgeDefinition[], authoritative: boolean): BadgeRe
   return { list, byId: new Map(list.map((b) => [b.id, b])), authoritative };
 }
 
+// Built-in ids are load-bearing (admin auth checks 'admin' /
+// 'serikacord_developer'; recalculateUserBadges drops ids it can't resolve), so
+// a DB read that somehow lacks one (seed failed, row removed by hand) must not
+// make it "unknown" — fill any gap from the constants.
+function withBuiltins(list: BadgeDefinition[]): BadgeDefinition[] {
+  const have = new Set(list.map((b) => b.id));
+  const missing = DEFAULT_BADGES.filter((b) => !have.has(b.id));
+  return missing.length === 0 ? list : [...list, ...missing.map((b) => ({ ...b }))];
+}
+
 const FALLBACK_REGISTRY = buildRegistry(DEFAULT_BADGES.map((b) => ({ ...b })), false);
 
 async function loadFromDb(): Promise<BadgeRegistry> {
   try {
     const rows = await Badge.list();
-    const list = rows.map(rowToDefinition);
+    const list = withBuiltins(rows.map(rowToDefinition));
     await cache.set(REDIS_KEY, list, REDIS_TTL_S);
     return buildRegistry(list, true);
   } catch (err) {
@@ -87,7 +97,7 @@ export async function getBadgeRegistry(opts: { fresh?: boolean } = {}): Promise<
     if (!opts.fresh) {
       const cached = await cache.get<BadgeDefinition[]>(REDIS_KEY);
       if (Array.isArray(cached)) {
-        const registry = buildRegistry(cached, true);
+        const registry = buildRegistry(withBuiltins(cached), true);
         g.__badgeRegistry = { at: Date.now(), registry };
         return registry;
       }
