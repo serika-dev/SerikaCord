@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -949,7 +950,7 @@ export function ChannelSidebar({
   // Fetch DM channels when no server is selected
   const fetchDMChannels = useCallback(async () => {
     try {
-      const response = await fetch("/api/dms");
+      const response = await sharedGet("/api/dms");
       if (response.ok) {
         const data = await response.json();
         const channels = (data.channels || []) as DMChannel[];

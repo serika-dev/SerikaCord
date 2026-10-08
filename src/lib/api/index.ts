@@ -1333,6 +1333,45 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
     return { success: true };
   })
+  // Sent by a closing tab (sendBeacon). Ends the heartbeat instead of writing
+  // status "offline": the chosen status (online/idle/dnd) survives reloads, and
+  // the user stays online while another tab or device is still open. Waits a
+  // moment so a reload's new tab can reconnect first.
+  .post('/me/presence/disconnect', async ({ headers, cookie, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const userId = authUser.id;
+    setTimeout(() => {
+      void (async () => {
+        try {
+          const { hasActivityConnection } = await import('@/lib/api/activity');
+          if (hasActivityConnection(userId)) return;
+          const user = await User.findById(userId);
+          if (!user) return;
+          const previousStatus = resolveEffectiveStatus(user as any);
+          const updatedUser = await User.updateById(userId, {
+            presenceLastHeartbeatAt: null,
+            presenceLastDisconnectAt: new Date(),
+          }) || user;
+          await invalidateUserCache(userId);
+          if (previousStatus !== 'offline') {
+            emitFriendEvent((updatedUser.friends || []).map((f: string) => f), {
+              type: 'presence:update',
+              userId,
+              status: 'offline',
+              timestamp: Date.now(),
+            });
+          }
+        } catch (err) {
+          console.error('Presence disconnect failed:', err);
+        }
+      })();
+    }, 8000);
+    return { success: true };
+  })
   .get('/me/settings', async ({ headers, cookie, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {

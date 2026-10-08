@@ -98,8 +98,14 @@ export function evaluateNotification(ctx: NotifyContext): NotifyDecision {
   const muteEveryone = n?.muteEveryone === true;
   const notifyAllMessages = n?.notifyAllMessages === true;
 
+  // Per-kind switches in Notification settings ("Direct Messages", "Mentions").
+  const kindEnabled = ctx.isDM
+    ? n?.directMessages !== false
+    : !ctx.isMentioned || n?.mentions !== false;
+
   // Focus mode: only direct mentions and DMs get through
-  const passesFocusFilter = !focusMode || (ctx.isMentioned && !ctx.isEveryoneMention) || ctx.isDM;
+  const passesFocusFilter = kindEnabled &&
+    (!focusMode || (ctx.isMentioned && !ctx.isEveryoneMention) || ctx.isDM);
 
   // @everyone suppression
   const everyoneSuppressed = ctx.isEveryoneMention && muteEveryone && !ctx.isMentioned;

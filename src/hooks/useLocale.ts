@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { useCallback, useEffect, useState } from "react";
 
 const RTL_LOCALES = ["ar", "he", "fa", "ur", "ps", "sd", "ug", "yi", "dv"];
@@ -58,7 +59,7 @@ export function useLocale() {
     }
 
     // No stored locale — try fetching from DB account settings
-    fetch("/api/users/me/settings")
+    sharedGet("/api/users/me/settings")
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         const dbLocale = data?.language?.locale;

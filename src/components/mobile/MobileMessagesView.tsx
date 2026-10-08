@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -62,7 +63,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
 
   const fetchMessages = useCallback(async () => {
     try {
-      const response = await fetch("/api/dms");
+      const response = await sharedGet("/api/dms");
       if (response.ok) {
         const data = await response.json();
         // Use Map to deduplicate by recipient ID

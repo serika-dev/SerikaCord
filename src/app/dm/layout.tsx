@@ -1,4 +1,5 @@
 import { buildMetadata } from "@/lib/seo";
+import { BootPrefetch } from "@/components/boot/BootPrefetch";
 import DMLayoutClient from "./DMLayoutClient";
 
 export const metadata = buildMetadata({
@@ -16,5 +17,10 @@ export const metadata = buildMetadata({
 });
 
 export default function DMLayout({ children }: { children: React.ReactNode }) {
-  return <DMLayoutClient>{children}</DMLayoutClient>;
+  return (
+    <>
+      <BootPrefetch />
+      <DMLayoutClient>{children}</DMLayoutClient>
+    </>
+  );
 }

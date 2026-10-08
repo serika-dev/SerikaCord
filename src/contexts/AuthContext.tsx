@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
 import { upsertSavedAccount } from "@/lib/services/savedAccounts";
 import { clearMessageCache } from "@/hooks/useChatSession";
@@ -116,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshInFlight.current = true;
     setIsLoading(true);
     try {
-      let response = await fetch("/api/users/@me");
+      let response = await sharedGet("/api/users/@me");
 
       // If the access token expired, try refreshing it once before giving up.
       if (response.status === 401) {
@@ -176,12 +177,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     // Handle page close/navigation away
-    const handleBeforeUnload = () => {
-      // Use sendBeacon for reliable offline status update on close
+    // Tell the server this tab is going away. It only ends the heartbeat (and
+    // only if no other tab/device is still connected) — never writes "offline"
+    // as the status, which used to stick after a reload or with a second tab.
+    const sendDisconnect = () => {
       if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-        const blob = new Blob([JSON.stringify({ status: "offline" })], { type: 'application/json' });
-        navigator.sendBeacon('/api/users/me', blob);
+        navigator.sendBeacon('/api/users/me/presence/disconnect');
       }
+    };
+    const handleBeforeUnload = () => {
+      sendDisconnect();
     };
 
     // Handle page hide (mobile background)
@@ -190,11 +195,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Page is going into bfcache, set idle
         void setOnlineStatus("idle");
       } else {
-        // Page is being unloaded, set offline
-        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-          const blob = new Blob([JSON.stringify({ status: "offline" })], { type: 'application/json' });
-          navigator.sendBeacon('/api/users/me', blob);
-        }
+        // Page is being unloaded
+        sendDisconnect();
       }
     };
 
@@ -213,10 +215,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     void sendPresenceHeartbeat();
+    // Keep beating in background tabs too: an open app is online (or idle),
+    // not offline. Browsers throttle hidden-tab timers to about once a minute,
+    // which still beats the server's 90s presence timeout.
     const interval = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void sendPresenceHeartbeat();
-      }
+      void sendPresenceHeartbeat();
     }, 30000);
 
     return () => {

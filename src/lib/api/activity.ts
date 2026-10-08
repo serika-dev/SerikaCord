@@ -63,6 +63,11 @@ export function registerActivityConnection(
   };
 }
 
+/** Whether this user has an open activity stream (any tab) on this instance. */
+export function hasActivityConnection(userId: string): boolean {
+  return (activeActivityConnections.get(userId)?.size ?? 0) > 0;
+}
+
 function emitLocal(userIds: string[], payload: ChannelActivityPayload) {
   const encoded = `data: ${JSON.stringify(payload)}\n\n`;
   for (const userId of userIds) {

@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition, useMemo } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
@@ -193,7 +194,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
 
   const fetchServers = useCallback(async () => {
     try {
-      const response = await fetch("/api/users/@me/servers");
+      const response = await sharedGet("/api/users/@me/servers");
       if (response.ok) {
         const data = await response.json();
         // Transform _id to id if needed

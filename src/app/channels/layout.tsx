@@ -1,4 +1,5 @@
 import { buildMetadata } from "@/lib/seo";
+import { BootPrefetch } from "@/components/boot/BootPrefetch";
 import ChannelsLayoutClient from "./ChannelsLayoutClient";
 
 export const metadata = buildMetadata({
@@ -21,5 +22,10 @@ export default function ChannelsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <ChannelsLayoutClient>{children}</ChannelsLayoutClient>;
+  return (
+    <>
+      <BootPrefetch />
+      <ChannelsLayoutClient>{children}</ChannelsLayoutClient>
+    </>
+  );
 }

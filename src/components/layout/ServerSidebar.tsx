@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useServer } from "@/contexts/ServerContext";
@@ -266,7 +267,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
 
   const fetchDMs = useCallback(async () => {
     try {
-      const res = await fetch("/api/dms");
+      const res = await sharedGet("/api/dms");
       if (!res.ok) return;
       const data = await res.json();
       const channels = (data.channels || []) as DMChannel[];

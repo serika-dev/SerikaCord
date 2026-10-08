@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -62,7 +63,7 @@ export function QuickSwitcher() {
     if (!open) return;
     const t = setTimeout(() => inputRef.current?.focus(), 40);
     let cancelled = false;
-    fetch("/api/dms")
+    sharedGet("/api/dms")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!cancelled && data?.channels) setDms(data.channels as DMChannel[]);

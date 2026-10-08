@@ -1,5 +1,6 @@
 "use client";
 
+import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
@@ -119,7 +120,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (!isLoaded) return;
     let active = true;
 
-    fetch("/api/users/me/settings")
+    sharedGet("/api/users/me/settings")
       .then(async (res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!active || !data?.settings) return;

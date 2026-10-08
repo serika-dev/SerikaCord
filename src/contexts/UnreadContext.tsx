@@ -10,6 +10,7 @@
  * instant, with localStorage persistence so state survives reloads.
  */
 
+import { sharedGet } from "@/lib/bootFetch";
 import {
   createContext,
   useContext,
@@ -390,7 +391,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/users/@me/channel-activity");
+        const res = await sharedGet("/api/users/@me/channel-activity");
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as {
           channels?: Array<{ channelId: string; serverId: string; lastMessageAt: string | null }>;
@@ -419,7 +420,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/users/@me/mentions");
+        const res = await sharedGet("/api/users/@me/mentions");
         if (!res.ok) return;
         const data = await res.json();
         const readMap = loadMap(LS_READ);
@@ -452,7 +453,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   // FULLY converges across devices without a manual refresh.
   const syncReadStates = useCallback(async () => {
     try {
-      const res = await fetch("/api/users/@me/read-states");
+      const res = await sharedGet("/api/users/@me/read-states");
       if (!res.ok) return;
       const data = (await res.json()) as {
         readStates?: Array<{ channelId: string; lastReadAt: string | null }>;
