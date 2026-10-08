@@ -130,19 +130,19 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm(); }}>
-      <DialogContent className="bg-[#0a0a0a] border border-[#1a1a1a] text-white max-w-md p-0 gap-0">
+      <DialogContent className="bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-md p-0 gap-0">
         {mode === "select" && (
           <>
             <DialogHeader className="p-4 text-center">
               <DialogTitle className="text-2xl font-bold"><T>Create a server</T></DialogTitle>
-              <DialogDescription className="text-[#888888]">
+              <DialogDescription className="text-[var(--text-secondary)]">
                 <T>Your server is where you and your friends hang out. Make yours and start talking.</T>
               </DialogDescription>
             </DialogHeader>
             <div className="p-4 space-y-2">
               <button
                 onClick={() => setMode("create")}
-                className="w-full p-3 rounded-lg bg-[#111111] hover:bg-[#1a1a1a] border border-[#222222] transition-colors flex items-center justify-between group"
+                className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-[#8B5CF6] flex items-center justify-center">
@@ -150,16 +150,16 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                   </div>
                   <span className="font-medium"><T>Create My Own</T></span>
                 </div>
-                <ArrowRight className="w-5 h-5 text-[#666666] group-hover:text-white transition-colors" />
+                <ArrowRight className="w-5 h-5 text-[var(--text-muted)] group-hover:text-white transition-colors" />
               </button>
 
               <div className="py-3">
-                <div className="text-center text-xs font-semibold uppercase text-[#666666] mb-3">
+                <div className="text-center text-xs font-semibold uppercase text-[var(--text-muted)] mb-3">
                   <T>Have an invite already?</T>
                 </div>
                 <button
                   onClick={() => setMode("join")}
-                  className="w-full p-3 rounded-lg bg-[#111111] hover:bg-[#1a1a1a] border border-[#222222] transition-colors flex items-center justify-between group"
+                  className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-[#7C3AED] flex items-center justify-center">
@@ -167,7 +167,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                     </div>
                     <span className="font-medium"><T>Join a Server</T></span>
                   </div>
-                  <ArrowRight className="w-5 h-5 text-[#666666] group-hover:text-white transition-colors" />
+                  <ArrowRight className="w-5 h-5 text-[var(--text-muted)] group-hover:text-white transition-colors" />
                 </button>
               </div>
             </div>
@@ -178,7 +178,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
           <>
             <DialogHeader className="p-4 text-center">
               <DialogTitle className="text-2xl font-bold"><T>Customize your server</T></DialogTitle>
-              <DialogDescription className="text-[#888888]">
+              <DialogDescription className="text-[var(--text-secondary)]">
                 <T>Give your new server a personality with a name and an icon. You can always change it later.</T>
               </DialogDescription>
             </DialogHeader>
@@ -203,9 +203,9 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                       <img src={iconPreview} alt="Server icon" className="w-full h-full object-cover" />
                     </div>
                   ) : (
-                    <div className="w-20 h-20 rounded-full border-2 border-dashed border-[#666666] hover:border-white transition-colors flex flex-col items-center justify-center gap-1">
-                      <ImagePlus className="w-6 h-6 text-[#666666]" />
-                      <span className="text-xs text-[#666666] font-semibold"><T>UPLOAD</T></span>
+                    <div className="w-20 h-20 rounded-full border-2 border-dashed border-[var(--text-muted)] hover:border-white transition-colors flex flex-col items-center justify-center gap-1">
+                      <ImagePlus className="w-6 h-6 text-[var(--text-muted)]" />
+                      <span className="text-xs text-[var(--text-muted)] font-semibold"><T>UPLOAD</T></span>
                     </div>
                   )}
                 </label>
@@ -213,27 +213,27 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
               {/* Server Name */}
               <div className="space-y-2">
-                <Label htmlFor="serverName" className="text-xs font-bold uppercase text-[#888888]">
+                <Label htmlFor="serverName" className="text-xs font-bold uppercase text-[var(--text-secondary)]">
                   {gt("Server Name")}
                 </Label>
                 <Input
                   id="serverName"
                   value={serverName}
                   onChange={(e) => setServerName(e.target.value)}
-                  className="bg-[#111111] border-[#222222] text-white focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
+                  className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
                 />
               </div>
 
-              <p className="text-xs text-[#666666]">
+              <p className="text-xs text-[var(--text-muted)]">
                 <T>By creating a server, you agree to SerikaCord&apos;s</T>{" "}
-                <span className="text-[#8B5CF6] hover:underline cursor-pointer"><T>Community Guidelines</T></span>.
+                <a href="/guidelines" target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline"><T>Community Guidelines</T></a>.
               </p>
             </div>
-            <div className="p-4 bg-[#111111] border-t border-[#1a1a1a] flex justify-between">
+            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between">
               <Button
                 variant="ghost"
                 onClick={() => setMode("select")}
-                className="text-white hover:bg-transparent hover:underline"
+                className="text-[var(--text-primary)] hover:bg-transparent hover:underline"
               >
                 <T>Back</T>
               </Button>
@@ -252,7 +252,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
           <>
             <DialogHeader className="p-4 text-center">
               <DialogTitle className="text-2xl font-bold"><T>Join a Server</T></DialogTitle>
-              <DialogDescription className="text-[#888888]">
+              <DialogDescription className="text-[var(--text-secondary)]">
                 <T>Enter an invite below to join an existing server</T>
               </DialogDescription>
             </DialogHeader>
@@ -264,7 +264,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
               )}
 
               <div className="space-y-2">
-                <Label htmlFor="inviteCode" className="text-xs font-bold uppercase text-[#888888]">
+                <Label htmlFor="inviteCode" className="text-xs font-bold uppercase text-[var(--text-secondary)]">
                   {gt("Invite Link")} <span className="text-red-400">*</span>
                 </Label>
                 <Input
@@ -272,25 +272,25 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                   value={inviteCode}
                   onChange={(e) => setInviteCode(e.target.value)}
                   placeholder="https://serikacord.app/invite/coolserver"
-                  className="bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
+                  className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
                 />
               </div>
 
               <div className="space-y-2">
-                <div className="text-xs font-bold uppercase text-[#888888]">
+                <div className="text-xs font-bold uppercase text-[var(--text-secondary)]">
                   <T>Invites should look like</T>
                 </div>
-                <div className="text-sm text-[#666666] space-y-1">
+                <div className="text-sm text-[var(--text-muted)] space-y-1">
                   <div>hTKzmak</div>
                   <div>https://serikacord.app/invite/hTKzmak</div>
                 </div>
               </div>
             </div>
-            <div className="p-4 bg-[#111111] border-t border-[#1a1a1a] flex justify-between">
+            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between">
               <Button
                 variant="ghost"
                 onClick={() => setMode("select")}
-                className="text-white hover:bg-transparent hover:underline"
+                className="text-[var(--text-primary)] hover:bg-transparent hover:underline"
               >
                 <T>Back</T>
               </Button>
@@ -314,7 +314,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 </div>
               </div>
               <DialogTitle className="text-2xl font-bold"><T>Set up your server</T></DialogTitle>
-              <DialogDescription className="text-[#888888]">
+              <DialogDescription className="text-[var(--text-secondary)]">
                 {onboardStep === 0
                   ? gt("Tell people what your server is about.")
                   : gt("Choose how people can join your server.")}
@@ -324,7 +324,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
               {onboardStep === 0 && (
                 <>
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase text-[#888888]">
+                    <Label className="text-xs font-bold uppercase text-[var(--text-secondary)]">
                       {gt("Server Description")}
                     </Label>
                     <textarea
@@ -333,9 +333,9 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                       placeholder={gt("A brief description of your server...")}
                       rows={3}
                       maxLength={500}
-                      className="w-full p-3 rounded-lg bg-[#111111] border border-[#222222] text-white placeholder:text-[#555555] focus:outline-none focus:border-[#8B5CF6] resize-none text-sm"
+                      className="w-full p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6] resize-none text-sm"
                     />
-                    <p className="text-xs text-[#666666] text-right">{onboardDesc.length}/500</p>
+                    <p className="text-xs text-[var(--text-muted)] text-right">{onboardDesc.length}/500</p>
                   </div>
                 </>
               )}
@@ -353,14 +353,14 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                       <button
                         key={opt.key}
                         onClick={() => setOnboardJoinMode(opt.key)}
-                        className={`w-full p-3 rounded-lg border transition-colors flex items-center gap-3 text-left ${selected ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/50" : "bg-[#111111] border-[#222222] hover:border-[#333333]"}`}
+                        className={`w-full p-3 rounded-lg border transition-colors flex items-center gap-3 text-left ${selected ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/50" : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"}`}
                       >
-                        <div className={`p-2 rounded-full ${selected ? "text-[#8B5CF6]" : "text-[#888888]"}`}>
+                        <div className={`p-2 rounded-full ${selected ? "text-[#8B5CF6]" : "text-[var(--text-secondary)]"}`}>
                           <Icon className="w-5 h-5" />
                         </div>
                         <div className="flex-1">
-                          <span className={`font-medium text-sm block ${selected ? "text-white" : "text-[#aaa]"}`}>{opt.title}</span>
-                          <span className="text-xs text-[#888888]">{opt.desc}</span>
+                          <span className={`font-medium text-sm block ${selected ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]"}`}>{opt.title}</span>
+                          <span className="text-xs text-[var(--text-secondary)]">{opt.desc}</span>
                         </div>
                         {selected && <Check className="w-4 h-4 text-[#8B5CF6]" />}
                       </button>
@@ -369,7 +369,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 </div>
               )}
             </div>
-            <div className="p-4 bg-[#111111] border-t border-[#1a1a1a] flex justify-between">
+            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between">
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -379,7 +379,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                     setOnboardStep(0);
                   }
                 }}
-                className="text-white hover:bg-transparent hover:underline"
+                className="text-[var(--text-primary)] hover:bg-transparent hover:underline"
               >
                 {onboardStep === 0 ? gt("Back") : gt("Back")}
               </Button>

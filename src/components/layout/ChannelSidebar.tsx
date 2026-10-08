@@ -62,6 +62,7 @@ import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 
@@ -115,6 +116,7 @@ export function ChannelSidebar({
   const router = useRouter();
   const { can, isAdmin } = usePermissions(currentServer?.id);
   const gt = useGT();
+  const confirmDialog = useConfirm();
   const canManageChannels = can("MANAGE_CHANNELS");
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
@@ -431,7 +433,7 @@ export function ChannelSidebar({
     const confirmText = contextMenu?.channel?.type === "category"
       ? gt("Delete the category {category}? Its channels stay and move out of the category.", { category: contextMenu.channel.name })
       : gt("Are you sure you want to delete #{channel}?", { channel: contextMenu?.channel?.name ?? "" });
-    if (contextMenu?.channel && confirm(confirmText)) {
+    if (contextMenu?.channel && (await confirmDialog({ title: confirmText, confirmLabel: gt("Delete") }))) {
       try {
         await deleteChannel(contextMenu.channel.id);
         closeContextMenu();
@@ -810,7 +812,7 @@ export function ChannelSidebar({
         {showDropAfter && <div className="absolute -bottom-px left-2 right-2 h-0.5 bg-[var(--app-accent)] rounded-full z-20" />}
         {/* Unread pill: a small white bar on the far left, Discord-style. */}
         {unread && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-white z-20" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-[var(--text-primary)] z-20" />
         )}
         <button
           onClick={() => { navigateToChannel(channel); setActiveChannel(channel.id); }}
@@ -825,7 +827,7 @@ export function ChannelSidebar({
           className={cn(
             "w-full px-2 py-1.5 mx-2 rounded press-feedback flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group min-w-0 overflow-hidden",
             isActive && "bg-[var(--bg-active)] text-[var(--app-accent)]",
-            !isActive && unread && "text-white font-semibold"
+            !isActive && unread && "text-[var(--text-primary)] font-semibold"
           )}
           style={{ width: "calc(100% - 16px)" }}
         >
@@ -858,15 +860,15 @@ export function ChannelSidebar({
     return (
       <div key={thread.id} className="relative flex items-center pl-6 pr-2 mb-0.5 group">
         <div 
-          className="absolute left-[25px] top-0 w-px bg-zinc-700" 
+          className="absolute left-[25px] top-0 w-px bg-[var(--border-subtle)]" 
           style={{ height: isLast ? "14px" : "100%" }}
         />
         <div 
-          className="absolute left-[25px] top-[14px] w-3 h-px bg-zinc-700"
+          className="absolute left-[25px] top-[14px] w-3 h-px bg-[var(--border-subtle)]"
         />
 
         {unread && (
-          <div className="absolute left-[33px] top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-white z-20" />
+          <div className="absolute left-[33px] top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-[var(--text-primary)] z-20" />
         )}
 
         <button
@@ -877,13 +879,17 @@ export function ChannelSidebar({
           }}
           onContextMenu={(e) => handleContextMenu(e, thread)}
           className={cn(
-            "w-full pl-7 pr-2 py-1 rounded press-feedback flex items-center gap-1.5 text-xs text-[#888888] hover:text-[#d5d9e8] hover:bg-[var(--bg-sidebar-elevated)] transition-all min-w-0 overflow-hidden",
+            "w-full pl-7 pr-2 py-1 rounded press-feedback flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all min-w-0 overflow-hidden",
             isActive && "bg-[var(--bg-active)] text-[var(--app-accent)] font-medium",
-            !isActive && unread && "text-white font-semibold"
+            !isActive && unread && "text-[var(--text-primary)] font-semibold"
           )}
         >
-          <span className="text-[9px] uppercase font-bold tracking-wider px-1 py-0.5 rounded bg-zinc-800 text-zinc-500 scale-90 select-none shrink-0">
-            Th
+          <span
+            className="px-1 py-0.5 rounded bg-[var(--app-surface-alt)] text-[var(--text-muted)] select-none shrink-0"
+            title={gt("Thread")}
+            aria-label={gt("Thread")}
+          >
+            <MessagesSquare className="w-2.5 h-2.5" />
           </span>
           <span className="truncate flex-1 text-left min-w-0" title={thread.name}>
             {thread.name}
@@ -899,7 +905,7 @@ export function ChannelSidebar({
                 e.stopPropagation();
                 setSettingsChannelId(thread.id);
               }}
-              className="w-3 h-3 shrink-0 text-[#888888] hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+              className="w-3 h-3 shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)] opacity-0 group-hover:opacity-100 transition-opacity"
             />
           )}
         </button>
@@ -1168,12 +1174,12 @@ export function ChannelSidebar({
                         isActive
                           ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
                           : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]",
-                        !isActive && unread && "text-white"
+                        !isActive && unread && "text-[var(--text-primary)] font-semibold"
                       )}
                     >
                       {/* Unread pill: white bar on the far left, Discord-style. */}
                       {unread && (
-                        <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-white" />
+                        <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-[var(--text-primary)]" />
                       )}
                       <div className="relative shrink-0">
                         <Avatar className="w-8 h-8">
@@ -1386,18 +1392,24 @@ export function ChannelSidebar({
             </>
           )}
           {canManageAny && <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />}
-          <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
+          <DropdownMenuItem
+            onSelect={() => window.dispatchEvent(new CustomEvent('openUserSettings', { detail: { tab: 'notifications' } }))}
+            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
+          >
             <Bell className="w-4 h-4 mr-2" />
             {gt("Notification Settings")}
           </DropdownMenuItem>
-          <DropdownMenuItem className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer">
+          <DropdownMenuItem
+            onSelect={() => window.dispatchEvent(new CustomEvent('openUserSettings', { detail: { tab: 'data-privacy' } }))}
+            className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
+          >
             <Shield className="w-4 h-4 mr-2" />
             {gt("Privacy Settings")}
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
           <DropdownMenuItem
             onClick={async () => {
-              if (currentServer && confirm(gt("Are you sure you want to leave {server}?", { server: currentServer.name }))) {
+              if (currentServer && (await confirmDialog({ title: gt("Leave Server"), description: gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: currentServer.name }), confirmLabel: gt("Leave Server") }))) {
                 await leaveServer(currentServer.id);
               }
             }}

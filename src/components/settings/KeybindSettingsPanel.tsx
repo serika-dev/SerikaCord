@@ -147,7 +147,7 @@ export function KeybindSettingsPanel() {
         </div>
         <button
           onClick={handleResetAll}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--app-accent)] transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           {gt("Reset All")}
@@ -202,7 +202,7 @@ export function KeybindSettingsPanel() {
                           </span>
                           <button
                             onClick={() => { setRecording(null); setConflictAction(null); }}
-                            className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-white transition-colors"
+                            className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                           >
                             <X className="w-3.5 h-3.5" />
                           </button>
@@ -222,7 +222,7 @@ export function KeybindSettingsPanel() {
                           {!isLocked && (
                             <button
                               onClick={() => setRecording({ action: hk.action, label: hk.label })}
-                              className="px-2 py-1 text-xs rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--app-accent)] transition-colors"
+                              className="px-2 py-1 text-xs rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors"
                             >
                               {gt("Edit")}
                             </button>
@@ -230,7 +230,7 @@ export function KeybindSettingsPanel() {
                           {isCustom && !isLocked && (
                             <button
                               onClick={() => handleReset(hk.action)}
-                              className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-white transition-colors"
+                              className="p-1 rounded hover:bg-[var(--bg-hover)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                               title={gt("Reset to default")}
                             >
                               <RotateCcw className="w-3.5 h-3.5" />

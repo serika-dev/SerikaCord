@@ -53,6 +53,7 @@ interface ChannelSettingsDialogProps {
  * truncated one-liner the user can't select.
  */
 function WebhookUrlField({ url, label }: { url: string; label: string }) {
+  const gt = useGT();
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -80,7 +81,7 @@ function WebhookUrlField({ url, label }: { url: string; label: string }) {
         type="button"
         onClick={() => setRevealed((v) => !v)}
         className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar)] transition-colors shrink-0"
-        title={revealed ? "Hide" : "Reveal"}
+        title={revealed ? gt("Hide") : gt("Reveal")}
       >
         {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
       </button>
@@ -88,7 +89,7 @@ function WebhookUrlField({ url, label }: { url: string; label: string }) {
         type="button"
         onClick={copy}
         className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar)] transition-colors shrink-0"
-        title="Copy URL"
+        title={gt("Copy URL")}
       >
         {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
       </button>
@@ -1468,7 +1469,7 @@ export function ChannelSettingsDialog({
           {/* Unsaved Changes Bar */}
           {(hasChanges && activeTab === "overview") && (
             <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom z-50">
-              <span className="text-white text-sm font-medium">{gt("Careful — you have unsaved changes!")}</span>
+              <span className="text-[var(--text-primary)] text-sm font-medium">{gt("Careful — you have unsaved changes!")}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -1481,14 +1482,14 @@ export function ChannelSettingsDialog({
                       setSlowmode(channel.rateLimitPerUser || 0);
                     }
                   }}
-                  className="px-4 py-1.5 text-sm text-white hover:underline transition-all"
+                  className="px-4 py-1.5 text-sm text-[var(--text-primary)] hover:underline transition-all"
                 >
                   {gt("Reset")}
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={isSaving || !name.trim()}
-                  className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
+                  className="px-4 py-1.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
                   {isSaving && <Loader size={16} />}
                   {gt("Save Changes")}
@@ -1499,7 +1500,7 @@ export function ChannelSettingsDialog({
 
           {hasPermChanges && activeTab === "permissions" && (
             <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom z-50">
-              <span className="text-white text-sm font-medium">{gt("Careful — you have unsaved permission changes!")}</span>
+              <span className="text-[var(--text-primary)] text-sm font-medium">{gt("Careful — you have unsaved permission changes!")}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -1512,14 +1513,14 @@ export function ChannelSettingsDialog({
                       })));
                     }
                   }}
-                  className="px-4 py-1.5 text-sm text-white hover:underline transition-all"
+                  className="px-4 py-1.5 text-sm text-[var(--text-primary)] hover:underline transition-all"
                 >
                   {gt("Reset")}
                 </button>
                 <button
                   onClick={handleSavePermissions}
                   disabled={isSaving}
-                  className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
+                  className="px-4 py-1.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
                   {isSaving && <Loader size={16} />}
                   {gt("Save Changes")}

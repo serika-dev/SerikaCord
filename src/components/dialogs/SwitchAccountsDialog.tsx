@@ -169,20 +169,20 @@ export function SwitchAccountsDialog({
                   setSelectedAccount(null);
                   setError("");
                 }}
-                className="p-1 rounded hover:bg-[#1a1a1a] transition-colors"
+                className="p-1 rounded hover:bg-[var(--bg-hover)] transition-colors"
               >
-                <ChevronLeft className="w-5 h-5 text-[#b5bac1]" />
+                <ChevronLeft className="w-5 h-5 text-[var(--text-secondary)]" />
               </button>
             )}
-            <h2 className="text-lg font-bold text-white">
+            <h2 className="text-lg font-bold text-[var(--text-primary)]">
               {mode === "list" ? gt("Switch Accounts") : gt("Login to {name}", { name: selectedAccount?.displayName || selectedAccount?.username || email })}
             </h2>
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="p-1 rounded hover:bg-[#1a1a1a] transition-colors"
+            className="p-1 rounded hover:bg-[var(--bg-hover)] transition-colors"
           >
-            <X className="w-5 h-5 text-[#b5bac1]" />
+            <X className="w-5 h-5 text-[var(--text-secondary)]" />
           </button>
         </div>
 
@@ -204,7 +204,7 @@ export function SwitchAccountsDialog({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-white truncate">{user.displayName}</div>
-                    <div className="text-xs text-[#888] truncate">@{user.username}</div>
+                    <div className="text-xs text-[var(--text-secondary)] truncate">@{user.username}</div>
                   </div>
                   <Check className="w-5 h-5 text-[#57F287] flex-shrink-0" />
                 </div>
@@ -228,7 +228,7 @@ export function SwitchAccountsDialog({
                     <button
                       onClick={() => void handleSelectAccount(account)}
                       disabled={isLoading}
-                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[#1a1a1a] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Avatar className="w-10 h-10">
                         <AvatarImage src={cdnImage(account.avatar)} />
@@ -237,8 +237,8 @@ export function SwitchAccountsDialog({
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold text-white truncate">{account.displayName || account.username}</div>
-                        <div className="text-xs text-[#888] truncate">@{account.username}</div>
+                        <div className="text-sm font-semibold text-[var(--text-primary)] truncate">{account.displayName || account.username}</div>
+                        <div className="text-xs text-[var(--text-secondary)] truncate">@{account.username}</div>
                       </div>
                     </button>
                     <button
@@ -246,7 +246,7 @@ export function SwitchAccountsDialog({
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-[#2a2a2a] transition-all"
                       title={gt("Remove account")}
                     >
-                      <X className="w-4 h-4 text-[#888] hover:text-red-400" />
+                      <X className="w-4 h-4 text-[var(--text-secondary)] hover:text-red-400" />
                     </button>
                   </div>
                 ))}
@@ -260,12 +260,12 @@ export function SwitchAccountsDialog({
                   setPassword("");
                   setError("");
                 }}
-                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[#1a1a1a] transition-colors text-left"
+                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors text-left"
               >
                 <div className="w-10 h-10 rounded-full bg-[#1e1f22] flex items-center justify-center">
-                  <Plus className="w-5 h-5 text-[#b5bac1]" />
+                  <Plus className="w-5 h-5 text-[var(--text-secondary)]" />
                 </div>
-                <span className="text-sm font-medium text-[#b5bac1]">{gt("Add an account")}</span>
+                <span className="text-sm font-medium text-[var(--text-secondary)]">{gt("Add an account")}</span>
               </button>
 
               {/* Divider */}
@@ -294,20 +294,20 @@ export function SwitchAccountsDialog({
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-white truncate">{selectedAccount.displayName || selectedAccount.username}</div>
-                    <div className="text-xs text-[#888] truncate">{selectedAccount.email}</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)] truncate">{selectedAccount.displayName || selectedAccount.username}</div>
+                    <div className="text-xs text-[var(--text-secondary)] truncate">{selectedAccount.email}</div>
                   </div>
                 </div>
               )}
 
               {!selectedAccount && (
                 <div>
-                  <label className="block text-xs font-bold uppercase text-[#b5bac1] mb-1.5">{gt("Email")}</label>
+                  <label className="block text-xs font-bold uppercase text-[var(--text-secondary)] mb-1.5">{gt("Email")}</label>
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 rounded bg-[#1a1a1a] text-sm text-white placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[#5865F2] transition-colors"
+                    className="w-full px-3 py-2 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] border border-[var(--border-strong)] focus:outline-none focus:border-[#5865F2] transition-colors"
                     placeholder={gt("email@example.com")}
                     autoFocus
                   />
@@ -315,7 +315,7 @@ export function SwitchAccountsDialog({
               )}
 
               <div>
-                <label className="block text-xs font-bold uppercase text-[#b5bac1] mb-1.5">{gt("Password")}</label>
+                <label className="block text-xs font-bold uppercase text-[var(--text-secondary)] mb-1.5">{gt("Password")}</label>
                 <input
                   type="password"
                   value={password}
@@ -323,7 +323,7 @@ export function SwitchAccountsDialog({
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleLogin();
                   }}
-                  className="w-full px-3 py-2 rounded bg-[#1a1a1a] text-sm text-white placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[#5865F2] transition-colors"
+                  className="w-full px-3 py-2 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] border border-[var(--border-strong)] focus:outline-none focus:border-[#5865F2] transition-colors"
                   placeholder={gt("Password")}
                   autoFocus={!!selectedAccount}
                 />
@@ -339,7 +339,7 @@ export function SwitchAccountsDialog({
                 className={cn(
                   "w-full py-2.5 rounded-lg font-medium text-sm transition-all",
                   isLoading || !password.trim()
-                    ? "bg-[#1e1f22] text-[#666] cursor-not-allowed"
+                    ? "bg-[#1e1f22] text-[var(--text-muted)] cursor-not-allowed"
                     : "bg-[#5865F2] hover:bg-[#4752c4] text-white"
                 )}
               >

@@ -118,10 +118,10 @@ export function CreateChannelDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) resetForm(); }}>
-      <DialogContent className="bg-[#0a0a0a] border border-[#1a1a1a] text-white max-w-md">
+      <DialogContent className="bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-md">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold"><T>Create Channel</T></DialogTitle>
-          <DialogDescription className="text-[#888888]">
+          <DialogDescription className="text-[var(--text-secondary)]">
             {gt("in")} {currentServer?.name}
           </DialogDescription>
         </DialogHeader>
@@ -135,7 +135,7 @@ export function CreateChannelDialog({
 
           {/* Channel Type */}
           <div className="space-y-3">
-            <Label className="text-xs font-bold uppercase text-[#888888]">
+            <Label className="text-xs font-bold uppercase text-[var(--text-secondary)]">
               {gt("Channel Type")}
             </Label>
             <div className="space-y-2">
@@ -144,13 +144,13 @@ export function CreateChannelDialog({
                 className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors border ${
                   channelType === "text"
                     ? "bg-[#8B5CF6]/10 border-[#8B5CF6]"
-                    : "bg-[#111111] border-[#222222] hover:border-[#333333]"
+                    : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                 }`}
               >
-                <Hash className="w-6 h-6 text-[#666666]" />
+                <Hash className="w-6 h-6 text-[var(--text-muted)]" />
                 <div className="text-left">
                   <div className="font-medium"><T>Text</T></div>
-                  <div className="text-xs text-[#666666]">
+                  <div className="text-xs text-[var(--text-muted)]">
                     <T>Send messages, images, GIFs, emoji, and more</T>
                   </div>
                 </div>
@@ -158,7 +158,7 @@ export function CreateChannelDialog({
                   className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                     channelType === "text"
                       ? "border-[#8B5CF6] bg-[#8B5CF6]"
-                      : "border-[#666666]"
+                      : "border-[var(--text-muted)]"
                   }`}
                 >
                   {channelType === "text" && (
@@ -172,13 +172,13 @@ export function CreateChannelDialog({
                 className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors border ${
                   channelType === "voice"
                     ? "bg-[#8B5CF6]/10 border-[#8B5CF6]"
-                    : "bg-[#111111] border-[#222222] hover:border-[#333333]"
+                    : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                 }`}
               >
-                <Volume2 className="w-6 h-6 text-[#666666]" />
+                <Volume2 className="w-6 h-6 text-[var(--text-muted)]" />
                 <div className="text-left">
                   <div className="font-medium"><T>Voice</T></div>
-                  <div className="text-xs text-[#666666]">
+                  <div className="text-xs text-[var(--text-muted)]">
                     <T>Hang out together with voice and video</T>
                   </div>
                 </div>
@@ -186,7 +186,7 @@ export function CreateChannelDialog({
                   className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                     channelType === "voice"
                       ? "border-[#8B5CF6] bg-[#8B5CF6]"
-                      : "border-[#666666]"
+                      : "border-[var(--text-muted)]"
                   }`}
                 >
                   {channelType === "voice" && (
@@ -200,13 +200,13 @@ export function CreateChannelDialog({
                 className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors border ${
                   channelType === "forum"
                     ? "bg-[#8B5CF6]/10 border-[#8B5CF6]"
-                    : "bg-[#111111] border-[#222222] hover:border-[#333333]"
+                    : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                 }`}
               >
-                <MessagesSquare className="w-6 h-6 text-[#666666]" />
+                <MessagesSquare className="w-6 h-6 text-[var(--text-muted)]" />
                 <div className="text-left">
                   <div className="font-medium"><T>Forum</T></div>
-                  <div className="text-xs text-[#666666]">
+                  <div className="text-xs text-[var(--text-muted)]">
                     <T>Organize discussion into posts, or run a ticket system</T>
                   </div>
                 </div>
@@ -214,7 +214,7 @@ export function CreateChannelDialog({
                   className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                     channelType === "forum"
                       ? "border-[#8B5CF6] bg-[#8B5CF6]"
-                      : "border-[#666666]"
+                      : "border-[var(--text-muted)]"
                   }`}
                 >
                   {channelType === "forum" && (
@@ -228,13 +228,13 @@ export function CreateChannelDialog({
                 className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors border ${
                   channelType === "category"
                     ? "bg-[#8B5CF6]/10 border-[#8B5CF6]"
-                    : "bg-[#111111] border-[#222222] hover:border-[#333333]"
+                    : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                 }`}
               >
-                <Folder className="w-6 h-6 text-[#666666]" />
+                <Folder className="w-6 h-6 text-[var(--text-muted)]" />
                 <div className="text-left">
                   <div className="font-medium"><T>Category</T></div>
-                  <div className="text-xs text-[#666666]">
+                  <div className="text-xs text-[var(--text-muted)]">
                     <T>Group channels together under a category</T>
                   </div>
                 </div>
@@ -242,7 +242,7 @@ export function CreateChannelDialog({
                   className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${
                     channelType === "category"
                       ? "border-[#8B5CF6] bg-[#8B5CF6]"
-                      : "border-[#666666]"
+                      : "border-[var(--text-muted)]"
                   }`}
                 >
                   {channelType === "category" && (
@@ -255,11 +255,11 @@ export function CreateChannelDialog({
 
           {/* Channel Name */}
           <div className="space-y-2">
-            <Label htmlFor="channelName" className="text-xs font-bold uppercase text-[#888888]">
+            <Label htmlFor="channelName" className="text-xs font-bold uppercase text-[var(--text-secondary)]">
               {gt("Channel Name")}
             </Label>
             <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666666]">
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
                 {channelType === "text" ? (
                   <Hash className="w-5 h-5" />
                 ) : channelType === "voice" ? (
@@ -290,7 +290,7 @@ export function CreateChannelDialog({
                     ? "new-forum"
                     : gt("New Category")
                 }
-                className="pl-10 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
+                className="pl-10 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[#8B5CF6] focus-visible:ring-offset-0"
               />
             </div>
           </div>
@@ -298,17 +298,17 @@ export function CreateChannelDialog({
           {/* Category Dropdown (if channel is not category) */}
           {channelType !== "category" && categories.length > 0 && (
             <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-[#888888]">
+              <Label className="text-xs font-bold uppercase text-[var(--text-secondary)]">
                 {gt("Category")}
               </Label>
               <Select
                 value={parentId || "none"}
                 onValueChange={(val) => setParentId(val === "none" ? undefined : val)}
               >
-                <SelectTrigger className="w-full bg-[#111111] border-[#222222] text-white">
+                <SelectTrigger className="w-full bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <SelectValue placeholder={gt("No Category")} />
                 </SelectTrigger>
-                <SelectContent className="bg-[#0a0a0a] border border-[#1a1a1a] text-white">
+                <SelectContent className="bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
                   <SelectItem value="none">{gt("No Category")}</SelectItem>
                   {categories.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
@@ -322,12 +322,12 @@ export function CreateChannelDialog({
 
           {/* NSFW Checkbox (if channel is not category) */}
           {channelType !== "category" && (
-            <div className="flex items-center justify-between p-3 rounded-lg border border-[#222222] bg-[#111111]">
+            <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]">
               <div className="space-y-0.5">
                 <Label htmlFor="nsfw-toggle" className="font-medium cursor-pointer text-sm">
                   <T>Age-Restricted Channel (NSFW)</T>
                 </Label>
-                <div className="text-xs text-[#666666] max-w-[280px]">
+                <div className="text-xs text-[var(--text-muted)] max-w-[280px]">
                   <T>Users will need to confirm they are of legal age to view this channel.</T>
                 </div>
               </div>
@@ -341,12 +341,12 @@ export function CreateChannelDialog({
 
           {/* Ticket mode (forum only) */}
           {channelType === "forum" && (
-            <div className="flex items-center justify-between p-3 rounded-lg border border-[#222222] bg-[#111111]">
+            <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]">
               <div className="space-y-0.5">
                 <Label htmlFor="ticket-toggle" className="font-medium cursor-pointer text-sm flex items-center gap-1.5">
                   <Ticket className="w-4 h-4 text-[#8B5CF6]" /> <T>Ticket System</T>
                 </Label>
-                <div className="text-xs text-[#666666] max-w-[280px]">
+                <div className="text-xs text-[var(--text-muted)] max-w-[280px]">
                   <T>Each new post becomes a private ticket, visible only to its creator and your configured support roles.</T>
                 </div>
               </div>
@@ -363,7 +363,7 @@ export function CreateChannelDialog({
           <Button
             variant="ghost"
             onClick={() => onOpenChange(false)}
-            className="text-white hover:bg-transparent hover:underline"
+            className="text-[var(--text-primary)] hover:bg-transparent hover:underline"
           >
             <T>Cancel</T>
           </Button>

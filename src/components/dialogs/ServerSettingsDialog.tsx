@@ -58,6 +58,7 @@ import { UnsavedChangesBar } from "@/components/ui/unsaved-changes-bar";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -93,7 +94,7 @@ const ColorInput = memo(function ColorInput({
       onChange={(e) => setLocalColor(e.target.value)}
       onBlur={() => onChange(localColor)}
       disabled={disabled}
-      className="w-10 h-10 p-1 rounded bg-[#0a0a0a] border border-[#222222] disabled:opacity-60 cursor-pointer"
+      className="w-10 h-10 p-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] disabled:opacity-60 cursor-pointer"
     />
   );
 });
@@ -243,6 +244,7 @@ interface ServerApplication {
 export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialogProps) {
   const { currentServer, fetchServers, channels } = useServer();
   const gt = useGT();
+  const confirmDialog = useConfirm();
   const { user } = useAuth();
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
@@ -898,21 +900,28 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   };
 
   // Closing with unsaved changes requires an explicit choice
-  const handleRequestClose = useCallback(() => {
+  const closePromptOpenRef = useRef(false);
+  const handleRequestClose = useCallback(async () => {
     if (settingsDraft.isDirty) {
-      const discard = window.confirm(gt("You have unsaved changes. Discard them and close?"));
+      // Escape also reaches the window listener below while the prompt is up.
+      if (closePromptOpenRef.current) return;
+      closePromptOpenRef.current = true;
+      const discard = await confirmDialog({
+        title: gt("You have unsaved changes. Discard them and close?"),
+        confirmLabel: gt("Discard"),
+      }).finally(() => { closePromptOpenRef.current = false; });
       if (!discard) return;
       settingsDraft.reset();
       setFieldErrors({});
     }
     onOpenChange(false);
-  }, [settingsDraft, onOpenChange]);
+  }, [settingsDraft, onOpenChange, confirmDialog, gt]);
 
   // Handle escape key (respects the unsaved-changes guard)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && open) {
-        handleRequestClose();
+        void handleRequestClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -1525,9 +1534,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const handleDeleteServer = async () => {
     if (!currentServer) return;
-    const confirmed = window.confirm(
-      gt("Are you sure you want to delete \"{name}\"? This action cannot be undone.", { name: currentServer.name })
-    );
+    const confirmed = await confirmDialog({
+      title: gt("Delete Server"),
+      description: gt("Are you sure you want to delete \"{name}\"? This action cannot be undone.", { name: currentServer.name }),
+      confirmLabel: gt("Delete"),
+    });
     if (!confirmed) return;
 
     try {
@@ -1600,11 +1611,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         role="dialog"
         aria-modal="true"
         aria-label="Access denied"
-        className="fixed inset-0 z-50 bg-[#0a0a0a] flex items-center justify-center"
+        className="fixed inset-0 z-50 bg-[var(--bg-app)] flex items-center justify-center"
       >
         <div className="text-center p-8">
-          <p className="text-lg font-semibold text-white mb-2"><T>Access Denied</T></p>
-          <p className="text-sm text-[#888] mb-4"><T>You don&apos;t have permission to view server settings.</T></p>
+          <p className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>Access Denied</T></p>
+          <p className="text-sm text-[var(--text-secondary)] mb-4"><T>You don&apos;t have permission to view server settings.</T></p>
           <button
             onClick={() => onOpenChange(false)}
             className="px-4 py-2 rounded-lg bg-[var(--app-accent)] text-white text-sm hover:brightness-110 transition"
@@ -1660,8 +1671,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderOverview = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1"><T>Server Overview</T></h2>
-        <p className="text-sm text-[#888888]"><T>Customize your server&apos;s identity</T></p>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Overview</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>Customize your server&apos;s identity</T></p>
       </div>
 
       {/* Hidden file inputs */}
@@ -1699,11 +1710,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               {isUploadingIcon ? (
                 <Loader size={32} />
               ) : (
-                <Camera className="w-8 h-8 text-white" />
+                <Camera className="w-8 h-8 text-[var(--text-primary)]" />
               )}
             </button>
           </div>
-          <span className="text-xs text-[#666666]"><T>Server Icon</T></span>
+          <span className="text-xs text-[var(--text-muted)]"><T>Server Icon</T></span>
         </div>
 
         {/* Banner */}
@@ -1720,17 +1731,17 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               {isUploadingBanner ? (
                 <Loader size={32} />
               ) : (
-                <Camera className="w-8 h-8 text-white" />
+                <Camera className="w-8 h-8 text-[var(--text-primary)]" />
               )}
             </button>
           </div>
-          <span className="text-xs text-[#666666] mt-1 block"><T>Server Banner</T></span>
+          <span className="text-xs text-[var(--text-muted)] mt-1 block"><T>Server Banner</T></span>
         </div>
       </div>
 
       {/* Server Name */}
       <div>
-        <label className="block text-sm font-medium text-[#888888] mb-2">
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>SERVER NAME</T>
         </label>
         <Input
@@ -1738,7 +1749,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           onChange={(e) => settingsDraft.update("name", e.target.value)}
           aria-invalid={Boolean(fieldErrors.name)}
           className={cn(
-            "bg-[#111111] border-[#222222] text-white",
+            "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]",
             fieldErrors.name && "border-red-500 focus-visible:ring-red-500"
           )}
           placeholder={gt("Enter server name")}
@@ -1748,7 +1759,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {/* Description */}
       <div>
-        <label className="block text-sm font-medium text-[#888888] mb-2">
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>SERVER DESCRIPTION</T>
         </label>
         <Textarea
@@ -1756,7 +1767,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           onChange={(e) => settingsDraft.update("description", e.target.value)}
           aria-invalid={Boolean(fieldErrors.description)}
           className={cn(
-            "bg-[#111111] border-[#222222] text-white min-h-[100px]",
+            "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[100px]",
             fieldErrors.description && "border-red-500 focus-visible:ring-red-500"
           )}
           placeholder={gt("Describe what your server is about")}
@@ -1766,14 +1777,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {/* System Messages Channel */}
       <div>
-        <label className="block text-sm font-medium text-[#888888] mb-2">
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>SYSTEM MESSAGES CHANNEL</T>
         </label>
         <select
           value={draftString("systemChannelId", "") || ""}
           onChange={(e) => settingsDraft.update("systemChannelId", e.target.value || null)}
           aria-label="System messages channel"
-          className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+          className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
         >
           <option value="">{gt("No system messages")}</option>
           {textChannels.map((ch) => (
@@ -1782,21 +1793,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </option>
           ))}
         </select>
-        <p className="text-xs text-[#666666] mt-1">
+        <p className="text-xs text-[var(--text-muted)] mt-1">
           <T>Where system messages like welcome messages are sent</T>
         </p>
       </div>
 
       {/* Rules Channel */}
       <div>
-        <label className="block text-sm font-medium text-[#888888] mb-2">
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>RULES CHANNEL</T>
         </label>
         <select
           value={draftString("rulesChannelId", "") || ""}
           onChange={(e) => settingsDraft.update("rulesChannelId", e.target.value || null)}
           aria-label="Rules channel"
-          className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+          className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
         >
           <option value="">{gt("No rules channel")}</option>
           {textChannels.map((ch) => (
@@ -1805,14 +1816,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </option>
           ))}
         </select>
-        <p className="text-xs text-[#666666] mt-1">
+        <p className="text-xs text-[var(--text-muted)] mt-1">
           <T>Display your server rules in Community servers</T>
         </p>
       </div>
 
       {/* Danger Zone */}
       {isOwner && (
-        <div className="pt-6 border-t border-[#222222]">
+        <div className="pt-6 border-t border-[var(--border-subtle)]">
           <h3 className="text-lg font-semibold text-red-500 mb-4"><T>Danger Zone</T></h3>
           <button
             onClick={handleDeleteServer}
@@ -1845,8 +1856,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>Roles</T></h2>
-          <p className="text-sm text-[#888888]"><T>Manage role order, display, and permissions</T></p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Roles</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Manage role order, display, and permissions</T></p>
         </div>
         <button
           onClick={handleCreateRole}
@@ -1867,13 +1878,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <div className="space-y-2">
             {roles.length > 0 && (
               <div className="relative mb-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                 <input
                   type="text"
                   value={roleSearch}
                   onChange={(e) => setRoleSearch(e.target.value)}
                   placeholder={gt("Search roles...")}
-                  className="w-full pl-9 pr-3 py-2 bg-[#111111] border border-[#222222] rounded-md text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
+                  className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
                 />
               </div>
             )}
@@ -1902,16 +1913,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       "flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer",
                       isSelected
                         ? "bg-[#1d1630] border-[#8B5CF6] shadow-[0_0_12px_rgba(139,92,246,0.15)]"
-                        : "bg-[#111111] border-[#222222] hover:bg-[#1a1a1a] hover:border-[#333333]",
+                        : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-strong)]",
                       canDrag && "cursor-move",
                       draggingRoleId === role.id && "opacity-50"
                     )}
                   >
-                    <GripVertical className={cn("w-4 h-4 flex-shrink-0", canDrag ? "text-[#777777]" : "text-[#333333]")} />
+                    <GripVertical className={cn("w-4 h-4 flex-shrink-0", canDrag ? "text-[var(--text-muted)]" : "text-[var(--text-muted)]")} />
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color || "#888888" }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-white text-sm font-medium truncate">{role.name}</p>
-                      <p className="text-[11px] text-[#777777]">
+                      <p className="text-[11px] text-[var(--text-muted)]">
                         {role.memberCount ?? 0} members{role.isDefault ? " • default" : role.managed ? " • managed" : ""}
                       </p>
                     </div>
@@ -1921,7 +1932,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                           event.stopPropagation();
                           void handleDeleteRole(role.id);
                         }}
-                        className="p-1 hover:bg-red-500/10 rounded text-[#666666] hover:text-red-500 transition-all"
+                        className="p-1 hover:bg-red-500/10 rounded text-[var(--text-muted)] hover:text-red-500 transition-all"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1930,7 +1941,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 );
               })}
             {isReorderingRoles && (
-              <p className="text-xs text-[#888888] flex items-center gap-1.5">
+              <p className="text-xs text-[var(--text-secondary)] flex items-center gap-1.5">
                 <Loader size={undefined} />
                 <T>Saving role order...</T>
               </p>
@@ -1938,22 +1949,22 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
 
           {/* Role editor panel */}
-          <div className="rounded-lg bg-[#111111] border border-[#222222] flex flex-col max-h-[calc(100vh-220px)]">
+          <div className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] flex flex-col max-h-[calc(100vh-220px)]">
             {!selectedRole || !roleDraft ? (
-              <div className="flex items-center justify-center py-16 text-sm text-[#888888]">
+              <div className="flex items-center justify-center py-16 text-sm text-[var(--text-secondary)]">
                 <T>Select a role to edit.</T>
               </div>
             ) : (
               <>
                 {/* Header */}
-                <div className="flex items-center gap-3 p-4 border-b border-[#222222] flex-shrink-0">
+                <div className="flex items-center gap-3 p-4 border-b border-[var(--border-subtle)] flex-shrink-0">
                   <div className="w-4 h-4 rounded-full" style={{ backgroundColor: roleDraft.color || "#888888" }} />
                   <h3 className="text-lg text-white font-semibold">{selectedRole.name}</h3>
                   {selectedRole.isDefault && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-[#1f1f1f] text-[#9b9b9b]"><T>Default</T></span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)]"><T>Default</T></span>
                   )}
                   {selectedRole.managed && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-[#1f1f1f] text-[#9b9b9b]"><T>Managed</T></span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)]"><T>Managed</T></span>
                   )}
                 </div>
 
@@ -1962,16 +1973,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   {/* Name + Colour */}
                   <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
                     <div>
-                      <label className="block text-xs text-[#888888] mb-1.5"><T>Role Name</T></label>
+                      <label className="block text-xs text-[var(--text-secondary)] mb-1.5"><T>Role Name</T></label>
                       <Input
                         value={roleDraft.name}
                         onChange={(event) => setRoleDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))}
                         disabled={selectedRole.isDefault || selectedRole.managed}
-                        className="bg-[#0a0a0a] border-[#222222] text-white disabled:opacity-60"
+                        className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] disabled:opacity-60"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-[#888888] mb-1.5"><T>Colour</T></label>
+                      <label className="block text-xs text-[var(--text-secondary)] mb-1.5"><T>Colour</T></label>
                       <div className="flex items-center gap-2">
                         <ColorInput
                           value={roleDraft.color}
@@ -1980,17 +1991,17 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                           }
                           disabled={selectedRole.managed}
                         />
-                        <span className="text-sm text-[#888888] font-mono">{roleDraft.color}</span>
+                        <span className="text-sm text-[var(--text-secondary)] font-mono">{roleDraft.color}</span>
                       </div>
                     </div>
                   </div>
 
                   {/* Toggles */}
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <label className="flex items-center justify-between p-3 rounded-lg bg-[#0a0a0a] border border-[#222222] cursor-pointer hover:border-[#333333] transition-colors">
+                    <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] cursor-pointer hover:border-[var(--border-strong)] transition-colors">
                       <div>
-                        <span className="text-sm text-white"><T>Display separately</T></span>
-                        <p className="text-xs text-[#666666] mt-0.5"><T>Show members with this role separately</T></p>
+                        <span className="text-sm text-[var(--text-primary)]"><T>Display separately</T></span>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5"><T>Show members with this role separately</T></p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -2002,10 +2013,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                         }
                       />
                     </label>
-                    <label className="flex items-center justify-between p-3 rounded-lg bg-[#0a0a0a] border border-[#222222] cursor-pointer hover:border-[#333333] transition-colors">
+                    <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] cursor-pointer hover:border-[var(--border-strong)] transition-colors">
                       <div>
-                        <span className="text-sm text-white"><T>Allow mention</T></span>
-                        <p className="text-xs text-[#666666] mt-0.5"><T>Anyone can mention this role</T></p>
+                        <span className="text-sm text-[var(--text-primary)]"><T>Allow mention</T></span>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5"><T>Anyone can mention this role</T></p>
                       </div>
                       <ToggleSwitch
                         size="sm"
@@ -2022,31 +2033,31 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   {/* Permissions */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-sm font-semibold text-white"><T>Permissions</T></h4>
+                      <h4 className="text-sm font-semibold text-[var(--text-primary)]"><T>Permissions</T></h4>
                       <div className="relative flex-1 max-w-[240px]">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#666666]" />
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
                         <input
                           type="text"
                           value={permissionSearch}
                           onChange={(e) => setPermissionSearch(e.target.value)}
                           placeholder={gt("Filter permissions...")}
-                          className="w-full pl-8 pr-3 py-1.5 bg-[#0a0a0a] border border-[#222222] rounded-md text-xs text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
+                          className="w-full pl-8 pr-3 py-1.5 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-md text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
                         />
                       </div>
                     </div>
                     {filteredCategories.length === 0 ? (
-                      <p className="text-sm text-[#666666] text-center py-4"><T>No permissions match your search.</T></p>
+                      <p className="text-sm text-[var(--text-muted)] text-center py-4"><T>No permissions match your search.</T></p>
                     ) : (
                       filteredCategories.map((category) => (
-                        <div key={category.id} className="rounded-lg border border-[#222222] bg-[#0a0a0a] p-3 space-y-2">
-                          <p className="text-xs uppercase tracking-wide text-[#8e8e8e] font-semibold">{category.label}</p>
+                        <div key={category.id} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 space-y-2">
+                          <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">{category.label}</p>
                           {category.permissions.map((permission) => {
                             const checked = hasPermissionBit(roleDraft.permissions, permission.bit);
                             return (
-                              <label key={permission.key} className="flex items-start justify-between gap-3 py-1.5 cursor-pointer hover:bg-[#141414] -mx-2 px-2 rounded transition-colors">
+                              <label key={permission.key} className="flex items-start justify-between gap-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] -mx-2 px-2 rounded transition-colors">
                                 <div>
-                                  <p className={cn("text-sm", checked ? "text-white" : "text-[#aaa]")}>{permission.label}</p>
-                                  <p className="text-xs text-[#666666]">{permission.description}</p>
+                                  <p className={cn("text-sm", checked ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>{permission.label}</p>
+                                  <p className="text-xs text-[var(--text-muted)]">{permission.description}</p>
                                 </div>
                                 <ToggleSwitch
                                   size="sm"
@@ -2066,8 +2077,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
 
                 {/* Sticky save bar */}
-                <div className="flex items-center justify-between p-3 border-t border-[#222222] flex-shrink-0 bg-[#0d0d0d] rounded-b-lg">
-                  <p className="text-xs text-[#666666]">
+                <div className="flex items-center justify-between p-3 border-t border-[var(--border-subtle)] flex-shrink-0 bg-[var(--bg-app)] rounded-b-lg">
+                  <p className="text-xs text-[var(--text-muted)]">
                     {hasUnsavedRoleChanges ? gt("You have unsaved changes") : gt("All changes saved")}
                   </p>
                   <button
@@ -2077,7 +2088,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       "px-4 py-2 rounded-md flex items-center gap-2 transition-all",
                       hasUnsavedRoleChanges
                         ? "bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
-                        : "bg-[#222222] text-[#666666]"
+                        : "bg-[var(--app-surface-alt)] text-[var(--text-muted)]"
                     )}
                   >
                     {isSavingRole && <Loader size={16} />}
@@ -2152,24 +2163,24 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     if (!vanityInfo?.isPartnered) return null;
     const vanityDirty = vanityDraft.trim().toLowerCase() !== (vanityInfo.code ?? "");
     return (
-      <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] space-y-3">
+      <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-white font-semibold flex items-center gap-2">
+            <h3 className="text-[var(--text-primary)] font-semibold flex items-center gap-2">
               <Crown className="w-4 h-4 text-[#F0B232]" />
               <T>Custom Invite Link</T>
             </h3>
-            <p className="text-xs text-[#888888] mt-0.5">
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
               <T>As a partnered server, you can claim a personalized invite link.</T>
             </p>
           </div>
           {vanityInfo.code && (
-            <span className="text-xs text-[#888888]">{vanityInfo.uses} {gt('uses')}</span>
+            <span className="text-xs text-[var(--text-secondary)]">{vanityInfo.uses} {gt('uses')}</span>
           )}
         </div>
         <div className="flex gap-2">
-          <div className="flex items-center flex-1 rounded-md bg-[#0a0a0a] border border-[#222222] focus-within:border-[#8B5CF6] transition-colors overflow-hidden">
-            <span className="pl-3 text-sm text-[#666666] font-mono select-none">serika.cc/</span>
+          <div className="flex items-center flex-1 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] focus-within:border-[#8B5CF6] transition-colors overflow-hidden">
+            <span className="pl-3 text-sm text-[var(--text-muted)] font-mono select-none">serika.cc/</span>
             <input
               value={vanityDraft}
               onChange={(e) => {
@@ -2179,7 +2190,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               placeholder="your-server"
               maxLength={32}
               aria-label="Custom invite link code"
-              className="flex-1 h-10 bg-transparent text-white font-mono text-sm outline-none pr-3 min-w-0"
+              className="flex-1 h-10 bg-transparent text-[var(--text-primary)] font-mono text-sm outline-none pr-3 min-w-0"
             />
           </div>
           <button
@@ -2194,7 +2205,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <button
               onClick={() => copyToClipboard(`https://serika.cc/${vanityInfo.code}`)}
               aria-label="Copy custom invite link"
-              className="p-2 hover:bg-[#1a1a1a] rounded-md text-[#888888] hover:text-white transition-colors"
+              className="p-2 hover:bg-[var(--bg-hover)] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
             >
               <Copy className="w-4 h-4" />
             </button>
@@ -2203,15 +2214,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         {vanityError ? (
           <p className="text-xs text-red-400">{vanityError}</p>
         ) : (
-          <p className="text-xs text-[#666666]">
+          <p className="text-xs text-[var(--text-muted)]">
             <T>3-32 characters. Lowercase letters, numbers, and hyphens only. Leave empty and save to remove.</T>
           </p>
         )}
         {vanityInfo.code && (
-          <div className="flex items-center justify-between pt-3 border-t border-[#222222]">
+          <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)]">
             <div>
-              <span className="text-sm text-white"><T>Lock to Custom Invite</T></span>
-              <p className="text-xs text-[#666666] mt-0.5"><T>Only allow joins through this custom invite link. Hides all other invite links.</T></p>
+              <span className="text-sm text-[var(--text-primary)]"><T>Lock to Custom Invite</T></span>
+              <p className="text-xs text-[var(--text-muted)] mt-0.5"><T>Only allow joins through this custom invite link. Hides all other invite links.</T></p>
             </div>
             <ToggleSwitch
               checked={vanityInfo.lockToVanity}
@@ -2229,8 +2240,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>Server Invites</T></h2>
-          <p className="text-sm text-[#888888]"><T>Create and manage invite links</T></p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Invites</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Create and manage invite links</T></p>
         </div>
         <button
           onClick={handleCreateInvite}
@@ -2249,16 +2260,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
       ) : invites.length === 0 ? (
         <div className="text-center py-12">
-          <Link2 className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2"><T>No invites yet</T></h3>
-          <p className="text-[#888888] text-sm"><T>Create an invite link to share with others</T></p>
+          <Link2 className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No invites yet</T></h3>
+          <p className="text-[var(--text-secondary)] text-sm"><T>Create an invite link to share with others</T></p>
         </div>
       ) : (
         <div className="space-y-2">
           {invites.map((invite) => (
             <div
               key={invite.code}
-              className="flex items-center gap-4 p-4 rounded-lg bg-[#111111] border border-[#222222]"
+              className="flex items-center gap-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -2268,12 +2279,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   <button
                     onClick={() => copyToClipboard(`https://serika.cc/${invite.code}`)}
                     aria-label="Copy invite link"
-                    className="p-1 hover:bg-[#1a1a1a] rounded transition-colors"
+                    className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
                   >
-                    <Copy className="w-4 h-4 text-[#888888]" />
+                    <Copy className="w-4 h-4 text-[var(--text-secondary)]" />
                   </button>
                 </div>
-                <div className="flex items-center gap-4 mt-1 text-xs text-[#666666]">
+                <div className="flex items-center gap-4 mt-1 text-xs text-[var(--text-muted)]">
                   <span>#{invite.channel?.name || gt('deleted-channel')}</span>
                   <span>{invite.uses} {gt('uses')}</span>
                   {invite.expiresAt && (
@@ -2289,7 +2300,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               </Avatar>
               <button
                 onClick={() => handleDeleteInvite(invite.code)}
-                className="p-2 hover:bg-red-500/10 rounded-md text-[#888888] hover:text-red-500 transition-colors"
+                className="p-2 hover:bg-red-500/10 rounded-md text-[var(--text-secondary)] hover:text-red-500 transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -2303,8 +2314,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderBans = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1"><T>Server Bans</T></h2>
-        <p className="text-sm text-[#888888]"><T>View and manage banned users</T></p>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Bans</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>View and manage banned users</T></p>
       </div>
 
       {isLoading ? (
@@ -2313,16 +2324,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
       ) : bans.length === 0 ? (
         <div className="text-center py-12">
-          <Ban className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2"><T>No bans</T></h3>
-          <p className="text-[#888888] text-sm"><T>There are no banned users in this server</T></p>
+          <Ban className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No bans</T></h3>
+          <p className="text-[var(--text-secondary)] text-sm"><T>There are no banned users in this server</T></p>
         </div>
       ) : (
         <div className="space-y-2">
           {bans.map((ban) => (
             <div
               key={ban.id}
-              className="flex items-center gap-4 p-4 rounded-lg bg-[#111111] border border-[#222222]"
+              className="flex items-center gap-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
             >
               <Avatar className="w-10 h-10">
                 <AvatarImage src={cdnImage(ban.avatar)} />
@@ -2331,14 +2342,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-white font-medium">{ban.username}</p>
+                <p className="text-[var(--text-primary)] font-medium">{ban.username}</p>
                 {ban.reason && (
-                  <p className="text-sm text-[#888888] truncate">{ban.reason}</p>
+                  <p className="text-sm text-[var(--text-secondary)] truncate">{ban.reason}</p>
                 )}
               </div>
               <button
                 onClick={() => handleUnban(ban.id)}
-                className="px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#222222] text-white text-sm rounded-md transition-colors"
+                className="px-3 py-1.5 bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-sm rounded-md transition-colors"
               >
                 <T>Revoke Ban</T>
               </button>
@@ -2353,14 +2364,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>Server Members</T></h2>
-          <p className="text-sm text-[#888888]">{members.length} {gt('members')}</p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Members</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]">{members.length} {gt('members')}</p>
         </div>
         <Input
           placeholder={gt("Search members...")}
           value={memberSearch}
           onChange={(event) => setMemberSearch(event.target.value)}
-          className="w-64 bg-[#111111] border-[#222222] text-white"
+          className="w-64 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -2381,7 +2392,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             .map((member, index) => (
               <div
                 key={member.id || `member-${index}`}
-                className="flex items-center gap-3 p-3 rounded-lg hover:bg-[#111111] transition-colors border border-transparent hover:border-[#222222]"
+                className="flex items-center gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-strong)]"
               >
                 <Avatar className="w-10 h-10">
                   <AvatarImage src={cdnImage(member.avatar || undefined)} />
@@ -2391,14 +2402,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </Avatar>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-white font-medium">
+                    <span className="text-[var(--text-primary)] font-medium">
                       {member.displayName || member.username}
                     </span>
                     {currentServer.ownerId === member.id && (
                       <Crown className="w-4 h-4 text-[#F59E0B]" />
                     )}
                   </div>
-                  <span className="text-sm text-[#888888]">@{member.username}</span>
+                  <span className="text-sm text-[var(--text-secondary)]">@{member.username}</span>
                   <div className="flex flex-wrap gap-1 mt-1 items-center">
                     {member.roles
                       .filter(r => !r.isDefault)
@@ -2424,21 +2435,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                         </span>
                       ))}
                     {member.roles.filter(r => !r.isDefault).length > 3 && (
-                      <span className="px-2 py-0.5 rounded text-[11px] bg-[#1a1a1a] text-[#777777]">
+                      <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--app-surface-alt)] text-[var(--text-muted)]">
                         +{member.roles.filter(r => !r.isDefault).length - 3}
                       </span>
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button className="p-0.5 text-[#888888] hover:text-[#8B5CF6] transition-colors" title={gt("Assign roles")}>
+                        <button className="p-0.5 text-[var(--text-secondary)] hover:text-[#8B5CF6] transition-colors" title={gt("Assign roles")}>
                           <Plus className="w-3.5 h-3.5" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent className="w-56 bg-[#111111] border-[#222222] text-[#888888]">
-                        <DropdownMenuLabel className="text-xs font-bold text-[#666666] uppercase">
+                      <DropdownMenuContent className="w-56 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                        <DropdownMenuLabel className="text-xs font-bold text-[var(--text-muted)] uppercase">
                           <T>Manage Roles</T>
                         </DropdownMenuLabel>
-                        <DropdownMenuSeparator className="bg-[#222222]" />
+                        <DropdownMenuSeparator className="bg-[var(--app-surface-alt)]" />
                         <ScrollArea className="h-[200px]">
                           {roles
                             .filter(r => !r.isDefault && !r.managed)
@@ -2484,8 +2495,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>Server Emoji</T></h2>
-          <p className="text-sm text-[#888888]"><T>Upload custom emoji for your server</T> ({emojis.length}/500)</p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Emoji</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Upload custom emoji for your server</T> ({emojis.length}/500)</p>
         </div>
         <button
           onClick={() => emojiInputRef.current?.click()}
@@ -2513,13 +2524,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       {/* Search */}
       {emojis.length > 0 && (
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
             value={emojiSearch}
             onChange={(e) => setEmojiSearch(e.target.value)}
             placeholder={gt("Search emoji by name...")}
-            className="w-full pl-9 pr-3 py-2 bg-[#111111] border border-[#222222] rounded-md text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
+            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
           />
         </div>
       )}
@@ -2529,10 +2540,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <Loader size={32} />
         </div>
       ) : emojis.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
-          <Smile className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2"><T>No custom emoji yet</T></h3>
-          <p className="text-[#888888] text-sm mb-4"><T>Upload emoji to use in your server</T></p>
+        <div className="text-center py-12 border-2 border-dashed border-[var(--border-subtle)] rounded-lg">
+          <Smile className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No custom emoji yet</T></h3>
+          <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload emoji to use in your server</T></p>
           <button
             onClick={() => emojiInputRef.current?.click()}
             disabled={isUploadingEmoji}
@@ -2542,7 +2553,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </button>
         </div>
       ) : filteredEmojis.length === 0 ? (
-        <div className="text-center py-8 text-[#888888] text-sm">
+        <div className="text-center py-8 text-[var(--text-secondary)] text-sm">
           {gt("No emoji matching")} "{emojiSearch}"
         </div>
       ) : (
@@ -2550,7 +2561,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           {filteredEmojis.map((emoji) => (
             <div
               key={emoji.id}
-              className="relative group aspect-square bg-[#111111] border border-[#222222] rounded-lg p-2 flex flex-col items-center justify-center hover:border-[#8B5CF6]/50 transition-colors"
+              className="relative group aspect-square bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2 flex flex-col items-center justify-center hover:border-[#8B5CF6]/50 transition-colors"
               title={`:${emoji.name}:`}
             >
               <img
@@ -2577,7 +2588,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <Pencil className="w-3 h-3 text-white" />
               </button>
               {renamingEmojiId === emoji.id ? (
-                <div className="absolute inset-0 bg-[#111111] flex flex-col items-center justify-center gap-1 p-2 z-10">
+                <div className="absolute inset-0 bg-[var(--bg-card)] flex flex-col items-center justify-center gap-1 p-2 z-10">
                   <input
                     type="text"
                     value={emojiRenameValue}
@@ -2588,8 +2599,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     }}
                     autoFocus
                     maxLength={32}
-                    className="w-full text-xs bg-[#222222] text-white rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
-                    placeholder="Name"
+                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
+                    placeholder={gt("Name")}
                   />
                   <div className="flex gap-1">
                     <button
@@ -2600,14 +2611,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     </button>
                     <button
                       onClick={() => { setRenamingEmojiId(null); setEmojiRenameValue(""); }}
-                      className="p-1 bg-[#333333] hover:bg-[#444444] rounded"
+                      className="p-1 bg-[var(--app-border)] hover:bg-[var(--bg-hover)] rounded"
                     >
-                      <X className="w-3 h-3 text-white" />
+                      <X className="w-3 h-3 text-[var(--text-primary)]" />
                     </button>
                   </div>
                 </div>
               ) : (
-                <span className="absolute bottom-0 left-0 right-0 text-xs text-center text-[#888888] truncate px-1">
+                <span className="absolute bottom-0 left-0 right-0 text-xs text-center text-[var(--text-secondary)] truncate px-1">
                   :{emoji.name}:
                 </span>
               )}
@@ -2627,8 +2638,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>Server Stickers</T></h2>
-          <p className="text-sm text-[#888888]"><T>Upload custom stickers for your server</T> ({stickers.length}/500)</p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Stickers</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Upload custom stickers for your server</T> ({stickers.length}/500)</p>
         </div>
         <button
           onClick={() => stickerInputRef.current?.click()}
@@ -2651,13 +2662,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       {/* Search */}
       {stickers.length > 0 && (
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
             value={stickerSearch ?? ""}
             onChange={(e) => setStickerSearch(e.target.value)}
             placeholder={gt("Search stickers by name...")}
-            className="w-full pl-9 pr-3 py-2 bg-[#111111] border border-[#222222] rounded-md text-sm text-white placeholder:text-[#666666] focus:outline-none focus:border-[#8B5CF6]"
+            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
           />
         </div>
       )}
@@ -2667,10 +2678,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <Loader size={32} />
         </div>
       ) : stickers.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
-          <Sticker className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2"><T>No stickers yet</T></h3>
-          <p className="text-[#888888] text-sm mb-4"><T>Upload stickers to use in messages</T></p>
+        <div className="text-center py-12 border-2 border-dashed border-[var(--border-subtle)] rounded-lg">
+          <Sticker className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No stickers yet</T></h3>
+          <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload stickers to use in messages</T></p>
           <button
             onClick={() => stickerInputRef.current?.click()}
             className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md"
@@ -2679,7 +2690,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </button>
         </div>
       ) : filteredStickers.length === 0 ? (
-        <div className="text-center py-8 text-[#888888] text-sm">
+        <div className="text-center py-8 text-[var(--text-secondary)] text-sm">
           {gt("No stickers matching")} "{stickerSearch}"
         </div>
       ) : (
@@ -2687,7 +2698,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           {filteredStickers.map((sticker) => (
             <div
               key={sticker.id}
-              className="relative group rounded-lg bg-[#111111] border border-[#222222] p-2 hover:border-[#8B5CF6]/50 transition-colors"
+              className="relative group rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] p-2 hover:border-[#8B5CF6]/50 transition-colors"
               title={sticker.name}
             >
               <img
@@ -2722,8 +2733,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     }}
                     autoFocus
                     maxLength={30}
-                    className="w-full text-xs bg-[#222222] text-white rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
-                    placeholder="Name"
+                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
+                    placeholder={gt("Name")}
                   />
                   <div className="flex gap-1 justify-center">
                     <button
@@ -2734,14 +2745,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     </button>
                     <button
                       onClick={() => { setRenamingStickerId(null); setStickerRenameValue(""); }}
-                      className="p-1 bg-[#333333] hover:bg-[#444444] rounded"
+                      className="p-1 bg-[var(--app-border)] hover:bg-[var(--bg-hover)] rounded"
                     >
-                      <X className="w-3 h-3 text-white" />
+                      <X className="w-3 h-3 text-[var(--text-primary)]" />
                     </button>
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-center text-[#888888] mt-1 truncate">{sticker.name}</p>
+                <p className="text-xs text-center text-[var(--text-secondary)] mt-1 truncate">{sticker.name}</p>
               )}
             </div>
           ))}
@@ -2777,13 +2788,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>Access</T></h2>
-          <p className="text-sm text-[#888888]"><T>Control how people join your server</T></p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Access</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Control how people join your server</T></p>
         </div>
 
         <div className="space-y-3">
-          <h3 className="text-white font-medium"><T>How can people join your server?</T></h3>
-          <p className="text-sm text-[#888888]">
+          <h3 className="text-[var(--text-primary)] font-medium"><T>How can people join your server?</T></h3>
+          <p className="text-sm text-[var(--text-secondary)]">
             <T>Keep your server private, or open it up for more people to join.</T>{" "}
             <a
               href="https://support.discord.com/hc/en-us/articles/29729107418519-Server-Member-Applications"
@@ -2807,16 +2818,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     "flex flex-col items-center text-center p-4 rounded-xl border transition-colors",
                     selected
                       ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/50"
-                      : "bg-[#111111] border-[#222222] hover:border-[#333333]"
+                      : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                   )}
                 >
-                  <div className={cn("p-2 rounded-full mb-2", selected ? "text-[#8B5CF6]" : "text-[#888888]")}>
+                  <div className={cn("p-2 rounded-full mb-2", selected ? "text-[#8B5CF6]" : "text-[var(--text-secondary)]")}>
                     <Icon className="w-5 h-5" />
                   </div>
-                  <span className={cn("font-medium", selected ? "text-white" : "text-[#aaaaaa]")}>
+                  <span className={cn("font-medium", selected ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
                     {option.title}
                   </span>
-                  <span className="text-xs text-[#888888] mt-1">{option.description}</span>
+                  <span className="text-xs text-[var(--text-secondary)] mt-1">{option.description}</span>
                 </button>
               );
             })}
@@ -2824,7 +2835,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
 
         {joinMode === "discoverable" && (
-          <div className="space-y-4 p-4 rounded-lg bg-[#111111] border border-[#222222] animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="space-y-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="space-y-2">
               <label className="text-white font-medium text-sm"><T>Discovery Description</T></label>
               <Textarea
@@ -2832,16 +2843,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 value={draftString("discoveryDescription")}
                 onChange={(e) => settingsDraft.update("discoveryDescription", e.target.value)}
                 maxLength={1024}
-                className="bg-[#0a0d15] border-[#222222] text-white placeholder-[#555555] focus:border-[#8B5CF6] min-h-[80px]"
+                className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[#8B5CF6] min-h-[80px]"
               />
-              <p className="text-xs text-[#888888] text-right">
+              <p className="text-xs text-[var(--text-secondary)] text-right">
                 {draftString("discoveryDescription").length}/1024
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-white font-medium text-sm"><T>Discovery Categories</T></label>
-              <p className="text-xs text-[#888888]"><T>Select up to 3 categories that best describe your server</T></p>
+              <label className="text-[var(--text-primary)] font-medium text-sm"><T>Discovery Categories</T></label>
+              <p className="text-xs text-[var(--text-secondary)]"><T>Select up to 3 categories that best describe your server</T></p>
               <div className="flex flex-wrap gap-2 pt-1">
                 {[
                   { id: "gaming", name: gt("Gaming") },
@@ -2884,7 +2895,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                         "px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-95",
                         isSelected
                           ? "bg-[#8B5CF6] border-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
-                          : "bg-[#0a0d15] border-[#222222] text-[#888888] hover:border-[#333333] hover:text-[#d5d9e8]"
+                          : "bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
                       )}
                     >
                       {cat.name}
@@ -2896,11 +2907,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
         )}
 
-        <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-white font-medium"><T>Age-Restricted Server</T></span>
-              <p className="text-sm text-[#888888] mt-1">
+              <span className="text-[var(--text-primary)] font-medium"><T>Age-Restricted Server</T></span>
+              <p className="text-sm text-[var(--text-secondary)] mt-1">
                 <T>Users will need to confirm they are over the legal age to view the content in this server.</T>{" "}
                 <a
                   href="https://support.discord.com/hc/en-us/articles/115000084051"
@@ -2951,13 +2962,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-bold text-white mb-1"><T>Member Applications</T></h2>
-            <p className="text-sm text-[#888888]"><T>Review and manage server member applications</T></p>
+            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Member Applications</T></h2>
+            <p className="text-sm text-[var(--text-secondary)]"><T>Review and manage server member applications</T></p>
           </div>
           <select
             value={applicationFilter}
             onChange={(e) => setApplicationFilter(e.target.value as typeof applicationFilter)}
-            className="h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white text-sm"
+            className="h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm"
           >
             <option value="all">{gt("All Types")}</option>
             <option value="pending">{gt("Pending")}</option>
@@ -2973,9 +2984,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-12">
-            <ClipboardList className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2"><T>No applications</T></h3>
-            <p className="text-[#888888] text-sm">
+            <ClipboardList className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No applications</T></h3>
+            <p className="text-[var(--text-secondary)] text-sm">
               {applicationFilter === "all"
                 ? gt("There are no member applications to review")
                 : gt("No {filter} applications", { filter: applicationFilter })}
@@ -2986,7 +2997,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             {filtered.map((app) => (
               <div
                 key={app.id}
-                className="p-4 rounded-lg bg-[#111111] border border-[#222222] space-y-3"
+                className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3"
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -2997,10 +3008,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <p className="text-white font-medium">
+                      <p className="text-[var(--text-primary)] font-medium">
                         {app.user.displayName || app.user.username}
                       </p>
-                      <p className="text-xs text-[#888888]">@{app.user.username}</p>
+                      <p className="text-xs text-[var(--text-secondary)]">@{app.user.username}</p>
                     </div>
                   </div>
                   {statusBadge(app.status)}
@@ -3009,8 +3020,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <div className="space-y-2">
                   {app.answers.map((answer, index) => (
                     <div key={index}>
-                      <p className="text-xs text-[#888888] uppercase">{answer.question}</p>
-                      <p className="text-sm text-white">{answer.answer}</p>
+                      <p className="text-xs text-[var(--text-secondary)] uppercase">{answer.question}</p>
+                      <p className="text-sm text-[var(--text-primary)]">{answer.answer}</p>
                     </div>
                   ))}
                 </div>
@@ -3046,7 +3057,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   <p className="text-xs text-red-400">{gt("Reason")}: {app.rejectionReason}</p>
                 )}
 
-                <p className="text-xs text-[#666666]">
+                <p className="text-xs text-[var(--text-muted)]">
                   {gt("Submitted")} {new Date(app.createdAt).toLocaleString()}
                 </p>
               </div>
@@ -3061,26 +3072,26 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1"><T>App Discovery</T></h2>
-          <p className="text-sm text-[#888888]"><T>Browse and add public bots to your server</T></p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>App Discovery</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Browse and add public bots to your server</T></p>
         </div>
 
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#666666]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <Input
             value={appSearch}
             onChange={(e) => setAppSearch(e.target.value)}
             placeholder={gt("Search bots and apps...")}
-            className="pl-10 bg-[#111111] border-[#222222] text-white placeholder:text-[#555555] focus-visible:ring-[#8B5CF6]"
+            className="pl-10 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[#8B5CF6]"
           />
         </div>
 
         {isLoading ? (
-          <div className="text-center py-10 text-sm text-[#888888]"><Loader size={20} className="mx-auto" /></div>
+          <div className="text-center py-10 text-sm text-[var(--text-secondary)]"><Loader size={20} className="mx-auto" /></div>
         ) : discoverableApps.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-[#222222] rounded-xl bg-[#111111]">
-            <Bot className="w-10 h-10 text-[#666666] mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-[#888888]">
+          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-card)]">
+            <Bot className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
+            <p className="text-sm text-[var(--text-secondary)]">
               {appSearch ? gt("No bots found matching your search") : gt("No public bots available yet")}
             </p>
           </div>
@@ -3089,7 +3100,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             {discoverableApps.map((app) => (
               <div
                 key={app.id}
-                className="flex items-start gap-3 p-4 rounded-xl border border-[#222222] bg-[#111111] hover:border-[#333333] transition-colors"
+                className="flex items-start gap-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] hover:border-[var(--border-strong)] transition-colors"
               >
                 <div className="w-12 h-12 rounded-xl bg-[#8B5CF6]/20 flex items-center justify-center shrink-0 overflow-hidden">
                   {app.icon ? (
@@ -3100,10 +3111,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-sm text-white truncate">{app.name}</span>
+                    <span className="font-semibold text-sm text-[var(--text-primary)] truncate">{app.name}</span>
                     {app.botId && <Sparkles className="w-3 h-3 text-[#8B5CF6] shrink-0" />}
                   </div>
-                  <p className="text-xs text-[#888888] line-clamp-2 mt-0.5">
+                  <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mt-0.5">
                     {app.description || gt("No description")}
                   </p>
                   {app.tags && Array.isArray(app.tags) && app.tags.length > 0 && (
@@ -3133,19 +3144,19 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderWidget = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1"><T>Server Widget</T></h2>
-        <p className="text-sm text-[#888888]"><T>Embed your server on your website</T></p>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Widget</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>Embed your server on your website</T></p>
       </div>
 
-      <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+      <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-white font-medium"><T>Enable Server Widget</T></span>
+          <span className="text-[var(--text-primary)] font-medium"><T>Enable Server Widget</T></span>
           <button
             onClick={() => settingsDraft.update("widget.enabled", !draftBool("widget.enabled", false))}
             role="switch"
             aria-checked={draftBool("widget.enabled", false)}
             aria-label="Enable server widget"
-            className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("widget.enabled", false) ? "bg-[#8B5CF6]" : "bg-[#222222]")}
+            className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("widget.enabled", false) ? "bg-[var(--app-accent)]" : "bg-[var(--app-surface-alt)]")}
           >
             <div className={cn(
               "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
@@ -3153,7 +3164,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             )} />
           </button>
         </div>
-        <p className="text-sm text-[#888888]">
+        <p className="text-sm text-[var(--text-secondary)]">
           <T>Allow people to embed your server info on their websites</T>
         </p>
         <label className="mt-4 flex items-center justify-between gap-4 cursor-pointer">
@@ -3173,14 +3184,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#888888] mb-2">
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>INVITE CHANNEL</T>
         </label>
         <select
           value={draftString("widget.channelId", "") || ""}
           onChange={(e) => settingsDraft.update("widget.channelId", e.target.value || null)}
           aria-label="Widget invite channel"
-          className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+          className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
         >
           <option value="">{gt("Select a channel")}</option>
           {textChannels.map((channel) => (
@@ -3193,10 +3204,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-[#888888] mb-2">
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>WIDGET CODE</T>
         </label>
-        <div className="p-3 rounded-md bg-[#111111] border border-[#222222] font-mono text-sm text-[#888888]">
+        <div className="p-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] font-mono text-sm text-[var(--text-secondary)]">
           {`<iframe src="https://serika.chat/widget/${currentServer.id}" width="350" height="500" />`}
         </div>
         <button
@@ -3213,15 +3224,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderAuditLog = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1"><T>Audit Log</T></h2>
-        <p className="text-sm text-[#888888]"><T>View a record of all changes made to your server</T></p>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Audit Log</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>View a record of all changes made to your server</T></p>
       </div>
 
       <div className="flex gap-4 mb-4">
-        <select className="h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white">
+        <select className="h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
           <option value="">{gt("All users")}</option>
         </select>
-        <select className="h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white">
+        <select className="h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
           <option value="">{gt("All actions")}</option>
           <option value="channel_create">{gt("Channel Created")}</option>
           <option value="channel_delete">{gt("Channel Deleted")}</option>
@@ -3238,14 +3249,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
       ) : auditLogs.length === 0 ? (
         <div className="text-center py-12">
-          <FileText className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-white mb-2"><T>No audit log entries</T></h3>
-          <p className="text-[#888888] text-sm"><T>Actions taken in your server will appear here</T></p>
+          <FileText className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No audit log entries</T></h3>
+          <p className="text-[var(--text-secondary)] text-sm"><T>Actions taken in your server will appear here</T></p>
         </div>
       ) : (
         <div className="space-y-2">
           {auditLogs.map((log) => (
-            <div key={log.id} className="p-3 rounded-lg bg-[#111111] border border-[#222222]">
+            <div key={log.id} className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Avatar className="w-7 h-7">
@@ -3255,11 +3266,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     </AvatarFallback>
                   </Avatar>
                   <span className="text-sm text-white font-medium">{log.admin?.username || gt("System")}</span>
-                  <span className="text-xs text-[#888888] uppercase">{log.action.replace(/_/g, " ")}</span>
+                  <span className="text-xs text-[var(--text-secondary)] uppercase">{log.action.replace(/_/g, " ")}</span>
                 </div>
-                <span className="text-xs text-[#666666]">{new Date(log.createdAt).toLocaleString()}</span>
+                <span className="text-xs text-[var(--text-muted)]">{new Date(log.createdAt).toLocaleString()}</span>
               </div>
-              {log.reason && <p className="text-xs text-[#888888] mt-1">{gt("Reason")}: {log.reason}</p>}
+              {log.reason && <p className="text-xs text-[var(--text-secondary)] mt-1">{gt("Reason")}: {log.reason}</p>}
             </div>
           ))}
         </div>
@@ -3270,8 +3281,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderModeration = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1"><T>Moderation</T></h2>
-        <p className="text-sm text-[#888888]"><T>Configure moderation settings for your server</T></p>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Moderation</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>Configure moderation settings for your server</T></p>
       </div>
 
       <div className="space-y-4">
@@ -3281,15 +3292,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <T>Verification level, content filter, 2FA requirement and raid protection are coming soon and are not enforced yet.</T>
         </p>
         <fieldset disabled aria-disabled="true" className="space-y-4 opacity-60 cursor-not-allowed">
-        <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white font-medium"><T>Verification Level</T></span>
+            <span className="text-[var(--text-primary)] font-medium"><T>Verification Level</T></span>
           </div>
           <select
             value={draftString("moderation.verificationLevel", "none")}
             onChange={(e) => settingsDraft.update("moderation.verificationLevel", e.target.value)}
             aria-label="Verification level"
-            className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
+            className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
           >
             <option value="none">{gt("None - Unrestricted")}</option>
             <option value="low">{gt("Low - Must have verified email")}</option>
@@ -3299,15 +3310,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </select>
         </div>
 
-        <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white font-medium"><T>Explicit Media Content Filter</T></span>
+            <span className="text-[var(--text-primary)] font-medium"><T>Explicit Media Content Filter</T></span>
           </div>
           <select
             value={draftString("moderation.explicitContentFilter", "disabled")}
             onChange={(e) => settingsDraft.update("moderation.explicitContentFilter", e.target.value)}
             aria-label="Explicit media content filter"
-            className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
+            className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
           >
             <option value="disabled">{gt("Don't scan any media content")}</option>
             <option value="members_without_roles">{gt("Scan content from members without roles")}</option>
@@ -3315,11 +3326,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </select>
         </div>
 
-        <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-white font-medium"><T>2FA Requirement</T></span>
-              <p className="text-sm text-[#888888] mt-1">
+              <span className="text-[var(--text-primary)] font-medium"><T>2FA Requirement</T></span>
+              <p className="text-sm text-[var(--text-secondary)] mt-1">
                 <T>Require moderators to have 2FA enabled</T>
               </p>
             </div>
@@ -3328,7 +3339,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               role="switch"
               aria-checked={draftBool("moderation.require2FA")}
               aria-label="Require 2FA for moderators"
-              className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("moderation.require2FA") ? "bg-[#8B5CF6]" : "bg-[#222222]")}
+              className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("moderation.require2FA") ? "bg-[#8B5CF6]" : "bg-[var(--app-surface-alt)]")}
             >
               <div className={cn(
                 "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
@@ -3338,18 +3349,18 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
         </div>
 
-        <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-white font-medium"><T>Raid Protection</T></span>
-              <p className="text-sm text-[#888888] mt-1"><T>Auto-enable stricter checks during suspicious joins</T></p>
+              <span className="text-[var(--text-primary)] font-medium"><T>Raid Protection</T></span>
+              <p className="text-sm text-[var(--text-secondary)] mt-1"><T>Auto-enable stricter checks during suspicious joins</T></p>
             </div>
             <button
               onClick={() => settingsDraft.update("safety.raidProtection", !draftBool("safety.raidProtection"))}
               role="switch"
               aria-checked={draftBool("safety.raidProtection")}
               aria-label="Raid protection"
-              className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("safety.raidProtection") ? "bg-[#8B5CF6]" : "bg-[#222222]")}
+              className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("safety.raidProtection") ? "bg-[#8B5CF6]" : "bg-[var(--app-surface-alt)]")}
             >
               <div className={cn(
                 "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
@@ -3360,10 +3371,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
         </fieldset>
 
-        <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-white font-medium"><T>Mention Spam Limit</T></span>
-            <span className="text-sm text-[#888888]">{draftNumber("safety.mentionSpamLimit", 5)}</span>
+            <span className="text-[var(--text-primary)] font-medium"><T>Mention Spam Limit</T></span>
+            <span className="text-sm text-[var(--text-secondary)]">{draftNumber("safety.mentionSpamLimit", 5)}</span>
           </div>
           <input
             type="range"
@@ -3375,7 +3386,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             className="w-full accent-[#8B5CF6]"
           />
           <label className="mt-3 flex items-center justify-between cursor-pointer">
-            <span className="text-sm text-[#888888]"><T>Enable anti-spam checks</T></span>
+            <span className="text-sm text-[var(--text-secondary)]"><T>Enable anti-spam checks</T></span>
             <ToggleSwitch size="sm" checked={draftBool("safety.antiSpam", true)} onCheckedChange={(checked) => settingsDraft.update("safety.antiSpam", checked)} />
           </label>
         </div>
@@ -3386,28 +3397,28 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderSoundboard = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-white mb-1"><T>Soundboard</T></h2>
-        <p className="text-sm text-[#888888]"><T>Configure soundboard availability</T></p>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Soundboard</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>Configure soundboard availability</T></p>
       </div>
 
-      <div className="p-4 rounded-lg bg-[#111111] border border-[#222222]">
+      <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
         <div className="flex items-center justify-between">
-          <span className="text-white font-medium"><T>Enable Soundboard</T></span>
+          <span className="text-[var(--text-primary)] font-medium"><T>Enable Soundboard</T></span>
           <ToggleSwitch
             checked={draftBool("soundboard.enabled", true)}
             onCheckedChange={(checked) => settingsDraft.update("soundboard.enabled", checked)}
             aria-label="Enable soundboard"
           />
         </div>
-        <p className="text-xs text-[#666666] mt-2"><T>Playback volume is now a personal preference in User Settings → Voice &amp; Video.</T></p>
+        <p className="text-xs text-[var(--text-muted)] mt-2"><T>Playback volume is now a personal preference in User Settings → Voice &amp; Video.</T></p>
       </div>
 
       {/* Sound list */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-white"><T>Sounds</T> ({soundboardSounds.length}/500)</h3>
-            <p className="text-xs text-[#888888]"><T>Upload audio files (max 20MB, 30s, mp3/wav/ogg)</T></p>
+            <h3 className="text-lg font-semibold text-[var(--text-primary)]"><T>Sounds</T> ({soundboardSounds.length}/500)</h3>
+            <p className="text-xs text-[var(--text-secondary)]"><T>Upload audio files (max 20MB, 30s, mp3/wav/ogg)</T></p>
           </div>
           <button
             onClick={() => soundInputRef.current?.click()}
@@ -3428,10 +3439,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         />
 
         {soundboardSounds.length === 0 ? (
-          <div className="text-center py-12 border-2 border-dashed border-[#222222] rounded-lg">
-            <Volume2 className="w-12 h-12 text-[#666666] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-white mb-2"><T>No sounds yet</T></h3>
-            <p className="text-[#888888] text-sm mb-4"><T>Upload audio files to use in voice channels</T></p>
+          <div className="text-center py-12 border-2 border-dashed border-[var(--border-subtle)] rounded-lg">
+            <Volume2 className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No sounds yet</T></h3>
+            <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload audio files to use in voice channels</T></p>
             <button
               onClick={() => soundInputRef.current?.click()}
               className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md"
@@ -3444,7 +3455,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             {soundboardSounds.map((sound) => (
               <div
                 key={sound.id}
-                className="relative group flex items-center gap-3 p-3 bg-[#111111] border border-[#222222] rounded-lg hover:border-[#8B5CF6]/50 transition-colors"
+                className="relative group flex items-center gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg hover:border-[#8B5CF6]/50 transition-colors"
               >
                 <button
                   onClick={() => playSound(sound)}
@@ -3453,12 +3464,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   {playingSoundId === sound.id ? (
                     <Loader size={20} />
                   ) : (
-                    <Play className="w-5 h-5 text-white ml-0.5" fill="white" />
+                    <Play className="w-5 h-5 text-[var(--text-primary)] ml-0.5" fill="white" />
                   )}
                 </button>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white truncate">{sound.name}</p>
-                  <p className="text-xs text-[#666666]">{sound.emoji}</p>
+                  <p className="text-sm text-[var(--text-primary)] truncate">{sound.name}</p>
+                  <p className="text-xs text-[var(--text-muted)]">{sound.emoji}</p>
                 </div>
                 <button
                   onClick={() => handleDeleteSound(sound.id)}
@@ -3484,13 +3495,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-white mb-1">Integrations</h2>
-          <p className="text-sm text-[#888888]">Enable or disable external integrations for your server</p>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Integrations</T></h2>
+          <p className="text-sm text-[var(--text-secondary)]"><T>Enable or disable external integrations for your server</T></p>
         </div>
 
         <div className="space-y-4">
           {/* Discord Card */}
-          <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] space-y-4">
+          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-lg bg-[#5865F2]/15 flex items-center justify-center shrink-0">
@@ -3499,10 +3510,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   </svg>
                 </div>
                 <div>
-                  <p className="text-white font-semibold flex items-center gap-2">
+                  <p className="text-[var(--text-primary)] font-semibold flex items-center gap-2">
                     <T>Discord Bridge</T>
                   </p>
-                  <p className="text-sm text-[#888888]"><T>Sync channels, roles, and messages bidirectionally with Discord</T></p>
+                  <p className="text-sm text-[var(--text-secondary)]"><T>Sync channels, roles, and messages bidirectionally with Discord</T></p>
                 </div>
               </div>
               <ToggleSwitch
@@ -3513,13 +3524,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </div>
 
             {isDiscordEnabled && (
-              <div className="pt-4 border-t border-[#222222] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                 {/* Bot Status & Invite */}
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-[#0d0d0d] border border-[#1e1e1e]">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-white"><T>SerikaCord Bot</T></p>
-                    <p className="text-[11px] text-[#888888]"><T>Online and listening for messages via Gateway</T></p>
+                    <p className="text-[11px] text-[var(--text-secondary)]"><T>Online and listening for messages via Gateway</T></p>
                   </div>
                   <a
                     href="https://discord.com/oauth2/authorize?client_id=1524469730256355421&permissions=8&scope=bot"
@@ -3533,24 +3544,24 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
                 {/* Guild ID Input */}
                 <div>
-                  <label className="block text-xs font-semibold text-[#888888] mb-2"><T>DISCORD SERVER (GUILD) ID</T></label>
+                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>DISCORD SERVER (GUILD) ID</T></label>
                   <Input
                     type="text"
                     placeholder={gt("e.g. 1161608848428236902")}
                     value={draftString("integrations.discordGuildId", "")}
                     onChange={(e) => settingsDraft.update("integrations.discordGuildId", e.target.value)}
-                    className="bg-[#0a0a0a] border-[#222222] text-white font-mono text-sm"
+                    className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] font-mono text-sm"
                   />
-                  <p className="text-[11px] text-[#666666] mt-1.5">
+                  <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
                     <T>Right-click your Discord server &gt; Copy Server ID (enable Developer Mode in Discord settings)</T>
                   </p>
                 </div>
 
                 {/* Consent enforcement */}
-                <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-[#0d0d0d] border border-[#1e1e1e]">
+                <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-white"><T>Restrict members who haven&apos;t agreed</T></p>
-                    <p className="text-[11px] text-[#888888] mt-0.5">
+                    <p className="text-xs font-semibold text-[var(--text-primary)]"><T>Restrict members who haven&apos;t agreed</T></p>
+                    <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
                       <T>Discord members who decline data processing by Serika are timed out for 1 week (re-applied weekly) until they agree. Their messages are never synced regardless of this setting.</T>
                     </p>
                   </div>
@@ -3562,16 +3573,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
 
                 {/* Advanced Sync Controls */}
-                <div className="bg-[#181818] p-4 rounded-md border border-[#2c2c2c] space-y-3">
+                <div className="bg-[var(--app-surface-alt)] p-4 rounded-md border border-[var(--border-subtle)] space-y-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-white"><T>Channel &amp; Role Sync</T></p>
+                    <p className="text-sm font-semibold text-[var(--text-primary)]"><T>Channel &amp; Role Sync</T></p>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>SYNC MODE</T></label>
+                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>SYNC MODE</T></label>
                     <select
                       value={draftString("integrations.discordMode", "add")}
                       onChange={(e) => settingsDraft.update("integrations.discordMode", e.target.value)}
-                      className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
+                      className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                     >
                       <option value="add">{gt("Keep existing channels, add Discord channels alongside")}</option>
                       <option value="delete">{gt("Replace all channels with Discord channels (destructive)")}</option>
@@ -3599,7 +3610,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       type="button"
                       onClick={() => handleMockTrigger("discord")}
                       disabled={isTriggeringDiscord}
-                      className="px-4 h-9 bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 text-white text-xs font-semibold rounded-md flex items-center gap-2 transition-colors"
+                      className="px-4 h-9 bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 text-[var(--text-primary)] text-xs font-semibold rounded-md flex items-center gap-2 transition-colors"
                     >
                       {isTriggeringDiscord ? (
                         <>
@@ -3625,13 +3636,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
 
           {/* Twitch Card */}
-          <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] space-y-4">
+          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-white font-medium flex items-center gap-2">
+                <p className="text-[var(--text-primary)] font-medium flex items-center gap-2">
                   <span className="text-[#a970ff] font-semibold"><T>Twitch Integration</T></span>
                 </p>
-                <p className="text-sm text-[#888888]"><T>Post stream notifications automatically</T></p>
+                <p className="text-sm text-[var(--text-secondary)]"><T>Post stream notifications automatically</T></p>
               </div>
               <ToggleSwitch
                 checked={isTwitchEnabled}
@@ -3641,24 +3652,24 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </div>
 
             {isTwitchEnabled && (
-              <div className="pt-4 border-t border-[#222222] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>TWITCH CHANNEL NAME</T></label>
+                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>TWITCH CHANNEL NAME</T></label>
                     <Input
                       type="text"
                       placeholder={gt("e.g. shroud")}
                       value={draftString("integrations.twitchChannel", "")}
                       onChange={(e) => settingsDraft.update("integrations.twitchChannel", e.target.value)}
-                      className="bg-[#0a0a0a] border-[#222222] text-white"
+                      className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>NOTIFICATION CHANNEL</T></label>
+                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>NOTIFICATION CHANNEL</T></label>
                     <select
                       value={draftString("integrations.twitchNotificationChannelId", "")}
                       onChange={(e) => settingsDraft.update("integrations.twitchNotificationChannelId", e.target.value)}
-                      className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
+                      className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                     >
                       <option value="">{gt("Select a channel")}</option>
                       {textChannels.map((channel) => (
@@ -3690,13 +3701,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
 
           {/* YouTube Card */}
-          <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] space-y-4">
+          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
             <div className="flex items-center justify-between gap-4">
               <div>
-                <p className="text-white font-medium flex items-center gap-2">
+                <p className="text-[var(--text-primary)] font-medium flex items-center gap-2">
                   <span className="text-[#FF0000] font-semibold"><T>YouTube Integration</T></span>
                 </p>
-                <p className="text-sm text-[#888888]"><T>Post notifications for new uploads and videos</T></p>
+                <p className="text-sm text-[var(--text-secondary)]"><T>Post notifications for new uploads and videos</T></p>
               </div>
               <ToggleSwitch
                 checked={isYoutubeEnabled}
@@ -3706,24 +3717,24 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             </div>
 
             {isYoutubeEnabled && (
-              <div className="pt-4 border-t border-[#222222] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>YOUTUBE CHANNEL ID OR NAME</T></label>
+                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>YOUTUBE CHANNEL ID OR NAME</T></label>
                     <Input
                       type="text"
                       placeholder={gt("e.g. MrBeast")}
                       value={draftString("integrations.youtubeChannel", "")}
                       onChange={(e) => settingsDraft.update("integrations.youtubeChannel", e.target.value)}
-                      className="bg-[#0a0a0a] border-[#222222] text-white"
+                      className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-[#888888] mb-2"><T>NOTIFICATION CHANNEL</T></label>
+                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>NOTIFICATION CHANNEL</T></label>
                     <select
                       value={draftString("integrations.youtubeNotificationChannelId", "")}
                       onChange={(e) => settingsDraft.update("integrations.youtubeNotificationChannelId", e.target.value)}
-                      className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white"
+                      className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                     >
                       <option value="">{gt("Select a channel")}</option>
                       {textChannels.map((channel) => (
@@ -3755,10 +3766,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
 
           {/* Webhooks Card */}
-          <div className="p-4 rounded-lg bg-[#111111] border border-[#222222] flex items-center justify-between gap-4">
+          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] flex items-center justify-between gap-4">
             <div>
-              <p className="text-white font-medium"><T>Custom Webhooks</T></p>
-              <p className="text-sm text-[#888888]"><T>Allow inbound/outbound webhook automations</T></p>
+              <p className="text-[var(--text-primary)] font-medium"><T>Custom Webhooks</T></p>
+              <p className="text-sm text-[var(--text-secondary)]"><T>Allow inbound/outbound webhook automations</T></p>
             </div>
             <ToggleSwitch
               checked={isWebhooksEnabled}
@@ -3814,15 +3825,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       role="dialog"
       aria-modal="true"
       aria-label={gt("Server settings for {name}", { name: currentServer.name })}
-      className="fixed inset-0 z-50 bg-[#0a0a0a] flex"
+      className="fixed inset-0 z-50 bg-[var(--bg-app)] flex"
     >
       {/* Sidebar */}
-      <div className="w-56 md:w-64 bg-[#0a0a0a] border-r border-[#1a1a1a] flex flex-col">
+      <div className="w-56 md:w-64 bg-[var(--bg-app)] border-r border-[var(--border-subtle)] flex flex-col">
         <ScrollArea className="flex-1 py-4">
           <div className="space-y-6 px-2">
             {menuSections.map((section) => (
               <div key={section.title}>
-                <h3 className="px-3 mb-1 text-xs font-semibold uppercase text-[#666666] truncate">
+                <h3 className="px-3 mb-1 text-xs font-semibold uppercase text-[var(--text-muted)] truncate">
                   {section.title}
                 </h3>
                 <div className="space-y-0.5">
@@ -3835,8 +3846,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                         className={cn(
                           "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
                           activeTab === item.id
-                            ? "bg-[#8B5CF6]/10 text-white"
-                            : "text-[#888888] hover:bg-[#111111] hover:text-white"
+                            ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
+                            : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                         )}
                       >
                         <item.icon className="w-4 h-4 flex-shrink-0" />
@@ -3859,11 +3870,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="h-14 flex items-center justify-end px-4 border-b border-[#1a1a1a]">
+        <div className="h-14 flex items-center justify-end px-4 border-b border-[var(--border-subtle)]">
           <button
             onClick={handleRequestClose}
             aria-label={gt("Close server settings")}
-            className="p-2 rounded-full hover:bg-[#1a1a1a] text-[#888888] hover:text-white transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
+            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
           >
             <X className="w-5 h-5" />
           </button>

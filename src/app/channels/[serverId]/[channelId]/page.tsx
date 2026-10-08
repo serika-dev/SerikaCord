@@ -231,23 +231,23 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
   const audioOnlyParticipants = participants.filter(p => p.userId !== myId && !p.video && !(p.screenShare && p.screenStream));
 
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0d15] min-w-0 min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-[var(--bg-app)] min-w-0 min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="h-12 px-4 flex items-center justify-between border-b border-[#1e2637] bg-[#0a0d15]">
+      <div className="h-12 px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--bg-app)]">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && serverId && (
             <button
               onClick={() => router.push(`/channels/${serverId}`)}
-              className="flex items-center justify-center w-8 h-8 -ml-2 rounded-lg text-[#8d97ad] hover:text-white hover:bg-[#1e2637] transition-colors"
+              className="flex items-center justify-center w-8 h-8 -ml-2 rounded-lg text-[var(--app-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
               title={gt("Back")}
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
           <Volume2 className="w-5 h-5 text-[#8B5CF6] flex-shrink-0" />
-          <span className="font-semibold text-white truncate">{channelName}</span>
+          <span className="font-semibold text-[var(--text-primary)] truncate">{channelName}</span>
         </div>
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#131a28] text-xs text-[#8d97ad] ring-1 ring-white/5">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--app-surface-alt)] text-xs text-[var(--app-muted)] ring-1 ring-white/5">
           <span className={cn("w-1.5 h-1.5 rounded-full", participants.length > 0 ? "bg-green-500" : "bg-[#3a4459]")} />
           {participants.length} {participants.length === 1 ? gt("participant") : gt("participants")}
         </div>
@@ -258,11 +258,11 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
         {!isConnected ? (
           /* Not joined — show join screen */
           <div className="flex-1 flex flex-col items-center justify-center text-center">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-b from-[#8B5CF6]/20 to-[#131a28] ring-1 ring-[#8B5CF6]/20 shadow-[0_0_40px_rgba(139,92,246,0.25)] flex items-center justify-center mb-5">
+            <div className="w-24 h-24 rounded-full bg-gradient-to-b from-[#8B5CF6]/20 to-[var(--app-surface-alt)] ring-1 ring-[#8B5CF6]/20 shadow-[0_0_40px_rgba(139,92,246,0.25)] flex items-center justify-center mb-5">
               <Volume2 className="w-11 h-11 text-[#8B5CF6]" />
             </div>
-            <h2 className="text-lg font-semibold text-white mb-1">{channelName}</h2>
-            <p className="text-sm text-[#6b7387] mb-4">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{channelName}</h2>
+            <p className="text-sm text-[var(--app-muted-2)] mb-4">
               {participants.length > 0
                 ? gt("{count} {people} in this channel", { count: participants.length, people: participants.length === 1 ? gt("person is") : gt("people are") })
                 : gt("No one is here yet")}
@@ -277,7 +277,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                         {(p.displayName || p.username || "?").charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-[10px] text-[#d5d9e8] truncate max-w-full">
+                    <span className="text-[10px] text-[var(--text-primary)] truncate max-w-full">
                       {p.displayName || p.username}
                     </span>
                     {!p.audio && <MicOff className="w-3 h-3 text-red-400" />}
@@ -368,7 +368,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                   videoParticipants.length === 0 && !isVideoOn ? "" : ""
                 )}>
                   {videoParticipants.length > 0 || isVideoOn ? (
-                    <h3 className="text-xs font-semibold text-[#6b7387] uppercase tracking-wide mb-2">{gt("In Voice")}</h3>
+                    <h3 className="text-xs font-semibold text-[var(--app-muted-2)] uppercase tracking-wide mb-2">{gt("In Voice")}</h3>
                   ) : null}
                   <div className={cn(
                     "grid gap-2",
@@ -381,21 +381,21 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                       return (
                         <div
                           key={p.userId}
-                          className="flex flex-col items-center gap-2 p-3 rounded-xl bg-[#131a28] border border-[#1e2637] transition-all"
+                          className="flex flex-col items-center gap-2 p-3 rounded-xl bg-[var(--app-surface-alt)] border border-[var(--app-border)] transition-all"
                           style={isSpeaking ? { borderColor: '#22c55e', boxShadow: '0 0 8px rgba(34,197,94,0.3)' } : undefined}
                         >
                           <div className="relative">
-                            <Avatar className={cn("w-12 h-12", isSpeaking && "ring-2 ring-green-500 ring-offset-2 ring-offset-[#131a28]")}>
+                            <Avatar className={cn("w-12 h-12", isSpeaking && "ring-2 ring-green-500 ring-offset-2 ring-offset-[var(--app-surface-alt)]")}>
                               {p.avatar && <AvatarImage src={cdnImage(p.avatar)} alt={p.username} />}
                               <AvatarFallback className="bg-[#8B5CF6]/20 text-[#8B5CF6]">
                                 {(p.displayName || p.username || "?").charAt(0).toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
                             {isSpeaking && (
-                              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-[#131a28]" />
+                              <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-500 border-2 border-[var(--app-surface-alt)]" />
                             )}
                           </div>
-                          <span className="text-xs text-[#d5d9e8] truncate max-w-full">
+                          <span className="text-xs text-[var(--text-primary)] truncate max-w-full">
                             {p.displayName || p.username}
                           </span>
                           <div className="flex items-center gap-1">
@@ -414,7 +414,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
               {/* Empty state when connected but nobody has video */}
               {videoParticipants.length === 0 && !isVideoOn && audioOnlyParticipants.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-center text-[#6b7387]">
+                <div className="h-full flex flex-col items-center justify-center text-center text-[var(--app-muted-2)]">
                   <Users className="w-10 h-10 mb-3 text-[#2a3548]" />
                   <p className="text-sm">{gt("You're the only one here. Invite others to join!")}</p>
                 </div>
@@ -423,7 +423,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
             {/* Call controls bar — floating dock */}
             <div className="bg-transparent px-3 sm:px-4 pb-3 sm:pb-5 pt-1">
-              <div className="mx-auto w-fit flex items-center justify-center gap-1 sm:gap-1.5 rounded-2xl bg-[#131a28]/90 backdrop-blur-md px-2 py-1.5 sm:px-2.5 sm:py-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
+              <div className="mx-auto w-fit flex items-center justify-center gap-1 sm:gap-1.5 rounded-2xl bg-[var(--app-surface-alt)]/90 backdrop-blur-md px-2 py-1.5 sm:px-2.5 sm:py-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
                 <button
                   onClick={handleMute}
                   title={isMuted ? gt("Unmute") : gt("Mute")}
@@ -432,7 +432,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                     isMobile ? "w-9 h-9" : "w-10 h-10",
                     isMuted
                       ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
-                      : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                      : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
                   )}
                 >
                   {isMuted ? <MicOff className={isMobile ? "w-4 h-4" : "w-5 h-5"} /> : <Mic className={isMobile ? "w-4 h-4" : "w-5 h-5"} />}
@@ -446,7 +446,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                     isMobile ? "w-9 h-9" : "w-10 h-10",
                     isDeafened
                       ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
-                      : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                      : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
                   )}
                 >
                   {isDeafened ? <HeadphoneOff className={isMobile ? "w-4 h-4" : "w-5 h-5"} /> : <Headphones className={isMobile ? "w-4 h-4" : "w-5 h-5"} />}
@@ -460,7 +460,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                     isMobile ? "w-9 h-9" : "w-10 h-10",
                     isVideoOn
                       ? "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
-                      : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                      : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
                   )}
                 >
                   {isVideoOn ? <Video className={isMobile ? "w-4 h-4" : "w-5 h-5"} /> : <VideoOff className={isMobile ? "w-4 h-4" : "w-5 h-5"} />}
@@ -475,7 +475,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                     isMobile ? "w-9 h-9" : "w-10 h-10",
                     noiseSuppression
                       ? "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
-                      : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                      : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
                   )}
                 >
                   <Sparkles className={isMobile ? "w-4 h-4" : "w-5 h-5"} />
@@ -490,7 +490,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                       "flex items-center justify-center w-10 h-10 rounded-full transition-all active:scale-95 hover:scale-105",
                       isScreenSharing
                         ? "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
-                        : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                        : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
                     )}
                   >
                     {isScreenSharing ? <MonitorOff className="w-5 h-5" /> : <ScreenShare className="w-5 h-5" />}
@@ -507,7 +507,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                       isMobile ? "w-9 h-9" : "w-10 h-10",
                       showSoundboard
                         ? "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
-                        : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                        : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
                     )}
                   >
                     <Music className={isMobile ? "w-4 h-4" : "w-5 h-5"} />
@@ -530,8 +530,8 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
               {/* Soundboard Panel */}
               {showSoundboard && soundboardSounds.length > 0 && (
-                <div className="mt-3 p-3 bg-[#131a28] rounded-lg border border-[#1e2637]">
-                  <p className="text-xs text-[#6b7387] mb-2 font-medium uppercase tracking-wide">{gt("Soundboard")}</p>
+                <div className="mt-3 p-3 bg-[var(--app-surface-alt)] rounded-lg border border-[var(--app-border)]">
+                  <p className="text-xs text-[var(--app-muted-2)] mb-2 font-medium uppercase tracking-wide">{gt("Soundboard")}</p>
                   <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                     {soundboardSounds.map((sound) => (
                       <button
@@ -542,11 +542,11 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                           "flex flex-col items-center gap-1 p-2 rounded-lg border transition-all",
                           playingSoundId === sound.id
                             ? "bg-[#8B5CF6]/20 border-[#8B5CF6] scale-95"
-                            : "bg-[#0a0d15] border-[#1e2637] hover:border-[#8B5CF6]/50 hover:bg-[#1e2637]"
+                            : "bg-[var(--bg-app)] border-[var(--app-border)] hover:border-[#8B5CF6]/50 hover:bg-[var(--bg-hover)]"
                         )}
                       >
                         <span className="text-lg">{sound.emoji || "🔊"}</span>
-                        <span className="text-[10px] text-[#8d97ad] truncate w-full text-center">{sound.name}</span>
+                        <span className="text-[10px] text-[var(--app-muted)] truncate w-full text-center">{sound.name}</span>
                       </button>
                     ))}
                   </div>

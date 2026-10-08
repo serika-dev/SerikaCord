@@ -1081,6 +1081,7 @@ function GenericEmbed({
   preview?: OEmbedData;
   onSuppress?: () => void;
 }) {
+  const gt = useChatGt();
   let hostname = "link";
   let pathname = "";
 
@@ -1098,7 +1099,7 @@ function GenericEmbed({
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSuppress(); }}
           className="absolute top-1 right-1 z-10 opacity-0 group-hover/embed-card:opacity-100 transition-opacity p-1 text-white/70 hover:text-white"
-          title="Remove embed"
+          title={gt("Remove embed")}
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -1279,6 +1280,7 @@ function KlipyEmbed({ url, preview, onMediaClick }: { url: string; preview?: { t
  * server strips player data for non-whitelisted URLs).
  */
 function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: OEmbedData; onSuppress?: () => void }) {
+  const gt = useChatGt();
   // First-party domains (e.g. music.serika.dev) render the iframe immediately,
   // like Spotify embeds. Third-party domains get a click-to-play preview.
   const [showPlayer, setShowPlayer] = useState(() => isFirstPartyUrl(url));
@@ -1317,7 +1319,7 @@ function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: O
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onSuppress(); }}
           className="absolute top-1 right-1 z-10 opacity-0 group-hover/embed-card:opacity-100 transition-opacity p-1 text-white/70 hover:text-white"
-          title="Remove embed"
+          title={gt("Remove embed")}
         >
           <X className="w-3.5 h-3.5" />
         </button>

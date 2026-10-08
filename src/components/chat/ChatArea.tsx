@@ -531,10 +531,10 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const authorName = message.author?.displayName || message.author?.username || "Someone";
         const showPreview = user?.settings?.notifications?.showPreview !== false;
         const preview = showPreview
-          ? (message.content?.slice(0, 80) || (message.attachments?.length ? "📎 Attachment" : "New message"))
-          : "New message";
+          ? (message.content?.slice(0, 80) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
+          : gt("New message");
         void showNotification(
-          isMentioned ? `${authorName} mentioned you` : authorName,
+          isMentioned ? gt("{name} mentioned you", { name: authorName }) : authorName,
           preview,
           {
             tag: `message-${message.channelId}`,
@@ -566,13 +566,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         const authorName = message.author?.displayName || message.author?.username || "Someone";
         const showPreview = user?.settings?.notifications?.showPreview !== false;
         const preview = showPreview
-          ? (message.content?.slice(0, 80) || (message.attachments?.length ? "📎 Attachment" : "New message"))
-          : "New message";
+          ? (message.content?.slice(0, 80) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
+          : gt("New message");
         toast(authorName, {
           description: preview,
           duration: 4000,
           action: {
-            label: "View",
+            label: gt("View"),
             onClick: () => {
               window.focus();
               messageListRef.current?.scrollToBottom();
@@ -1163,7 +1163,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
             id: ch.id,
             kind: "channel" as const,
             label: ch.name,
-            description: "Text channel",
+            description: gt("Text channel"),
           }));
 
         if (!channelSuggestions.length) {
@@ -1200,8 +1200,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       }
 
       const staticSuggestionPool: MentionSuggestion[] = [
-        { id: "everyone", kind: "everyone", label: "everyone", description: "Notify everyone in this channel" },
-        { id: "here", kind: "here", label: "here", description: "Notify currently active members" },
+        { id: "everyone", kind: "everyone", label: "everyone", description: gt("Notify everyone in this channel") },
+        { id: "here", kind: "here", label: "here", description: gt("Notify currently active members") },
       ];
       const staticSuggestions = staticSuggestionPool.filter((entry) => entry.label.startsWith(query));
 
@@ -1232,7 +1232,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           id: entry.id,
           kind: "role" as const,
           label: entry.name,
-          description: "Role mention",
+          description: gt("Role mention"),
           color: entry.color,
         }));
 
@@ -1252,7 +1252,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       setMentionSuggestions(nextSuggestions);
       setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
     },
-    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, channels, appLeaves]
+    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, channels, appLeaves, gt]
   );
 
   const insertMentionFromSuggestion = useCallback(

@@ -228,7 +228,7 @@ export function AdminTranslationsPanel() {
               "px-3 py-1.5 rounded-md text-sm font-medium transition-all",
               subTab === tab.id
                 ? "bg-[#8B5CF6] text-white"
-                : "text-[var(--text-secondary)] hover:text-white hover:bg-[var(--bg-hover)]"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             )}
           >
             {tab.label}
@@ -252,7 +252,7 @@ export function AdminTranslationsPanel() {
             <button
               onClick={handlePush}
               disabled={actionLoading}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all border border-[var(--border-color)]"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] disabled:opacity-50 text-[var(--text-primary)] rounded-lg font-medium text-sm transition-all border border-[var(--border-color)]"
             >
               {actionLoading ? <Loader size={16} /> : <Upload className="w-4 h-4" />}
               {gt("Push Source")}
@@ -260,7 +260,7 @@ export function AdminTranslationsPanel() {
             <button
               onClick={handlePull}
               disabled={actionLoading}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all border border-[var(--border-color)]"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] disabled:opacity-50 text-[var(--text-primary)] rounded-lg font-medium text-sm transition-all border border-[var(--border-color)]"
             >
               {actionLoading ? <Loader size={16} /> : <Download className="w-4 h-4" />}
               {gt("Pull Translations")}
@@ -375,7 +375,7 @@ export function AdminTranslationsPanel() {
                 onChange={(e) => setKeySearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleKeySearch()}
                 placeholder={gt("Search translation keys...")}
-                className="w-full pl-10 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-white text-sm focus:border-[#8B5CF6] outline-none"
+                className="w-full pl-10 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] text-sm focus:border-[#8B5CF6] outline-none"
               />
             </div>
             <button

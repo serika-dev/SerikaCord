@@ -203,7 +203,7 @@ export function ShareInviteButton({
         "flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium rounded-lg transition-colors",
         tab === id
           ? "bg-[var(--accent-color)] text-white"
-          : "text-[#b5bac1] hover:bg-[#1a1a1a]"
+          : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
       )}
     >
       <Icon className="w-4 h-4" />
@@ -216,7 +216,7 @@ export function ShareInviteButton({
       <DialogTrigger asChild>
         <button
           className={cn(
-            "flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[#1a1a1a] hover:bg-[#252525] text-white transition-colors text-sm font-medium",
+            "flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] transition-colors text-sm font-medium",
             className
           )}
         >
@@ -224,9 +224,9 @@ export function ShareInviteButton({
           {gt("Share")}
         </button>
       </DialogTrigger>
-      <DialogContent className="bg-[#111111] border border-[#222222] text-[#d5d9e8] max-w-sm p-0 rounded-xl overflow-hidden">
+      <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-sm p-0 rounded-xl overflow-hidden">
         <DialogHeader className="p-4 pb-0">
-          <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
+          <DialogTitle className="text-lg font-bold text-[var(--text-primary)] flex items-center gap-2">
             <Share2 className="w-5 h-5 text-[var(--accent-color)]" />
             {gt("Share Invite")}
           </DialogTitle>
@@ -241,12 +241,12 @@ export function ShareInviteButton({
 
           {tab === "link" && (
             <div className="space-y-3">
-              <div className="flex items-center gap-2 p-3 bg-[#0a0a0a] rounded-lg border border-[#222222]">
+              <div className="flex items-center gap-2 p-3 bg-[var(--bg-app)] rounded-lg border border-[var(--border-subtle)]">
                 <input
                   type="text"
                   readOnly
                   value={inviteUrl}
-                  className="flex-1 bg-transparent text-sm text-[#b5bac1] outline-none"
+                  className="flex-1 bg-transparent text-sm text-[var(--text-secondary)] outline-none"
                 />
                 <button
                   onClick={handleCopy}
@@ -260,7 +260,7 @@ export function ShareInviteButton({
                   onClick={() => {
                     void navigator.share({ title: `Join ${serverName} on SerikaCord`, url: inviteUrl });
                   }}
-                  className="w-full py-2 rounded-lg bg-[#1a1a1a] hover:bg-[#252525] text-sm text-white transition-colors"
+                  className="w-full py-2 rounded-lg bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-sm text-[var(--text-primary)] transition-colors"
                 >
                   {gt("Open device share sheet")}
                 </button>
@@ -274,7 +274,7 @@ export function ShareInviteButton({
                 <>
                   <button
                     onClick={() => setSelectedServer(null)}
-                    className="text-xs text-[#b5bac1] hover:text-white flex items-center gap-1 mb-2"
+                    className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-1 mb-2"
                   >
                     <ChevronLeft className="w-3 h-3" /> {gt("Back to servers")}
                   </button>
@@ -283,17 +283,17 @@ export function ShareInviteButton({
                       <Loader size={20} />
                     </div>
                   ) : channels.length === 0 ? (
-                    <p className="text-sm text-[#6b7387]">{gt("No text channels available.")}</p>
+                    <p className="text-sm text-[var(--text-muted)]">{gt("No text channels available.")}</p>
                   ) : (
                     channels.map((channel) => (
                       <button
                         key={channel.id}
                         onClick={() => sendToChannel(channel.id)}
                         disabled={sending}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] text-left transition-colors"
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--bg-app)] hover:bg-[var(--bg-hover)] text-left transition-colors"
                       >
-                        <Hash className="w-4 h-4 text-[#6b7387]" />
-                        <span className="text-sm text-[#dcddde] truncate">{channel.name}</span>
+                        <Hash className="w-4 h-4 text-[var(--text-muted)]" />
+                        <span className="text-sm text-[var(--text-primary)] truncate">{channel.name}</span>
                         {sending && <Loader size={undefined} className="ml-auto" />}
                       </button>
                     ))
@@ -306,13 +306,13 @@ export function ShareInviteButton({
                       <Loader size={20} />
                     </div>
                   ) : servers.length === 0 ? (
-                    <p className="text-sm text-[#6b7387]">{gt("You need to be in a server to share to a channel.")}</p>
+                    <p className="text-sm text-[var(--text-muted)]">{gt("You need to be in a server to share to a channel.")}</p>
                   ) : (
                     servers.map((server) => (
                       <button
                         key={server.id}
                         onClick={() => loadChannels(server)}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] text-left transition-colors"
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--bg-app)] hover:bg-[var(--bg-hover)] text-left transition-colors"
                       >
                         <Avatar className="w-7 h-7">
                           <AvatarImage src={cdnImage(server.icon)} />
@@ -320,7 +320,7 @@ export function ShareInviteButton({
                             {server.name.charAt(0)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="text-sm text-[#dcddde] truncate">{server.name}</span>
+                        <span className="text-sm text-[var(--text-primary)] truncate">{server.name}</span>
                       </button>
                     ))
                   )}
@@ -336,14 +336,14 @@ export function ShareInviteButton({
                   <Loader size={20} />
                 </div>
               ) : friends.length === 0 ? (
-                <p className="text-sm text-[#6b7387]">{gt("No friends available to share with.")}</p>
+                <p className="text-sm text-[var(--text-muted)]">{gt("No friends available to share with.")}</p>
               ) : (
                 friends.map((friend) => (
                   <button
                     key={friend.id}
                     onClick={() => sendToFriend(friend.id)}
                     disabled={sending}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] text-left transition-colors"
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--bg-app)] hover:bg-[var(--bg-hover)] text-left transition-colors"
                   >
                     <Avatar className="w-7 h-7">
                       <AvatarImage src={cdnImage(friend.avatar)} />
@@ -351,7 +351,7 @@ export function ShareInviteButton({
                         {(friend.displayName || friend.username).charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <span className="text-sm text-[#dcddde] truncate">
+                    <span className="text-sm text-[var(--text-primary)] truncate">
                       {friend.displayName || friend.username}
                     </span>
                     {sending && <Loader size={undefined} className="ml-auto" />}

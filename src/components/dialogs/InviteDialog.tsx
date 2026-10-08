@@ -236,10 +236,10 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
         aria-modal="true"
         aria-label={`Invite friends to ${activeServer.name}`}
         tabIndex={-1}
-        className="relative w-full max-w-md mx-4 bg-[#111111] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none"
+        className="relative w-full max-w-md mx-4 bg-[var(--bg-card)] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-[#222222]">
+        <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-3">
             <Avatar className="w-10 h-10">
               <AvatarImage src={(activeServer as { icon?: string }).icon} />
@@ -248,13 +248,13 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
               </AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="text-white font-semibold">{gt("Invite friends to")} {activeServer.name}</h2>
-              <p className="text-xs text-[#888888]"><T>Share this link to invite others</T></p>
+              <h2 className="text-[var(--text-primary)] font-semibold">{gt("Invite friends to")} {activeServer.name}</h2>
+              <p className="text-xs text-[var(--text-secondary)]"><T>Share this link to invite others</T></p>
             </div>
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="p-2 rounded-full hover:bg-[#1a1a1a] text-[#888888] hover:text-white transition-colors"
+            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -265,14 +265,14 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           {/* Channel Selector */}
           {!isLockedToVanity && (
           <div>
-            <label className="block text-xs font-semibold uppercase text-[#888888] mb-2">
+            <label className="block text-xs font-semibold uppercase text-[var(--text-secondary)] mb-2">
               {gt("INVITE TO CHANNEL")}
             </label>
             <div className="relative">
               <select
                 value={selectedChannel}
                 onChange={(e) => setSelectedChannel(e.target.value)}
-                className="w-full h-10 px-3 rounded-md bg-[#0a0a0a] border border-[#222222] text-white appearance-none cursor-pointer"
+                className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] appearance-none cursor-pointer"
               >
                 {textChannels.map((channel) => (
                   <option key={channel.id} value={channel.id}>
@@ -280,14 +280,14 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
                   </option>
                 ))}
               </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#888888] pointer-events-none" />
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-secondary)] pointer-events-none" />
             </div>
           </div>
           )}
 
           {/* Invite Link */}
           <div>
-            <label className="block text-xs font-semibold uppercase text-[#888888] mb-2">
+            <label className="block text-xs font-semibold uppercase text-[var(--text-secondary)] mb-2">
               {gt("INVITE LINK")}
             </label>
             <div className="flex gap-2">
@@ -295,7 +295,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
                 <Input
                   value={isLoading ? gt("Generating...") : effectiveCode ? inviteUrl : gt("Could not create invite")}
                   readOnly
-                  className="bg-[#0a0a0a] border-[#222222] text-white pr-10 font-mono text-sm"
+                  className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] pr-10 font-mono text-sm"
                 />
                 {isLoading && (
                   <Loader size={16} className="absolute right-3 top-1/2 -translate-y-1/2" />
@@ -330,7 +330,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           {"share" in navigator && (
             <button
               onClick={handleShare}
-              className="w-full py-2.5 rounded-md bg-[#1a1a1a] hover:bg-[#222222] text-white font-medium transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 rounded-md bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium transition-colors flex items-center justify-center gap-2"
             >
               <Share2 className="w-4 h-4" />
               {gt("Share Invite Link")}
@@ -341,7 +341,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           {!isLockedToVanity && (
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="flex items-center gap-2 text-sm text-[#888888] hover:text-white transition-colors"
+            className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             <Settings className="w-4 h-4" />
             {gt("Edit invite link")}
@@ -354,17 +354,17 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
 
           {/* Settings Panel */}
           {showSettings && !isLockedToVanity && (
-            <div className="space-y-4 p-4 rounded-lg bg-[#0a0a0a] border border-[#222222]">
+            <div className="space-y-4 p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
               {/* Expire After */}
               <div>
-                <label className="flex items-center gap-2 text-xs font-semibold uppercase text-[#888888] mb-2">
+                <label className="flex items-center gap-2 text-xs font-semibold uppercase text-[var(--text-secondary)] mb-2">
                   <Clock className="w-3 h-3" />
                   {gt("EXPIRE AFTER")}
                 </label>
                 <select
                   value={maxAge}
                   onChange={(e) => setMaxAge(Number(e.target.value))}
-                  className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+                  className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                 >
                   {EXPIRE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -376,14 +376,14 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
 
               {/* Max Uses */}
               <div>
-                <label className="flex items-center gap-2 text-xs font-semibold uppercase text-[#888888] mb-2">
+                <label className="flex items-center gap-2 text-xs font-semibold uppercase text-[var(--text-secondary)] mb-2">
                   <Users className="w-3 h-3" />
                   {gt("MAX NUMBER OF USES")}
                 </label>
                 <select
                   value={maxUses}
                   onChange={(e) => setMaxUses(Number(e.target.value))}
-                  className="w-full h-10 px-3 rounded-md bg-[#111111] border border-[#222222] text-white"
+                  className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                 >
                   {MAX_USES_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -407,13 +407,13 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[#222222] bg-[#0a0a0a] rounded-b-lg">
+        <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] rounded-b-lg">
           {isLockedToVanity ? (
-            <p className="text-xs text-[#666666] text-center">
+            <p className="text-xs text-[var(--text-muted)] text-center">
               <T>This server only allows invites through its custom invite link.</T>
             </p>
           ) : (
-            <p className="text-xs text-[#666666] text-center">
+            <p className="text-xs text-[var(--text-muted)] text-center">
               {gt("Your invite link expires in")} {EXPIRE_OPTIONS.find(o => o.value === maxAge)?.label || gt("7 days")}.
               {maxUses > 0 && ` ${gt("Limited to")} ${maxUses} ${gt("uses")}.`}
             </p>

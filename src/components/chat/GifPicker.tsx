@@ -622,31 +622,31 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
   const showBackButton = viewMode !== "home";
 
   const SkeletonTile = () => (
-    <div className="relative aspect-[16/9] rounded-lg overflow-hidden bg-[#2b2d31] animate-pulse" />
+    <div className="relative aspect-[16/9] rounded-lg overflow-hidden bg-[var(--app-surface-alt)] animate-pulse" />
   );
 
   const SkeletonGif = ({ tall }: { tall?: boolean }) => (
-    <div className={cn("w-full rounded-lg bg-[#2b2d31] animate-pulse break-inside-avoid mb-2", tall ? "h-32" : "h-20")} />
+    <div className={cn("w-full rounded-lg bg-[var(--app-surface-alt)] animate-pulse break-inside-avoid mb-2", tall ? "h-32" : "h-20")} />
   );
 
   return (
     <div className={cn(
-      "w-full max-w-[440px] h-[480px] bg-[#1e1f22] rounded-xl flex flex-col overflow-hidden shadow-2xl border border-[#2b2d31]/60",
+      "w-full max-w-[440px] h-[480px] bg-[var(--bg-app)] rounded-xl flex flex-col overflow-hidden shadow-2xl border border-[var(--border-subtle)]",
       className
     )}>
       {/* Header: back button or home tabs */}
       {showBackButton ? (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-[#2b2d31] flex-shrink-0">
+        <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
           <button
             onClick={goHome}
-            className="p-1.5 hover:bg-[#2b2d31] rounded-md transition-colors"
+            className="p-1.5 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
           >
-            <ChevronLeft className="w-4 h-4 text-[#b5bac1]" />
+            <ChevronLeft className="w-4 h-4 text-[var(--text-secondary)]" />
           </button>
-          <span className="text-sm font-semibold text-white truncate">{getHeaderTitle()}</span>
+          <span className="text-sm font-semibold text-[var(--text-primary)] truncate">{getHeaderTitle()}</span>
         </div>
       ) : (
-        <div className="flex gap-0.5 px-3 pt-2.5 pb-0 border-b border-[#2b2d31] flex-shrink-0">
+        <div className="flex gap-0.5 px-3 pt-2.5 pb-0 border-b border-[var(--border-subtle)] flex-shrink-0">
           {([
             { id: "tags",     label: gt("Tags"),     icon: <TagIcon className="w-3.5 h-3.5" /> },
             { id: "collections", label: gt("Collections"), icon: <Grid3X3 className="w-3.5 h-3.5" /> },
@@ -658,8 +658,8 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
               className={cn(
                 "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-md transition-all border-b-2 -mb-px",
                 homeTab === tab.id
-                  ? "text-white border-[#5865f2] bg-[#5865f2]/10"
-                  : "text-[#949ba4] border-transparent hover:text-[#d5d9e8] hover:bg-[#2b2d31]/50"
+                  ? "text-[var(--text-primary)] border-[var(--app-accent)] bg-[var(--bg-active)]"
+                  : "text-[var(--text-muted)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
               )}
             >
               {tab.icon}
@@ -672,27 +672,27 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
       {/* Search bar */}
       <div className="px-3 py-2 flex-shrink-0">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#949ba4]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
           <Input
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder={gt("Search GIFs…")}
-            className="pl-9 pr-8 bg-[#111214] border-[#2b2d31] text-white placeholder:text-[#949ba4] h-9 text-sm rounded-lg focus:ring-1 focus:ring-[#5865f2]/50 focus:border-[#5865f2]/50"
+            className="pl-9 pr-8 bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-9 text-sm rounded-lg focus:ring-1 focus:ring-[var(--app-accent)] focus:border-[var(--app-accent)]"
             autoFocus
           />
           {search && (
             <button
               onClick={() => { handleSearchChange(""); }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 hover:bg-[#2b2d31] rounded transition-colors"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 hover:bg-[var(--bg-hover)] rounded transition-colors"
             >
-              <X className="w-3.5 h-3.5 text-[#949ba4]" />
+              <X className="w-3.5 h-3.5 text-[var(--text-muted)]" />
             </button>
           )}
         </div>
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#2b2d31] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#3b3d44]">
+      <div className="flex-1 overflow-y-auto min-h-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[var(--app-surface-alt)] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[var(--bg-hover)]">
         {isLoading ? (
           /* Skeleton loaders */
           viewMode === "home" && !search ? (
@@ -712,10 +712,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                 {Array.from({ length: 8 }).map((_, i) => <SkeletonGif key={i} tall={i % 3 === 0} />)}
               </div>
             ) : favorites.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+              <div className="flex flex-col items-center justify-center py-16 text-[var(--text-muted)]">
                 <Star className="w-10 h-10 mb-3 opacity-30" />
                 <p className="text-sm">{gt("No favorite GIFs yet")}</p>
-                <p className="text-xs text-[#6b7387] mt-1">{gt("Star GIFs in chat to save them here")}</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1">{gt("Star GIFs in chat to save them here")}</p>
               </div>
             ) : (
               <div className="p-2">
@@ -723,7 +723,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                   {favorites.map((fav, idx) => (
                     <div
                       key={fav.url}
-                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
+                      className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[var(--app-accent)] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                     >
                       <button
                         onClick={() =>
@@ -762,10 +762,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             )
           ) : homeTab === "tags" ? (
             tagsError ? (
-              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+              <div className="flex flex-col items-center justify-center py-16 text-[var(--text-muted)]">
                 <TagIcon className="w-10 h-10 mb-3 opacity-30" />
                 <p className="text-sm">{gt("Failed to load tags")}</p>
-                <button onClick={fetchTags} className="mt-3 px-4 py-1.5 text-xs font-medium bg-[#5865f2]/20 hover:bg-[#5865f2]/30 text-[#7289da] rounded-full transition-colors">
+                <button onClick={fetchTags} className="mt-3 px-4 py-1.5 text-xs font-medium bg-[var(--app-accent)]/20 hover:bg-[color-mix(in_srgb,var(--app-accent)_30%,transparent)] text-[var(--app-accent)] rounded-full transition-colors">
                   {gt("Retry")}
                 </button>
               </div>
@@ -798,7 +798,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                     key={tag.id}
                     label={tag.name}
                     subLabel={tag.count > 0 ? `${tag.count} GIFs` : undefined}
-                    icon={<TagIcon className="w-3.5 h-3.5 text-[#b5bac1]" />}
+                    icon={<TagIcon className="w-3.5 h-3.5 text-[var(--text-secondary)]" />}
                     previews={tagPreviews[tag.slug] || []}
                     onClick={() => goToCategory("tag", tag)}
                   />
@@ -812,10 +812,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             )
           ) : homeTab === "collections" ? (
             collectionsError ? (
-              <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+              <div className="flex flex-col items-center justify-center py-16 text-[var(--text-muted)]">
                 <Grid3X3 className="w-10 h-10 mb-3 opacity-30" />
                 <p className="text-sm">{gt("Failed to load collections")}</p>
-                <button onClick={() => fetchCollections(1, false)} className="mt-3 px-4 py-1.5 text-xs font-medium bg-[#5865f2]/20 hover:bg-[#5865f2]/30 text-[#7289da] rounded-full transition-colors">
+                <button onClick={() => fetchCollections(1, false)} className="mt-3 px-4 py-1.5 text-xs font-medium bg-[var(--app-accent)]/20 hover:bg-[color-mix(in_srgb,var(--app-accent)_30%,transparent)] text-[var(--app-accent)] rounded-full transition-colors">
                   {gt("Retry")}
                 </button>
               </div>
@@ -830,7 +830,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                     key={col.id}
                     label={col.name}
                     subLabel={col.gifCount > 0 ? `${col.gifCount} GIFs` : undefined}
-                    icon={<Grid3X3 className="w-3.5 h-3.5 text-[#b5bac1]" />}
+                    icon={<Grid3X3 className="w-3.5 h-3.5 text-[var(--text-secondary)]" />}
                     previews={col.previewGifs || []}
                     onClick={() => goToCategory("collection", col)}
                   />
@@ -844,15 +844,15 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             )
           ) : null
         ) : gifs.length === 0 && !isLoading ? (
-          <div className="flex flex-col items-center justify-center py-16 text-[#949ba4]">
+          <div className="flex flex-col items-center justify-center py-16 text-[var(--text-muted)]">
             <Search className="w-10 h-10 mb-3 opacity-30" />
             <p className="text-sm font-medium">{gt("No GIFs found")}</p>
             {search && (
-              <p className="text-xs mt-1 text-[#6b7387]">{gt("Try a different search term")}</p>
+              <p className="text-xs mt-1 text-[var(--text-muted)]">{gt("Try a different search term")}</p>
             )}
             <button
               onClick={() => handleSearchChange("")}
-              className="mt-4 px-4 py-1.5 text-xs font-medium bg-[#5865f2]/20 hover:bg-[#5865f2]/30 text-[#7289da] rounded-full transition-colors"
+              className="mt-4 px-4 py-1.5 text-xs font-medium bg-[var(--app-accent)]/20 hover:bg-[color-mix(in_srgb,var(--app-accent)_30%,transparent)] text-[var(--app-accent)] rounded-full transition-colors"
             >
               {gt("Clear search")}
             </button>
@@ -865,7 +865,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
                   key={gif.id}
                   onClick={() => onGifSelect(gif)}
                   title={gif.title}
-                  className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[#5865f2] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
+                  className="relative w-full rounded-lg overflow-hidden hover:ring-2 hover:ring-[var(--app-accent)] hover:brightness-90 transition-all break-inside-avoid mb-2 group"
                 >
                   <GifThumbnail gif={gif} className="w-full h-auto block" style={{ animationDelay: `${Math.min(idx * 30, 300)}ms` }} />
                   <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -884,10 +884,10 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-1.5 border-t border-[#2b2d31] flex items-center justify-center flex-shrink-0">
-        <span className="text-[10px] text-[#6b7387]">
+      <div className="px-3 py-1.5 border-t border-[var(--border-subtle)] flex items-center justify-center flex-shrink-0">
+        <span className="text-[10px] text-[var(--text-muted)]">
           {gt("Powered by")}{" "}
-          <a href="https://gifs.serika.dev" target="_blank" rel="noopener noreferrer" className="text-[#5865f2] hover:underline">
+          <a href="https://gifs.serika.dev" target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline">
             SerikaGIFs
           </a>
         </span>

@@ -60,6 +60,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
   const [editingStatus, setEditingStatus] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [showSwitchAccounts, setShowSwitchAccounts] = useState(false);
+  const [showFullBio, setShowFullBio] = useState(false);
 
   // Use user status directly, fallback to online
   const currentStatus: StatusValue = (user?.status as StatusValue) || "online";
@@ -159,14 +160,14 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
         {/* Avatar */}
         <div className="absolute -top-8 left-3">
           <div className="relative">
-            <Avatar className={cn("border-[5px] border-[#111111]", isMobile ? "w-24 h-24" : "w-[72px] h-[72px]")}>
+            <Avatar className={cn("border-[5px] border-[var(--border-subtle)]", isMobile ? "w-24 h-24" : "w-[72px] h-[72px]")}>
               <AvatarImage src={cdnImage(user.avatar)} />
               <AvatarFallback className="bg-[var(--accent-color)] text-white text-xl">
                 {user.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>
             </Avatar>
             <div
-              className={cn("absolute rounded-full border-[3px] border-[#111111]", isMobile ? "bottom-1 right-1 w-7 h-7" : "bottom-0.5 right-0.5 w-5 h-5")}
+              className={cn("absolute rounded-full border-[3px] border-[var(--border-subtle)]", isMobile ? "bottom-1 right-1 w-7 h-7" : "bottom-0.5 right-0.5 w-5 h-5")}
               style={{ backgroundColor: currentStatusOption.color }}
             />
           </div>
@@ -174,26 +175,26 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
 
         {/* User Info */}
         <div className={cn(isMobile ? "pt-20" : "pt-11")}>
-          <div className="bg-[#0a0a0a] rounded-lg p-3">
+          <div className="bg-[var(--bg-app)] rounded-lg p-3">
             {/* Name */}
             <div className="mb-2">
-              <h3 className={cn("font-bold text-white leading-tight", isMobile ? "text-2xl" : "text-lg")}>
+              <h3 className={cn("font-bold text-[var(--text-primary)] leading-tight", isMobile ? "text-2xl" : "text-lg")}>
                 {user.displayName || user.username}
               </h3>
-              <span className="text-sm text-[#888888]">{user.username}</span>
+              <span className="text-sm text-[var(--text-secondary)]">{user.username}</span>
               {user.pronouns && (
-                <div className="text-xs text-[#888888] mt-0.5">{user.pronouns}</div>
+                <div className="text-xs text-[var(--text-secondary)] mt-0.5">{user.pronouns}</div>
               )}
               {user.settings?.advanced?.developerMode && user.id && (
-                <p className="mt-1 text-[10px] font-mono text-[#666666]">ID: {user.id}</p>
+                <p className="mt-1 text-[10px] font-mono text-[var(--text-muted)]">ID: {user.id}</p>
               )}
             </div>
 
             {/* Badges */}
             {user.badges && user.badges.length > 0 && (
               <>
-                <div className="h-px bg-[#222222] my-2" />
-                <div className="text-xs text-[#888888] uppercase font-semibold mb-1.5">
+                <div className="h-px bg-[var(--app-surface-alt)] my-2" />
+                <div className="text-xs text-[var(--text-secondary)] uppercase font-semibold mb-1.5">
                   {gt("Badges")}
                 </div>
                 {renderBadges()}
@@ -202,44 +203,48 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
 
             {/* Custom status */}
             {user.customStatus && (
-              <div className="text-sm text-[#dcddde] mb-2">
+              <div className="text-sm text-[var(--text-primary)] mb-2">
                 <MarkdownRenderer content={user.customStatus} />
               </div>
             )}
 
             {/* Bio */}
             {user.bio && (
-              <div className={cn("text-[#dcddde] mb-2 whitespace-pre-wrap break-words", isMobile ? "text-base line-clamp-6" : "text-sm line-clamp-3")}>
+              <div className={cn("text-[var(--text-primary)] mb-2 whitespace-pre-wrap break-words", isMobile ? "text-base" : "text-sm", !showFullBio && (isMobile ? "line-clamp-6" : "line-clamp-3"))}>
                 <MarkdownRenderer content={user.bio} />
               </div>
             )}
 
             {/* View Full Bio */}
             {user.bio && user.bio.length > 100 && (
-              <button className="text-sm text-[#888888] hover:text-white transition-colors mb-2">
-                {gt("View Full Bio")}
+              <button
+                type="button"
+                onClick={() => setShowFullBio((v) => !v)}
+                className="text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors mb-2"
+              >
+                {showFullBio ? gt("Show Less") : gt("View Full Bio")}
               </button>
             )}
 
             {/* Current Time */}
             {user.showTimezone && user.timezone && localTime && (
-              <div className="flex items-center gap-1.5 mb-2 text-sm text-[#dcddde]">
-                <Clock className="w-3.5 h-3.5 text-[#888888]" />
+              <div className="flex items-center gap-1.5 mb-2 text-sm text-[var(--text-primary)]">
+                <Clock className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
                 <span>
                   {localTime}
                 </span>
-                <span className="text-[#555555]">•</span>
-                <span className="text-xs text-[#888888]">{user.timezone}</span>
+                <span className="text-[var(--text-muted)]">•</span>
+                <span className="text-xs text-[var(--text-secondary)]">{user.timezone}</span>
               </div>
             )}
 
-            <div className="h-px bg-[#222222] my-2" />
+            <div className="h-px bg-[var(--app-surface-alt)] my-2" />
 
             {/* Member Since */}
-            <div className="text-xs text-[#888888] uppercase font-semibold mb-1">
+            <div className="text-xs text-[var(--text-secondary)] uppercase font-semibold mb-1">
               {gt("SerikaCord Member Since")}
             </div>
-            <p className="text-sm text-[#dcddde]">
+            <p className="text-sm text-[var(--text-primary)]">
               {user.createdAt
                 ? new Date(user.createdAt).toLocaleDateString("en-US", {
                     month: "short",
@@ -255,17 +260,17 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
             {/* Edit Profiles */}
             <button
               onClick={handleEditProfile}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors text-left"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors text-left"
             >
-              <Pencil className="w-4 h-4 text-[#888888]" />
-              <span className="text-sm text-[#dcddde]">{gt("Edit Profiles")}</span>
+              <Pencil className="w-4 h-4 text-[var(--text-secondary)]" />
+              <span className="text-sm text-[var(--text-primary)]">{gt("Edit Profiles")}</span>
             </button>
 
             {/* Status Selector - Using Popover to prevent overflow */}
             <Popover open={showStatusMenu} onOpenChange={setShowStatusMenu}>
               <PopoverTrigger asChild>
                 <button
-                  className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors"
+                  className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <div
@@ -273,13 +278,13 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                       style={{ backgroundColor: currentStatusOption.color }}
                     >
                       {currentStatusOption.value === "dnd" && (
-                        <div className="w-2 h-0.5 bg-[#111111] rounded" />
+                        <div className="w-2 h-0.5 bg-[var(--bg-card)] rounded" />
                       )}
                     </div>
-                    <span className="text-sm text-[#dcddde]">{statusLabelInvisible(currentStatus, gt)}</span>
+                    <span className="text-sm text-[var(--text-primary)]">{statusLabelInvisible(currentStatus, gt)}</span>
                   </div>
                   <ChevronRight className={cn(
-                    "w-4 h-4 text-[#888888] transition-transform",
+                    "w-4 h-4 text-[var(--text-secondary)] transition-transform",
                     showStatusMenu && "rotate-90"
                   )} />
                 </button>
@@ -287,20 +292,20 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
               <PopoverContent
                 side={isMobile ? "bottom" : "right"}
                 align="start"
-                className="w-[180px] p-0 bg-[#0a0a0a] border-[#222222] shadow-xl"
+                className="w-[180px] p-0 bg-[var(--bg-app)] border-[var(--border-subtle)] shadow-xl"
               >
                 {statusOptions.map((status) => (
                   <button
                     key={status.value}
                     onClick={() => handleStatusChange(status.value)}
-                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-[#1a1a1a] transition-colors"
+                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-hover)] transition-colors"
                   >
                     <div className="flex items-center gap-2">
                       <div
                         className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: status.color }}
                       />
-                      <span className="text-sm text-[#dcddde]">{statusLabelInvisible(status.value, gt)}</span>
+                      <span className="text-sm text-[var(--text-primary)]">{statusLabelInvisible(status.value, gt)}</span>
                     </div>
                     {currentStatus === status.value && (
                       <Check className="w-4 h-4 text-[var(--accent-color)]" />
@@ -324,7 +329,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                   placeholder={gt("What's on your mind?")}
                   autoFocus
                   maxLength={200}
-                  className="w-full px-2 py-1.5 rounded bg-[#1a1a1a] text-sm text-[#dcddde] placeholder:text-[#666] border border-[#333] focus:outline-none focus:border-[var(--accent-color)]"
+                  className="w-full px-2 py-1.5 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] border border-[var(--border-strong)] focus:outline-none focus:border-[var(--accent-color)]"
                 />
                 <div className="flex items-center gap-2">
                   <button
@@ -335,7 +340,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                   </button>
                   <button
                     onClick={() => setEditingStatus(false)}
-                    className="px-3 py-1 rounded bg-[#1a1a1a] text-[#888] text-xs hover:bg-[#222] transition"
+                    className="px-3 py-1 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)] text-xs hover:bg-[var(--bg-hover)] transition"
                   >
                     {gt("Cancel")}
                   </button>
@@ -358,7 +363,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                           await refresh();
                         }
                       }}
-                      className="px-3 py-1 rounded text-[#888] text-xs hover:text-red-400 transition ml-auto"
+                      className="px-3 py-1 rounded text-[var(--text-secondary)] text-xs hover:text-red-400 transition ml-auto"
                     >
                       {gt("Clear")}
                     </button>
@@ -368,16 +373,16 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
             ) : (
               <button
                 onClick={startEditingStatus}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors text-left"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors text-left"
               >
-                <Pencil className="w-4 h-4 text-[#888888]" />
-                <span className="text-sm text-[#dcddde]">
+                <Pencil className="w-4 h-4 text-[var(--text-secondary)]" />
+                <span className="text-sm text-[var(--text-primary)]">
                   {user?.customStatus ? gt("Edit Custom Status") : gt("Set Custom Status")}
                 </span>
               </button>
             )}
 
-            <div className="h-px bg-[#222222] my-1" />
+            <div className="h-px bg-[var(--app-surface-alt)] my-1" />
 
             {/* Switch Accounts */}
             <button
@@ -385,26 +390,26 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                 setOpen(false);
                 setShowSwitchAccounts(true);
               }}
-              className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors"
+              className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
             >
               <div className="flex items-center gap-3">
-                <Users className="w-4 h-4 text-[#888888]" />
-                <span className="text-sm text-[#dcddde]">{gt("Switch Accounts")}</span>
+                <Users className="w-4 h-4 text-[var(--text-secondary)]" />
+                <span className="text-sm text-[var(--text-primary)]">{gt("Switch Accounts")}</span>
               </div>
-              <ChevronRight className="w-4 h-4 text-[#888888]" />
+              <ChevronRight className="w-4 h-4 text-[var(--text-secondary)]" />
             </button>
 
             {/* Copy User ID */}
             <button
               onClick={handleCopyUserId}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[#1a1a1a] transition-colors text-left"
+              className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors text-left"
             >
               {copied ? (
                 <Check className="w-4 h-4 text-[var(--accent-color)]" />
               ) : (
-                <Copy className="w-4 h-4 text-[#888888]" />
+                <Copy className="w-4 h-4 text-[var(--text-secondary)]" />
               )}
-              <span className="text-sm text-[#dcddde]">
+              <span className="text-sm text-[var(--text-primary)]">
                 {copied ? gt("Copied!") : gt("Copy User ID")}
               </span>
             </button>
@@ -421,13 +426,13 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
           <DialogTrigger asChild>{children}</DialogTrigger>
           <DialogContent
             className={cn(
-              "!fixed !inset-x-0 !bottom-0 !top-auto !left-0 !translate-x-0 !translate-y-0 !max-w-full p-0 rounded-t-2xl border border-[#222222] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col",
-              !hasCardBg && "bg-[#111111]"
+              "!fixed !inset-x-0 !bottom-0 !top-auto !left-0 !translate-x-0 !translate-y-0 !max-w-full p-0 rounded-t-2xl border border-[var(--border-subtle)] shadow-2xl overflow-hidden max-h-[85vh] flex flex-col",
+              !hasCardBg && "bg-[var(--bg-card)]"
             )}
             style={hasCardBg ? cardBgStyle : undefined}
             showCloseButton={false}
           >
-            <div className="w-12 h-1 bg-[#444444] rounded-full mt-3 mb-1 mx-auto shrink-0" />
+            <div className="w-12 h-1 bg-[var(--app-border)] rounded-full mt-3 mb-1 mx-auto shrink-0" />
             <div className="overflow-y-auto flex-1 min-h-0">{renderProfileCard()}</div>
           </DialogContent>
         </Dialog>
@@ -439,8 +444,8 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
             align="start"
             sideOffset={8}
             className={cn(
-              "w-[300px] p-0 border border-[#222222] rounded-lg overflow-hidden shadow-xl",
-              !hasCardBg && "bg-[#111111]"
+              "w-[300px] p-0 border border-[var(--border-subtle)] rounded-lg overflow-hidden shadow-xl",
+              !hasCardBg && "bg-[var(--bg-card)]"
             )}
             style={hasCardBg ? cardBgStyle : undefined}
           >

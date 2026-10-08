@@ -76,6 +76,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       // MessageAttachments
       "? KB": gt("? KB"),
       // LinkEmbed
+      "Remove embed": gt("Remove embed"),
       "View GIF on Tenor": gt("View GIF on Tenor"),
       "View GIF on Klipy": gt("View GIF on Klipy"),
       // InviteEmbed

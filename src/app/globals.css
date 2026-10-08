@@ -117,6 +117,13 @@
   --border-strong: color-mix(in srgb, var(--app-border) 80%, #ffffff 20%);
   --accent: var(--app-accent);
   --accent-hover: color-mix(in srgb, var(--app-accent) 82%, #ffffff 18%);
+  /* Legacy aliases still used by some components; they resolve through the
+     base tokens above, which every theme block redefines. */
+  --bg-input: var(--app-surface-alt);
+  --border-color: var(--app-border);
+  --bg-primary: var(--bg-app);
+  --bg-secondary: var(--bg-card);
+  --app-elev-2: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 
 .dark {
@@ -227,6 +234,7 @@
   --border-strong: #c2cfe6;
   --accent: var(--app-accent);
   --accent-hover: color-mix(in srgb, var(--app-accent) 88%, #000000 12%);
+  --app-elev-2: 0 12px 30px rgba(23, 35, 58, 0.12);
 }
 
 html.theme-light body {

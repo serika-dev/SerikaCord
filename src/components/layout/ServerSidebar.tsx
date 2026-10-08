@@ -31,6 +31,7 @@ import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout
 import { usePolling } from "@/hooks/usePolling";
 import { useGT } from "gt-next";
 import { ServerBadge } from "@/components/ui/badges";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
@@ -76,6 +77,7 @@ function saveDmSeen(map: Record<string, string>) {
 
 export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarProps) {
   const gt = useGT();
+  const confirmDialog = useConfirm();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
   const { serverMentionCounts, markServerRead: markServerMentionsRead } = useMentions();
@@ -345,7 +347,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const handleCopyServerId = (serverId: string) => void navigator.clipboard?.writeText(serverId);
   const handleHomeClick = () => { setCurrentServer(null); router.push("/channels/me"); };
   const handleLeaveServer = async (server: Server) => {
-    if (!window.confirm(gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: server.name }))) return;
+    if (!(await confirmDialog({ title: gt("Leave Server"), description: gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: server.name }), confirmLabel: gt("Leave Server") }))) return;
     try {
       await leaveServer(server.id);
       if (currentServer?.id === server.id) { setCurrentServer(null); router.push("/channels/me"); }

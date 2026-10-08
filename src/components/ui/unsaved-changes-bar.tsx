@@ -71,11 +71,11 @@ export function UnsavedChangesBar({
           role="status"
           aria-live="polite"
           className={cn(
-            "sticky bottom-0 left-0 right-0 z-30 mx-auto mt-4 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-[#222222] bg-[#0a0a0a]/95 px-4 py-3 shadow-2xl backdrop-blur",
+            "sticky bottom-0 left-0 right-0 z-30 mx-auto mt-4 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]/95 px-4 py-3 shadow-2xl backdrop-blur",
             className
           )}
         >
-          <p className="text-sm text-[#d5d9e8] min-w-0">
+          <p className="text-sm font-medium text-[var(--text-primary)] min-w-0">
             {gt("Careful — you have unsaved changes")}{changeCount > 0 ? ` (${changeCount} ${changeCount === 1 ? gt("field") : gt("fields")})` : ""}!
           </p>
           <div className="flex items-center gap-2 shrink-0">
@@ -86,7 +86,7 @@ export function UnsavedChangesBar({
                 disabled={!canUndo || isSaving}
                 aria-label={gt("Undo change")}
                 title={gt("Undo (Ctrl+Z)")}
-                className="p-2 rounded-md text-[#888888] hover:text-white hover:bg-[#1a1a1a] disabled:opacity-40 disabled:pointer-events-none transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
+                className="p-2 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
               >
                 <Undo2 className="w-4 h-4" />
               </button>
@@ -98,7 +98,7 @@ export function UnsavedChangesBar({
                 disabled={!canRedo || isSaving}
                 aria-label={gt("Redo change")}
                 title={gt("Redo (Ctrl+Shift+Z)")}
-                className="p-2 rounded-md text-[#888888] hover:text-white hover:bg-[#1a1a1a] disabled:opacity-40 disabled:pointer-events-none transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
+                className="p-2 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:pointer-events-none transition-colors focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
               >
                 <Redo2 className="w-4 h-4" />
               </button>
@@ -107,16 +107,16 @@ export function UnsavedChangesBar({
               type="button"
               onClick={onDiscard}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-[#d5d9e8] hover:bg-[#1a1a1a] disabled:opacity-40 transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 transition-colors focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              {gt("Discard")}
+              {gt("Reset")}
             </button>
             <button
               type="button"
               onClick={onSave}
               disabled={isSaving}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-[#23A559] hover:bg-[#1f9150] active:scale-[0.97] text-sm font-medium text-white disabled:opacity-60 transition-all focus-visible:outline-2 focus-visible:outline-white"
+              className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-[#23A559] hover:bg-[#1f9150] active:scale-[0.97] text-sm font-medium text-white disabled:opacity-60 transition-all focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
             >
               {isSaving && <Loader size={16} />}
               {isSaving ? gt("Saving...") : gt("Save Changes")}

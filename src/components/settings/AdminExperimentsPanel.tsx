@@ -231,14 +231,14 @@ export function AdminExperimentsPanel() {
               placeholder={gt("Name")}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white text-sm"
+              className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-[var(--text-primary)] text-sm"
             />
             <input
               type="text"
               placeholder={gt("Key (e.g. new_feature)")}
               value={newKey}
               onChange={(e) => setNewKey(e.target.value)}
-              className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white text-sm"
+              className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-[var(--text-primary)] text-sm"
             />
           </div>
           <input
@@ -246,7 +246,7 @@ export function AdminExperimentsPanel() {
             placeholder={gt("Description (optional)")}
             value={newDescription}
             onChange={(e) => setNewDescription(e.target.value)}
-            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-white text-sm"
+            className="w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-2 text-[var(--text-primary)] text-sm"
           />
           <div className="flex items-center gap-3">
             <span className="text-sm text-[var(--text-secondary)] whitespace-nowrap">{gt("Rollout {percent}%", { percent: newRollout })}</span>
@@ -357,7 +357,7 @@ export function AdminExperimentsPanel() {
                           onKeyDown={(e) => {
                             if (e.key === "Enter") handleAddUser(exp.id);
                           }}
-                          className="flex-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-1.5 text-white text-sm"
+                          className="flex-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md px-3 py-1.5 text-[var(--text-primary)] text-sm"
                         />
                         <div className="flex rounded-md overflow-hidden border border-[var(--border-subtle)]">
                           <button

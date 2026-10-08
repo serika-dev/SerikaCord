@@ -20,6 +20,7 @@ import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useGT } from "gt-next";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface ModViewDialogProps {
   user: ProfileCardUser;
@@ -67,6 +68,7 @@ function formatDate(value?: string | null): string {
  */
 export function ModViewDialog({ user, serverId, open, onOpenChange }: ModViewDialogProps) {
   const gt = useGT();
+  const confirmDialog = useConfirm();
   const [loading, setLoading] = useState(true);
   const [member, setMember] = useState<MemberData>({});
   const [account, setAccount] = useState<AccountData>({});
@@ -128,7 +130,7 @@ export function ModViewDialog({ user, serverId, open, onOpenChange }: ModViewDia
   };
 
   const kick = async () => {
-    if (!confirm(gt("Kick {name} from this server?", { name: user.displayName || user.username }))) return;
+    if (!(await confirmDialog({ title: gt("Kick {name} from this server?", { name: user.displayName || user.username }), confirmLabel: gt("Kick") }))) return;
     setBusy("kick");
     try {
       const res = await fetch(`/api/servers/${serverId}/members/${user.id}/kick`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });

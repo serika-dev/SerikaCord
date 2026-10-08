@@ -1,5 +1,6 @@
 "use client";
 
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 
 interface LoaderProps {
@@ -8,12 +9,13 @@ interface LoaderProps {
 }
 
 export function Loader({ className, size = 24 }: LoaderProps) {
+  const gt = useGT();
   return (
     <div
       className={cn("serika-loader", className)}
       style={{ width: size, height: size }}
       role="status"
-      aria-label="Loading"
+      aria-label={gt("Loading")}
     >
       <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
         <defs>

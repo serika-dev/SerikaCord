@@ -13,6 +13,9 @@ FILES=(
   "src/app/channels/settings/page.tsx"
   "src/app/channels/settings/[section]/page.tsx"
   "src/app/channels/settings/account/page.tsx"
+  src/components/dialogs/*.tsx
+  "src/components/user/UserProfilePopup.tsx"
+  "src/components/invite/ShareInviteButton.tsx"
 )
 
 PATTERN='className="dark"|bg-\[#000000\]|bg-\[#0a0a0a\]|bg-\[#111111\]|bg-\[#1a1a1a\]|border-\[#1a1a1a\]|border-\[#222222\]|hover:bg-\[#1a1a1a\]|hover:bg-\[#111111\]|border-\[#0a0a0a\]'

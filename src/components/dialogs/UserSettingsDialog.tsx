@@ -91,6 +91,7 @@ import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
 import { APP_VERSION, BUILD_COMMIT_URL, BUILD_SHA, BUILD_TIME, VERSION_LABEL } from "@/lib/version";
 import { toServerStatus } from "@/lib/presenceChoice";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -295,7 +296,7 @@ function ConnectionsTabContent({
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-white mb-1">{gt("Connections")}</h2>
+      <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Connections")}</h2>
       <p className="text-sm text-[var(--text-muted)] mb-6">
         {gt("Link your accounts to show them on your profile. Some connections display live activity.")}
       </p>
@@ -320,10 +321,10 @@ function ConnectionsTabContent({
             >
               {activeProviderDef.label[0]}
             </div>
-            <p className="text-white font-semibold text-sm">{gt("Connect {label}", { label: activeProviderDef.label })}</p>
+            <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Connect {label}", { label: activeProviderDef.label })}</p>
             <button
               onClick={() => { setConnectingProvider(null); setConnectingValue(""); }}
-              className="ml-auto text-[var(--text-muted)] hover:text-white transition-colors"
+              className="ml-auto text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -336,7 +337,7 @@ function ConnectionsTabContent({
               onChange={(e) => setConnectingValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && void handleConnect(connectingProvider, connectingValue)}
               placeholder={gt("https://yoursite.com")}
-              className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
+              className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
             />
             <button
               onClick={() => void handleConnect(connectingProvider, connectingValue)}
@@ -373,7 +374,7 @@ function ConnectionsTabContent({
                         {(() => { const Icon = getConnectionIcon(p.id); return <Icon size={18} style={{ color: p.color }} />; })()}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white">{p.label}</p>
+                        <p className="text-sm font-semibold text-[var(--text-primary)]">{p.label}</p>
                         {conn ? (
                           <p className="text-xs text-[#22c55e] truncate flex items-center gap-1">
                             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
@@ -615,7 +616,7 @@ function VoiceVideoTab({
                     "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5",
                     micTesting
                       ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
-                      : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                      : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   )}
                 >
                   {micTesting ? (
@@ -679,7 +680,7 @@ function VoiceVideoTab({
                   type="text"
                   value={userSettings.voiceVideo?.pushToTalkKey || "V"}
                   onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalkKey: e.target.value.toUpperCase().slice(0, 1) } }, "voice-video")}
-                  className="w-16 text-center font-mono text-lg px-2 py-1.5 rounded-lg bg-[var(--bg-input)] text-white border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
+                  className="w-16 text-center font-mono text-lg px-2 py-1.5 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
                   maxLength={1}
                 />
               </div>
@@ -741,7 +742,7 @@ function VoiceVideoTab({
               "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
               videoStream
                 ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
-                : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             )}
           >
             {videoStream ? gt("Stop Preview") : gt("Start Preview")}
@@ -780,16 +781,16 @@ function VoiceVideoTab({
             <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
               <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>
               <p className="text-xs text-[var(--text-muted)]">
-                {gt("Type")} <code className="px-1 py-0.5 rounded bg-white/10 text-white">/tts</code> {gt("before your message to send it as speech.")}
+                {gt("Type")} <code className="px-1 py-0.5 rounded bg-white/10 text-[var(--text-primary)]">/tts</code> {gt("before your message to send it as speech.")}
               </p>
-              <p className="text-xs text-white pl-3">
+              <p className="text-xs text-[var(--text-primary)] pl-3">
                 <code className="px-1 py-0.5 rounded bg-white/10">/tts [f] Hello</code> — {gt("female voice")}
               </p>
-              <p className="text-xs text-white pl-3">
+              <p className="text-xs text-[var(--text-primary)] pl-3">
                 <code className="px-1 py-0.5 rounded bg-white/10">/tts [m] Hello</code> — {gt("male voice")}
               </p>
               <p className="text-xs text-[var(--text-muted)]">
-                {gt("Keywords:")} <span className="text-white">[f]</span>, <span className="text-white">[female]</span>, <span className="text-white">[girl]</span> {gt("for female")} &middot; <span className="text-white">[m]</span>, <span className="text-white">[male]</span>, <span className="text-white">[boy]</span> {gt("for male")}
+                {gt("Keywords:")} <span className="text-[var(--text-primary)]">[f]</span>, <span className="text-[var(--text-primary)]">[female]</span>, <span className="text-[var(--text-primary)]">[girl]</span> {gt("for female")} &middot; <span className="text-[var(--text-primary)]">[m]</span>, <span className="text-[var(--text-primary)]">[male]</span>, <span className="text-[var(--text-primary)]">[boy]</span> {gt("for male")}
               </p>
               <p className="text-xs text-[var(--text-muted)]">
                 {gt("Voices are English-only. Set a default below or override per message.")}
@@ -821,7 +822,7 @@ function VoiceVideoTab({
               <select
                 value={userSettings.accessibility?.ttsVoice ?? "auto"}
                 onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsVoice: e.target.value } }, "voice-video")}
-                className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
+                className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
               >
                 <option value="auto">{gt("Automatic")}</option>
                 <option value="female">{gt("Female")}</option>
@@ -838,6 +839,7 @@ function VoiceVideoTab({
 export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
+  const confirmDialog = useConfirm();
   const { list: badgeDefinitions, resolve: resolveBadges } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const { servers } = useServer();
@@ -1942,7 +1944,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   };
 
   const handleDeleteServer = async (serverId: string, reason?: string) => {
-    if (!confirm(gt("Are you sure you want to delete this server? This action cannot be undone."))) return;
+    if (!(await confirmDialog({ title: gt("Are you sure you want to delete this server? This action cannot be undone."), confirmLabel: gt("Delete") }))) return;
     try {
       const response = await fetch(`/api/admin/servers/${serverId}`, {
         method: "DELETE",
@@ -2183,7 +2185,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
             <div className="flex items-center gap-3">
               <Avatar className="w-10 h-10">
                 <AvatarImage src={cdnImage(user?.avatar)} />
-                <AvatarFallback className="bg-[#8B5CF6] text-[var(--text-on-accent)]">
+                <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                   {user?.displayName?.charAt(0).toUpperCase() || "?"}
                 </AvatarFallback>
               </Avatar>
@@ -2193,7 +2195,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 </h3>
                 <button
                   onClick={() => setActiveTab("profiles")}
-                  className="text-xs text-[var(--text-secondary)] hover:text-[#8B5CF6] flex items-center gap-1 transition-colors"
+                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--app-accent)] flex items-center gap-1 transition-colors"
                 >
                   <Pencil className="w-3 h-3" />
                   {gt("Edit Profiles")}
@@ -3121,13 +3123,13 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Premium Tab */}
               {activeTab === "premium" && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5">{gt("Serika+")}</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">{gt("Serika+")}</h2>
                   {user?.isPremium ? (
                     <div className="bg-gradient-to-r from-[#8B5CF6]/20 to-[#6366F1]/20 rounded-lg p-6 border border-[#8B5CF6]/30">
                       <div className="flex items-center gap-3 mb-4">
                         <Crown className="w-10 h-10 text-[#8B5CF6]" />
                         <div>
-                          <h3 className="text-lg font-bold text-white">{gt("You have Serika+!")}</h3>
+                          <h3 className="text-lg font-bold text-[var(--text-primary)]">{gt("You have Serika+!")}</h3>
                           <p className="text-sm text-[var(--text-secondary)]">
                             {gt("Member since")}{" "}
                             {user.premiumSince
@@ -3154,7 +3156,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   ) : (
                     <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
                       <Crown className="w-16 h-16 text-[#8B5CF6] mx-auto mb-4" />
-                      <h3 className="text-2xl font-bold text-white mb-2">{gt("Upgrade to Serika+")}</h3>
+                      <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">{gt("Upgrade to Serika+")}</h3>
                       <p className="text-[var(--text-secondary)] max-w-md mx-auto mb-6">
                         {gt("Get exclusive features like animated avatars, custom themes, enhanced upload limits, and more.")}
                       </p>
@@ -3259,7 +3261,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Font Size */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-2">{gt("Chat Font Size")}</h3>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">{gt("Chat Font Size")}</h3>
                     <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Adjust the size of text in chat")}</p>
                     <div className="flex items-center gap-4">
                       <span className="text-xs text-[var(--text-secondary)]">12px</span>
@@ -3280,7 +3282,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Saturation */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-2">{gt("Saturation")}</h3>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">{gt("Saturation")}</h3>
                     <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Adjust the colour saturation of the entire app")}</p>
                     <div className="flex items-center gap-4">
                       <span className="text-xs text-[var(--text-secondary)]">0%</span>
@@ -3301,7 +3303,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Message Display */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-4">{gt("Message Display")}</h3>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">{gt("Message Display")}</h3>
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
@@ -3322,7 +3324,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   {/* Animations */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-white mb-4">{gt("Animations")}</h3>
+                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">{gt("Animations")}</h3>
                     <div className="space-y-4">
                       <label className="flex items-center justify-between cursor-pointer group">
                         <div>
@@ -3350,7 +3352,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Notifications Tab */}
               {activeTab === "notifications" && (
                 <div className="space-y-6">
-                  <h2 className="text-xl font-bold text-white">{gt("Notifications")}</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Notifications")}</h2>
 
                   {/* DND / Do Not Disturb */}
                   <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
@@ -3627,7 +3629,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Default fallback for other tabs */}
               {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports"].includes(activeTab) && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">
                     {/* The sidebar label, not the tab id: "text-images" read as "Text Images" (CORD-40). */}
                     {menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label
                       ?? activeTab.replace(/-/g, " ")}
@@ -3645,7 +3647,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       ) : authorizedApps.map((app) => (
                         <div key={app.id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
                           <div>
-                            <p className="text-white font-medium">{app.name}</p>
+                            <p className="text-[var(--text-primary)] font-medium">{app.name}</p>
                             <p className="text-xs text-[var(--text-secondary)]">{app.description || gt("No description")}</p>
                           </div>
                           <button
@@ -3684,7 +3686,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             </div>
                             <div>
                               <div className="flex items-center gap-2">
-                                <p className="text-white text-sm font-medium">{device.deviceName}</p>
+                                <p className="text-[var(--text-primary)] text-sm font-medium">{device.deviceName}</p>
                                 {device.current && (
                                   <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">
                                     <T>Current</T>
@@ -3748,28 +3750,28 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <div className="pb-2 mb-2 border-b border-[var(--border-subtle)]">
                             <label className="flex items-center justify-between py-2">
                               <div className="pr-4">
-                                <span className="text-white">{gt("Allow data processing by Discord")}</span>
+                                <span className="text-[var(--text-primary)]">{gt("Allow data processing by Discord")}</span>
                                 <p className="text-xs text-[var(--text-secondary)]">{gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}</p>
                               </div>
                               <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked, discordBridgePrompted: true } }, "data-privacy")} />
                             </label>
                           </div>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Allow data personalization")}</span>
+                            <span className="text-[var(--text-primary)]">{gt("Allow data personalization")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Allow crash reports")}</span>
+                            <span className="text-[var(--text-primary)]">{gt("Allow crash reports")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowCrashReports)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowCrashReports: checked } }, "data-privacy")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white">{gt("Allow analytics")}</span>
+                            <span className="text-[var(--text-primary)]">{gt("Allow analytics")}</span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowAnalytics)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowAnalytics: checked } }, "data-privacy")} />
                           </label>
                           <div className="pt-2 mt-2 border-t border-[var(--border-subtle)]">
                             <label className="flex items-center justify-between py-2">
                               <div>
-                                <span className="text-white">{gt("Store recent activity")}</span>
+                                <span className="text-[var(--text-primary)]">{gt("Store recent activity")}</span>
                                 <p className="text-xs text-[var(--text-secondary)]">{gt("Keep a private history of games and apps the desktop app detects. Turn off to stop recording.")}</p>
                               </div>
                               <ToggleSwitch
@@ -3784,7 +3786,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   await fetch("/api/users/me/activity-history", { method: "DELETE", credentials: "include" });
                                 } catch { /* ignore */ }
                               }}
-                              className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-white transition-colors"
+                              className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                             >
                               {gt("Clear activity history")}
                             </button>
@@ -3796,28 +3798,28 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Reduced motion")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Reduced motion")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Minimise animations and transitions")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.reducedMotion)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("High contrast")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("High contrast")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Increase text and border contrast for readability")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.highContrast)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Dyslexic font")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Dyslexic font")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Use a dyslexia-friendly font in chat")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.dyslexicFont)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), dyslexicFont: checked } }, "accessibility")} />
                           </label>
                           <div className="py-2">
                             <div className="flex items-center justify-between mb-2">
-                              <span className="text-white">{gt("Message spacing")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Message spacing")}</span>
                               <span className="text-xs text-[var(--text-secondary)]">{userSettings.accessibility?.messageSpacing === "compact" ? gt("Compact") : gt("Cozy")}</span>
                             </div>
                             <div className="flex gap-2">
@@ -3827,7 +3829,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
                                   userSettings.accessibility?.messageSpacing !== "compact"
                                     ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                                 )}
                               >
                                 {gt("Cozy")}
@@ -3838,7 +3840,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
                                   userSettings.accessibility?.messageSpacing === "compact"
                                     ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white"
+                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                                 )}
                               >
                                 {gt("Compact")}
@@ -3852,21 +3854,21 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         <>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Inline media")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Inline media")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Display images and videos inline in chat")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineMedia)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Inline embeds")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Inline embeds")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Show rich link previews and embeds")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineEmbeds)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Autoplay GIFs and animated emoji")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Autoplay GIFs and animated emoji")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Play animated GIFs and emoji automatically")}</p>
                             </div>
                             {/* The only switch for this: Appearance used to have a second "Animated Emojis" toggle for the same setting (CORD-39). */}
@@ -3877,14 +3879,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Emoji picker")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Emoji picker")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Show the emoji picker button in the message bar")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.emojiPicker)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), emojiPicker: checked } }, "text-images")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div>
-                              <span className="text-white">{gt("Sticker suggestions")}</span>
+                              <span className="text-[var(--text-primary)]">{gt("Sticker suggestions")}</span>
                               <p className="text-xs text-[var(--text-secondary)]">{gt("Show sticker suggestions while typing")}</p>
                             </div>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.stickerSuggestions)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), stickerSuggestions: checked } }, "text-images")} />
@@ -3908,7 +3910,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {activeTab === "advanced" && (
                         <>
                           <label className="flex items-center justify-between py-2">
-                            <span className="text-white"><T>Developer Mode</T></span>
+                            <span className="text-[var(--text-primary)]"><T>Developer Mode</T></span>
                             <ToggleSwitch size="sm" checked={Boolean(userSettings.advanced?.developerMode)} onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), developerMode: checked } }, "advanced")} />
                           </label>
                           <p className="text-xs text-[var(--text-secondary)] mb-4">
@@ -3918,7 +3920,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           <div className="h-px bg-[var(--border-subtle)] my-3" />
 
                           <div className="py-2">
-                            <p className="text-white text-sm mb-2"><T>Developer Tools</T></p>
+                            <p className="text-[var(--text-primary)] text-sm mb-2"><T>Developer Tools</T></p>
                             <div className="flex flex-wrap gap-2">
                               <button
                                 onClick={() => {
@@ -3930,7 +3932,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     toast.error(gt("No session token found"));
                                   }
                                 }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
                               >
                                 <Activity className="w-3.5 h-3.5" />
                                 <T>Copy Session Token</T>
@@ -3942,7 +3944,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   toast.success(gt("Cleared {count} cache entries", { count: keys.length }));
                                   setTimeout(() => window.location.reload(), 500);
                                 }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
                               >
                                 <RefreshCw className="w-3.5 h-3.5" />
                                 <T>Clear App Cache</T>
@@ -3962,7 +3964,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   navigator.clipboard?.writeText(JSON.stringify(info, null, 2));
                                   toast.success(gt("Debug info copied to clipboard"));
                                 }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
                               >
                                 <Database className="w-3.5 h-3.5" />
                                 <T>Copy Debug Info</T>
@@ -3975,7 +3977,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     toast.info(gt("Browser devtools: F12 or Ctrl+Shift+I"));
                                   }
                                 }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-white hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
+                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
                               >
                                 <Zap className="w-3.5 h-3.5" />
                                 <T>Open DevTools</T>
@@ -3998,7 +4000,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - User Management */}
               {activeTab === "admin-users" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <ShieldCheck className="w-6 h-6 text-[#8B5CF6]" />
                     {gt("User Management")}
                   </h2>
@@ -4011,7 +4013,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         onChange={(e) => setAdminUserSearch(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && searchAdminUsers()}
                         placeholder={gt("Search users by email or username...")}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] flex-1"
                       />
                       <button
                         onClick={searchAdminUsers}
@@ -4030,7 +4032,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {/* Left: User list */}
                       <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
                         <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
-                          <p className="text-white font-semibold text-sm">{gt("Results ({count})", { count: adminUsers.length })}</p>
+                          <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Results ({count})", { count: adminUsers.length })}</p>
                         </div>
                         <ScrollArea className="flex-1 min-h-0">
                           <div className="p-1.5 space-y-1">
@@ -4055,7 +4057,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm text-white font-medium truncate">{u.displayName || u.username}</p>
+                                  <p className="text-sm text-[var(--text-primary)] font-medium truncate">{u.displayName || u.username}</p>
                                   <p className="text-xs text-[var(--text-muted)] truncate">@{u.username}</p>
                                 </div>
                                 <div className="flex flex-col items-end gap-0.5">
@@ -4086,7 +4088,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-white font-semibold">{selectedUser.displayName || selectedUser.username}</p>
+                                  <p className="text-[var(--text-primary)] font-semibold">{selectedUser.displayName || selectedUser.username}</p>
                                   <p className="text-sm text-[var(--text-muted)]">@{selectedUser.username} • {selectedUser.email}</p>
                                 </div>
                               </div>
@@ -4096,11 +4098,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <div className="grid grid-cols-2 gap-2">
                                   <div className="bg-[var(--bg-card)] rounded-lg p-3">
                                     <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{gt("Servers")}</p>
-                                    <p className="text-lg text-white font-bold">{selectedUser.stats.servers}</p>
+                                    <p className="text-lg text-[var(--text-primary)] font-bold">{selectedUser.stats.servers}</p>
                                   </div>
                                   <div className="bg-[var(--bg-card)] rounded-lg p-3">
                                     <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{gt("Messages")}</p>
-                                    <p className="text-lg text-white font-bold">{selectedUser.stats.messages}</p>
+                                    <p className="text-lg text-[var(--text-primary)] font-bold">{selectedUser.stats.messages}</p>
                                   </div>
                                 </div>
                               )}
@@ -4130,7 +4132,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   {selectedUser.createdAt && (
                                     <div className="flex items-center justify-between">
                                       <span className="text-sm text-[var(--text-muted)]">{gt("Joined")}</span>
-                                      <span className="text-sm text-white">{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
+                                      <span className="text-sm text-[var(--text-primary)]">{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
                                     </div>
                                   )}
                                 </div>
@@ -4142,7 +4144,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
                                     <div>
-                                      <p className="text-sm text-white font-medium">{gt("Banned")}</p>
+                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Banned")}</p>
                                       <p className="text-xs text-[var(--text-muted)]">{gt("Prevent user from accessing the platform")}</p>
                                     </div>
                                     <ToggleSwitch
@@ -4185,7 +4187,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                           <BadgeIcon badge={badge} className="w-4 h-4" />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-sm text-white font-medium truncate">{labels.name}</p>
+                                          <p className="text-sm text-[var(--text-primary)] font-medium truncate">{labels.name}</p>
                                           <p className="text-xs text-[var(--text-muted)] truncate">{labels.description}</p>
                                         </div>
                                         <div
@@ -4214,7 +4216,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     }}
                                     className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                                   >
-                                    <p className="text-white font-medium text-sm">{gt("View Reports")}</p>
+                                    <p className="text-[var(--text-primary)] font-medium text-sm">{gt("View Reports")}</p>
                                     <p className="text-xs text-[var(--text-muted)]">{gt("Open filtered admin logs")}</p>
                                   </button>
                                   <button
@@ -4223,7 +4225,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     }}
                                     className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
                                   >
-                                    <p className="text-white font-medium text-sm">{gt("Open DM")}</p>
+                                    <p className="text-[var(--text-primary)] font-medium text-sm">{gt("Open DM")}</p>
                                     <p className="text-xs text-[var(--text-muted)]">{gt("Jump to direct message")}</p>
                                   </button>
                                 </div>
@@ -4254,7 +4256,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Server Management */}
               {activeTab === "admin-servers" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <Database className="w-6 h-6 text-[#8B5CF6]" />
                     {gt("Server Management")}
                   </h2>
@@ -4267,7 +4269,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         onChange={(e) => setAdminServerSearch(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && searchAdminServers()}
                         placeholder={gt("Search servers by name or ID...")}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white flex-1"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] flex-1"
                       />
                       <button
                         onClick={searchAdminServers}
@@ -4286,7 +4288,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       {/* Left: Server list */}
                       <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
                         <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
-                          <p className="text-white font-semibold text-sm">{gt("Results ({count})", { count: adminServers.length })}</p>
+                          <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Results ({count})", { count: adminServers.length })}</p>
                         </div>
                         <ScrollArea className="flex-1 min-h-0">
                           <div className="p-1.5 space-y-1">
@@ -4308,7 +4310,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm text-white font-medium truncate">{s.name}</p>
+                                  <p className="text-sm text-[var(--text-primary)] font-medium truncate">{s.name}</p>
                                   <p className="text-xs text-[var(--text-muted)] truncate">{gt("{count} members", { count: s.memberCount })}</p>
                                 </div>
                                 <div className="flex flex-col items-end gap-0.5">
@@ -4339,7 +4341,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-white font-semibold text-lg">{selectedServer.name}</p>
+                                  <p className="text-[var(--text-primary)] font-semibold text-lg">{selectedServer.name}</p>
                                   <p className="text-sm text-[var(--text-muted)]">
                                     {gt("Owner: {name}", { name: selectedServer.owner?.displayName || selectedServer.owner?.username || gt("Unknown") })}
                                   </p>
@@ -4352,16 +4354,16 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <div className="bg-[var(--bg-card)] rounded-lg p-3 space-y-2">
                                   <div className="flex items-center justify-between">
                                     <span className="text-sm text-[var(--text-muted)]">{gt("Server ID")}</span>
-                                    <span className="text-sm text-white font-mono">{selectedServer.id}</span>
+                                    <span className="text-sm text-[var(--text-primary)] font-mono">{selectedServer.id}</span>
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <span className="text-sm text-[var(--text-muted)]">{gt("Created")}</span>
-                                    <span className="text-sm text-white">{new Date(selectedServer.createdAt).toLocaleDateString()}</span>
+                                    <span className="text-sm text-[var(--text-primary)]">{new Date(selectedServer.createdAt).toLocaleDateString()}</span>
                                   </div>
                                   {selectedServer.description && (
                                     <div>
                                       <span className="text-sm text-[var(--text-muted)]">{gt("Description")}</span>
-                                      <p className="text-sm text-white mt-1">{selectedServer.description}</p>
+                                      <p className="text-sm text-[var(--text-primary)] mt-1">{selectedServer.description}</p>
                                     </div>
                                   )}
                                 </div>
@@ -4373,7 +4375,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                 <div className="space-y-2">
                                   <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
                                     <div>
-                                      <p className="text-sm text-white font-medium">{gt("Partnered")}</p>
+                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Partnered")}</p>
                                       <p className="text-xs text-[var(--text-muted)]">{gt("Grant partner badge and perks")}</p>
                                     </div>
                                     <ToggleSwitch
@@ -4384,7 +4386,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </div>
                                   <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
                                     <div>
-                                      <p className="text-sm text-white font-medium">{gt("Discoverable")}</p>
+                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Discoverable")}</p>
                                       <p className="text-xs text-[var(--text-muted)]">{gt("Show in server discovery page")}</p>
                                     </div>
                                     <ToggleSwitch
@@ -4405,7 +4407,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                     className="w-full flex items-center justify-between p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors text-left"
                                   >
                                     <div>
-                                      <p className="text-sm text-white font-medium">{gt("Transfer Ownership")}</p>
+                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Transfer Ownership")}</p>
                                       <p className="text-xs text-[var(--text-muted)]">{gt("Change the server owner")}</p>
                                     </div>
                                     <ExternalLink className="w-4 h-4 text-[var(--text-muted)]" />
@@ -4448,7 +4450,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Statistics */}
               {activeTab === "admin-stats" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <BarChart3 className="w-6 h-6 text-[#8B5CF6]" />
                     {gt("Platform Statistics")}
                   </h2>
@@ -4466,7 +4468,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             <Users className="w-4 h-4 text-[#8B5CF6]" />
                             <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Total Users")}</span>
                           </div>
-                          <p className="text-3xl font-bold text-white">{adminStats.users.toLocaleString()}</p>
+                          <p className="text-3xl font-bold text-[var(--text-primary)]">{adminStats.users.toLocaleString()}</p>
                           <p className="text-xs text-green-400 mt-1">+{adminStats.newUsersToday} {gt("today")}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
@@ -4474,7 +4476,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             <Server className="w-4 h-4 text-[#8B5CF6]" />
                             <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Total Servers")}</span>
                           </div>
-                          <p className="text-3xl font-bold text-white">{adminStats.servers.toLocaleString()}</p>
+                          <p className="text-3xl font-bold text-[var(--text-primary)]">{adminStats.servers.toLocaleString()}</p>
                           <p className="text-xs text-[var(--text-muted)] mt-1">{adminStats.activeServers} {gt("new (30d)")}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
@@ -4482,7 +4484,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             <MessageSquare className="w-4 h-4 text-[#8B5CF6]" />
                             <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Total Messages")}</span>
                           </div>
-                          <p className="text-3xl font-bold text-white">{adminStats.messages.toLocaleString()}</p>
+                          <p className="text-3xl font-bold text-[var(--text-primary)]">{adminStats.messages.toLocaleString()}</p>
                           <p className="text-xs text-green-400 mt-1">{adminStats.messagesToday.toLocaleString()} {gt("today")}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
@@ -4502,7 +4504,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             <Calendar className="w-3.5 h-3.5 text-[var(--text-muted)]" />
                             <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("New This Week")}</span>
                           </div>
-                          <p className="text-2xl font-bold text-white">{adminStats.newUsersThisWeek.toLocaleString()}</p>
+                          <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.newUsersThisWeek.toLocaleString()}</p>
                         </div>
                         <div className="bg-[var(--bg-app)] rounded-lg p-4 border border-[var(--border-subtle)]">
                           <div className="flex items-center gap-2 mb-1">
@@ -4523,7 +4525,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             <Users className="w-3.5 h-3.5 text-[var(--text-muted)]" />
                             <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Server Memberships")}</span>
                           </div>
-                          <p className="text-2xl font-bold text-white">{adminStats.totalMemberships.toLocaleString()}</p>
+                          <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.totalMemberships.toLocaleString()}</p>
                           <p className="text-xs text-[var(--text-muted)] mt-0.5">{gt("across all servers")}</p>
                         </div>
                       </div>
@@ -4532,7 +4534,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       <div className="flex justify-end">
                         <button
                           onClick={() => fetchAdminStats()}
-                          className="px-4 py-2 bg-[var(--bg-card)] text-white rounded-lg text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2"
+                          className="px-4 py-2 bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2"
                         >
                           <RefreshCw className="w-4 h-4" />
                           {gt("Refresh")}
@@ -4551,7 +4553,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Platform Settings */}
               {activeTab === "admin-settings" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <Settings className="w-6 h-6 text-[#8B5CF6]" />
                     {gt("Platform Settings")}
                   </h2>
@@ -4560,15 +4562,15 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                   {adminStats && (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-white">{adminStats.users.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.users.toLocaleString()}</p>
                         <p className="text-sm text-[var(--text-muted)]">{gt("Total Users")}</p>
                       </div>
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-white">{adminStats.servers.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.servers.toLocaleString()}</p>
                         <p className="text-sm text-[var(--text-muted)]">{gt("Total Servers")}</p>
                       </div>
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-white">{adminStats.messages.toLocaleString()}</p>
+                        <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.messages.toLocaleString()}</p>
                         <p className="text-sm text-[var(--text-muted)]">{gt("Total Messages")}</p>
                       </div>
                       <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
@@ -4580,30 +4582,30 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
 
                   <div className="space-y-4">
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">{gt("Maintenance Mode")}</h3>
+                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Maintenance Mode")}</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
-                          <p className="text-white">{gt("Enable Maintenance Mode")}</p>
+                          <p className="text-[var(--text-primary)]">{gt("Enable Maintenance Mode")}</p>
                           <p className="text-sm text-[var(--text-muted)]">{gt("Restrict access to staff only")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.maintenanceMode || false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ maintenanceMode: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">{gt("Registration")}</h3>
+                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Registration")}</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
-                          <p className="text-white">{gt("Allow New Registrations")}</p>
+                          <p className="text-[var(--text-primary)]">{gt("Allow New Registrations")}</p>
                           <p className="text-sm text-[var(--text-muted)]">{gt("Enable new user sign-ups")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.allowRegistration !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ allowRegistration: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">{gt("Connections")}</h3>
+                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Connections")}</h3>
                       <label className="flex items-center justify-between cursor-pointer">
                         <div>
-                          <p className="text-white">{gt("Enable Account Connections")}</p>
+                          <p className="text-[var(--text-primary)]">{gt("Enable Account Connections")}</p>
                           <p className="text-sm text-[var(--text-muted)]">{gt("Allow users to link external accounts (Last.fm, Spotify, GitHub, etc.)")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.connectionsEnabled !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ connectionsEnabled: checked })} />
@@ -4631,7 +4633,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                         return <Icon size={12} style={{ color: prov.color }} />;
                                       })()}
                                     </div>
-                                    <span className="text-sm text-white truncate">{prov.label}</span>
+                                    <span className="text-sm text-[var(--text-primary)] truncate">{prov.label}</span>
                                   </div>
                                   <ToggleSwitch
                                     size="sm"
@@ -4652,14 +4654,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       )}
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">{gt("OEmbed Whitelist")}</h3>
+                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("OEmbed Whitelist")}</h3>
                       <p className="text-sm text-[var(--text-muted)] mb-3">{gt("Domains allowed for rich link embeds (Spotify, YouTube, etc.)")}</p>
                       <div className="flex gap-2 mb-3">
                         <Input
                           value={oembedDomainInput}
                           onChange={(e) => setOembedDomainInput(e.target.value)}
                           placeholder="example.com"
-                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
+                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && oembedDomainInput.trim()) {
                               e.preventDefault();
@@ -4693,7 +4695,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         ) : (
                           (platformSettings?.oembedWhitelist || []).map((domain) => (
                             <div key={domain} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
-                              <span className="text-white">{domain}</span>
+                              <span className="text-[var(--text-primary)]">{domain}</span>
                               <button
                                 onClick={() => {
                                   const current = platformSettings?.oembedWhitelist || [];
@@ -4709,7 +4711,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">{gt("File Type Whitelist")}</h3>
+                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("File Type Whitelist")}</h3>
                       <p className="text-sm text-[var(--text-muted)] mb-3">
                         {gt("Only whitelisted MIME types can be uploaded. Tag each as safe or bad — bad types are allowed but users get a warning.")}
                       </p>
@@ -4718,7 +4720,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                           value={fileTypeInput}
                           onChange={(e) => setFileTypeInput(e.target.value)}
                           placeholder="application/zip"
-                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-white"
+                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && fileTypeInput.trim()) {
                               e.preventDefault();
@@ -4754,7 +4756,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         ) : (
                           (platformSettings?.allowedFileTypes || []).map((entry) => (
                             <div key={entry.type} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
-                              <span className="text-white">{entry.type}</span>
+                              <span className="text-[var(--text-primary)]">{entry.type}</span>
                               <div className="flex items-center gap-3">
                                 <button
                                   onClick={() => {
@@ -4783,19 +4785,19 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       </div>
                       <label className="flex items-center justify-between cursor-pointer pt-3 border-t border-[var(--border-subtle)]">
                         <div>
-                          <p className="text-white">{gt("Warn on unknown file types")}</p>
+                          <p className="text-[var(--text-primary)]">{gt("Warn on unknown file types")}</p>
                           <p className="text-sm text-[var(--text-muted)]">{gt("Show a warning to users when they upload a file type not in the whitelist")}</p>
                         </div>
                         <ToggleSwitch size="sm" checked={platformSettings?.warnOnUnknownFileTypes !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ warnOnUnknownFileTypes: checked })} />
                       </label>
                     </div>
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-white font-semibold mb-3">{gt("Font Testing")}</h3>
+                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Font Testing")}</h3>
                       <p className="text-sm text-[var(--text-muted)] mb-3">{gt("Preview how different fonts look across the app.")}</p>
                       <Input
                         value={fontTestText}
                         onChange={(e) => setFontTestText(e.target.value)}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white mb-4"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] mb-4"
                         placeholder={gt("Type text to preview...")}
                       />
                       <div className="space-y-3">
@@ -4806,7 +4808,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         ].map((font) => (
                           <div key={font.name} className="p-3 bg-[var(--bg-card)] rounded-lg">
                             <p className="text-xs text-[var(--text-muted)] mb-1">{font.name}</p>
-                            <p className={cn("text-white text-base", font.className)}>{fontTestText}</p>
+                            <p className={cn("text-[var(--text-primary)] text-base", font.className)}>{fontTestText}</p>
                           </div>
                         ))}
                       </div>
@@ -4816,7 +4818,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               )}
               {activeTab === "admin-logs" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <Activity className="w-6 h-6 text-[#8B5CF6]" />
                     {gt("Activity Logs")}
                   </h2>
@@ -4835,7 +4837,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                             "px-3 py-1.5 rounded text-sm transition-colors",
                             adminLogFilter === f
                               ? "bg-[#8B5CF6] text-white"
-                              : "bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)]"
+                              : "bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                           )}
                         >
                           {f === "all" ? gt("All") : f === "bans" ? gt("Bans") : f === "reports" ? gt("Reports") : gt("Admin Actions")}
@@ -4852,7 +4854,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       ) : adminLogs.length === 0 ? (
                         <div className="p-4 bg-[var(--bg-card)] rounded-lg text-center">
                           <FileText className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-2" />
-                          <p className="text-white text-sm">{gt("No activity logs yet")}</p>
+                          <p className="text-[var(--text-primary)] text-sm">{gt("No activity logs yet")}</p>
                           <p className="text-[var(--text-muted)] text-xs mt-1">{gt("Admin actions will appear here")}</p>
                         </div>
                       ) : (
@@ -4911,7 +4913,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                   </Avatar>
                                   <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="text-white text-sm font-medium truncate">
+                                      <span className="text-[var(--text-primary)] text-sm font-medium truncate">
                                         {log.admin?.displayName || log.admin?.username || "Unknown"}
                                       </span>
                                       <span
@@ -5010,7 +5012,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               fetchAdminLogs(adminLogFilter, prev);
                             }}
                             disabled={adminLogPage <= 1}
-                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                           >
                             {gt("Previous")}
                           </button>
@@ -5021,7 +5023,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               fetchAdminLogs(adminLogFilter, next);
                             }}
                             disabled={adminLogPage >= adminLogPagination.pages}
-                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-white hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                           >
                             {gt("Next")}
                           </button>
@@ -5035,7 +5037,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Badge Management (create/define badges) */}
               {activeTab === "admin-badges" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-2">{gt("Badge Management")}</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("Badge Management")}</h2>
                   <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Create, edit, and manage the platform's badge definitions. To assign badges to a user, use the User Management tab.")}</p>
                   <AdminBadgesPanel />
                 </div>
@@ -5044,7 +5046,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
               {/* Admin Panel - Announcements */}
               {activeTab === "admin-announcements" && isStaff && (
                 <div>
-                  <h2 className="text-xl font-bold text-white mb-2">{gt("Announcements")}</h2>
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("Announcements")}</h2>
                   <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Publish a global banner announcement visible to all users. Blank lines are preserved.")}</p>
                   <div className="bg-[var(--bg-app)] rounded-xl p-5 space-y-4">
                     {platformSettings?.globalAnnouncement && (
@@ -5061,7 +5063,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                         value={announcementText}
                         onChange={(e) => setAnnouncementText(e.target.value)}
                         placeholder={gt("Enter announcement text… Blank lines will be preserved as visual breaks.")}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-white resize-none overflow-y-auto"
+                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] resize-none overflow-y-auto"
                         rows={8}
                         style={{ maxHeight: "240px" }}
                       />
@@ -5134,14 +5136,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
           </button>
 
           {/* ESC hint */}
-          <div className="absolute top-5 right-16 text-xs text-[#72767d]">
+          <div className="absolute top-5 right-16 text-xs text-[var(--text-muted)]">
             ESC
           </div>
 
           {/* Save bar */}
           {hasChanges && (
             <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom">
-              <span className="text-white text-sm">{gt("Careful — you have unsaved changes!")}</span>
+              <span className="text-[var(--text-primary)] text-sm font-medium">{gt("Careful — you have unsaved changes!")}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
@@ -5173,14 +5175,14 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                       setServerBanner(initialServerBanner);
                     }
                   }}
-                  className="px-4 py-1.5 text-sm text-white hover:underline"
+                  className="px-4 py-1.5 text-sm text-[var(--text-primary)] hover:underline"
                 >
                   {gt("Reset")}
                 </button>
                 <button
                   onClick={handleSave}
                   disabled={isSaving}
-                  className="px-4 py-1.5 bg-[#248046] hover:bg-[#1a6334] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
+                  className="px-4 py-1.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
                 >
                   {isSaving && <Loader size={16} />}
                   {gt("Save Changes")}

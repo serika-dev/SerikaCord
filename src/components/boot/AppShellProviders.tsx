@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import { ServerProvider } from "@/contexts/ServerContext";
 import { UnreadProvider } from "@/contexts/UnreadContext";
+import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 
 // Heavy dialogs are code-split so they don't slow the first paint, but the
 // first click must not wait on a download: warm their chunks once the browser
@@ -51,7 +52,9 @@ export default function AppShellProviders({ children }: { children: ReactNode })
   usePrefetchDialogsWhenIdle();
   return (
     <ServerProvider>
-      <UnreadProvider>{children}</UnreadProvider>
+      <UnreadProvider>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </UnreadProvider>
     </ServerProvider>
   );
 }

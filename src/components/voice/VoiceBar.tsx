@@ -125,7 +125,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: 0.18, ease: "easeOut" }}
           className={cn(
-            "bg-[#0a0d15] border-t border-[#1e2637] px-3 py-2",
+            "bg-[var(--bg-app)] border-t border-[var(--app-border)] px-3 py-2",
             className
           )}
         >
@@ -138,12 +138,12 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
               </span>
               <span className="text-xs font-semibold text-green-400 flex-shrink-0">{gt("Voice Connected")}</span>
               {(channelName || currentChannel) && (
-                <span className="text-[11px] text-[#6b7387] truncate">
+                <span className="text-[11px] text-[var(--app-muted-2)] truncate">
                   — {channelName || currentChannel}
                 </span>
               )}
             </div>
-            <span className="text-[10px] text-[#6b7387] flex-shrink-0">
+            <span className="text-[10px] text-[var(--app-muted-2)] flex-shrink-0">
               {participants.length + 1} {gt("in call")}
             </span>
           </div>
@@ -161,7 +161,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                 speaking={speakingUsers.has(voiceService.myId)}
                 size="md"
               />
-              <span className="text-[10px] text-[#8d97ad] max-w-[56px] truncate">{gt("You")}</span>
+              <span className="text-[10px] text-[var(--app-muted)] max-w-[56px] truncate">{gt("You")}</span>
             </div>
             {participants.filter(p => p.userId !== voiceService.myId).map((p) => (
               <div key={p.userId} className="flex flex-col items-center gap-1">
@@ -170,7 +170,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                   speaking={speakingUsers.has(p.userId)}
                   size="md"
                 />
-                <span className="text-[10px] text-[#8d97ad] max-w-[56px] truncate">
+                <span className="text-[10px] text-[var(--app-muted)] max-w-[56px] truncate">
                   {p.displayName || p.username}
                 </span>
               </div>
@@ -186,7 +186,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                 "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
                 isMuted
                   ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
-                  : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                  : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
               )}
             >
               {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -199,7 +199,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                 "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
                 isDeafened
                   ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
-                  : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                  : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
               )}
             >
               {isDeafened ? <HeadphoneOff className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
@@ -212,7 +212,7 @@ export function VoiceBar({ channelName, className }: VoiceBarProps) {
                 "flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-95",
                 isVideoOn
                   ? "bg-[#8B5CF6]/20 text-[#8B5CF6] hover:bg-[#8B5CF6]/30"
-                  : "bg-[#1e2637] text-[#8d97ad] hover:bg-[#243044] hover:text-[#d5d9e8]"
+                  : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
               )}
             >
               {isVideoOn ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}

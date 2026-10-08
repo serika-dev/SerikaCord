@@ -122,7 +122,7 @@ const EmojiButton = memo(function EmojiButton({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className="w-10 h-10 flex items-center justify-center hover:bg-[#2a2a40] rounded-lg transition-colors"
+      className="w-10 h-10 flex items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
     >
       <img
         src={cdnImage(getEmojiUrl(emoji))}
@@ -199,7 +199,7 @@ const CustomEmojiButton = memo(function CustomEmojiButton({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className="w-10 h-10 flex items-center justify-center hover:bg-[#2a2a40] rounded-lg transition-colors"
+      className="w-10 h-10 flex items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors"
       title={`:${emoji.name}:${emoji.serverName ? ` from ${emoji.serverName}` : ''}`}
     >
       <img
@@ -701,16 +701,16 @@ export function CustomEmojiPicker({
   }, []);
 
   return (
-    <div className={cn("w-full max-w-[440px] bg-[#1a1a2e] rounded-lg border border-[#2a2a40] flex flex-col shadow-2xl overflow-hidden", className)}>
+    <div className={cn("w-full max-w-[440px] bg-[var(--bg-card)] rounded-lg border border-[var(--border-subtle)] flex flex-col shadow-2xl overflow-hidden", className)}>
       {/* Top Tabs - GIFs, Stickers, Emoji */}
-      <div className="flex border-b border-[#2a2a40]">
+      <div className="flex border-b border-[var(--border-subtle)]">
         <button
           onClick={() => setActiveTab("gifs")}
           className={cn(
             "flex-1 py-3 text-sm font-semibold transition-all flex items-center justify-center gap-2",
             activeTab === "gifs" 
-              ? "text-white bg-[#2a2a40]" 
-              : "text-[#8888aa] hover:text-white hover:bg-[#2a2a40]/50"
+              ? "text-[var(--text-primary)] bg-[var(--app-surface-alt)]" 
+              : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           )}
         >
           <ImageIcon className="w-4 h-4" />
@@ -721,8 +721,8 @@ export function CustomEmojiPicker({
           className={cn(
             "flex-1 py-3 text-sm font-semibold transition-all flex items-center justify-center gap-2",
             activeTab === "stickers" 
-              ? "text-white bg-[#2a2a40]" 
-              : "text-[#8888aa] hover:text-white hover:bg-[#2a2a40]/50"
+              ? "text-[var(--text-primary)] bg-[var(--app-surface-alt)]" 
+              : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           )}
         >
           <Sticker className="w-4 h-4" />
@@ -733,8 +733,8 @@ export function CustomEmojiPicker({
           className={cn(
             "flex-1 py-3 text-sm font-semibold transition-all flex items-center justify-center gap-2",
             activeTab === "emoji" 
-              ? "text-white bg-[#2a2a40]" 
-              : "text-[#8888aa] hover:text-white hover:bg-[#2a2a40]/50"
+              ? "text-[var(--text-primary)] bg-[var(--app-surface-alt)]" 
+              : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
           )}
         >
           <Smile className="w-4 h-4" />
@@ -749,26 +749,26 @@ export function CustomEmojiPicker({
         <div className="flex-none h-[440px] max-h-[60dvh] min-h-0">
           <GifPicker
             onGifSelect={(gif) => onGifSelect?.(gif.url)}
-            className="w-full h-full rounded-none border-none bg-[#1a1a2e]"
+            className="w-full h-full rounded-none border-none"
           />
         </div>
       ) : activeTab === "stickers" ? (
         <div className="flex-none h-[440px] max-h-[60dvh] min-h-0 flex flex-col">
           {/* Sticker Search Bar */}
           {stickers.length > 0 && (
-            <div className="p-3 border-b border-[#2a2a40]">
+            <div className="p-3 border-b border-[var(--border-subtle)]">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8888aa]" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
                 <Input
                   value={stickerSearch}
                   onChange={(e) => setStickerSearch(e.target.value)}
                   placeholder={gt("Search stickers...")}
-                  className="pl-10 pr-10 bg-[#0f0f1a] border-[#2a2a40] text-white placeholder:text-[#8888aa] h-9 rounded-lg focus-visible:ring-1 focus-visible:ring-[#8B5CF6]"
+                  className="pl-10 pr-10 bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-9 rounded-lg focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
                 />
                 {stickerSearch && (
                   <button
                     onClick={() => setStickerSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8888aa] hover:text-white"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -779,7 +779,7 @@ export function CustomEmojiPicker({
           <div className="flex flex-1 min-h-0">
           {/* Sticker Category Sidebar */}
           {groupedStickers.length > 0 && (
-            <div ref={stickerSidebarRef} className="w-12 bg-[#0f0f1a] flex flex-col items-center py-2 gap-1 border-r border-[#2a2a40] overflow-y-auto scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent">
+            <div ref={stickerSidebarRef} className="w-12 bg-[var(--bg-app)] flex flex-col items-center py-2 gap-1 border-r border-[var(--border-subtle)] overflow-y-auto scrollbar-thin scrollbar-thumb-[var(--app-border)] scrollbar-track-transparent">
               {groupedStickers.map((group) => {
                 const sectionId = `sticker-${group.serverId || group.server}`;
                 const isActive = activeStickerSection === sectionId;
@@ -791,8 +791,8 @@ export function CustomEmojiPicker({
                     className={cn(
                       "w-9 h-9 flex items-center justify-center rounded-lg transition-all overflow-hidden shrink-0",
                       isActive
-                        ? "bg-[#8B5CF6] text-white"
-                        : "text-[#8888aa] hover:bg-[#2a2a40] hover:text-white"
+                        ? "bg-[var(--app-accent)] text-[var(--text-on-accent)]"
+                        : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                     )}
                     title={group.server}
                   >
@@ -807,12 +807,12 @@ export function CustomEmojiPicker({
             </div>
           )}
           {/* Sticker Grid */}
-          <div ref={stickerScrollRef} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent">
+          <div ref={stickerScrollRef} className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[var(--app-border)] scrollbar-track-transparent">
             {isLoadingStickers ? (
               <div className="p-3">
                 <div className="grid grid-cols-5 gap-2">
                   {Array.from({ length: 10 }).map((_, idx) => (
-                    <div key={idx} className="h-16 rounded-md bg-[#2a2a40] animate-pulse" />
+                    <div key={idx} className="h-16 rounded-md bg-[var(--app-surface-alt)] animate-pulse" />
                   ))}
                 </div>
               </div>
@@ -822,7 +822,7 @@ export function CustomEmojiPicker({
                   const sectionId = `sticker-${group.serverId || group.server}`;
                   return (
                     <div key={sectionId} ref={setStickerSectionRef(sectionId)}>
-                      <p className="text-xs uppercase tracking-wider text-[#8888aa] mb-2 sticky top-0 bg-[#1a1a2e] py-1 z-10 -mx-3 px-3">
+                      <p className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2 sticky top-0 bg-[var(--bg-card)] py-1 z-10 -mx-3 px-3">
                         {group.server}
                       </p>
                       <div className="grid grid-cols-5 gap-2">
@@ -830,7 +830,7 @@ export function CustomEmojiPicker({
                           <button
                             key={sticker.id}
                             onClick={() => onStickerSelect?.(sticker)}
-                            className="group rounded-md border border-[#2a2a40] hover:border-[#8B5CF6] transition-colors p-1"
+                            className="group rounded-md border border-[var(--border-subtle)] hover:border-[var(--app-accent)] transition-colors p-1"
                             title={sticker.name}
                           >
                             <img
@@ -848,8 +848,8 @@ export function CustomEmojiPicker({
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-center p-3">
-                <Sticker className="w-8 h-8 text-[#8888aa] mb-3" />
-                <p className="text-[#8888aa] text-sm">
+                <Sticker className="w-8 h-8 text-[var(--text-muted)] mb-3" />
+                <p className="text-[var(--text-muted)] text-sm">
                   {stickerSearch
                     ? gt("No stickers found for \"{search}\"", { search: stickerSearch })
                     : (serverId || availableServerStickers.length > 0 ? gt("No stickers uploaded yet") : gt("Open a server channel to use stickers"))}
@@ -862,19 +862,19 @@ export function CustomEmojiPicker({
       ) : (
         <>
           {/* Search Bar */}
-          <div className="p-3 border-b border-[#2a2a40]">
+          <div className="p-3 border-b border-[var(--border-subtle)]">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8888aa]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={gt("Search emojis...")}
-                className="pl-10 pr-10 bg-[#0f0f1a] border-[#2a2a40] text-white placeholder:text-[#8888aa] h-10 rounded-lg focus-visible:ring-1 focus-visible:ring-[#8B5CF6]"
+                className="pl-10 pr-10 bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-10 rounded-lg focus-visible:ring-1 focus-visible:ring-[var(--app-accent)]"
               />
               {search && (
                 <button 
                   onClick={() => setSearch("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8888aa] hover:text-white"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -885,7 +885,7 @@ export function CustomEmojiPicker({
           {/* Main Content - Sidebar + Emoji Grid */}
           <div className="flex flex-1 min-h-0">
             {/* Category Sidebar */}
-            <div ref={sidebarRef} className="w-12 h-[440px] max-h-[60dvh] bg-[#0f0f1a] flex flex-col items-center py-2 gap-1 border-r border-[#2a2a40] overflow-y-auto scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent">
+            <div ref={sidebarRef} className="w-12 h-[440px] max-h-[60dvh] bg-[var(--bg-app)] flex flex-col items-center py-2 gap-1 border-r border-[var(--border-subtle)] overflow-y-auto scrollbar-thin scrollbar-thumb-[var(--app-border)] scrollbar-track-transparent">
               {/* Recent + Favorites first */}
               {CATEGORY_ICONS.filter((cat) => cat.id === "recent" || cat.id === "favorites").map((cat) => {
                 const IconComponent = cat.icon;
@@ -898,8 +898,8 @@ export function CustomEmojiPicker({
                     className={cn(
                       "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0",
                       isActive 
-                        ? "bg-[#8B5CF6] text-white" 
-                        : "text-[#8888aa] hover:bg-[#2a2a40] hover:text-white"
+                        ? "bg-[var(--app-accent)] text-[var(--text-on-accent)]" 
+                        : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                     )}
                     title={emojiCategoryLabel(cat.id, gt)}
                   >
@@ -919,8 +919,8 @@ export function CustomEmojiPicker({
                     className={cn(
                       "w-9 h-9 flex items-center justify-center rounded-lg transition-all overflow-hidden shrink-0",
                       isActive
-                        ? "bg-[#8B5CF6] text-white"
-                        : "text-[#8888aa] hover:bg-[#2a2a40] hover:text-white"
+                        ? "bg-[var(--app-accent)] text-[var(--text-on-accent)]"
+                        : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                     )}
                     title={group.server}
                   >
@@ -950,8 +950,8 @@ export function CustomEmojiPicker({
                     className={cn(
                       "w-9 h-9 flex items-center justify-center rounded-lg transition-all shrink-0",
                       isActive 
-                        ? "bg-[#8B5CF6] text-white" 
-                        : "text-[#8888aa] hover:bg-[#2a2a40] hover:text-white"
+                        ? "bg-[var(--app-accent)] text-[var(--text-on-accent)]" 
+                        : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                     )}
                     title={emojiCategoryLabel(cat.id, gt)}
                   >
@@ -964,13 +964,13 @@ export function CustomEmojiPicker({
             {/* Emoji Grid - Single scrollable list with sections */}
             <div 
               ref={scrollRef}
-              className="flex-1 h-[440px] max-h-[60dvh] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[#2a2a40] scrollbar-track-transparent"
+              className="flex-1 h-[440px] max-h-[60dvh] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[var(--app-border)] scrollbar-track-transparent"
             >
               <div className="p-3 space-y-4">
                 {/* Recently Used Section */}
                 {filteredRecent.length > 0 && (
                   <div ref={setSectionRef("recent")}>
-                    <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[var(--bg-card)] py-1 z-10">
                       <Clock className="w-3.5 h-3.5" />
                       {gt("Recently Used")}
                     </h3>
@@ -1006,7 +1006,7 @@ export function CustomEmojiPicker({
                 {/* Favorites Section */}
                 {filteredFavorites.length > 0 && (
                   <div ref={setSectionRef("favorites")}>
-                    <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[var(--bg-card)] py-1 z-10">
                       <Star className="w-3.5 h-3.5" />
                       {gt("Favorites")}
                     </h3>
@@ -1045,11 +1045,11 @@ export function CustomEmojiPicker({
                   const sectionId = `server-${group.serverId || group.server}`;
                   return (
                   <div key={`server-${group.server}`} ref={setSectionRef(sectionId)}>
-                    <h3 className="text-xs font-semibold text-[#8888aa] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[var(--bg-card)] py-1 z-10">
                       {group.serverIcon && group.serverId ? (
                         <button
                           onClick={() => router.push(`/channels/${group.serverId}`)}
-                          className="flex items-center gap-1.5 hover:text-white transition-colors"
+                          className="flex items-center gap-1.5 hover:text-[var(--text-primary)] transition-colors"
                           title={`Jump to ${group.server}`}
                         >
                           <img
@@ -1087,7 +1087,7 @@ export function CustomEmojiPicker({
                     setRef={setSectionRef(category.id)}
                     estimatedHeight={Math.ceil(category.emojis.length / 8) * 40 + 28}
                   >
-                    <h3 className="text-xs font-semibold text-[#8888aa] mb-2 uppercase tracking-wide sticky top-0 bg-[#1a1a2e] py-1 z-10">
+                    <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wide sticky top-0 bg-[var(--bg-card)] py-1 z-10">
                       {category.name}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
@@ -1106,8 +1106,8 @@ export function CustomEmojiPicker({
                 {/* No results */}
                 {search && filteredCategories.length === 0 && filteredCustomEmojis.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
-                    <Search className="w-12 h-12 text-[#4a4a6a] mb-4" />
-                    <p className="text-[#8888aa] text-sm">{gt("No emojis found for \"{search}\"", { search })}</p>
+                    <Search className="w-12 h-12 text-[var(--text-muted)] mb-4" />
+                    <p className="text-[var(--text-muted)] text-sm">{gt("No emojis found for \"{search}\"", { search })}</p>
                   </div>
                 )}
               </div>
@@ -1115,8 +1115,8 @@ export function CustomEmojiPicker({
           </div>
 
           {/* Footer */}
-          <div className="border-t border-[#2a2a40] p-2 flex items-center bg-[#0f0f1a]">
-            <div className="flex items-center gap-2 text-xs text-[#8888aa]">
+          <div className="border-t border-[var(--border-subtle)] p-2 flex items-center bg-[var(--bg-app)]">
+            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
               <span>{gt("Powered by Twemoji")}</span>
             </div>
           </div>

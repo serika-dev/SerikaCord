@@ -33,9 +33,9 @@ export function ToggleSwitch({
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "relative shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8B5CF6] disabled:opacity-50 disabled:cursor-not-allowed",
+        "relative shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)] disabled:opacity-50 disabled:cursor-not-allowed",
         isSmall ? "w-9 h-5" : "w-12 h-6",
-        checked ? "bg-[#8B5CF6]" : "bg-[#2a2a2a]",
+        checked ? "bg-[var(--app-accent)]" : "bg-[var(--border-strong)]",
         className
       )}
     >

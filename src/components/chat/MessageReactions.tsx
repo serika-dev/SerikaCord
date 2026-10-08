@@ -64,7 +64,7 @@ export function MessageReactions({
                 className={cn(
                   "flex items-center gap-1 px-2 py-0.5 rounded-full text-sm transition-colors border",
                   hasReacted
-                    ? "bg-[#8B5CF6]/20 border-[#8B5CF6] text-[var(--text-primary)]"
+                    ? "bg-[color-mix(in_srgb,var(--app-accent)_20%,transparent)] border-[var(--app-accent)] text-[var(--text-primary)]"
                     : "bg-[var(--app-surface-alt)] border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110"
                 )}
               >

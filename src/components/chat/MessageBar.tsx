@@ -732,12 +732,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     </div>
                   ) : file.type.startsWith("audio/") ? (
                     <div className="w-20 h-20 bg-[var(--app-surface-alt)] rounded-md flex flex-col items-center justify-center p-2">
-                      <Music className="w-6 h-6 text-[#8B5CF6] mb-1" />
+                      <Music className="w-6 h-6 text-[var(--app-accent)] mb-1" />
                       <span className="text-xs text-[var(--app-muted)] truncate w-full text-center">{file.name.slice(0, 10)}</span>
                     </div>
                   ) : (
                     <div className="w-20 h-20 bg-[var(--app-surface-alt)] rounded-md flex flex-col items-center justify-center p-2">
-                      <FileText className="w-6 h-6 text-[#8B5CF6] mb-1" />
+                      <FileText className="w-6 h-6 text-[var(--app-accent)] mb-1" />
                       <span className="text-xs text-[var(--app-muted)] truncate w-full text-center">{file.name.slice(0, 10)}</span>
                     </div>
                   )}
@@ -749,7 +749,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       </span>
                       <div className="w-14 h-1 rounded-full bg-white/30 overflow-hidden">
                         <div
-                          className="h-full bg-[#8B5CF6] transition-[width] duration-200"
+                          className="h-full bg-[var(--app-accent)] transition-[width] duration-200"
                           style={{ width: `${uploadProgress[index] ?? 0}%` }}
                         />
                       </div>
@@ -764,7 +764,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           className={cn(
                             "w-5 h-5 rounded-full flex items-center justify-center transition-opacity",
                             isSpoiler
-                              ? "bg-[#8B5CF6] opacity-100"
+                              ? "bg-[var(--app-accent)] opacity-100"
                               : "bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                           )}
                           aria-label={isSpoiler ? gt("Remove spoiler") : gt("Mark as spoiler")}
@@ -794,7 +794,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         <div
           className={cn(
             "px-1 sm:px-2 pb-1 sm:pb-1.5 flex-shrink-0 relative",
-            isDragOver && "after:absolute after:inset-1 after:rounded-lg after:border-2 after:border-dashed after:border-[#8B5CF6] after:bg-[#8B5CF6]/10 after:pointer-events-none"
+            isDragOver && "after:absolute after:inset-1 after:rounded-lg after:border-2 after:border-dashed after:border-[var(--app-accent)] after:bg-[color-mix(in_srgb,var(--app-accent)_10%,transparent)] after:pointer-events-none"
           )}
           onPaste={handlePaste}
           onDragOver={(e) => {
@@ -871,12 +871,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           group.icon ? (
                             <img src={cdnImage(group.icon)} alt="" className="w-4 h-4 rounded-sm object-cover shrink-0" />
                           ) : (
-                            <Bot className="w-3.5 h-3.5 text-[#a78bfa] shrink-0" />
+                            <Bot className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />
                           )
                         ) : (
                           <span className={cn("shrink-0", catMeta[group.key.slice(4)]?.color)}>{CATEGORY_ICONS[group.key.slice(4)]}</span>
                         )}
-                        <span className={cn("text-[10px] font-bold uppercase tracking-wider truncate", group.kind === "app" ? "text-[#a78bfa]" : catMeta[group.key.slice(4)]?.color)}>{group.label}</span>
+                        <span className={cn("text-[10px] font-bold uppercase tracking-wider truncate", group.kind === "app" ? "text-[var(--app-accent)]" : catMeta[group.key.slice(4)]?.color)}>{group.label}</span>
                         <span className="text-[10px] text-[var(--app-muted)] ml-auto">{group.items.length}</span>
                       </div>
                       {group.items.map((suggestion) => {
@@ -902,11 +902,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                                 : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
                             )}
                           >
-                            <span className="flex items-center justify-center w-7 h-7 shrink-0 rounded-md bg-[#8B5CF6]/15 text-[#a78bfa] overflow-hidden">
+                            <span className="flex items-center justify-center w-7 h-7 shrink-0 rounded-md bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] overflow-hidden">
                               {cmdIcon}
                             </span>
                             <span className="flex flex-col min-w-0 gap-0.5">
-                              <span className="truncate font-mono text-sm text-[#a78bfa]">/{suggestion.label}</span>
+                              <span className="truncate font-mono text-sm text-[var(--app-accent)]">/{suggestion.label}</span>
                               <span className="truncate text-xs text-[var(--app-muted)]">{suggestion.description}</span>
                               {suggestion.commandHint && (
                                 <span className="truncate text-[10px] text-[var(--app-muted)]/60 italic">{suggestion.commandHint}</span>
@@ -933,7 +933,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   <>
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">{gt("Options")}</span>
-                      <span className="font-mono text-[10px] text-[#a78bfa] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
+                      <span className="font-mono text-[10px] text-[var(--app-accent)] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
                     </div>
                     {mentionSuggestions.map((suggestion, index) => (
                       <button
@@ -966,7 +966,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   <>
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">{mentionSuggestions[0].paramName}</span>
-                      <span className="font-mono text-[10px] text-[#a78bfa] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
+                      <span className="font-mono text-[10px] text-[var(--app-accent)] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
                     </div>
                     {mentionSuggestions.map((suggestion, index) => (
                       <button
@@ -994,7 +994,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 {mentionSuggestions.length === 1 && mentionSuggestions[0].kind === "app-option" && mentionSuggestions[0].id === "__app-option-hint__" && (
                   <div className="px-4 py-3">
                     <div className="flex items-center gap-2 mb-1.5">
-                      <span className="font-mono text-sm text-[#a78bfa]">/{mentionSuggestions[0].commandName}</span>
+                      <span className="font-mono text-sm text-[var(--app-accent)]">/{mentionSuggestions[0].commandName}</span>
                       <span className="text-xs text-[var(--app-muted)]">—</span>
                       <span className="text-xs font-semibold text-[var(--text-secondary)]">{mentionSuggestions[0].paramName}</span>
                       {mentionSuggestions[0].paramRequired && (
@@ -1015,11 +1015,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     <div className="px-4 py-3">
                       <div className="flex items-center gap-2 mb-1.5">
                         {cmdIcon && (
-                          <span className="flex items-center justify-center w-6 h-6 shrink-0 rounded-md bg-[#8B5CF6]/15 text-[#a78bfa]">
+                          <span className="flex items-center justify-center w-6 h-6 shrink-0 rounded-md bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)]">
                             {cmdIcon}
                           </span>
                         )}
-                        <span className="font-mono text-sm text-[#a78bfa]">/{s.commandName}</span>
+                        <span className="font-mono text-sm text-[var(--app-accent)]">/{s.commandName}</span>
                         <span className="text-xs text-[var(--app-muted)]">—</span>
                         <span className="text-xs font-semibold text-[var(--text-secondary)]">{s.paramName}</span>
                         {s.paramRequired && (
@@ -1030,31 +1030,31 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                       {isTts ? (
                         <div className="mt-2.5 pl-8 space-y-1.5">
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[f]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[f]</span>
                             <span className="text-[var(--app-muted)]">{gt("Female voice")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[m]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[m]</span>
                             <span className="text-[var(--app-muted)]">{gt("Male voice")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[2x]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[2x]</span>
                             <span className="text-[var(--app-muted)]">{gt("Speed (also: [1.5x], [slow], [fast], [turbo])")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[vol:50]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[vol:50]</span>
                             <span className="text-[var(--app-muted)]">{gt("Volume 0–500% (also: [vol:BASS] bass boost, [vol:EAR] max loudness)")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[steven]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[steven]</span>
                             <span className="text-[var(--app-muted)]">{gt("Stephen Hawking robotic voice")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[fish:miku]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[fish:miku]</span>
                             <span className="text-[var(--app-muted)]">{gt("FishAudio AI voice (also: [fish:model-id])")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[#8B5CF6]/15 text-[#a78bfa] font-mono font-semibold">[f-japanese]</span>
+                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[f-japanese]</span>
                             <span className="text-[var(--app-muted)]">{gt("Gender + accent (also: [m-dutch], [scottish]…)")}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[11px]">
@@ -1067,7 +1067,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                           </div>
                           <div className="mt-2 pt-2 border-t border-[var(--app-border)]/40">
                             <p className="text-[10px] text-[var(--app-muted)]/70 font-mono">
-                              <span className="text-[#a78bfa]">/tts</span> [m] whoa nice day [f] ik right
+                              <span className="text-[var(--app-accent)]">/tts</span> [m] whoa nice day [f] ik right
                             </p>
                           </div>
                         </div>
@@ -1087,11 +1087,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     <>
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
                         {cmdIcon && (
-                          <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded bg-[#8B5CF6]/15 text-[#a78bfa]">
+                          <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)]">
                             {cmdIcon}
                           </span>
                         )}
-                        <span className="font-mono text-xs text-[#a78bfa]">/{cmdName}</span>
+                        <span className="font-mono text-xs text-[var(--app-accent)]">/{cmdName}</span>
                         <span className="text-[10px] text-[var(--app-muted)]">— {gt("select a member for")}</span>
                         <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{paramName}</span>
                       </div>
@@ -1140,11 +1140,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     <>
                       <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
                         {cmdIcon && (
-                          <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded bg-[#8B5CF6]/15 text-[#a78bfa]">
+                          <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)]">
                             {cmdIcon}
                           </span>
                         )}
-                        <span className="font-mono text-xs text-[#a78bfa]">/{cmdName}</span>
+                        <span className="font-mono text-xs text-[var(--app-accent)]">/{cmdName}</span>
                         <span className="text-[10px] text-[var(--app-muted)]">— {gt("choose")} {isDuration ? gt("a duration") : gt("an option")} {gt("for")}</span>
                         <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{paramName}</span>
                       </div>
@@ -1328,7 +1328,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   onClick={onSend}
                   disabled={isUploading}
                   aria-label={isUploading ? gt("Uploading attachments") : isSending ? gt("Sending") : gt("Send message")}
-                  className="text-[#8B5CF6] hover:text-[#A78BFA] transition-colors disabled:opacity-70"
+                  className="text-[var(--app-accent)] hover:text-[var(--accent-hover)] transition-colors disabled:opacity-70"
                 >
                   {isSending || isUploading ? (
                     <Loader size={20} className="sm:w-6 sm:h-6" />
