@@ -39,6 +39,8 @@
 - **Private channels stay private** — activity (name, author, @everyone pings) from channels with permission overwrites only reaches members who can see them.
 - **Roles you add to a private channel can see it** — a role or member allow on a channel never beat the @everyone deny, so "Private Channel" hid the channel from everyone, including the roles and people added to it. Channel overwrites now apply like Discord: @everyone, then roles, then the member. The same fix lets allowed roles post in read-only channels.
 - **Forum posts are listed newest-activity first** — the post list was in no real order and big forums dropped recent posts; ticket forums could hide your own ticket.
+- **Push to Talk works** — with Push to Talk on, your mic stays silent until you hold the key (not while typing in a text box) and closes when you let go or switch windows.
+- **Voice settings apply to calls** — Echo Cancellation, Noise Suppression, Automatic Gain Control, Input Volume and Output Volume used to change only the mic test. They now apply in calls, including mid-call.
 
 ### Performance
 - Startup requests start while the page is still loading instead of after the app boots, duplicate requests are shared, and the open channel's messages are fetched in the same burst.
@@ -58,6 +60,7 @@
 - **Posts in a private forum are private** — threads ignored their forum's permissions, so any member could read and reply to posts in a hidden forum and saw its activity. Threads now follow their parent channel.
 - **Role permissions are enforced** — turning off View Channels, Send Messages, Attach Files, Add Reactions or Create Invite on a role was saved but never checked by the server.
 - **Timeouts and Send Messages cover forum posts, reactions and slash commands** — timed-out members could still create forum posts, add reactions and run bot commands; forum posts now also follow slowmode and rate limits.
+- **Voice channels are private to the people who can see them** — anyone who knew a voice channel's id could list who was in it, join it, or connect straight to a participant and hear them without showing up in the channel. Joining, listening and seeing who is connected now need access to the channel (or to be one of the two people in a DM call). Calls only connect between people visibly in the room, and voice channel user limits are enforced.
 
 ---
 

@@ -1,4 +1,5 @@
 import type SimplePeer from "simple-peer";
+import { isPttKeyEvent, normalizePttKey, readVoiceCallSettings, shouldTransmit, DEFAULT_PTT_KEY } from "@/lib/voice/settings";
 
 // simple-peer (+ its stream polyfills, ~95KB) is only needed once you join
 // voice, so it's loaded then instead of with every page.
@@ -39,6 +40,15 @@ export type VoiceEvent =
 
 type VoiceListener = (event: VoiceEvent) => void;
 
+// Keys typed into a text field must never trigger push-to-talk.
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el !== "object") return false;
+  if (el.isContentEditable) return true;
+  const tag = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
 class VoiceService {
   private roomId: string | null = null;
   private localStream: MediaStream | null = null;
@@ -71,7 +81,194 @@ class VoiceService {
   };
 
   setAudioConstraints(constraints: Partial<MediaTrackConstraints>) {
-    this.audioConstraints = { ...this.audioConstraints, ...constraints };
+    const next = { ...this.audioConstraints, ...constraints };
+    const changed = (Object.keys(constraints) as Array<keyof MediaTrackConstraints>)
+      .some((k) => this.audioConstraints[k] !== next[k]);
+    this.audioConstraints = next;
+    if (!changed) return;
+    // Mid-call: apply to the live mic track so the change takes effect without
+    // rejoining. Only the raw device track accepts these constraints.
+    const micTrack = this.inputRawTrack ?? (this.noiseSuppressionOn ? null : this.localStream?.getAudioTracks()[0] ?? null);
+    if (micTrack && typeof micTrack.applyConstraints === "function") {
+      void micTrack.applyConstraints(this.audioConstraints).catch(() => { /* unsupported; applies next join */ });
+    }
+  }
+
+  /**
+   * Apply the user's saved Voice & Video settings (mic processing,
+   * push-to-talk, input/output volume). Safe to call with a partial object.
+   */
+  applyVoiceSettings(voiceVideo: unknown) {
+    const s = readVoiceCallSettings(voiceVideo);
+    if (Object.keys(s.constraints).length) this.setAudioConstraints(s.constraints);
+    if (s.pushToTalk !== undefined || s.pushToTalkKey !== undefined) {
+      this.setPushToTalk(s.pushToTalk ?? this.pttEnabled, s.pushToTalkKey ?? this.pttKey);
+    }
+    if (s.inputVolume !== undefined) this.setInputVolume(s.inputVolume);
+    if (s.outputVolume !== undefined) this.setOutputVolume(s.outputVolume);
+  }
+
+  // -- Push to talk ----------------------------------------------------------
+  private pttEnabled = false;
+  private pttKey = DEFAULT_PTT_KEY;
+  private pttHeld = false;
+  private pttListening = false;
+
+  setPushToTalk(enabled: boolean, key: string = this.pttKey) {
+    this.pttEnabled = Boolean(enabled);
+    this.pttKey = normalizePttKey(key);
+    if (!this.pttEnabled) this.pttHeld = false;
+    this.applyMicState();
+  }
+
+  get pushToTalkEnabled() { return this.pttEnabled; }
+
+  private onPttKeyDown = (e: KeyboardEvent) => {
+    if (!this.pttEnabled || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!isPttKeyEvent(e, this.pttKey) || isTypingTarget(e.target)) return;
+    if (!this.pttHeld) {
+      this.pttHeld = true;
+      this.applyMicState();
+    }
+  };
+
+  private onPttKeyUp = (e: KeyboardEvent) => {
+    if (!this.pttHeld || !isPttKeyEvent(e, this.pttKey)) return;
+    this.pttHeld = false;
+    this.applyMicState();
+  };
+
+  // Losing focus means we'd never see the keyup: close the mic.
+  private onPttRelease = () => {
+    if (!this.pttHeld) return;
+    this.pttHeld = false;
+    this.applyMicState();
+  };
+
+  private onPttVisibility = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") this.onPttRelease();
+  };
+
+  private attachPttListeners() {
+    if (this.pttListening || typeof window === "undefined") return;
+    window.addEventListener("keydown", this.onPttKeyDown, true);
+    window.addEventListener("keyup", this.onPttKeyUp, true);
+    window.addEventListener("blur", this.onPttRelease);
+    document.addEventListener("visibilitychange", this.onPttVisibility);
+    this.pttListening = true;
+  }
+
+  private detachPttListeners() {
+    this.pttHeld = false;
+    if (!this.pttListening || typeof window === "undefined") return;
+    window.removeEventListener("keydown", this.onPttKeyDown, true);
+    window.removeEventListener("keyup", this.onPttKeyUp, true);
+    window.removeEventListener("blur", this.onPttRelease);
+    document.removeEventListener("visibilitychange", this.onPttVisibility);
+    this.pttListening = false;
+  }
+
+  /** Enable/disable the outgoing mic track(s) from mute + push-to-talk state. */
+  private applyMicState() {
+    if (!this.localStream) return;
+    const on = shouldTransmit({ muted: this.isMuted, pttEnabled: this.pttEnabled, pttHeld: this.pttHeld });
+    this.localStream.getAudioTracks().forEach((t) => {
+      t.enabled = on;
+    });
+  }
+
+  // -- Input volume (mic gain) -----------------------------------------------
+  // Only inserted into the mic path when the gain isn't 100%, so the common
+  // case sends the raw device track untouched.
+  private inputVolume = 100;
+  private inputGainCtx: AudioContext | null = null;
+  private inputGainNode: GainNode | null = null;
+  private inputRawTrack: MediaStreamTrack | null = null;
+
+  setInputVolume(percent: number) {
+    if (!Number.isFinite(percent)) return;
+    this.inputVolume = Math.min(Math.max(Math.round(percent), 0), 200);
+    if (this.inputGainNode) {
+      this.inputGainNode.gain.value = this.inputVolume / 100;
+      return;
+    }
+    // Mid-call and no gain stage yet: splice one in (skipped while the noise
+    // gate owns the mic path; it applies on the next join).
+    if (!this.localStream || this.inputVolume === 100 || this.noiseSuppressionOn) return;
+    const old = this.localStream.getAudioTracks()[0];
+    if (!old) return;
+    const wrapped = this.wrapWithInputGain(old);
+    if (wrapped === old) return;
+    this.localStream.removeTrack(old);
+    this.localStream.addTrack(wrapped);
+    this.peers.forEach((peer) => {
+      try {
+        (peer as unknown as { replaceTrack: (o: MediaStreamTrack, n: MediaStreamTrack, s: MediaStream) => void })
+          .replaceTrack(old, wrapped, this.localStream!);
+      } catch { /* ignore */ }
+    });
+    this.applyMicState();
+  }
+
+  /** Route a raw mic track through a GainNode; returns the track to send. */
+  private wrapWithInputGain(track: MediaStreamTrack): MediaStreamTrack {
+    if (this.inputVolume === 100) return track;
+    try {
+      this.teardownInputGain();
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(new MediaStream([track]));
+      const gain = ctx.createGain();
+      gain.gain.value = this.inputVolume / 100;
+      const dest = ctx.createMediaStreamDestination();
+      source.connect(gain);
+      gain.connect(dest);
+      const out = dest.stream.getAudioTracks()[0];
+      if (!out) {
+        void ctx.close().catch(() => {});
+        return track;
+      }
+      void ctx.resume().catch(() => {});
+      // The raw track feeds the gain stage and must stay enabled; mute/PTT
+      // act on the processed track that is actually sent.
+      track.enabled = true;
+      this.inputGainCtx = ctx;
+      this.inputGainNode = gain;
+      this.inputRawTrack = track;
+      return out;
+    } catch {
+      return track;
+    }
+  }
+
+  private teardownInputGain() {
+    if (this.inputGainCtx) {
+      void this.inputGainCtx.close().catch(() => {});
+    }
+    this.inputGainCtx = null;
+    this.inputGainNode = null;
+    if (this.inputRawTrack) {
+      this.inputRawTrack.stop();
+      this.inputRawTrack = null;
+    }
+  }
+
+  // -- Output volume (remote voices) -----------------------------------------
+  private outputVolumePct = 100;
+  private outputVolumeListeners = new Set<(percent: number) => void>();
+
+  setOutputVolume(percent: number) {
+    if (!Number.isFinite(percent)) return;
+    const next = Math.min(Math.max(Math.round(percent), 0), 200);
+    if (next === this.outputVolumePct) return;
+    this.outputVolumePct = next;
+    this.outputVolumeListeners.forEach((fn) => fn(next));
+  }
+
+  get outputVolume() { return this.outputVolumePct; }
+
+  onOutputVolumeChange(fn: (percent: number) => void): () => void {
+    this.outputVolumeListeners.add(fn);
+    return () => { this.outputVolumeListeners.delete(fn); };
   }
 
   // Personal soundboard playback volume (0–200%), a local preference set from
@@ -149,6 +346,17 @@ class VoiceService {
         video: withVideo ? { width: 1280, height: 720 } : false,
       });
       this.isVideoOn = withVideo;
+      const rawAudio = this.localStream.getAudioTracks()[0];
+      if (rawAudio) {
+        const sent = this.wrapWithInputGain(rawAudio);
+        if (sent !== rawAudio) {
+          this.localStream.removeTrack(rawAudio);
+          this.localStream.addTrack(sent);
+        }
+      }
+      // Push-to-talk: start silent until the key is held.
+      this.pttHeld = false;
+      this.applyMicState();
     } catch {
       this.emit({ type: "error", message: "Microphone/camera access denied." });
       this.roomId = null;
@@ -168,6 +376,7 @@ class VoiceService {
     } catch {
       this.localStream?.getTracks().forEach((t) => t.stop());
       this.localStream = null;
+      this.teardownInputGain();
       this.isVideoOn = false;
       this.roomId = null;
       this.emit({ type: "error", message: "Could not connect to voice. Please try again." });
@@ -193,6 +402,7 @@ class VoiceService {
     }
 
     // Connect SSE signaling
+    this.attachPttListeners();
     this.connectSignaling(channelId);
     this.startSpeakingDetection();
     this.emit({ type: "connected" });
@@ -217,9 +427,39 @@ class VoiceService {
     this.signalingEs.onerror = () => {
       if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = setTimeout(() => {
-        if (this.roomId) this.connectSignaling(this.roomId);
+        if (this.roomId) void this.resumeAfterSignalDrop(this.roomId);
       }, 3000);
     };
+  }
+
+  // The server drops us from the room when our last signaling stream closes,
+  // and only joined participants may exchange offers. So re-join before
+  // reconnecting the stream.
+  private async resumeAfterSignalDrop(roomId: string) {
+    try {
+      const res = await fetch(`/api/voice/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId, audio: !this.isMuted, video: this.isVideoOn }),
+      });
+      if (this.roomId !== roomId) return;
+      if (res.status === 400 || res.status === 403 || res.status === 404) {
+        // Lost access to the room (or it's full): stop retrying.
+        this.emit({ type: "error", message: "Disconnected from voice." });
+        await this.leaveChannel();
+        return;
+      }
+      if (res.ok && (this.isDeafened || this.isScreenSharing)) {
+        fetch(`/api/voice/state/${roomId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ deafened: this.isDeafened, screenShare: this.isScreenSharing }),
+        }).catch(() => {});
+      }
+    } catch {
+      // Network still down; reconnecting the stream will error and retry.
+    }
+    if (this.roomId === roomId) this.connectSignaling(roomId);
   }
 
   private handleSignalingMessage(msg: Record<string, unknown>) {
@@ -260,6 +500,8 @@ class VoiceService {
       }
       case "voice:offer": {
         const fromUserId = msg.fromUserId as string;
+        // Only accept connections from people who are visibly in the room.
+        if (!fromUserId || fromUserId === this.getMyUserId() || !this.participants.has(fromUserId)) break;
         if (!this.peers.has(fromUserId)) {
           this.createPeer(fromUserId, false);
         }
@@ -450,10 +692,12 @@ class VoiceService {
     this.cleanupNoiseSuppression();
 
     // Stop local stream
+    this.detachPttListeners();
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
     }
+    this.teardownInputGain();
     this.isVideoOn = false;
 
     // Destroy all peers
@@ -580,11 +824,7 @@ class VoiceService {
 
   toggleMute(): boolean {
     this.isMuted = !this.isMuted;
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach((t) => {
-        t.enabled = !this.isMuted;
-      });
-    }
+    this.applyMicState();
     if (this.roomId) {
       fetch(`/api/voice/state/${this.roomId}`, {
         method: "PATCH",
@@ -607,11 +847,7 @@ class VoiceService {
     // If deafening, also mute
     if (this.isDeafened && !this.isMuted) {
       this.isMuted = true;
-      if (this.localStream) {
-        this.localStream.getAudioTracks().forEach((t) => {
-          t.enabled = false;
-        });
-      }
+      this.applyMicState();
       this.emit({ type: "mute_toggled", muted: true });
     }
     if (this.roomId) {
@@ -711,8 +947,10 @@ class VoiceService {
           }
         });
 
-        // Keep old track alive but muted (don't stop it — we may need to revert)
-        oldTrack.enabled = false;
+        // Keep the old track alive and enabled: it feeds the gate chain
+        // above. Mute/push-to-talk act on the processed track that is sent.
+        oldTrack.enabled = true;
+        this.applyMicState();
       }
 
       this.noiseSuppressionOn = true;
@@ -739,7 +977,8 @@ class VoiceService {
         audio: this.audioConstraints,
         video: false,
       }).then((origStream) => {
-        const origTrack = origStream.getAudioTracks()[0];
+        const rawTrack = origStream.getAudioTracks()[0];
+        const origTrack = rawTrack ? this.wrapWithInputGain(rawTrack) : rawTrack;
         if (origTrack && this.localStream) {
           // Remove all current audio tracks
           this.localStream.getAudioTracks().forEach((t) => {
@@ -757,8 +996,8 @@ class VoiceService {
             } catch { /* ignore */ }
           });
 
-          // Apply current mute state
-          origTrack.enabled = !this.isMuted;
+          // Apply current mute / push-to-talk state
+          this.applyMicState();
         }
         this.cleanupNoiseSuppression();
       }).catch(() => {

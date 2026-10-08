@@ -68,6 +68,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const voiceVideo = patch?.voiceVideo || {};
     const textImages = patch?.textImages || {};
 
+    // Every settings load/save path funnels through here, so this keeps the
+    // live voice call (mic processing, push-to-talk, volumes) in step.
+    if (patch?.voiceVideo) voiceService.applyVoiceSettings(patch.voiceVideo);
+
     setSettings((prev) => ({
       ...prev,
       theme: coerceTheme(appearance.theme ?? appearance.themeStyle ?? prev.theme),

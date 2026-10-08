@@ -4,6 +4,9 @@ import { config } from '@/lib/config';
 import { getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
 import type { IServerSettings } from '@/lib/models';
+import { checkChannelAccess } from './channels';
+import { BoundedMap } from '@/lib/utils/boundedMap';
+import { parseVoiceRoomId, isDmRoomPeer, hasRoomForParticipant, canSignalBetween } from '@/lib/voice/rooms';
 
 const sseEncoder = new TextEncoder();
 
@@ -144,6 +147,69 @@ export async function startVoiceBridge(): Promise<() => void> {
   return () => { void sub.quit().catch(() => {}); };
 }
 
+// ── Room authorization ─────────────────────────────────────────────────────
+// Who may see or use a voice room: for a channel room, someone who can view
+// that (voice) channel; for a DM call room, one of its two users. Results are
+// cached briefly per user+room because the sidebar polls /states every few
+// seconds; /join always re-checks.
+type RoomAuth = { ok: true; userLimit: number } | { ok: false; status: number; error: string };
+const ROOM_AUTH_TTL_MS = 15_000;
+const roomAuthCache = new BoundedMap<string, { result: RoomAuth; expires: number }>(5000);
+
+async function authorizeRoom(userId: string, roomId: string, opts: { fresh?: boolean } = {}): Promise<RoomAuth> {
+  const key = `${userId}|${roomId}`;
+  if (!opts.fresh) {
+    const hit = roomAuthCache.get(key);
+    if (hit && hit.expires > Date.now()) return hit.result;
+  }
+  const result = await computeRoomAuth(userId, roomId);
+  // Don't cache a transient lookup failure.
+  if (result.ok || result.status !== 500) {
+    roomAuthCache.set(key, { result, expires: Date.now() + ROOM_AUTH_TTL_MS });
+  }
+  return result;
+}
+
+async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth> {
+  const room = parseVoiceRoomId(roomId);
+  if (!room) return { ok: false, status: 400, error: 'Invalid voice room' };
+  if (room.kind === 'dm') {
+    return isDmRoomPeer(room, userId)
+      ? { ok: true, userLimit: 0 }
+      : { ok: false, status: 403, error: 'Not part of this call' };
+  }
+  try {
+    const access = await checkChannelAccess(userId, room.channelId);
+    if (!access.hasAccess || !access.channel) {
+      return { ok: false, status: access.error === 'Channel not found' ? 404 : 403, error: access.error || 'Forbidden' };
+    }
+    if (access.channel.type !== 'voice') {
+      return { ok: false, status: 400, error: 'Not a voice channel' };
+    }
+    return { ok: true, userLimit: Number(access.channel.userLimit) || 0 };
+  } catch {
+    return { ok: false, status: 500, error: 'Could not verify voice channel access' };
+  }
+}
+
+// Shared body of the offer/answer/ice relays: only joined participants may
+// signal each other.
+function relaySignal(
+  roomId: string,
+  fromUserId: string,
+  targetUserId: string,
+  payload: Record<string, unknown>,
+  set: { status?: number | string },
+) {
+  const room = roomState.get(roomId);
+  if (!canSignalBetween(room?.keys(), fromUserId, targetUserId)) {
+    set.status = 403;
+    return { error: 'Both users must be connected to this voice room' };
+  }
+  sendToUser(roomId, targetUserId, { ...payload, fromUserId });
+  return { success: true };
+}
+
 export const voiceRoutes = new Elysia({ prefix: '/voice' })
   .post('/token', async ({ headers, cookie, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -158,6 +224,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
 
     const roomId = body.roomId;
+    const auth = await authorizeRoom(user.id, roomId);
+    if (!auth.ok) {
+      set.status = auth.status;
+      return { error: auth.error };
+    }
     const expiresAt = Date.now() + 5 * 60 * 1000;
 
     // Build the ICE server list the client feeds into its WebRTC peers.
@@ -213,6 +284,17 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     if (!user) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
+    }
+
+    const auth = await authorizeRoom(user.id, body.roomId, { fresh: true });
+    if (!auth.ok) {
+      set.status = auth.status;
+      return { error: auth.error };
+    }
+    const existing = roomState.get(body.roomId);
+    if (!hasRoomForParticipant(auth.userLimit, existing?.size ?? 0, existing?.has(user.id) ?? false)) {
+      set.status = 403;
+      return { error: 'This voice channel is full' };
     }
 
     const room = getRoom(body.roomId);
@@ -299,6 +381,12 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       return { error: authError || 'Unauthorized' };
     }
 
+    const auth = await authorizeRoom(user.id, params.roomId);
+    if (!auth.ok) {
+      set.status = auth.status;
+      return { error: auth.error };
+    }
+
     const room = roomState.get(params.roomId);
     return {
       roomId: params.roomId,
@@ -319,10 +407,14 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
     const roomIds = [...new Set(String(query.rooms || '').split(',').map((r) => r.trim()).filter(Boolean))].slice(0, 100);
     const states: Record<string, unknown[]> = {};
-    for (const roomId of roomIds) {
+    // Only occupied rooms need an access check; rooms the caller can't see
+    // are silently left out.
+    const occupied = roomIds.filter((roomId) => (roomState.get(roomId)?.size ?? 0) > 0);
+    const allowed = await Promise.all(occupied.map((roomId) => authorizeRoom(user.id, roomId)));
+    occupied.forEach((roomId, i) => {
       const room = roomState.get(roomId);
-      if (room && room.size > 0) states[roomId] = Array.from(room.values());
-    }
+      if (allowed[i].ok && room && room.size > 0) states[roomId] = Array.from(room.values());
+    });
     return { states };
   }, {
     query: t.Object({ rooms: t.String() }),
@@ -351,6 +443,17 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
 
     const roomId = params.roomId;
     const userId = user.id;
+
+    const auth = await authorizeRoom(userId, roomId);
+    if (!auth.ok) {
+      const deniedStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: auth.error })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(deniedStream, { status: auth.status, headers: sseHeaders });
+    }
 
     let controllerRef: ReadableStreamDefaultController | null = null;
     let pingInterval: NodeJS.Timeout | null = null;
@@ -421,12 +524,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-    sendToUser(params.roomId, body.targetUserId, {
+    return relaySignal(params.roomId, user.id, body.targetUserId, {
       type: 'voice:offer',
-      fromUserId: user.id,
       signal: body.signal,
-    });
-    return { success: true };
+    }, set);
   }, {
     params: t.Object({ roomId: t.String() }),
     body: t.Object({ targetUserId: t.String(), signal: t.Any() }),
@@ -436,12 +537,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-    sendToUser(params.roomId, body.targetUserId, {
+    return relaySignal(params.roomId, user.id, body.targetUserId, {
       type: 'voice:answer',
-      fromUserId: user.id,
       signal: body.signal,
-    });
-    return { success: true };
+    }, set);
   }, {
     params: t.Object({ roomId: t.String() }),
     body: t.Object({ targetUserId: t.String(), signal: t.Any() }),
@@ -451,12 +550,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
-    sendToUser(params.roomId, body.targetUserId, {
+    return relaySignal(params.roomId, user.id, body.targetUserId, {
       type: 'voice:ice',
-      fromUserId: user.id,
       candidate: body.candidate,
-    });
-    return { success: true };
+    }, set);
   }, {
     params: t.Object({ roomId: t.String() }),
     body: t.Object({ targetUserId: t.String(), candidate: t.Any() }),
