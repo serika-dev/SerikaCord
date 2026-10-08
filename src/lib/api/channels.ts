@@ -1484,9 +1484,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const messages = await Message.find(msgFilter);
     messages.reverse(); // oldest first for display
 
-    // Now fetch server owner and nicknames only for the authors in this page
-    if (serverId) {
-      const authorIds = [...new Set(messages.map((m: any) => m.authorId).filter(Boolean))];
+    // Everything below depends only on this page of messages, so the lookups
+    // run in parallel (they used to be ~8 sequential DB round-trips).
+    const authorIds = Array.from(new Set(messages.map((m: any) => m.authorId).filter(Boolean))) as string[];
+    const refIds = Array.from(new Set(messages.map((m: any) => m.referencedMessageId).filter(Boolean))) as string[];
+
+    // Server owner (isOwner flag) and nicknames for the authors in this page.
+    const loadServerBits = async () => {
+      if (!serverId) return;
       // Try Redis cache for server owner to avoid a DB round-trip on every page fetch
       const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
       const [server, authorMembers] = await Promise.all([
@@ -1504,40 +1509,44 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           nicknameMap.set(m.userId, m.nickname);
         }
       }
-    }
+    };
 
-    // Batch fetch authors
-    const authorIds = Array.from(new Set(messages.map((m: any) => m.authorId).filter(Boolean))) as string[];
-    const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
-    const authorMap = new Map(authors.map((a: any) => [a.id, a]));
-
-    // Fetch Discord users for author IDs not found in the User table
+    const [, authors, refMessages, decryptedContents] = await Promise.all([
+      loadServerBits(),
+      authorIds.length > 0 ? User.find({ id: { in: authorIds } }) : Promise.resolve([]),
+      refIds.length > 0 ? Message.find({ id: { in: refIds } }) : Promise.resolve([]),
+      // Decrypt all message contents in parallel
+      Promise.all((messages as IMessage[]).map((msg) => decryptFromStorage(msg.content || ''))),
+    ]);
+    const authorMap = new Map((authors as any[]).map((a: any) => [a.id, a]));
+    const refMap = new Map((refMessages as any[]).map((r: any) => [r.id, r]));
+    const refAuthorIds = Array.from(new Set((refMessages as any[]).map((r: any) => r.authorId).filter(Boolean))) as string[];
     const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
-    if (missingAuthorIds.length > 0) {
-      const { DiscordUser } = await import('@/lib/models/DiscordUser');
-      const discordAuthors = await DiscordUser.findMany(missingAuthorIds);
-      for (const da of discordAuthors) {
-        authorMap.set(da.id, {
-          id: da.id,
-          username: da.username || `discord-${da.discordId}`,
-          displayName: da.displayName,
-          avatar: da.avatar,
-          status: 'offline',
-          isBot: da.isBot,
-          isSystem: false,
-          isDiscord: true,
-        });
-      }
-    }
 
-    // Batch fetch referenced messages
-    const refIds = Array.from(new Set(messages.map((m: any) => m.referencedMessageId).filter(Boolean))) as string[];
-    const refMessages = refIds.length > 0 ? await Message.find({ id: { in: refIds } }) : [];
-    const refMap = new Map(refMessages.map((r: any) => [r.id, r]));
-    // Batch fetch referenced message authors
-    const refAuthorIds = Array.from(new Set(refMessages.map((r: any) => r.authorId).filter(Boolean))) as string[];
-    const refAuthors = refAuthorIds.length > 0 ? await User.find({ id: { in: refAuthorIds } }) : [];
-    const refAuthorMap = new Map(refAuthors.map((a: any) => [a.id, a]));
+    // Second wave: Discord-bridged authors, reply authors, and custom emojis
+    // (one batched parse across all contents — no server restriction: access
+    // was validated at send time, and restricting to the message's own server
+    // broke rendering of cross-server emojis on fetch).
+    const [discordAuthors, refAuthors, emojiResults] = await Promise.all([
+      missingAuthorIds.length > 0
+        ? import('@/lib/models/DiscordUser').then(({ DiscordUser }) => DiscordUser.findMany(missingAuthorIds))
+        : Promise.resolve([]),
+      refAuthorIds.length > 0 ? User.find({ id: { in: refAuthorIds } }) : Promise.resolve([]),
+      batchParseCustomEmojis(decryptedContents),
+    ]);
+    for (const da of discordAuthors as any[]) {
+      authorMap.set(da.id, {
+        id: da.id,
+        username: da.username || `discord-${da.discordId}`,
+        displayName: da.displayName,
+        avatar: da.avatar,
+        status: 'offline',
+        isBot: da.isBot,
+        isSystem: false,
+        isDiscord: true,
+      });
+    }
+    const refAuthorMap = new Map((refAuthors as any[]).map((a: any) => [a.id, a]));
     // Fetch Discord users for ref authors not found in User table
     const missingRefAuthorIds = refAuthorIds.filter((id) => !refAuthorMap.has(id));
     if (missingRefAuthorIds.length > 0) {
@@ -1556,19 +1565,6 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         });
       }
     }
-
-    // Transform for frontend - return array directly and map id
-    // Phase 1: Decrypt all message contents in parallel
-    const decryptedContents = await Promise.all(
-      (messages as IMessage[]).map((msg) => decryptFromStorage(msg.content || ''))
-    );
-
-    // Phase 2: Batch-parse custom emojis across all decrypted contents in a
-    // single pass — one DB query for all cache misses instead of N per-message
-    // parseCustomEmojis calls. No server restriction here: access was validated
-    // at send time, and restricting to the message's own server broke rendering
-    // of cross-server emojis on fetch.
-    const emojiResults = await batchParseCustomEmojis(decryptedContents);
 
     // Phase 3: Decrypt referenced message contents (batch, parallel)
     const refDecryptEntries = (messages as IMessage[])
