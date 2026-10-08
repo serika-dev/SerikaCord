@@ -16,6 +16,8 @@ import { getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
 import { Channel, ServerMember } from '@/lib/models';
+import { db, schema } from '@/lib/db/postgres';
+import { inArray } from 'drizzle-orm';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 
 export interface ChannelActivityPayload {
@@ -211,6 +213,27 @@ export function notifyUnreadReset(
   lastMessageAt: string | null,
 ): void {
   void fanoutToUsers(target, { type: 'unread_reset', channelId, lastMessageAt });
+}
+
+/**
+ * Server-side presence heartbeat: every user with an open activity stream
+ * (any tab, on this instance) is "here". Browsers freeze or throttle timers in
+ * background tabs, so the client's own 30s heartbeat can stop while the app is
+ * still open and connected — that showed people offline. One UPDATE per tick.
+ */
+const PRESENCE_TOUCH_MS = 30_000;
+export function startPresenceKeepalive(): () => void {
+  const timer = setInterval(() => {
+    const ids = [...activeActivityConnections.keys()];
+    if (ids.length === 0) return;
+    void db
+      .update(schema.users)
+      .set({ presenceLastHeartbeatAt: new Date() })
+      .where(inArray(schema.users.id, ids))
+      .catch((err: Error) => console.error('Presence keepalive failed:', err.message));
+  }, PRESENCE_TOUCH_MS);
+  (timer as { unref?: () => void }).unref?.();
+  return () => clearInterval(timer);
 }
 
 /** Subscribe this process to the activity + user-fanout buses. */

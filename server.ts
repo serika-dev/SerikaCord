@@ -104,6 +104,7 @@ async function main() {
     getOrCreateDMChannel = dmMod.getOrCreateDMChannel;
     // App-wide unread/activity bus (glow, mention badges in the sidebar).
     registerActivitySSE = activityMod.registerActivityConnection;
+    activityMod.startPresenceKeepalive();
     // The Redis bridges only matter for other instances (local delivery uses the
     // process-wide registries), so never let a slow/unreachable Redis block boot.
     channelMod.startChannelSSEBridge().catch((err) => console.error('Channel SSE bridge init failed:', err));
