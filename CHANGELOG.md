@@ -44,11 +44,17 @@
 - **Authorized Apps lists each app separately** — authorizing a second app merged its scopes into the first app's entry.
 - **Apply for Verification works** — the button did nothing; it now submits the application and shows it as pending.
 - **"API Limits" footer link** on the developer home page opens the rate limits docs instead of a 404.
+- **Deleted DMs leave the DM list preview** — the sidebar kept showing a deleted message as the conversation's last message.
+- **DMs open for new users** — people who never changed a setting were treated as friends-only for DMs even though their privacy page said "Allow direct messages".
+- **A reopened DM stays in the list** — opening a closed DM from Friends or a profile now brings it back for good instead of hiding it again when you navigate away.
+- **One conversation per person** — two people messaging each other for the first time at the same moment could end up with split DM histories.
+- **Deleting a server or account cleans up fully** — channels, memberships, roles, emojis, stickers, bans and webhooks go with the server, and an account deletion hands its servers to another member and removes it from friend lists.
 
 ### Performance
 - Startup requests start while the page is still loading instead of after the app boots, duplicate requests are shared, and the open channel's messages are fetched in the same burst.
 - About a third less JavaScript at startup: settings, server settings, profile and chat dialogs and the voice library load on first use.
 - Switching between DMs and servers keeps app state instead of rebuilding it.
+- The DM list and opening a DM need fewer back-to-back database round trips.
 - Faster API: requests skip an internal proxy hop, `/@me` no longer waits on badge checks, server online counts are one query, mentions are filtered in the database, token checks are shared, and member/voice activity is polled in batches.
 
 ### Security
@@ -70,6 +76,7 @@
 - **Webhook URLs need their token** — posting to a channel webhook ignored the token, so anyone with a channel id could post as its webhook. Webhook posts are now validated and rate limited, and only people who can manage webhooks (or the webhook's creator) see webhook URLs. Webhook posts show as the webhook, not the person who created it, and different names posted through one webhook are no longer merged under one header.
 - **Hidden connections stay hidden, and Discord can't be self-declared** — connections you hid were still returned on your public profile. Discord, Steam, Last.fm and other sign-in providers can now only be linked through their sign-in flow, so nobody can claim someone else's Discord account in bridged channels. Deleting or hiding a connection, device or authorized app only works on your own.
 - **Rate limits apply again** — the general API rate limit never ran; it is back with a generous budget, plus limits on login, sign-up, password reset, verification emails and QR login codes. The Fish Audio TTS proxy now needs a signed-in user, a configured voice and has a per-user limit. Developer app emojis, webhooks and team lists now need access to the app.
+- **Blocked users and strangers can't plant DMs** — typing, streaming, pins and reactions no longer create a DM channel, typing is ignored when either side has blocked the other, empty DMs only show for the person who opened them, and sending through the generic channel route follows the same block and privacy rules as the DM route.
 
 ---
 

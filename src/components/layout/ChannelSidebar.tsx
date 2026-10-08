@@ -679,6 +679,24 @@ export function ChannelSidebar({
     }),
     [dmChannels, closedDms, pathname],
   );
+  // Opening a closed DM (from Friends, a profile, "Send Message"...) reopens
+  // it for good, so it doesn't vanish again when the user navigates away.
+  const reopenedDmId = useMemo(() => {
+    const recipientId = pathname?.match(/^\/dm\/([^/]+)/)?.[1];
+    if (!recipientId) return null;
+    const channel = dmChannels.find((ch) => ch.recipients[0]?.id === recipientId);
+    return channel && closedDms[channel.id] !== undefined ? channel.id : null;
+  }, [dmChannels, closedDms, pathname]);
+  useEffect(() => {
+    if (!reopenedDmId) return;
+    setClosedDms((prev) => {
+      if (prev[reopenedDmId] === undefined) return prev;
+      const next = { ...prev };
+      delete next[reopenedDmId];
+      try { localStorage.setItem(CLOSED_DMS_KEY, JSON.stringify(next)); } catch { /* best effort */ }
+      return next;
+    });
+  }, [reopenedDmId]);
 
   const renderChannelItem = (channel: typeof channels[0]) => {
     const showDropBefore = dropIndicator?.targetId === channel.id && dropIndicator.position === "before";

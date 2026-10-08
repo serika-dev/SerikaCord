@@ -1457,21 +1457,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Only the server owner can delete the server' };
     }
 
-    // Delete all related data
-    const [channels, roles, members, invites] = await Promise.all([
-      Channel.find({ serverId: server.id }),
-      Role.find({ serverId: server.id }),
-      ServerMember.find({ serverId: server.id }),
-      Invite.find({ serverId: server.id }),
-    ]);
-    await Promise.all([
-      ...channels.map((c: any) => Channel.deleteById(c.id)),
-      ...roles.map((r: any) => Role.deleteById(r.id)),
-      ...members.map((m: any) => ServerMember.deleteById(m.id)),
-      ...invites.map((i: any) => Invite.deleteById(i.id)),
-    ]);
-
-    await Server.deleteById(server.id);
+    // Delete the server and all related data in one transaction.
+    const { deleteServerCascade } = await import('@/lib/services/deletionCascade');
+    await deleteServerCascade(server.id);
     invalidateRolePerms(server.id);
 
     // Recalculate owner badges (may lose server_owner / partner)

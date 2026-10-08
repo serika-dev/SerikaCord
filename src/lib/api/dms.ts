@@ -1,5 +1,9 @@
 import { Elysia, t } from 'elysia';
-import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings, type IMessage } from '@/lib/models';
+import { and, eq, sql } from 'drizzle-orm';
+import { Channel, Message, User, ServerMember, ServerSticker } from '@/lib/models';
+import { ChannelReadState } from '@/lib/models/ChannelReadState';
+import { db, schema } from '@/lib/db/postgres';
+import { canStartDm, dmPairKey, dmPrivacy, isDmBlocked, isDmListedFor, pickDmChannel } from '@/lib/chat/dmAccess';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
@@ -209,27 +213,65 @@ export async function startDmSSEBridge(): Promise<() => void> {
   return () => { void sub.quit().catch(() => {}); };
 }
 
-// Helper to get or create DM channel
-export async function getOrCreateDMChannel(userId: string, recipientId: string) {
-  // Find existing DM channel between users using array contains query
-  const channels = await Channel.find({ type: 'dm', recipientId: userId });
-  let channel = channels.find(c =>
-    c.recipientIds &&
-    c.recipientIds.length === 2 &&
-    c.recipientIds.includes(recipientId)
-  );
+// Read-only lookup of THE 1:1 DM channel between two users. Uses the indexed
+// `recipient_ids @>` filter instead of scanning every DM the user has, and
+// resolves already-duplicated pairs to the oldest row so every route agrees.
+export async function findDMChannel(userId: string, recipientId: string) {
+  const channels = await Channel.find({ type: 'dm', recipientIds: [userId, recipientId] });
+  return pickDmChannel(channels, userId, recipientId);
+}
 
-  if (!channel) {
-    // Create new DM channel
-    channel = await Channel.create({
+// Get or create the DM channel. Callers that may create MUST already have
+// checked that the recipient exists and that blocks/privacy allow the DM. The
+// create path is serialized per user pair with a transaction-scoped advisory
+// lock so two concurrent first messages can't insert two channels (no UNIQUE
+// index on purpose: pre-existing duplicate rows would make it fail at boot).
+export async function getOrCreateDMChannel(userId: string, recipientId: string) {
+  const existing = await findDMChannel(userId, recipientId);
+  if (existing) return existing;
+
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`dm:${dmPairKey(userId, recipientId)}`}))`);
+    const rows = await tx.select().from(schema.channels).where(and(
+      eq(schema.channels.type, 'dm'),
+      sql`${schema.channels.recipientIds} @> ARRAY[${normalizeId(userId)}, ${normalizeId(recipientId)}]::uuid[]`,
+    ));
+    const found = pickDmChannel(rows, userId, recipientId);
+    if (found) return found;
+    const [created] = await tx.insert(schema.channels).values({
       type: 'dm',
       name: 'Direct Message',
       recipientIds: [userId, recipientId],
       position: 0,
-    });
-  }
+    }).returning();
+    return created;
+  });
+}
 
-  return channel;
+type DmChannelRow = Awaited<ReturnType<typeof getOrCreateDMChannel>>;
+type DmOpenResult =
+  | { channel: DmChannelRow; status?: undefined; error?: undefined }
+  | { channel: null; status: number; error: string };
+
+/**
+ * Resolve the DM channel for a realtime route (the DM message stream). An
+ * existing channel is reused as-is; a missing one is only created after the
+ * same recipient-exists, block and privacy checks POST messages applies, so a
+ * stranger can't plant channel rows just by opening streams.
+ */
+export async function openDMChannelForViewer(
+  user: { id: string; friends?: string[] | null; blockedUsers?: string[] | null },
+  recipientId: string,
+): Promise<DmOpenResult> {
+  const existing = await findDMChannel(user.id, recipientId);
+  if (existing) return { channel: existing };
+  const recipient = await User.findById(recipientId);
+  if (!recipient) return { channel: null, status: 404, error: 'User not found' };
+  const recipientIsSystem = Boolean(recipient.isSystem) || isSystemUser(recipient.id);
+  if (!canStartDm(user, recipient, recipientIsSystem)) {
+    return { channel: null, status: 403, error: 'You cannot message this user' };
+  }
+  return { channel: await getOrCreateDMChannel(user.id, recipientId) };
 }
 
 export const dmRoutes = new Elysia({ prefix: '/dms' })
@@ -247,47 +289,60 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       Channel.find({ type: 'dm', recipientId: user.id }),
       Channel.find({ type: 'group_dm', recipientId: user.id }),
     ]);
-    const channels = [...dmChannels, ...groupDmChannels]
+    // Resolve duplicated 1:1 rows to the same channel the DM routes use, and
+    // hide empty DMs from everyone but the user who opened them.
+    const dmGroups = new Map<string, typeof dmChannels>();
+    for (const c of dmChannels) {
+      const r = c.recipientIds || [];
+      const key = r.length === 2 ? dmPairKey(r[0], r[1]) : `solo:${c.id}`;
+      const group = dmGroups.get(key);
+      if (group) group.push(c); else dmGroups.set(key, [c]);
+    }
+    const canonicalDms = [...dmGroups.values()].map((group) => {
+      const r = group[0].recipientIds || [];
+      return r.length === 2 ? (pickDmChannel(group, r[0], r[1]) ?? group[0]) : group[0];
+    });
+    const channels = [...canonicalDms, ...groupDmChannels]
+      .filter((c) => isDmListedFor(c, user.id))
       .sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime());
 
-    // Batch fetch all recipient users in a single query
     const allRecipientIds = [...new Set(
       channels.flatMap(c => (c.recipientIds || []).filter((id: string) => id !== user.id))
     )];
-    const allRecipients = allRecipientIds.length > 0 ? await User.find({ id: { in: allRecipientIds } }) : [];
-    const recipientMap = new Map(allRecipients.map(r => [r.id, r]));
-
-    // Batch fetch all last messages in a single query
     const allLastMessageIds = channels.map(c => c.lastMessageId).filter(Boolean) as string[];
-    const allLastMessages = allLastMessageIds.length > 0 ? await Message.find({ id: { in: allLastMessageIds } }) : [];
-    const lastMessageMap = new Map(allLastMessages.map(m => [m.id, m]));
 
-    // Batch-decrypt all last messages in a single Promise.all (already parallel,
-    // but this avoids interleaving with the channel mapping loop)
-    const lastMsgsToDecrypt = channels
-      .map(c => c.lastMessageId ? lastMessageMap.get(c.lastMessageId) : null)
-      .filter(Boolean) as IMessage[];
-    const decryptedLastContents = await Promise.all(
-      lastMsgsToDecrypt.map(m => decryptFromStorage(m.content || ''))
-    );
-    const lastContentMap = new Map<string, string>();
-    lastMsgsToDecrypt.forEach((m, i) => lastContentMap.set(m.id, decryptedLastContents[i]));
-
-    // Per-DM unread counts: pull the user's read markers, then count unread
-    // (non-own, non-deleted) messages for every channel in one grouped query.
-    // Powers the accent mention badges on DM rows (Discord shows a real count).
-    const { ChannelReadState } = await import('@/lib/models/ChannelReadState');
-    const readRows = await ChannelReadState.findByUser(user.id).catch(() => []);
-    const readMarkers = new Map<string, Date | null>(
-      readRows.map((r: { channelId: string; lastReadAt: Date | string | null }) => [
-        r.channelId,
-        r.lastReadAt ? new Date(r.lastReadAt) : null,
-      ]),
-    );
-    const unreadCounts = await Message.unreadCounts(
-      channels.map((c) => ({ channelId: c.id, after: readMarkers.get(c.id) ?? null })),
-      user.id,
-    ).catch(() => ({} as Record<string, number>));
+    // Recipients, last-message previews (+ decrypt) and unread counts depend
+    // only on `channels`, so run the three chains concurrently. Deleted
+    // messages are never used as a preview.
+    const [allRecipients, lastMessageData, unreadCounts] = await Promise.all([
+      allRecipientIds.length > 0 ? User.find({ id: { in: allRecipientIds } }) : Promise.resolve([] as Awaited<ReturnType<typeof User.find>>),
+      (async () => {
+        const msgs = allLastMessageIds.length > 0
+          ? await Message.find({ id: { in: allLastMessageIds }, isDeleted: false })
+          : [];
+        const dec = await Promise.all(msgs.map(m => decryptFromStorage(m.content || '')));
+        return {
+          lastMessageMap: new Map(msgs.map(m => [m.id, m])),
+          lastContentMap: new Map(msgs.map((m, i) => [m.id, dec[i]])),
+        };
+      })(),
+      // Per-DM unread counts from the user's read markers in one grouped query.
+      (async () => {
+        const readRows = await ChannelReadState.findByUser(user.id).catch(() => []);
+        const readMarkers = new Map<string, Date | null>(
+          readRows.map((r: { channelId: string; lastReadAt: Date | string | null }) => [
+            r.channelId,
+            r.lastReadAt ? new Date(r.lastReadAt) : null,
+          ]),
+        );
+        return Message.unreadCounts(
+          channels.map((c) => ({ channelId: c.id, after: readMarkers.get(c.id) ?? null })),
+          user.id,
+        ).catch(() => ({} as Record<string, number>));
+      })(),
+    ]);
+    const recipientMap = new Map(allRecipients.map(r => [r.id, r]));
+    const { lastMessageMap, lastContentMap } = lastMessageData;
 
     // Populate recipient info, deduplicating by recipient to avoid showing same user twice
     const seenRecipientIds = new Set<string>();
@@ -432,38 +487,36 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid recipient ID' };
     }
 
-    // Check if recipient exists
-    const recipient = await User.findById(params.recipientId);
+    const limit = Math.min(parseInt(query.limit as string) || 50, 100);
+    const before = query.before as string | undefined;
+    const after = query.after as string | undefined;
+    const around = query.around as string | undefined;
+    const cursorId = before || after || around;
+
+    // Recipient, existing channel and the cursor message are independent
+    // lookups (the cursor only depends on query params) — run them together.
+    const [recipient, existingChannel, cursorMsg] = await Promise.all([
+      User.findById(params.recipientId),
+      findDMChannel(user.id, params.recipientId),
+      cursorId ? Message.findById(cursorId) : Promise.resolve(null),
+    ]);
     if (!recipient) {
       set.status = 404;
       return { error: 'User not found' };
     }
 
-    // Check if friends or can DM (skip for system users)
-    // Also skip if a DM channel already exists (e.g. created by broadcast system)
-    const isFriend = (user.friends || []).some((f: string) => compareIds(f, recipient.id));
-    const recipientIsSystem = recipient.isSystem || isSystemUser(recipient.id);
-    if (!isFriend && !recipientIsSystem && (recipient.settings as IUserSettings | undefined)?.privacy?.directMessages !== 'everyone') {
-      // Check if a DM channel already exists — if so, allow viewing messages
-      const existingChannels = await Channel.find({ type: 'dm', recipientId: user.id });
-      const hasExistingChannel = existingChannels.some(c =>
-        c.recipientIds &&
-        c.recipientIds.length === 2 &&
-        c.recipientIds.includes(recipient.id)
-      );
-      if (!hasExistingChannel) {
+    // An existing channel (e.g. created by the broadcast system or before a
+    // privacy change) can always be read. A new one is only created when the
+    // sender would be allowed to start the DM (no block, privacy allows).
+    let channel = existingChannel;
+    if (!channel) {
+      const recipientIsSystem = Boolean(recipient.isSystem) || isSystemUser(recipient.id);
+      if (!canStartDm(user, recipient, recipientIsSystem)) {
         set.status = 403;
         return { error: 'You cannot message this user' };
       }
+      channel = await getOrCreateDMChannel(user.id, params.recipientId);
     }
-
-    // Get or create DM channel
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
-
-    const limit = clampInt(query.limit as string | undefined, 50, 100);
-    const before = query.before as string | undefined;
-    const after = query.after as string | undefined;
-    const around = query.around as string | undefined;
 
     // Build cursor-based DB query
     const msgFilter: Record<string, unknown> = {
@@ -472,61 +525,48 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       _limit: limit,
     };
 
-    if (before) {
-      const beforeMsg = await Message.findById(before);
-      if (beforeMsg) {
-        msgFilter.createdAtBefore = beforeMsg.createdAt;
-      }
-    } else if (after) {
-      // Delta fetch: only messages newer than the client's newest cached one,
-      // so re-opening a DM ships a tiny payload instead of the full last page.
-      const afterMsg = await Message.findById(after);
-      if (afterMsg) {
-        msgFilter.createdAtAfter = afterMsg.createdAt;
+    if (cursorMsg) {
+      if (before) {
+        msgFilter.createdAtBefore = cursorMsg.createdAt;
+      } else if (after) {
+        // Delta fetch: only messages newer than the client's newest cached one,
+        // so re-opening a DM ships a tiny payload instead of the full last page.
+        msgFilter.createdAtAfter = cursorMsg.createdAt;
         // Oldest-first so the page starts right after the cursor (DESC + LIMIT
         // would return the newest page and skip everything in between).
         msgFilter._orderAsc = true;
-      }
-    } else if (around) {
-      // Load a window ending at (and including) the target message so the client
-      // can scroll to a pinned/searched message that isn't in the live tail.
-      const aroundMsg = await Message.findById(around);
-      if (aroundMsg) {
-        msgFilter.createdAtBefore = new Date(new Date(aroundMsg.createdAt as string | number | Date).getTime() + 1);
+      } else {
+        // `around`: load a window ending at (and including) the target message
+        // so the client can scroll to a pinned/searched message not in the tail.
+        msgFilter.createdAtBefore = new Date(new Date(cursorMsg.createdAt as string | number | Date).getTime() + 1);
       }
     }
 
     const msgs = await Message.find(msgFilter);
     if (!msgFilter._orderAsc) msgs.reverse(); // oldest first for display
 
-    // Batch fetch authors
+    // Authors and referenced messages are independent batch lookups.
     const authorIds = [...new Set(msgs.map(m => m.authorId).filter(Boolean))];
-    const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
-    const authorMap = new Map(authors.map(a => [a.id, a]));
-
-    // Batch fetch referenced messages
     const refIds = [...new Set(msgs.map(m => m.referencedMessageId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
-    // Scoped to this DM and live messages: a deleted or foreign reference
-    // renders as "original message deleted" instead of leaking its text.
-    const refMsgs = refIds.length > 0 ? await Message.find({ id: { in: refIds }, channelId: channel.id, isDeleted: false }) : [];
+    const [authors, refMsgs] = await Promise.all([
+      authorIds.length > 0 ? User.find({ id: { in: authorIds } }) : Promise.resolve([] as Awaited<ReturnType<typeof User.find>>),
+      refIds.length > 0 ? Message.find({ id: { in: refIds }, channelId: channel.id, isDeleted: false }) : Promise.resolve([] as Awaited<ReturnType<typeof Message.find>>),
+    ]);
+    const authorMap = new Map(authors.map(a => [a.id, a]));
     const refMap = new Map(refMsgs.map((m: any) => [m.id, m]));
 
-    // Decrypt messages — batch decrypt + batch emoji parse
-    const decryptedContents = await Promise.all(
-      msgs.map((msg: any) => decryptFromStorage(msg.content || ''))
-    );
-    const emojiResults = await batchParseCustomEmojis(decryptedContents);
-
-    // Batch decrypt referenced message contents
+    // Decrypt main and referenced contents together, then batch emoji parse.
     const refDecryptEntries = msgs
       .filter((msg: any) => msg.referencedMessageId && refMap.get(msg.referencedMessageId))
       .map((msg: any) => {
         const refMsg = refMap.get(msg.referencedMessageId)!;
         return { refId: msg.referencedMessageId, content: refMsg.content || '' };
       });
-    const refDecrypted = await Promise.all(
-      refDecryptEntries.map((entry) => decryptFromStorage(entry.content))
-    );
+    const [decryptedContents, refDecrypted] = await Promise.all([
+      Promise.all(msgs.map((msg: any) => decryptFromStorage(msg.content || ''))),
+      Promise.all(refDecryptEntries.map((entry) => decryptFromStorage(entry.content))),
+    ]);
+    const emojiResults = await batchParseCustomEmojis(decryptedContents);
     const refContentMap = new Map<string, string>();
     refDecryptEntries.forEach((entry, i) => refContentMap.set(entry.refId, refDecrypted[i]));
 
@@ -940,9 +980,18 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return new Response(errorStream, { headers: sseHeaders });
     }
 
-    // Get or create DM channel
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
-    const channelKey = channel.id;
+    // Reuse the DM channel; only create one when the user may start the DM.
+    const opened = await openDMChannelForViewer(user, params.recipientId);
+    if (!opened.channel) {
+      const errorStream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(sseEncoder.encode(`data: ${JSON.stringify({ type: 'error', error: opened.error })}\n\n`));
+          controller.close();
+        },
+      });
+      return new Response(errorStream, { headers: sseHeaders });
+    }
+    const channelKey = opened.channel.id;
 
     // Create SSE stream
     let controllerRef: ReadableStreamDefaultController | null = null;
@@ -1005,8 +1054,18 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid recipient ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
-    
+    // Typing never creates a channel and is dropped silently when there is no
+    // conversation yet, either side has blocked the other, or it's spammed.
+    const typingLimit = await checkRateLimit('typing', user.id);
+    if (!typingLimit.success) return { success: true };
+    const [channel, recipient] = await Promise.all([
+      findDMChannel(user.id, params.recipientId),
+      User.findById(params.recipientId),
+    ]);
+    if (!channel || !recipient || isDmBlocked(user, recipient)) {
+      return { success: true };
+    }
+
     // Set typing in Redis
     await cache.setTyping(channel.id, user.id);
 
@@ -1046,7 +1105,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,
@@ -1115,7 +1178,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,
@@ -1160,7 +1227,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,
@@ -1188,11 +1259,24 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       messageId: params.messageId,
     });
 
+    // Newest remaining message: moves the DM-list preview pointer off the
+    // deleted message (so its text never shows as the preview) and drives the
+    // unread reset below.
+    const [latest] = await Message.find({ channelId: channel.id, isDeleted: false, _limit: 1 });
+    if (channel.lastMessageId && compareIds(channel.lastMessageId, message.id)) {
+      // Conditional on the pointer still being the deleted message so a send
+      // racing this delete isn't clobbered; updatedAt is left alone so the DM
+      // doesn't jump to the top of the list.
+      await db.update(schema.channels)
+        .set({ lastMessageId: latest?.id ?? null })
+        .where(and(eq(schema.channels.id, channel.id), eq(schema.channels.lastMessageId, message.id)))
+        .catch((err) => console.error('Failed to move DM lastMessageId after delete:', err));
+    }
+
     // Clear stale unread on the recipient's other devices if the deleted message
-    // was the one that left this DM unread. Recompute newest remaining message
-    // time and broadcast a reset to both participants. Fire-and-forget.
+    // was the one that left this DM unread: broadcast the newest remaining
+    // message time to both participants. Fire-and-forget.
     void (async () => {
-      const [latest] = await Message.find({ channelId: channel.id, isDeleted: false, _limit: 1 });
       const lastMessageAt = latest?.createdAt
         ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
         : null;
@@ -1220,7 +1304,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,
@@ -1289,7 +1377,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,
@@ -1346,7 +1438,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid recipient ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) return { messages: [] };
 
     const pinnedMsgs = await Message.find({ channelId: channel.id, pinned: true, isDeleted: false, _limit: 50 });
 
@@ -1399,7 +1492,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,
@@ -1440,7 +1537,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid ID' };
     }
 
-    const channel = await getOrCreateDMChannel(user.id, params.recipientId);
+    const channel = await findDMChannel(user.id, params.recipientId);
+    if (!channel) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
 
     const message = await Message.findOne({
       id: params.messageId,

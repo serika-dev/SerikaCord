@@ -548,6 +548,10 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
         return { error: 'User not found', success: false };
       }
 
+      // Drop memberships, hand off or delete owned servers and scrub friend
+      // references first, so nothing is left pointing at a missing user.
+      const { cleanupDeletedUser } = await import('@/lib/services/deletionCascade');
+      await cleanupDeletedUser(user.id);
       await User.deleteById(user.id);
       const { invalidateUserCache } = await import('@/lib/services/auth');
       await invalidateUserCache(user.id);

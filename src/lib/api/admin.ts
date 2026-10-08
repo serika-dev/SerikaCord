@@ -672,13 +672,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       reason
     );
 
-    // Delete the server and associated data
-    await Server.deleteById(params.serverId);
-    const serverMessages = await Message.find({ serverId: params.serverId });
-    for (const msg of serverMessages) {
-      await Message.deleteById(msg.id);
-    }
-    // Channel deletion happens via Server cascade
+    // Delete the server and everything scoped to it (no FK cascades exist).
+    const { deleteServerCascade } = await import('@/lib/services/deletionCascade');
+    await deleteServerCascade(server.id);
     return { success: true, message: 'Server deleted' };
   }, {
     params: t.Object({

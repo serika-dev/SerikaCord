@@ -58,7 +58,7 @@ const handle = app.getRequestHandler();
 let registerChannelSSE: ((channelId: string, write: (data: string) => void, owner?: { userId: string; close: () => void }) => () => void) | null = null;
 let registerDmSSE: ((channelId: string, write: (data: string) => void) => () => void) | null = null;
 let checkChannelAccess: ((userId: string, channelId: string) => Promise<{ hasAccess: boolean; error?: string }>) | null = null;
-let getOrCreateDMChannel: ((userId: string, recipientId: string) => Promise<{ id: string }>) | null = null;
+let openDMChannelForViewer: typeof import('@/lib/api/dms').openDMChannelForViewer | null = null;
 let registerActivitySSE: ((userId: string, write: (data: string) => void) => () => void) | null = null;
 
 async function main() {
@@ -101,7 +101,7 @@ async function main() {
     registerChannelSSE = channelMod.registerRawSSEConnection;
     registerDmSSE = dmMod.registerRawDmSSEConnection;
     checkChannelAccess = channelMod.checkChannelAccess;
-    getOrCreateDMChannel = dmMod.getOrCreateDMChannel;
+    openDMChannelForViewer = dmMod.openDMChannelForViewer;
     // App-wide unread/activity bus (glow, mention badges in the sidebar).
     registerActivitySSE = activityMod.registerActivityConnection;
     activityMod.startPresenceKeepalive();
@@ -431,8 +431,16 @@ async function handleSSE(
     }
     channelKey = channelId;
   } else if (recipientId) {
-    const dmChannel = await getOrCreateDMChannel!(user.id, recipientId);
-    channelKey = dmChannel.id;
+    // Reuse the DM channel; only create one when the user may start the DM
+    // (recipient exists, no block, privacy allows) — same rules as sending.
+    const opened = await openDMChannelForViewer!(user, recipientId);
+    if (!opened.channel) {
+      return new Response(JSON.stringify({ error: opened.error }), {
+        status: opened.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    channelKey = opened.channel.id;
   } else {
     return new Response(JSON.stringify({ error: 'Missing channel or recipient ID' }), {
       status: 400,

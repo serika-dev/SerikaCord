@@ -26,6 +26,7 @@ import { dmSendDenyReason, type DmPolicyUser } from '@/lib/chat/dmPolicy';
 import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
+import { canStartDm } from '@/lib/chat/dmAccess';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
