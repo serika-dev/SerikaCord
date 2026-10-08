@@ -15,9 +15,12 @@ import {
 } from '@/lib/realtime/channelStreams';
 import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { getRolePermissions, hasServerPermission } from '@/lib/permissions/serverPermissions';
 import { DEFAULT_SERVER_SAFETY, exceedsMentionLimit, resolveServerSafety, type ServerSafety } from '@/lib/servers/guards';
+import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
+import { computeChannelPermissions, hasBit as hasPermissionBit, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -34,6 +37,8 @@ const PERM_PIN_MESSAGES = 1n << 51n;
 const PERM_SEND_MESSAGES = 1n << 11n;
 const PERM_MENTION_EVERYONE = 1n << 17n;
 const PERM_MANAGE_WEBHOOKS = 1n << 29n;
+const PERM_ATTACH_FILES = PERMISSION_BITS.ATTACH_FILES;
+const PERM_ADD_REACTIONS = PERMISSION_BITS.ADD_REACTIONS;
 
 /**
  * Whether a user can moderate messages in a server — i.e. delete other people's
@@ -93,136 +98,133 @@ async function canPinMessagesInServer(
   return false;
 }
 
+// The @everyone (isDefault) role id per server. It never changes for a server,
+// so a short in-memory cache keeps it off the hot path of every channel check.
+const everyoneRoleIdCache = new BoundedMap<string, { id: string | null; at: number }>(5000);
+const EVERYONE_ROLE_CACHE_TTL_MS = 5 * 60_000;
+
+async function getEveryoneRoleId(serverId: string): Promise<string | null> {
+  const hit = everyoneRoleIdCache.get(serverId);
+  if (hit && Date.now() - hit.at < EVERYONE_ROLE_CACHE_TTL_MS) return hit.id;
+  const role = await Role.findOne({ serverId, isDefault: true });
+  const id = (role?.id as string | undefined) ?? null;
+  everyoneRoleIdCache.set(serverId, { id, at: Date.now() });
+  return id;
+}
+
+async function getServerOwnerIdCached(serverId: string): Promise<string | null> {
+  const cacheKey = `server:owner:${serverId}`;
+  const cached = await cache.get<string>(cacheKey);
+  if (cached) return cached;
+  const server = await Server.findById(serverId);
+  const ownerId = server?.ownerId ?? null;
+  if (ownerId) await cache.set(cacheKey, ownerId, 3600);
+  return ownerId;
+}
+
+type PermissionChannel = {
+  permissionOverwrites?: unknown;
+  serverId?: string | null;
+  type?: string | null;
+  parentId?: string | null;
+};
+
 /**
- * Check if a user can view a channel based on permissionOverwrites.
- * Returns true if:
- * - User is server owner (always allowed)
- * - User has Administrator permission (always allowed)
- * - No overwrites deny VIEW_CHANNEL to the user's roles or @everyone
- * - User's roles explicitly allow VIEW_CHANNEL
+ * Threads have no overwrites of their own: they inherit the parent channel's.
+ * Returns the channel whose overwrites govern `channel`.
  */
-async function canViewChannel(
-  channel: { permissionOverwrites?: any[]; serverId?: string | null },
-  userId: string,
-  membership: { roles?: string[] | null } | null,
-  serverOwnerId?: string | null,
-): Promise<boolean> {
-  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
-
-  const overwrites = channel.permissionOverwrites || [];
-  if (!overwrites || overwrites.length === 0) return true;
-
-  // Check if user has Administrator via roles (cached)
-  if (membership?.roles?.length && channel.serverId) {
-    const rolePerms = await getRolePermissions(membership.roles, channel.serverId);
-    for (const [, perms] of rolePerms) {
-      if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
-      if ((perms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS) return true;
-    }
+async function permissionSourceFor(channel: PermissionChannel): Promise<PermissionChannel> {
+  if ((channel.type === 'public_thread' || channel.type === 'private_thread') && channel.parentId) {
+    const parent = await Channel.findById(channel.parentId);
+    if (parent) return parent;
   }
-
-  // Find @everyone overwrite (type 'role', id matches serverId)
-  const everyoneOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === channel.serverId);
-  let baseAllow = 0n;
-  let baseDeny = 0n;
-  if (everyoneOverwrite) {
-    baseAllow = BigInt(everyoneOverwrite.allow || '0');
-    baseDeny = BigInt(everyoneOverwrite.deny || '0');
-  }
-
-  // Start with @everyone baseline
-  let effectiveAllow = baseAllow;
-  let effectiveDeny = baseDeny;
-
-  // Apply role-specific overwrites
-  if (membership?.roles?.length) {
-    for (const roleId of membership.roles) {
-      const roleOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === roleId);
-      if (roleOverwrite) {
-        effectiveAllow |= BigInt(roleOverwrite.allow || '0');
-        effectiveDeny |= BigInt(roleOverwrite.deny || '0');
-      }
-    }
-  }
-
-  // Apply member-specific overwrites (highest priority)
-  const memberOverwrite = overwrites.find((o: any) => o.type === 'member' && o.id === userId);
-  if (memberOverwrite) {
-    effectiveAllow |= BigInt(memberOverwrite.allow || '0');
-    effectiveDeny |= BigInt(memberOverwrite.deny || '0');
-  }
-
-  // If explicitly denied VIEW_CHANNEL, block
-  if ((effectiveDeny & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return false;
-  // If explicitly allowed VIEW_CHANNEL, permit
-  if ((effectiveAllow & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return true;
-  // Default: allow if @everyone doesn't deny it
-  if ((baseDeny & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return false;
-  return true;
+  return channel;
 }
 
 /**
- * Whether a user can send messages in a channel based on permissionOverwrites.
- * Uses the same overwrite resolution logic as canViewChannel but checks the
- * SEND_MESSAGES bit instead of VIEW_CHANNEL.
+ * A member's full permission bitfield in a channel: base permissions from the
+ * @everyone role and their other roles, then the channel overwrites in Discord
+ * order (see src/lib/permissions/channelOverwrites.ts). Owner and ADMINISTRATOR
+ * get everything; MANAGE_CHANNELS keeps its bypass for view and send. Pass the
+ * channel whose overwrites apply (for threads, the parent: permissionSourceFor).
  */
-async function canSendInChannel(
-  channel: { permissionOverwrites?: any[]; serverId?: string | null },
+async function computeMemberChannelPermissions(
+  channel: PermissionChannel,
+  userId: string,
+  membership: { roles?: string[] | null } | null,
+  serverOwnerId?: string | null,
+): Promise<bigint> {
+  const serverId = channel.serverId;
+  if (!serverId) return ALL_PERMISSIONS; // DMs / group DMs: no role permissions
+  if (serverOwnerId && compareIds(serverOwnerId, userId)) return ALL_PERMISSIONS;
+
+  const everyoneRoleId = await getEveryoneRoleId(serverId);
+  const memberRoleIds = ((membership?.roles || []) as string[]);
+  const roleIds = Array.from(new Set([...(everyoneRoleId ? [everyoneRoleId] : []), ...memberRoleIds]));
+  const rolePerms = roleIds.length ? await getRolePermissions(roleIds, serverId) : new Map<string, bigint>();
+  const everyonePermissions = everyoneRoleId ? (rolePerms.get(everyoneRoleId) ?? null) : null;
+  const otherRolePerms: bigint[] = [];
+  for (const [id, perms] of rolePerms) if (id !== everyoneRoleId) otherRolePerms.push(perms);
+
+  return computeChannelPermissions({
+    everyonePermissions,
+    rolePermissions: otherRolePerms,
+    overwrites: (channel.permissionOverwrites || []) as ChannelOverwrite[],
+    ctx: { serverId, everyoneRoleId, memberRoleIds, userId },
+  });
+}
+
+/** Whether a user can view a channel (VIEW_CHANNEL after base perms + overwrites). */
+async function canViewChannel(
+  channel: PermissionChannel,
   userId: string,
   membership: { roles?: string[] | null } | null,
   serverOwnerId?: string | null,
 ): Promise<boolean> {
-  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
+  const perms = await computeMemberChannelPermissions(channel, userId, membership, serverOwnerId);
+  return hasPermissionBit(perms, PERM_VIEW_CHANNEL);
+}
 
-  // Check if user has Administrator or Manage Channels via roles (bypasses overwrites)
-  if (membership?.roles?.length && channel.serverId) {
-    const rolePerms = await getRolePermissions(membership.roles, channel.serverId);
-    for (const [, perms] of rolePerms) {
-      if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
-      if ((perms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS) return true;
-    }
+type SpeakAction = 'send' | 'attach' | 'react';
+type SpeakDenial = { status: number; body: Record<string, unknown> };
+
+/**
+ * Shared "may this member speak here" gate for every write that puts content in
+ * a server channel (messages, forum posts, reactions, slash commands): rejects
+ * timed-out members, then checks the permission each action needs (SEND_MESSAGES,
+ * ATTACH_FILES, ADD_REACTIONS after base perms + overwrites; threads resolve
+ * against their parent's overwrites). DMs pass.
+ */
+async function checkCanSpeak(
+  channel: PermissionChannel,
+  membership: { roles?: string[] | null; communicationDisabledUntil?: Date | string | null } | null | undefined,
+  userId: string,
+  actions: SpeakAction[],
+): Promise<SpeakDenial | null> {
+  if (!channel.serverId) return null;
+  const disabledUntil = membership?.communicationDisabledUntil;
+  if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
+    return {
+      status: 403,
+      body: { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() },
+    };
   }
-
-  const overwrites = channel.permissionOverwrites || [];
-  if (!overwrites || overwrites.length === 0) return true;
-
-  // Find @everyone overwrite (type 'role', id matches serverId)
-  const everyoneOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === channel.serverId);
-  let baseAllow = 0n;
-  let baseDeny = 0n;
-  if (everyoneOverwrite) {
-    baseAllow = BigInt(everyoneOverwrite.allow || '0');
-    baseDeny = BigInt(everyoneOverwrite.deny || '0');
+  if (actions.length === 0) return null;
+  const [source, serverOwnerId] = await Promise.all([
+    permissionSourceFor(channel),
+    getServerOwnerIdCached(channel.serverId),
+  ]);
+  const perms = await computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
+  if (actions.includes('send') && !hasPermissionBit(perms, PERM_SEND_MESSAGES)) {
+    return { status: 403, body: { error: 'You do not have permission to send messages in this channel' } };
   }
-
-  let effectiveAllow = baseAllow;
-  let effectiveDeny = baseDeny;
-
-  // Apply role-specific overwrites
-  if (membership?.roles?.length) {
-    for (const roleId of membership.roles) {
-      const roleOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === roleId);
-      if (roleOverwrite) {
-        effectiveAllow |= BigInt(roleOverwrite.allow || '0');
-        effectiveDeny |= BigInt(roleOverwrite.deny || '0');
-      }
-    }
+  if (actions.includes('attach') && !hasPermissionBit(perms, PERM_ATTACH_FILES)) {
+    return { status: 403, body: { error: 'You do not have permission to attach files in this channel' } };
   }
-
-  // Apply member-specific overwrites (highest priority)
-  const memberOverwrite = overwrites.find((o: any) => o.type === 'member' && o.id === userId);
-  if (memberOverwrite) {
-    effectiveAllow |= BigInt(memberOverwrite.allow || '0');
-    effectiveDeny |= BigInt(memberOverwrite.deny || '0');
+  if (actions.includes('react') && !hasPermissionBit(perms, PERM_ADD_REACTIONS)) {
+    return { status: 403, body: { error: 'You do not have permission to add reactions in this channel' } };
   }
-
-  // If explicitly denied SEND_MESSAGES, block
-  if ((effectiveDeny & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return false;
-  // If explicitly allowed SEND_MESSAGES, permit
-  if ((effectiveAllow & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return true;
-  // Default: allow if @everyone doesn't deny it
-  if ((baseDeny & PERM_SEND_MESSAGES) === PERM_SEND_MESSAGES) return false;
-  return true;
+  return null;
 }
 
 /**
@@ -612,7 +614,7 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
 export async function checkChannelAccess(userId: string, channelId: string, opts: { lean?: boolean } = {}): Promise<{
   hasAccess: boolean;
   channel?: any;
-  membership?: { roles?: string[] | null; nickname?: string | null } | null;
+  membership?: { roles?: string[] | null; nickname?: string | null; communicationDisabledUntil?: Date | null } | null;
   error?: string;
 }> {
   const channel = await Channel.findById(channelId);
@@ -633,9 +635,12 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
   if (channel.serverId) {
     // Fetch membership and server in parallel — they're independent queries
     // that were previously serial, adding an extra round-trip on every request.
-    const [membership, server] = await Promise.all([
+    // Threads inherit the parent's visibility, so load it alongside.
+    const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
+    const [membership, server, parent] = await Promise.all([
       ServerMember.findOne({ serverId: channel.serverId, userId }),
       Server.findById(channel.serverId),
+      isThread && channel.parentId ? Channel.findById(channel.parentId) : Promise.resolve(null),
     ]);
 
     if (!membership) {
@@ -650,8 +655,7 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
       if (!isOwner && !isMember) {
         const isServerOwner = server ? compareIds(server.ownerId, userId) : false;
         let hasAccessRole = false;
-        if (!isServerOwner && channel.parentId) {
-          const parent = await Channel.findById(channel.parentId);
+        if (!isServerOwner && parent) {
           const accessRoles = (parent?.ticketAccessRoleIds || []).map((r: string) => r);
           if (accessRoles.length) {
             const memberRoles = (membership.roles || []).map((r: string) => r);
@@ -664,10 +668,11 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
       }
     }
 
-    // Check channel permission overwrites for VIEW_CHANNEL
+    // VIEW_CHANNEL from base role permissions + overwrites. Threads have no
+    // overwrites of their own: a post in a private forum is as private as the forum.
     const serverOwnerId = server?.ownerId ?? null;
     const canView = await canViewChannel(
-      { permissionOverwrites: (channel.permissionOverwrites || []) as Array<{ id: string; type: string; allow: string; deny: string }>, serverId: channel.serverId },
+      { permissionOverwrites: ((parent ?? channel).permissionOverwrites || []) as ChannelOverwrite[], serverId: channel.serverId },
       userId,
       membership,
       serverOwnerId,
@@ -1019,10 +1024,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
-    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    const { hasAccess, channel, membership, error } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) {
       set.status = 403;
       return { error: error || 'Access denied' };
+    }
+    const speakDenial = await checkCanSpeak(channel, membership, user.id, ['send']);
+    if (speakDenial) {
+      set.status = speakDenial.status;
+      return speakDenial.body;
     }
     const content = String((body as { content?: string }).content ?? '').trim();
     if (!content.startsWith('/')) {
@@ -1321,15 +1331,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const includeArchived = (query as { archived?: string }).archived === 'true';
     const allThreads = await Channel.find({ parentId: channel.id });
+    // Newest activity first. lastMessageId is a UUID (not a time); updatedAt is
+    // bumped whenever a message lands in the thread (Channel.updateById).
+    const activityTime = (t: { updatedAt?: Date | string | null; createdAt?: Date | string | null }) => new Date(t.updatedAt ?? t.createdAt ?? 0).getTime() || 0;
     let threads = allThreads
       .filter((t: any) => t.type === 'public_thread' || t.type === 'private_thread')
       .filter((t: any) => includeArchived || !t.archived)
-      .sort((a: any, b: any) => {
-        const aLast = a.lastMessageId || a.createdAt;
-        const bLast = b.lastMessageId || b.createdAt;
-        return new Date(bLast).getTime() - new Date(aLast).getTime();
-      })
-      .slice(0, 100);
+      .sort((a: any, b: any) => activityTime(b) - activityTime(a));
 
     // Ticket forums: hide tickets the requester isn't a party to (unless staff / access role).
     if (channel.forumMode === 'tickets') {
@@ -1347,6 +1355,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         );
       }
     }
+    // Limit after the ticket filter so a member's own tickets are never cut.
+    threads = threads.slice(0, 100);
 
     const ownerIds = threads.map((t: any) => t.ownerId).filter(Boolean);
     const owners = ownerIds.length > 0 ? await User.find({ id: { in: ownerIds } }) : [];
@@ -1412,7 +1422,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel: forum, error } = await checkChannelAccess(user.id, params.channelId);
+    const { hasAccess, channel: forum, membership, error } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !forum) {
       set.status = 403;
       return { error: error || 'Access denied' };
@@ -1420,6 +1430,43 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (forum.type !== 'forum') {
       set.status = 400;
       return { error: 'Channel is not a forum' };
+    }
+
+    // A post is a message: same timeout / SEND_MESSAGES / rate limit / slowmode
+    // rules as POST /messages.
+    const speakDenial = await checkCanSpeak(forum, membership, user.id, ['send']);
+    if (speakDenial) {
+      set.status = speakDenial.status;
+      return speakDenial.body;
+    }
+    const [postRateLimit, globalPostRateLimit] = await Promise.all([
+      checkRateLimit('message', `${user.id}:${forum.id}`),
+      checkRateLimit('messageGlobal', user.id),
+    ]);
+    if (!postRateLimit.success || !globalPostRateLimit.success) {
+      set.status = 429;
+      return {
+        error: 'You are posting too fast',
+        retryAfter: !postRateLimit.success ? postRateLimit.retryAfter : globalPostRateLimit.retryAfter,
+      };
+    }
+    if ((forum.rateLimitPerUser ?? 0) > 0 && forum.serverId) {
+      const forumOwnerId = await getServerOwnerIdCached(forum.serverId);
+      const exempt = (forumOwnerId && compareIds(forumOwnerId, user.id))
+        || await canManageMessagesInServer(forum.serverId, user.id, membership);
+      if (!exempt) {
+        const myThreads = await Channel.find({ parentId: forum.id, ownerId: user.id });
+        const lastCreated = myThreads.reduce(
+          (max: number, t: { createdAt?: Date | string | null }) => Math.max(max, new Date(t.createdAt ?? 0).getTime() || 0),
+          0,
+        );
+        const elapsed = Date.now() - lastCreated;
+        if (lastCreated > 0 && elapsed < forum.rateLimitPerUser * 1000) {
+          const waitTime = Math.ceil((forum.rateLimitPerUser * 1000 - elapsed) / 1000);
+          set.status = 429;
+          return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
+        }
+      }
     }
 
     const { name, content, appliedTags = [] } = body;
@@ -1923,28 +1970,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
 
-    // Enforce timeout (communication disabled) on server channels
-    if (channel.serverId && membership) {
-      const disabledUntil = (membership as { communicationDisabledUntil?: Date | null }).communicationDisabledUntil;
-      if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
-        set.status = 403;
-        return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
-      }
-    }
-
-    // Enforce SEND_MESSAGES permission overwrites on server channels
-    if (channel.serverId) {
-      const serverOwnerId = await (async () => {
-        const cached = await cache.get<string>(`server:owner:${channel.serverId}`);
-        if (cached) return cached;
-        const srv = await Server.findById(channel.serverId);
-        return srv?.ownerId ?? null;
-      })();
-      const canSend = await canSendInChannel(channel, user.id, membership as IServerMember, serverOwnerId);
-      if (!canSend) {
-        set.status = 403;
-        return { error: 'You do not have permission to send messages in this channel' };
-      }
+    // Timeout, SEND_MESSAGES and (with attachments) ATTACH_FILES on server channels.
+    const speakDenial = await checkCanSpeak(
+      channel,
+      membership,
+      user.id,
+      (body.attachments?.length ?? 0) > 0 ? ['send', 'attach'] : ['send'],
+    );
+    if (speakDenial) {
+      set.status = speakDenial.status;
+      return speakDenial.body;
     }
 
     if (channel.type === 'public_thread' || channel.type === 'private_thread') {
@@ -2858,7 +2893,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(
+    const { hasAccess, channel, membership, error } = await checkChannelAccess(
       user.id,
       params.channelId
     );
@@ -2900,6 +2935,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         (emojiData.id && r.emoji.id === emojiData.id) || 
         (!emojiData.id && r.emoji.name === emojiData.name)
     );
+
+    // Timed-out members can't react; ADD_REACTIONS gates starting a new reaction
+    // (joining an existing one is allowed, as on Discord).
+    const speakDenial = await checkCanSpeak(channel, membership, user.id, existingReaction ? [] : ['react']);
+    if (speakDenial) {
+      set.status = speakDenial.status;
+      return speakDenial.body;
+    }
 
     let reactionCount: number;
     if (existingReaction) {

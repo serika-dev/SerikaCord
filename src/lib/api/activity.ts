@@ -160,11 +160,18 @@ async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
     (id) => id !== payload.authorId && memberIds.has(id),
   );
   if (recipients.length === 0) return;
-  // Channels with permission overwrites or private threads: only members who
+  // Channels with permission overwrites, private threads, and public threads in
+  // a restricted parent (threads inherit the parent's visibility, which
+  // checkChannelAccess resolves): only members who
   // can actually see the channel may learn about its activity (name, author,
   // @everyone pings). Open channels skip this per-recipient check.
   const channel = await Channel.findById(payload.channelId).catch(() => null);
-  if (channel && (channel.type === 'private_thread' || hasOverwrites(channel.permissionOverwrites))) {
+  let restricted = !!channel && (channel.type === 'private_thread' || hasOverwrites(channel.permissionOverwrites));
+  if (channel && !restricted && channel.type === 'public_thread' && channel.parentId) {
+    const parent = await Channel.findById(channel.parentId).catch(() => null);
+    restricted = !parent || hasOverwrites(parent.permissionOverwrites);
+  }
+  if (restricted) {
     const { checkChannelAccess } = await import('@/lib/api/channels');
     const allowed = await Promise.all(
       recipients.map((id) => checkChannelAccess(id, payload.channelId).then((r) => r.hasAccess).catch(() => false)),

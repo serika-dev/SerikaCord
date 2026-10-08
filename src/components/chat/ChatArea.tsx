@@ -423,6 +423,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   // Check if the user can send messages in the current channel based on
   // permission overwrites. Admin/owner bypass all overwrites.
+  const everyoneRole = useMemo(() => mentionRoles.find((r) => r.isDefault) ?? null, [mentionRoles]);
   const canSendInCurrentChannel = useMemo(() => {
     return canSendInChannelClient(
       currentChannel,
@@ -430,8 +431,13 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       currentUserRolePerms,
       perms.isOwner,
       perms.isAdmin,
+      {
+        everyoneRoleId: everyoneRole?.id ?? null,
+        everyonePermissions: typeof everyoneRole?.permissions === "string" ? BigInt(everyoneRole.permissions) : null,
+        userId: user?.id ?? null,
+      },
     );
-  }, [currentChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin]);
+  }, [currentChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, everyoneRole, user?.id]);
 
   // Server-only: if the signed-in user is timed out, block the composer.
   const selfTimeoutUntil = useMemo(() => {

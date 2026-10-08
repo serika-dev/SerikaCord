@@ -14,6 +14,12 @@ import {
 import { PERMISSIONS, bitfieldHas } from "@/lib/roles/permissions";
 import { canSendInChannel, canViewChannel } from "@/lib/roles/channelPermissions";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
+import {
+  DEFAULT_EVERYONE_PERMISSIONS,
+  applyChannelOverwrites,
+  computeChannelPermissions,
+  hasBit,
+} from "@/lib/permissions/channelOverwrites";
 
 const P = PERMISSION_BITS;
 
@@ -182,10 +188,67 @@ describe("channel overwrite checks (client mirror of the server rules)", () => {
     expect(canSendInChannel(readOnly, [], [], false, false)).toBeFalse();
   });
 
-  // Discord applies @everyone first, then role overwrites, so a role allow
-  // re-grants what @everyone denied ("Private Channel" + allowed roles). Both
-  // this helper and the server's canViewChannel/canSendInChannel in
-  // src/lib/api/channels.ts currently fold the @everyone deny into the final
-  // deny, so the role allow loses. Turn this into a real test with the fix.
-  test.todo("a role allow overrides an @everyone deny (Discord order)");
+  // Discord applies @everyone first, then role overwrites, then the member, so a
+  // role allow re-grants what @everyone denied ("Private Channel" + allowed roles).
+  test("a role allow overrides an @everyone deny (Discord order)", () => {
+    const priv = channel(everyone(0n, P.VIEW_CHANNEL), role(MOD_ROLE, P.VIEW_CHANNEL));
+    expect(canViewChannel(priv, [MOD_ROLE], [0n], false, false)).toBeTrue();
+    expect(canViewChannel(priv, [OTHER_ROLE], [0n], false, false)).toBeFalse();
+    const announce = channel(everyone(0n, P.SEND_MESSAGES), role(MOD_ROLE, P.SEND_MESSAGES));
+    expect(canSendInChannel(announce, [MOD_ROLE], [0n], false, false)).toBeTrue();
+    expect(canSendInChannel(announce, [], [], false, false)).toBeFalse();
+  });
+
+  test("the @everyone overwrite keyed by the @everyone role id is recognized", () => {
+    const EVERYONE_ROLE = "44444444-4444-4444-8444-444444444444";
+    const priv = channel(role(EVERYONE_ROLE, 0n, P.VIEW_CHANNEL), role(MOD_ROLE, P.VIEW_CHANNEL));
+    const opts = { everyoneRoleId: EVERYONE_ROLE };
+    // Members always carry the @everyone role id; that must not turn its deny into a role deny.
+    expect(canViewChannel(priv, [EVERYONE_ROLE, MOD_ROLE], [0n, 0n], false, false, opts)).toBeTrue();
+    expect(canViewChannel(priv, [EVERYONE_ROLE], [0n], false, false, opts)).toBeFalse();
+    // Applies even when the member's role list lacks the @everyone id.
+    expect(canViewChannel(priv, [], [], false, false, opts)).toBeFalse();
+  });
+
+  test("a role deny beats an @everyone allow; a member overwrite beats both", () => {
+    const USER = "55555555-5555-4555-8555-555555555555";
+    const member = { id: USER, type: "member", allow: s(P.VIEW_CHANNEL), deny: "0" };
+    const ch = channel(everyone(P.VIEW_CHANNEL), role(MOD_ROLE, 0n, P.VIEW_CHANNEL));
+    expect(canViewChannel(ch, [MOD_ROLE], [0n], false, false)).toBeFalse();
+    expect(canViewChannel({ ...ch, permissionOverwrites: [...ch.permissionOverwrites, member] }, [MOD_ROLE], [0n], false, false, { userId: USER })).toBeTrue();
+  });
+
+  test("base role permissions apply even without overwrites", () => {
+    const opts = { everyonePermissions: P.VIEW_CHANNEL };
+    expect(canSendInChannel(channel(), [], [], false, false, opts)).toBeFalse();
+    expect(canSendInChannel(channel(), [MOD_ROLE], [P.SEND_MESSAGES], false, false, opts)).toBeTrue();
+    // A channel allow grants what the base lacks.
+    expect(canSendInChannel(channel(everyone(P.SEND_MESSAGES)), [], [], false, false, opts)).toBeTrue();
+  });
+});
+
+describe("computeChannelPermissions", () => {
+  const SERVER = "11111111-1111-4111-8111-111111111111";
+  test("owner and ADMINISTRATOR get everything", () => {
+    expect(computeChannelPermissions({ isOwner: true, everyonePermissions: 0n, ctx: { serverId: SERVER } })).toBe(ALL_PERMISSIONS);
+    expect(computeChannelPermissions({ everyonePermissions: 0n, rolePermissions: [P.ADMINISTRATOR], ctx: { serverId: SERVER } })).toBe(ALL_PERMISSIONS);
+  });
+
+  test("unknown @everyone permissions fall back to the default role permissions", () => {
+    const perms = computeChannelPermissions({ ctx: { serverId: SERVER } });
+    expect(perms).toBe(DEFAULT_EVERYONE_PERMISSIONS);
+    expect(hasBit(perms, P.VIEW_CHANNEL) && hasBit(perms, P.SEND_MESSAGES) && hasBit(perms, P.ATTACH_FILES)).toBeTrue();
+  });
+
+  test("MANAGE_CHANNELS keeps view and send through overwrites", () => {
+    const overwrites = [{ id: SERVER, type: "role", allow: "0", deny: (P.VIEW_CHANNEL | P.SEND_MESSAGES | P.ADD_REACTIONS).toString() }];
+    const perms = computeChannelPermissions({ everyonePermissions: P.MANAGE_CHANNELS | P.ADD_REACTIONS, overwrites, ctx: { serverId: SERVER } });
+    expect(hasBit(perms, P.VIEW_CHANNEL)).toBeTrue();
+    expect(hasBit(perms, P.SEND_MESSAGES)).toBeTrue();
+    expect(hasBit(perms, P.ADD_REACTIONS)).toBeFalse();
+  });
+
+  test("malformed bitfields are treated as empty", () => {
+    expect(applyChannelOverwrites(P.VIEW_CHANNEL, [{ id: SERVER, type: "role", allow: "x", deny: "nope" }], { serverId: SERVER })).toBe(P.VIEW_CHANNEL);
+  });
 });

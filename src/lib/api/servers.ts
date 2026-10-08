@@ -13,10 +13,11 @@ import { User } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
 import { and, eq, gt, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
+import { computeChannelPermissions, DEFAULT_EVERYONE_PERMISSIONS, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
 import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
-import { PERMISSION_BITS } from '@/lib/permissions/bits';
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
@@ -100,10 +101,27 @@ const PERM_BAN_MEMBERS = 1n << 2n;
 const PERM_KICK_MEMBERS = 1n << 1n;
 const PERM_MODERATE_MEMBERS = 1n << 40n;
 const PERM_MANAGE_EMOJIS = 1n << 30n;
+const PERM_CREATE_INVITE = 1n << 0n;
 
 // Role permission lookups go through the shared expiring cache so role edits
 // can invalidate it (see src/lib/permissions/serverPermissions.ts).
 const getRolePermissionsForServer = getRolePermissions;
+
+/**
+ * A member's server-level permissions: the @everyone role OR-ed with their other
+ * roles (DEFAULT_EVERYONE_PERMISSIONS stands in when the server has no @everyone
+ * role row). ADMINISTRATOR expands to everything.
+ */
+async function getMemberBasePermissions(serverId: string, memberRoleIds: string[]): Promise<bigint> {
+  const everyoneRole = await Role.findOne({ serverId, isDefault: true });
+  const everyoneRoleId = (everyoneRole?.id as string | undefined) ?? null;
+  const roleIds = Array.from(new Set([...(everyoneRoleId ? [everyoneRoleId] : []), ...memberRoleIds]));
+  const rolePerms = roleIds.length ? await getRolePermissionsForServer(roleIds, serverId) : new Map<string, bigint>();
+  let perms = everyoneRoleId ? 0n : DEFAULT_EVERYONE_PERMISSIONS;
+  for (const [, p] of rolePerms) perms |= p;
+  if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return ALL_PERMISSIONS;
+  return perms;
+}
 
 // Check if user can manage roles in a server (owner or has Manage Roles / Administrator)
 async function canManageRoles(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
@@ -1882,6 +1900,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'This server only allows invites through its custom invite link' };
     }
 
+    // CREATE_INVITE (the owner always may)
+    if (server && server.ownerId !== user.id) {
+      const basePerms = await getMemberBasePermissions(params.serverId, (membership.roles || []) as string[]);
+      if ((basePerms & PERM_CREATE_INVITE) !== PERM_CREATE_INVITE) {
+        set.status = 403;
+        return { error: 'You do not have permission to create invites' };
+      }
+    }
+
     // Rate limit
     const ip = getClientIP(request);
     const rateLimit = await checkRateLimit('invite', `${user.id}:${ip}`);
@@ -2001,51 +2028,45 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       }
     }
 
-    const PERM_VIEW_CHANNEL = 1n << 10n;
+    // VIEW_CHANNEL from base role permissions + overwrites in Discord order
+    // (@everyone, then the member's roles, then the member), so a role or member
+    // allow beats the @everyone deny of a "Private Channel". Shared with
+    // checkChannelAccess via src/lib/permissions/channelOverwrites.ts.
+    const everyoneRole = (allRoles as IRole[]).find((r) => r.isDefault) ?? null;
+    const everyoneRoleId = everyoneRole?.id ?? null;
+    const memberRolePerms: bigint[] = [];
+    for (const role of allRoles as IRole[]) {
+      if (role.id === everyoneRoleId || !userRoleSet.has(role.id)) continue;
+      try { memberRolePerms.push(BigInt(role.permissions || '0')); } catch { /* malformed bitfield */ }
+    }
+    let everyonePermissions: bigint | null = null;
+    if (everyoneRole) {
+      try { everyonePermissions = BigInt(everyoneRole.permissions || '0'); } catch { everyonePermissions = 0n; }
+    }
+    const canViewNonThread = (ch: { permissionOverwrites?: unknown }): boolean => {
+      if (isOwner || hasAdmin) return true;
+      const perms = computeChannelPermissions({
+        everyonePermissions,
+        rolePermissions: memberRolePerms,
+        overwrites: (ch.permissionOverwrites || []) as ChannelOverwrite[],
+        ctx: { serverId: params.serverId, everyoneRoleId, memberRoleIds: userRoleIds, userId: user.id },
+      });
+      return (perms & PERMISSION_BITS.VIEW_CHANNEL) === PERMISSION_BITS.VIEW_CHANNEL;
+    };
+    const visibleIds = new Set(
+      (allChannels as Array<{ id: string; type?: string | null; permissionOverwrites?: unknown }>)
+        .filter((ch) => ch.type !== 'public_thread' && ch.type !== 'private_thread' && canViewNonThread(ch))
+        .map((ch) => ch.id as string),
+    );
 
     const channels = allChannels
       .filter((ch: any) => {
         if (ch.type === 'public_thread' || ch.type === 'private_thread') {
-          return Array.isArray(ch.threadMemberIds) && ch.threadMemberIds.includes(user.id);
+          // Joined threads only, and never one whose parent the member can't see.
+          if (!(Array.isArray(ch.threadMemberIds) && ch.threadMemberIds.includes(user.id))) return false;
+          return !ch.parentId || visibleIds.has(ch.parentId) || !allChannels.some((p: { id: string }) => p.id === ch.parentId);
         }
-        // Owner and admin bypass permission overwrites
-        if (isOwner || hasAdmin) return true;
-        // Check permission overwrites for VIEW_CHANNEL
-        const overwrites = ch.permissionOverwrites || [];
-        if (!overwrites.length) return true;
-
-        // Check @everyone overwrite
-        const everyoneOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === params.serverId);
-        let baseDeny = 0n;
-        let baseAllow = 0n;
-        if (everyoneOverwrite) {
-          baseDeny = parsePermissionBitfield(everyoneOverwrite.deny || '0');
-          baseAllow = parsePermissionBitfield(everyoneOverwrite.allow || '0');
-        }
-
-        let effectiveAllow = baseAllow;
-        let effectiveDeny = baseDeny;
-
-        // Apply role-specific overwrites
-        for (const roleId of userRoleIds) {
-          const roleOverwrite = overwrites.find((o: any) => o.type === 'role' && o.id === roleId);
-          if (roleOverwrite) {
-            effectiveAllow |= parsePermissionBitfield(roleOverwrite.allow || '0');
-            effectiveDeny |= parsePermissionBitfield(roleOverwrite.deny || '0');
-          }
-        }
-
-        // Apply member-specific overwrites
-        const memberOverwrite = overwrites.find((o: any) => o.type === 'member' && o.id === user.id);
-        if (memberOverwrite) {
-          effectiveAllow |= parsePermissionBitfield(memberOverwrite.allow || '0');
-          effectiveDeny |= parsePermissionBitfield(memberOverwrite.deny || '0');
-        }
-
-        if ((effectiveDeny & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return false;
-        if ((effectiveAllow & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return true;
-        if ((baseDeny & PERM_VIEW_CHANNEL) === PERM_VIEW_CHANNEL) return false;
-        return true;
+        return visibleIds.has(ch.id);
       })
       .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
 

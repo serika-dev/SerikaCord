@@ -63,6 +63,7 @@ export const Channel = {
         case 'serverId': conditions.push(buildCondition(schema.channels.serverId, value, true)); break;
         case 'type': conditions.push(buildCondition(schema.channels.type, value, false)); break;
         case 'parentId': conditions.push(buildCondition(schema.channels.parentId, value, true)); break;
+        case 'ownerId': conditions.push(buildCondition(schema.channels.ownerId, value, true)); break;
         case 'id': conditions.push(buildCondition(schema.channels.id, value, true)); break;
         case 'recipientId': conditions.push(sql`${schema.channels.recipientIds} @> ARRAY[${normalizeId(value as string)}]::uuid[]`); break;
         case 'recipientIds': {

@@ -37,6 +37,8 @@
 - **Drafts survive leaving a channel**, and scrolling to the top of a short chat no longer stops new messages from scrolling into view.
 - **No more crash screen after an update** — an open tab reloads to the new version instead of failing to load a page.
 - **Private channels stay private** — activity (name, author, @everyone pings) from channels with permission overwrites only reaches members who can see them.
+- **Roles you add to a private channel can see it** — a role or member allow on a channel never beat the @everyone deny, so "Private Channel" hid the channel from everyone, including the roles and people added to it. Channel overwrites now apply like Discord: @everyone, then roles, then the member. The same fix lets allowed roles post in read-only channels.
+- **Forum posts are listed newest-activity first** — the post list was in no real order and big forums dropped recent posts; ticket forums could hide your own ticket.
 
 ### Performance
 - Startup requests start while the page is still loading instead of after the app boots, duplicate requests are shared, and the open channel's messages are fetched in the same burst.
@@ -53,6 +55,9 @@
 - **"Lock to Custom Invite" disables old invite links** — existing regular invite links now stop working while the lock is on, not just new ones.
 - **Integration test notifications need Manage Server** — anyone could post the mock Twitch/YouTube/Discord notification into any server's channels.
 - Member counts no longer drift: leaving a server you weren't in, bot kicks/bans of non-members and double-clicked joins could skew them, and simultaneous joins could go past an invite's max uses.
+- **Posts in a private forum are private** — threads ignored their forum's permissions, so any member could read and reply to posts in a hidden forum and saw its activity. Threads now follow their parent channel.
+- **Role permissions are enforced** — turning off View Channels, Send Messages, Attach Files, Add Reactions or Create Invite on a role was saved but never checked by the server.
+- **Timeouts and Send Messages cover forum posts, reactions and slash commands** — timed-out members could still create forum posts, add reactions and run bot commands; forum posts now also follow slowmode and rate limits.
 
 ---
 
