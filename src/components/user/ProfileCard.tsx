@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, cdnImage } from "@/lib/utils";
-import { getBadgesByPriority } from "@/lib/constants/badges";
+import { useBadges } from "@/hooks/useBadges";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
@@ -315,7 +315,8 @@ export function ProfileCard({
     }
   };
 
-  const badges = user.badges?.length ? getBadgesByPriority(user.badges as string[]) : [];
+  const { resolve: resolveBadges } = useBadges();
+  const badges = resolveBadges(user.badges);
 
   const bgStyle = getProfileBackgroundStyle(user.customization, { opaque: true });
   const isHolographic = user.customization?.profileCardEffect === 'holographic';

@@ -72,7 +72,9 @@ import { requestNotificationPermission } from "@/lib/services/notificationServic
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
 import { cn, cdnImage } from "@/lib/utils";
-import { getBadgesByPriority, BADGES, type BadgeId } from "@/lib/constants/badges";
+import { useBadges } from "@/hooks/useBadges";
+import { BadgeIcon } from "@/components/ui/BadgeIcon";
+import { badgeLabel } from "@/components/ui/badges";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
@@ -80,6 +82,7 @@ import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
 import { BugReportPanel } from "@/components/settings/BugReportPanel";
 import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
+import { AdminBadgesPanel } from "@/components/settings/AdminBadgesPanel";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
@@ -830,6 +833,7 @@ function VoiceVideoTab({
 export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
+  const { list: badgeDefinitions, resolve: resolveBadges } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const { servers } = useServer();
   const [activeTab, setActiveTab] = useState<SettingsTab>("profiles");
@@ -1897,7 +1901,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
         body: JSON.stringify({ badges: newBadges }),
       });
       if (response.ok) {
-        const updatedBadges = newBadges;
+        // The server drops/re-adds automatic badges, so prefer its result.
+        const data = await response.json().catch(() => null);
+        const updatedBadges: string[] = Array.isArray(data?.badges) ? data.badges : newBadges;
         setSelectedUser({ ...selectedUser, badges: updatedBadges });
         setAdminUsers((prev) =>
           prev.map((u) => (u.id === selectedUser.id ? { ...u, badges: updatedBadges } : u))
@@ -1976,21 +1982,21 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
   const renderBadges = () => {
     if (!user?.badges || user.badges.length === 0) return null;
 
-    const badges = getBadgesByPriority(user.badges as BadgeId[]);
+    const badges = resolveBadges(user.badges);
 
     return (
       <div className="flex flex-wrap gap-1.5">
         {badges.map((badge) => {
-          const IconComponent = badge.icon;
+          const labels = badgeLabel(badge, gt);
           return (
             <div
               key={badge.id}
               className="px-2 py-1 rounded-full flex items-center gap-1.5 text-xs"
               style={{ backgroundColor: `${badge.color}20`, color: badge.color }}
-              title={badge.description}
+              title={labels.description}
             >
-              <IconComponent className="w-3.5 h-3.5" />
-              <span>{badge.name}</span>
+              <BadgeIcon badge={badge} className="w-3.5 h-3.5" />
+              <span>{labels.name}</span>
             </div>
           );
         })}
@@ -4090,9 +4096,9 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                               <div>
                                 <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Badges ({count})", { count: (selectedUser.badges || []).length })}</p>
                                 <div className="grid grid-cols-2 gap-2">
-                                  {Object.values(BADGES).map((badge) => {
+                                  {badgeDefinitions.map((badge) => {
                                     const isAssigned = (selectedUser.badges || []).includes(badge.id);
-                                    const IconComponent = badge.icon;
+                                    const labels = badgeLabel(badge, gt);
                                     return (
                                       <button
                                         key={badge.id}
@@ -4108,11 +4114,11 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                                           className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
                                           style={{ backgroundColor: `${badge.color}20` }}
                                         >
-                                          <IconComponent className="w-4 h-4" style={{ color: badge.color }} />
+                                          <BadgeIcon badge={badge} className="w-4 h-4" />
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                          <p className="text-sm text-white font-medium truncate">{badge.name}</p>
-                                          <p className="text-xs text-[var(--text-muted)] truncate">{badge.description}</p>
+                                          <p className="text-sm text-white font-medium truncate">{labels.name}</p>
+                                          <p className="text-xs text-[var(--text-muted)] truncate">{labels.description}</p>
                                         </div>
                                         <div
                                           className={cn(
@@ -4963,29 +4969,7 @@ export function UserSettingsDialog({ open, onOpenChange }: UserSettingsDialogPro
                 <div>
                   <h2 className="text-xl font-bold text-white mb-2">{gt("Badge Management")}</h2>
                   <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Create, edit, and manage the platform's badge definitions. To assign badges to a user, use the User Management tab.")}</p>
-                  <div className="bg-[var(--bg-app)] rounded-xl p-5">
-                    <div className="grid grid-cols-2 gap-2">
-                      {Object.values(BADGES).map((badge) => {
-                        const IconComponent = badge.icon;
-                        return (
-                          <div
-                            key={badge.id}
-                            className="flex items-center gap-2.5 p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]"
-                          >
-                            <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${badge.color}20` }}>
-                              <IconComponent className="w-4 h-4" style={{ color: badge.color }} />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-white font-medium truncate">{badge.name}</p>
-                              <p className="text-xs text-[var(--text-muted)] truncate">{badge.description}</p>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] mt-4">{gt("Badge definitions are defined in")}
- <code className="text-[#8B5CF6]">src/lib/constants/badges.ts</code>. {gt("Assign badges to users via User Management.")}</p>
-                  </div>
+                  <AdminBadgesPanel />
                 </div>
               )}
 

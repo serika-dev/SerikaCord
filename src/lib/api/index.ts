@@ -15,6 +15,7 @@ import { channelRoutes } from './channels';
 import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
 import { adminRoutes } from './admin';
+import { badgeRoutes } from './badges';
 import { oembedRoutes } from './oembed';
 import { experimentRoutes, instanceRoutes } from './experiments';
 import { voiceRoutes } from './voice';
@@ -3662,6 +3663,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(gifRoutes)
   .use(uploadRoutes)
   .use(adminRoutes)
+  .use(badgeRoutes)
   .use(oembedRoutes)
   .use(experimentRoutes)
   .use(instanceRoutes)
@@ -3685,6 +3687,11 @@ export async function initializeAPI() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     await connectDB();
+    // Create + seed the staff-editable `badges` table if this database predates
+    // it. Idempotent, runs once per process, never throws (falls back to the
+    // built-in badge constants on failure).
+    const { ensureBadgesTable } = await import('@/lib/services/badgeRegistry');
+    await ensureBadgesTable();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

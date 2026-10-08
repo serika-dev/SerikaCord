@@ -363,6 +363,25 @@ export const ttsVoices = pgTable('tts_voices', {
   nameIdx: index('tts_voices_name_idx').on(t.name),
 }));
 
+// Badge definitions (staff-editable from the admin panel). users.badges holds
+// these ids. Created + seeded idempotently at boot by ensureBadgesTable()
+// (src/lib/services/badgeRegistry.ts); see also drizzle/manual_badges.sql.
+// `icon` is a lucide name from BADGE_ICON_NAMES; `icon_url` (https or /path)
+// overrides it. `automatic` badges are assigned by recalculateUserBadges.
+export const badges = pgTable('badges', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  icon: text('icon'),
+  iconUrl: text('icon_url'),
+  color: text('color').notNull().default('#8B5CF6'),
+  priority: integer('priority').notNull().default(0),
+  automatic: boolean('automatic').notNull().default(false),
+  hidden: boolean('hidden').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const serverStickers = pgTable('server_stickers', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   serverId: uuid('server_id').notNull(),

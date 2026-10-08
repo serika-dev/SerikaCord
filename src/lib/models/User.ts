@@ -1,13 +1,10 @@
 import { eq, sql, and, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
+import type { BuiltinBadgeId } from '../constants/badges';
 
-export type BadgeId =
-  | 'staff' | 'admin' | 'moderator'
-  | 'partner' | 'serika_plus' | 'early_supporter'
-  | 'verified_bot_developer' | 'bug_hunter' | 'bug_hunter_gold'
-  | 'server_owner' | 'active_developer'
-  | 'serikacord_developer' | 'serikacord_contributor' | 'serikacord_tester';
+// Built-in ids keep autocomplete; any id from the `badges` table is valid too.
+export type BadgeId = BuiltinBadgeId | (string & {});
 
 export interface IUserDisplayNameStyle {
   font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';

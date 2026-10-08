@@ -353,19 +353,31 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       staffUpdate.staffRole = null;
     }
 
+    // Validate against the `badges` table (fresh read, so a badge created a
+    // moment ago is grantable). Unknown ids the user doesn't already hold are
+    // rejected; stale ids they do hold are just dropped.
+    const { recalculateUserBadges, isAutomaticBadgeId } = await import('@/lib/services/badges');
+    const { getBadgeRegistry } = await import('@/lib/services/badgeRegistry');
+    const registry = await getBadgeRegistry({ fresh: true });
+    const unknown = badges.filter((b) => !registry.byId.has(b) && !oldBadges.includes(b));
+    if (unknown.length > 0) {
+      set.status = 400;
+      return { error: `Unknown badge: ${unknown.join(', ')}` };
+    }
+
     // Only manual badges can be set by admin; auto badges are recalculated
-    const { recalculateUserBadges, MANUAL_BADGES } = await import('@/lib/services/badges');
-    const manualBadges = badges.filter((b) => (MANUAL_BADGES as readonly string[]).includes(b));
+    const manualBadges = Array.from(new Set(badges)).filter((b) => {
+      const def = registry.byId.get(b);
+      return def ? !def.automatic && !isAutomaticBadgeId(b) : false;
+    });
     await User.updateById(targetUser.id, { badges: manualBadges, ...staffUpdate });
     const finalBadges = await recalculateUserBadges(targetUser.id);
 
     // DM the user about any badge they just unlocked (skip system accounts).
     const newlyAdded = (finalBadges || manualBadges).filter((b) => !oldBadges.includes(b));
     if (newlyAdded.length > 0 && !targetUser.isSystem) {
-      const { BADGES } = await import('@/lib/constants/badges');
       const { notifyBadgesUnlocked } = await import('@/lib/services/systemNotify');
-      const byId = new Map(Object.values(BADGES).map((b) => [b.id, b.name]));
-      const names = newlyAdded.map((b) => byId.get(b) || b);
+      const names = newlyAdded.map((b) => registry.byId.get(b)?.name || b);
       void notifyBadgesUnlocked(targetUser.id, names).catch(() => {});
     }
 
@@ -384,6 +396,196 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     }),
     body: t.Object({
       badges: t.Array(t.String()),
+    }),
+  })
+
+  // ==================== BADGE DEFINITIONS ====================
+  // Staff-editable rows in the `badges` table. The public, cached list is
+  // GET /api/badges (badges.ts); these routes always read fresh.
+
+  // List every badge (hidden included) with how many users hold each
+  .get('/badges', async ({ headers, cookie, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { getBadgeRegistry } = await import('@/lib/services/badgeRegistry');
+    const { Badge } = await import('@/lib/models/Badge');
+    const { isBuiltinBadgeId } = await import('@/lib/constants/badges');
+    const [registry, counts] = await Promise.all([
+      getBadgeRegistry({ fresh: true }),
+      Badge.holderCounts().catch(() => ({} as Record<string, number>)),
+    ]);
+
+    return {
+      badges: registry.list.map((b) => ({
+        ...b,
+        automatic: !!b.automatic,
+        hidden: !!b.hidden,
+        builtin: isBuiltinBadgeId(b.id),
+        holders: counts[b.id] || 0,
+      })),
+      // False when the DB read failed and these are the built-in fallbacks.
+      authoritative: registry.authoritative,
+    };
+  })
+
+  // Create a badge
+  .post('/badges', async ({ headers, cookie, body, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { validateBadgeInput } = await import('@/lib/badges/shared');
+    const parsed = validateBadgeInput(body as Record<string, unknown>, 'create');
+    if (!parsed.ok) {
+      set.status = 400;
+      return { error: parsed.error };
+    }
+    const v = parsed.value;
+
+    const { Badge } = await import('@/lib/models/Badge');
+    const { invalidateBadgeCache } = await import('@/lib/services/badgeRegistry');
+    const created = await Badge.create({
+      id: v.id!,
+      name: v.name!,
+      description: v.description ?? '',
+      icon: v.icon ?? null,
+      iconUrl: v.iconUrl ?? null,
+      color: v.color!,
+      priority: v.priority ?? 0,
+      hidden: v.hidden ?? false,
+      automatic: false,
+    });
+    if (!created) {
+      set.status = 409;
+      return { error: 'A badge with that ID already exists' };
+    }
+    await invalidateBadgeCache();
+
+    await logAdminAction(user.id, 'edit_badges', 'platform', `badge:${created.id}`, { op: 'create_badge', badge: created });
+
+    return { success: true, badge: created };
+  }, {
+    body: t.Object({
+      id: t.String(),
+      name: t.String(),
+      description: t.Optional(t.String()),
+      icon: t.Optional(t.Nullable(t.String())),
+      iconUrl: t.Optional(t.Nullable(t.String())),
+      color: t.String(),
+      priority: t.Optional(t.Number()),
+      hidden: t.Optional(t.Boolean()),
+    }),
+  })
+
+  // Edit a badge (id and `automatic` are immutable)
+  .patch('/badges/:badgeId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    const { validateBadgeInput } = await import('@/lib/badges/shared');
+    const parsed = validateBadgeInput(body as Record<string, unknown>, 'update');
+    if (!parsed.ok) {
+      set.status = 400;
+      return { error: parsed.error };
+    }
+    const changes = { ...parsed.value };
+    delete changes.id;
+    if (Object.keys(changes).length === 0) {
+      set.status = 400;
+      return { error: 'Nothing to update' };
+    }
+
+    const { Badge } = await import('@/lib/models/Badge');
+    const { invalidateBadgeCache } = await import('@/lib/services/badgeRegistry');
+    const before = await Badge.findById(params.badgeId);
+    if (!before) {
+      set.status = 404;
+      return { error: 'Badge not found' };
+    }
+    // A badge needs something to draw: clearing the image without picking an
+    // icon falls back to the default icon.
+    const nextIcon = changes.icon !== undefined ? changes.icon : before.icon;
+    const nextUrl = changes.iconUrl !== undefined ? changes.iconUrl : before.iconUrl;
+    if (!nextIcon && !nextUrl) {
+      const { DEFAULT_BADGE_ICON } = await import('@/lib/badges/shared');
+      changes.icon = DEFAULT_BADGE_ICON;
+    }
+
+    const updated = await Badge.updateById(params.badgeId, changes);
+    if (!updated) {
+      set.status = 404;
+      return { error: 'Badge not found' };
+    }
+    await invalidateBadgeCache();
+
+    await logAdminAction(user.id, 'edit_badges', 'platform', `badge:${updated.id}`, { op: 'update_badge', before, after: updated });
+
+    return { success: true, badge: updated };
+  }, {
+    params: t.Object({
+      badgeId: t.String(),
+    }),
+    body: t.Object({
+      name: t.Optional(t.String()),
+      description: t.Optional(t.String()),
+      icon: t.Optional(t.Nullable(t.String())),
+      iconUrl: t.Optional(t.Nullable(t.String())),
+      color: t.Optional(t.String()),
+      priority: t.Optional(t.Number()),
+      hidden: t.Optional(t.Boolean()),
+    }),
+  })
+
+  // Delete a badge and strip it from every user holding it
+  .delete('/badges/:badgeId', async ({ headers, cookie, params, set }) => {
+    const { user, error, isAdmin, status } = await getAdminAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user || !isAdmin) {
+      set.status = status;
+      return { error: error || 'Admin access required' };
+    }
+
+    // Built-in ids are load-bearing (admin auth checks 'admin' /
+    // 'serikacord_developer', recalculateUserBadges assigns the automatic
+    // ones), so they can be hidden but never deleted.
+    const { isBuiltinBadgeId } = await import('@/lib/constants/badges');
+    if (isBuiltinBadgeId(params.badgeId)) {
+      set.status = 400;
+      return { error: 'Built-in badges cannot be deleted. Hide it instead.' };
+    }
+
+    const { Badge } = await import('@/lib/models/Badge');
+    const { invalidateBadgeCache } = await import('@/lib/services/badgeRegistry');
+    const existing = await Badge.findById(params.badgeId);
+    if (!existing) {
+      set.status = 404;
+      return { error: 'Badge not found' };
+    }
+
+    await Badge.deleteById(params.badgeId);
+    await invalidateBadgeCache();
+    // The one data mutation: drop the id from users.badges (single UPDATE),
+    // then evict those users' cached records.
+    const affected = await Badge.removeFromAllUsers(params.badgeId);
+    if (affected.length > 0) {
+      const { invalidateUserCache } = await import('@/lib/services/auth');
+      await Promise.all(affected.map((id) => invalidateUserCache(id).catch(() => {})));
+    }
+
+    await logAdminAction(user.id, 'edit_badges', 'platform', `badge:${existing.id}`, { op: 'delete_badge', badge: existing, removedFromUsers: affected.length });
+
+    return { success: true, removedFromUsers: affected.length };
+  }, {
+    params: t.Object({
+      badgeId: t.String(),
     }),
   })
 

@@ -4,13 +4,10 @@ import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
 import { upsertSavedAccount } from "@/lib/services/savedAccounts";
 import { clearMessageCache } from "@/hooks/useChatSession";
+import type { BuiltinBadgeId } from "@/lib/constants/badges";
 
-export type BadgeId = 
-  | 'staff' | 'admin' | 'moderator' 
-  | 'partner' | 'serika_plus' | 'early_supporter'
-  | 'verified_bot_developer' | 'bug_hunter' | 'bug_hunter_gold'
-  | 'server_owner' | 'active_developer'
-  | 'serikacord_developer' | 'serikacord_contributor' | 'serikacord_tester';
+// Built-in ids keep autocomplete; badges created in the DB are plain strings.
+export type BadgeId = BuiltinBadgeId | (string & {});
 
 interface User {
   id: string;

@@ -5,7 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
-import { getBadgesByPriority } from "@/lib/constants/badges";
+import { useBadges } from "@/hooks/useBadges";
 import {
   getDisplayNameStyleClasses,
   getDisplayNameStyleInline,
@@ -71,7 +71,8 @@ export function MobileProfileView() {
 
   const status = user?.status ?? "offline";
   const displayName = user?.displayName || user?.username || "";
-  const badges = user?.badges?.length ? getBadgesByPriority(user.badges as string[]) : [];
+  const { resolve: resolveBadges } = useBadges();
+  const badges = resolveBadges(user?.badges);
   const customization = user?.customization;
   const hasBannerStyle =
     Boolean(user?.banner) ||

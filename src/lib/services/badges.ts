@@ -1,34 +1,20 @@
 import { eq, and, sql } from 'drizzle-orm';
 import { db, schema } from '../db/postgres';
 import { User, type BadgeId } from '../models/User';
+import { AUTOMATIC_BADGE_IDS } from '../constants/badges';
+import { getBadgeRegistry } from './badgeRegistry';
 
 /**
- * Badges that are manually assigned only — never auto-assigned or auto-removed.
- * These are managed via the admin panel and preserved as-is.
+ * Badges that are auto-assigned based on user state (computeAutoBadges below).
+ * If the condition no longer holds, the badge is removed. Every other badge is
+ * manual — granted from the admin panel (including badges created at runtime
+ * in the `badges` table) — and preserved as-is by recalculateUserBadges.
  */
-export const MANUAL_BADGES: BadgeId[] = [
-  'serikacord_developer',
-  'serikacord_contributor',
-  'serikacord_tester',
-  'bug_hunter',
-  'bug_hunter_gold',
-  'early_supporter',
-];
+const AUTO_BADGES: ReadonlySet<string> = new Set(AUTOMATIC_BADGE_IDS);
 
-/**
- * Badges that are auto-assigned based on user state.
- * If the condition no longer holds, the badge is removed.
- */
-const AUTO_BADGES: BadgeId[] = [
-  'staff',
-  'admin',
-  'moderator',
-  'partner',
-  'serika_plus',
-  'server_owner',
-  'active_developer',
-  'verified_bot_developer',
-];
+export function isAutomaticBadgeId(id: string): boolean {
+  return AUTO_BADGES.has(id);
+}
 
 /**
  * Compute which auto-badges a user should have based on their current state.
@@ -111,8 +97,20 @@ export async function recalculateUserBadges(userId: string): Promise<BadgeId[] |
   if (!user) return null;
 
   const currentBadges = (user.badges || []) as BadgeId[];
-  const manualBadges = currentBadges.filter((b) => MANUAL_BADGES.includes(b));
   const autoEarned = await computeAutoBadges(userId);
+
+  // Keep every manual badge that still has a definition. Ids whose definition
+  // is gone (e.g. retired badges) are dropped — but only on an authoritative
+  // DB read, re-checked fresh so a badge created moments ago on another server
+  // process isn't stripped by a stale cache. If the DB read fails we keep them.
+  const candidates = currentBadges.filter((b) => !AUTO_BADGES.has(b));
+  let registry = await getBadgeRegistry();
+  if (registry.authoritative && candidates.some((b) => !registry.byId.has(b))) {
+    registry = await getBadgeRegistry({ fresh: true });
+  }
+  const manualBadges = registry.authoritative
+    ? candidates.filter((b) => registry.byId.has(b))
+    : candidates;
 
   // Merge: manual badges + auto-earned (deduplicated)
   const merged = new Set<BadgeId>([...manualBadges, ...autoEarned]);

@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
-import { getBadgesByPriority } from "@/lib/constants/badges";
+import { useBadges } from "@/hooks/useBadges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
@@ -142,7 +142,8 @@ export function FullProfileDialog({
   const userActivity = useUserActivity(fullUser.id, { enabled: open, intervalMs: 5_000 });
   const localTime = useCurrentTime(open ? fullUser.timezone : null);
   const moeActivity = userActivity?.activity ?? null;
-  const badges = fullUser.badges?.length ? getBadgesByPriority(fullUser.badges as string[]) : [];
+  const { resolve: resolveBadges } = useBadges();
+  const badges = resolveBadges(fullUser.badges);
 
   // Seed from the passed member/user data, but only when the *identity* changes.
   // The member list re-renders (and passes new object references) on every
