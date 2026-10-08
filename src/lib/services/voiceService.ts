@@ -1,4 +1,12 @@
-import SimplePeer from "simple-peer";
+import type SimplePeer from "simple-peer";
+
+// simple-peer (+ its stream polyfills, ~95KB) is only needed once you join
+// voice, so it's loaded then instead of with every page.
+let SimplePeerCtor: typeof SimplePeer | null = null;
+async function loadSimplePeer(): Promise<typeof SimplePeer> {
+  if (!SimplePeerCtor) SimplePeerCtor = (await import("simple-peer")).default;
+  return SimplePeerCtor;
+}
 
 export interface VoiceParticipant {
   userId: string;
@@ -126,6 +134,7 @@ class VoiceService {
       this.emitParticipants();
       return;
     }
+    await loadSimplePeer();
     if (this.roomId) await this.leaveChannel();
 
     this.roomId = channelId;
@@ -321,9 +330,9 @@ class VoiceService {
 
   private createPeer(targetUserId: string, initiator: boolean) {
     if (this.peers.has(targetUserId)) return;
-    if (!this.localStream || !this.roomId) return;
+    if (!this.localStream || !this.roomId || !SimplePeerCtor) return;
 
-    const peer = new SimplePeer({
+    const peer = new SimplePeerCtor({
       initiator,
       stream: this.localStream,
       trickle: true,
