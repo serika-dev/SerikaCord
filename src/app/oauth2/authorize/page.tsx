@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { isSafeRedirectUrl, appendQuery } from "@/lib/oauth/authorize";
 
 interface Guild {
   id: string;
@@ -87,6 +88,9 @@ function AuthorizeForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // Only the redirect URI the server validated against the app's registered
+  // list is ever navigated to; the raw query param is never trusted.
+  const validatedRedirect = appData?.redirect_uri && isSafeRedirectUrl(appData.redirect_uri) ? appData.redirect_uri : null;
 
   // Authenticate user & load initial data
   useEffect(() => {
@@ -175,7 +179,7 @@ function AuthorizeForm() {
           serverId: selectedGuildId || undefined,
           permissions: scopes.includes("bot") ? String(botPermissions) : undefined,
           scopes,
-          redirect_uri: redirectUri || undefined,
+          redirect_uri: validatedRedirect || undefined,
           state: state || undefined,
           response_type: responseType,
         }),
@@ -188,9 +192,12 @@ function AuthorizeForm() {
       }
 
       if (data.redirect) {
+        if (!isSafeRedirectUrl(data.redirect)) {
+          throw new Error(gt("Invalid redirect URI."));
+        }
         // If the window is a popup (has opener), post the message and close
         if (window.opener) {
-          window.opener.postMessage({ type: "SERIKACORD_AUTH_SUCCESS", url: data.redirect }, "*");
+          window.opener.postMessage({ type: "SERIKACORD_AUTH_SUCCESS", url: data.redirect }, new URL(data.redirect).origin);
           window.close();
         } else {
           window.location.href = data.redirect;
@@ -206,10 +213,12 @@ function AuthorizeForm() {
   };
 
   const handleCancel = () => {
-    if (redirectUri) {
-      const cancelUrl = `${redirectUri}${redirectUri.includes("?") ? "&" : "?"}error=access_denied&error_description=The+user+denied+access.`;
+    if (validatedRedirect) {
+      const params: Record<string, string> = { error: "access_denied", error_description: "The user denied access." };
+      if (state) params.state = state;
+      const cancelUrl = appendQuery(validatedRedirect, params);
       if (window.opener) {
-        window.opener.postMessage({ type: "SERIKACORD_AUTH_CANCEL", url: cancelUrl }, "*");
+        window.opener.postMessage({ type: "SERIKACORD_AUTH_CANCEL", url: cancelUrl }, new URL(cancelUrl).origin);
         window.close();
       } else {
         window.location.href = cancelUrl;

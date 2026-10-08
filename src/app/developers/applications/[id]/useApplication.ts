@@ -19,6 +19,7 @@ export interface ApplicationData {
   redirectUris?: string[];
   scopes?: string[];
   verified?: boolean;
+  verificationStatus?: "none" | "pending" | "approved" | "rejected" | null;
   serverCount?: number;
   teamId?: string;
   createdAt: string;

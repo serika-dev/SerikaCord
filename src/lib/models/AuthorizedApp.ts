@@ -18,6 +18,7 @@ export const AuthorizedApp = {
       if (value === undefined || value === null) continue;
       switch (key) {
         case 'userId': conditions.push(eq(schema.authorizedApps.userId, normalizeId(value as string))); break;
+        case 'name': conditions.push(eq(schema.authorizedApps.name, String(value))); break;
       }
     }
     let query = db.select().from(schema.authorizedApps);
@@ -34,6 +35,7 @@ export const AuthorizedApp = {
       if (value === undefined || value === null) continue;
       switch (key) {
         case 'userId': conditions.push(eq(schema.authorizedApps.userId, normalizeId(value as string))); break;
+        case 'name': conditions.push(eq(schema.authorizedApps.name, String(value))); break;
       }
     }
     let query = db.select().from(schema.authorizedApps);

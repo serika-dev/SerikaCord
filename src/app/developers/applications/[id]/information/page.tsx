@@ -19,6 +19,7 @@ export default function InformationPage() {
   const [newTag, setNewTag] = useState("");
   const [copied, setCopied] = useState(false);
   const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [applyingVerification, setApplyingVerification] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -68,6 +69,24 @@ export default function InformationPage() {
       toast.error(gt("Failed to upload icon"));
     } finally {
       setUploadingIcon(false);
+    }
+  };
+
+  const handleApplyVerification = async () => {
+    setApplyingVerification(true);
+    try {
+      const res = await fetch(`/api/developers/applications/${appId}/verification`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        toast.success(gt("Verification application submitted"));
+        refetch();
+      } else {
+        toast.error(data.error || gt("Failed to apply for verification"));
+      }
+    } catch {
+      toast.error(gt("Failed to apply for verification"));
+    } finally {
+      setApplyingVerification(false);
     }
   };
 
@@ -296,9 +315,17 @@ export default function InformationPage() {
                   {app?.serverCount || 0}/100
                 </span>
               </div>
-              {(app?.serverCount || 0) >= 100 ? (
-                <button className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] text-white text-sm font-medium rounded-lg transition-colors">
-                  {gt("Apply for Verification")}
+              {app?.verificationStatus === "pending" ? (
+                <p className="text-xs text-[#888]">
+                  {gt("Your verification application is pending review.")}
+                </p>
+              ) : (app?.serverCount || 0) >= 100 ? (
+                <button
+                  onClick={handleApplyVerification}
+                  disabled={applyingVerification}
+                  className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  {app?.verificationStatus === "rejected" ? gt("Re-apply for Verification") : gt("Apply for Verification")}
                 </button>
               ) : (
                 <p className="text-[11px] text-[#555]">

@@ -41,6 +41,9 @@
 - **Forum posts are listed newest-activity first** — the post list was in no real order and big forums dropped recent posts; ticket forums could hide your own ticket.
 - **Push to Talk works** — with Push to Talk on, your mic stays silent until you hold the key (not while typing in a text box) and closes when you let go or switch windows.
 - **Voice settings apply to calls** — Echo Cancellation, Noise Suppression, Automatic Gain Control, Input Volume and Output Volume used to change only the mic test. They now apply in calls, including mid-call.
+- **Authorized Apps lists each app separately** — authorizing a second app merged its scopes into the first app's entry.
+- **Apply for Verification works** — the button did nothing; it now submits the application and shows it as pending.
+- **"API Limits" footer link** on the developer home page opens the rate limits docs instead of a 404.
 
 ### Performance
 - Startup requests start while the page is still loading instead of after the app boots, duplicate requests are shared, and the open channel's messages are fetched in the same burst.
@@ -61,6 +64,9 @@
 - **Role permissions are enforced** — turning off View Channels, Send Messages, Attach Files, Add Reactions or Create Invite on a role was saved but never checked by the server.
 - **Timeouts and Send Messages cover forum posts, reactions and slash commands** — timed-out members could still create forum posts, add reactions and run bot commands; forum posts now also follow slowmode and rate limits.
 - **Voice channels are private to the people who can see them** — anyone who knew a voice channel's id could list who was in it, join it, or connect straight to a participant and hear them without showing up in the channel. Joining, listening and seeing who is connected now need access to the channel (or to be one of the two people in a DM call). Calls only connect between people visibly in the room, and voice channel user limits are enforced.
+- **OAuth2 only redirects to registered URLs** — the authorize page sent you to whatever `redirect_uri` the link carried, including `javascript:` URLs, on Authorize or Cancel. It now has to be one of the app's registered redirect URIs, using https (or http on localhost).
+- **Adding a bot can't hand out more than you have** — a member with Manage Server could give a bot Administrator, ranked above every role. The bot's role now only gets permissions the person adding it holds, and goes just below their highest role (owners and admins are unchanged).
+- **Bots need the right permissions for server changes** — editing the server, channels, roles, members, emojis, webhooks and invites, kicking and banning now check the bot's permissions and role hierarchy, ids must belong to that server, and bots can't kick or ban the owner. A bot can only manage its own application's commands, and replacing global commands no longer deletes its per-server ones.
 
 ---
 

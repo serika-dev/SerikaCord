@@ -1,4 +1,4 @@
-import { eq, and, type SQL } from 'drizzle-orm';
+import { eq, and, isNull, type SQL } from 'drizzle-orm';
 import { normalizeId } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -15,7 +15,10 @@ export const AppCommand = {
   async findOne(filter: Record<string, unknown>) {
     const conditions: SQL[] = [];
     for (const [key, value] of Object.entries(filter)) {
-      if (value === undefined || value === null) continue;
+      if (value === undefined) continue;
+      // An explicit `guildId: null` means global commands only.
+      if (key === 'guildId' && value === null) { conditions.push(isNull(schema.appCommands.guildId)); continue; }
+      if (value === null) continue;
       switch (key) {
         case 'applicationId': conditions.push(eq(schema.appCommands.applicationId, normalizeId(value as string))); break;
         case 'guildId': conditions.push(eq(schema.appCommands.guildId, normalizeId(value as string))); break;
@@ -32,7 +35,10 @@ export const AppCommand = {
   async find(filter: Record<string, unknown> = {}) {
     const conditions: SQL[] = [];
     for (const [key, value] of Object.entries(filter)) {
-      if (value === undefined || value === null) continue;
+      if (value === undefined) continue;
+      // An explicit `guildId: null` means global commands only.
+      if (key === 'guildId' && value === null) { conditions.push(isNull(schema.appCommands.guildId)); continue; }
+      if (value === null) continue;
       switch (key) {
         case 'applicationId': conditions.push(eq(schema.appCommands.applicationId, normalizeId(value as string))); break;
         case 'guildId': conditions.push(eq(schema.appCommands.guildId, normalizeId(value as string))); break;

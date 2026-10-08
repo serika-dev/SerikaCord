@@ -6,6 +6,7 @@ import { config } from '@/lib/config';
 import { storage } from '@/lib/services/storage';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { adjustServerMemberCount } from '@/lib/services/serverMembership';
+import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions } from '@/lib/oauth/authorize';
 
 const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -448,6 +449,30 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   await Application.updateById(app.id, { clientSecret: newSecret });
 
   return { clientSecret: newSecret };
+})
+
+// Apply for bot verification (bot must be in 100+ servers). Moves the app to
+// 'pending' so staff can review it; repeat applications are no-ops.
+.post('/applications/:id/verification', async ({ headers, cookie, params, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  if (app.ownerId !== user.id) {
+    set.status = 403; return { error: 'Only the owner can apply for verification' };
+  }
+  if (app.verified || app.verificationStatus === 'approved') {
+    set.status = 400; return { error: 'Application is already verified' };
+  }
+  if (app.verificationStatus === 'pending') {
+    return { verificationStatus: 'pending' };
+  }
+  const { ServerMember } = await import('@/lib/models');
+  const serverCount = app.botId ? (await ServerMember.find({ userId: app.botId })).length : 0;
+  if (serverCount < 100) {
+    set.status = 400; return { error: 'Your bot must be in at least 100 servers to apply' };
+  }
+  await Application.updateById(app.id, { verificationStatus: 'pending' });
+  return { verificationStatus: 'pending' };
 })
 
 // ─── Application Emojis ────────────────────────────────────
@@ -1354,6 +1379,15 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       return { error: 'Unknown application' };
     }
 
+    // Only ever hand back a redirect URI the app registered (and that uses a
+    // safe scheme), so the consent page can never be turned into an open
+    // redirect or a javascript: URL.
+    const redirect = resolveRedirectUri(query.redirect_uri as string | undefined, app.redirectUris);
+    if (!redirect.ok) {
+      set.status = 400;
+      return { error: 'invalid_redirect_uri', message: 'redirect_uri is not registered for this application' };
+    }
+
     const scopes = (query.scope as string || '').split(' ').filter(Boolean);
     if (scopes.includes('bot') && (!app.botId || !app.botToken)) {
       const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
@@ -1368,7 +1402,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
         description: app.description,
       },
       scopes,
-      redirect_uri: query.redirect_uri as string,
+      redirect_uri: redirect.uri,
     };
   })
 
@@ -1389,9 +1423,13 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     const payload = body as { client_id?: string; serverId?: string; permissions?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string };
     const clientId = payload.client_id || (query.client_id as string);
     const serverId = payload.serverId;
-    const permissions = BigInt(payload.permissions || '0');
+    const requestedPermissions = parsePermissionsParam(payload.permissions);
+    if (requestedPermissions === null) {
+      set.status = 400;
+      return { error: 'invalid_permissions' };
+    }
     const requestedScopes = payload.scopes || (query.scope as string || '').split(' ').filter(Boolean);
-    const redirectUri = payload.redirect_uri || (query.redirect_uri as string);
+    const requestedRedirectUri = payload.redirect_uri || (query.redirect_uri as string);
     const state = payload.state || (query.state as string);
     const responseType = payload.response_type || (query.response_type as string) || 'code';
 
@@ -1427,6 +1465,13 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       set.status = 404;
       return { error: 'Unknown application' };
     }
+
+    const redirect = resolveRedirectUri(requestedRedirectUri, app.redirectUris);
+    if (!redirect.ok) {
+      set.status = 400;
+      return { error: 'invalid_redirect_uri', message: 'redirect_uri is not registered for this application' };
+    }
+    const redirectUri = redirect.uri;
 
     const existingAuth = await AuthorizedApp.findOne({ userId: user.id, name: app.name });
     if (existingAuth) {
@@ -1478,20 +1523,18 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
         return { error: 'You must be a member of the server' };
       }
 
-      let hasPermission = targetServer.ownerId === user.id;
-      if (!hasPermission && userMembership) {
-        const serverRoles = await Role.find({ serverId });
-        const memberRoles = serverRoles.filter(r => (userMembership.roles || []).includes(r.id) || r.isDefault);
-        let userPerms = 0n;
-        for (const role of memberRoles) {
-          userPerms |= BigInt(role.permissions || '0');
-        }
-        const PERM_ADMINISTRATOR = 1n << 3n;
-        const PERM_MANAGE_SERVER = 1n << 5n;
-        if ((userPerms & PERM_ADMINISTRATOR) !== 0n || (userPerms & PERM_MANAGE_SERVER) !== 0n) {
-          hasPermission = true;
-        }
+      const isServerOwner = targetServer.ownerId === user.id;
+      const serverRoles = await Role.find({ serverId });
+      const callerRoleIds = new Set(userMembership?.roles || []);
+      const memberRoles = serverRoles.filter(r => callerRoleIds.has(r.id) || r.isDefault);
+      let userPerms = 0n;
+      for (const role of memberRoles) {
+        try { userPerms |= BigInt(role.permissions || '0'); } catch { /* malformed role bits */ }
       }
+      const PERM_ADMINISTRATOR = 1n << 3n;
+      const PERM_MANAGE_SERVER = 1n << 5n;
+      const callerIsAdmin = (userPerms & PERM_ADMINISTRATOR) !== 0n;
+      const hasPermission = isServerOwner || (!!userMembership && (callerIsAdmin || (userPerms & PERM_MANAGE_SERVER) !== 0n));
 
       if (!hasPermission) {
         set.status = 403;
@@ -1501,13 +1544,30 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       let botMembership = await ServerMember.findOne({ serverId, userId: botUser.id });
       if (!botMembership) {
         const everyoneRole = await Role.findOne({ serverId, isDefault: true });
-        const existingRoles = await Role.find({ serverId });
-        const highestPosition = existingRoles.reduce((max, r) => Math.max(max, r.position ?? 0), 0);
+        const highestPosition = serverRoles.reduce((max, r) => Math.max(max, r.position ?? 0), 0);
+
+        // A member can only hand the bot permissions they hold themselves, and
+        // the bot's role goes just below their own top role (owner/admins:
+        // top of the list, as before).
+        const permissions = clampBotPermissions(requestedPermissions, userPerms, isServerOwner);
+        let botPosition = highestPosition + 1;
+        if (!isServerOwner && !callerIsAdmin) {
+          const callerTop = serverRoles
+            .filter(r => callerRoleIds.has(r.id) && !r.isDefault)
+            .reduce((max, r) => Math.max(max, r.position ?? 0), 0);
+          botPosition = Math.max(1, callerTop);
+          // Shift the caller's top role and everything above it up by one.
+          for (const r of serverRoles) {
+            if (!r.isDefault && (r.position ?? 0) >= botPosition) {
+              await Role.updateById(r.id, { position: (r.position ?? 0) + 1 });
+            }
+          }
+        }
 
         const botRole = await Role.create({
           serverId,
           name: botUser.username,
-          position: highestPosition + 1,
+          position: botPosition,
           permissions: String(permissions),
           managed: true,
           hoist: false,
@@ -1634,9 +1694,9 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
         if (state) callbackUrl += `&state=${encodeURIComponent(state)}`;
       } else {
         const code = generateToken('sc_code_');
-        callbackUrl += callbackUrl.includes('?') ? '&' : '?';
-        callbackUrl += `code=${code}`;
-        if (state) callbackUrl += `&state=${encodeURIComponent(state)}`;
+        const params: Record<string, string> = { code };
+        if (state) params.state = state;
+        callbackUrl = appendQuery(redirectUri, params);
       }
       return { redirect: callbackUrl };
     }

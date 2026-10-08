@@ -206,7 +206,7 @@ export default function DeveloperHomePage() {
             <Link href="/developers/docs/intro" className="hover:text-white transition-colors">
               {gt("Documentation")}
             </Link>
-            <Link href="/developers/docs/topics/rate-limiting" className="hover:text-white transition-colors">
+            <Link href="/developers/docs/topics/rate-limits" className="hover:text-white transition-colors">
               {gt("API Limits")}
             </Link>
             <Link href="/developers/docs/topics/oauth2" className="hover:text-white transition-colors">
