@@ -234,9 +234,19 @@ export function IncomingCall() {
     if (!call) return;
     const offAnswer = onHotkey("answer-call", () => accept());
     const offDecline = onHotkey("decline-call", decline);
+    // Plain Escape is also "mark channel as read", which the hotkey matcher
+    // finds first; while a call is ringing, Escape must decline it instead.
+    const onEscape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      decline();
+    };
+    window.addEventListener("keydown", onEscape, true);
     return () => {
       offAnswer();
       offDecline();
+      window.removeEventListener("keydown", onEscape, true);
     };
   }, [call, accept, decline]);
 
