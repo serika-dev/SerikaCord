@@ -15,7 +15,6 @@ import { answerDmCall, isInDmCall, onCallNotice } from "@/lib/services/dmCallCon
 import { callAlertPlan, RING_TIMEOUT_MS } from "@/lib/voice/callState";
 import {
   areToastsEnabled,
-  incrementUnread,
   isDesktopNotificationEnabled,
   isDndActive,
   startTitleFlash,
@@ -146,7 +145,7 @@ export function IncomingCall() {
     const title = missed.group
       ? gt("Missed call from {name} in {group}", { name, group: missed.group.name })
       : gt("Missed call from {name}", { name });
-    if (!focused) incrementUnread();
+    // The tab badge comes from the call message's DM unread count.
     if (plan.desktop) {
       void showNotification(title, gt("You missed a call."), {
         tag: `call-missed-${missed.callId}`,

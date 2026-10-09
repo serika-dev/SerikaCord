@@ -63,11 +63,23 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
  */
 function handleSWMessage(event: MessageEvent) {
     if (event.data?.type === 'NOTIFICATION_CLICK') {
-        // Navigate to the URL from notification click
-        if (event.data.url) {
-            window.location.href = event.data.url;
-        }
+        if (event.data.url) navigateInApp(String(event.data.url));
     }
+}
+
+/**
+ * Open an in-app URL from a notification click. The app shell listens for
+ * `serika:navigate` and routes client-side (no reload); without a listener we
+ * fall back to a full navigation.
+ */
+export function navigateInApp(url: string): void {
+    if (typeof window === 'undefined') return;
+    // Only same-origin paths.
+    if (!url.startsWith('/') || url.startsWith('//')) return;
+    window.focus();
+    const ev = new CustomEvent('serika:navigate', { detail: url, cancelable: true });
+    window.dispatchEvent(ev);
+    if (!ev.defaultPrevented) window.location.href = url;
 }
 
 // Notification state
@@ -157,6 +169,8 @@ export async function showNotification(
         icon?: string;
         tag?: string;
         requireInteraction?: boolean;
+        /** Replacing a notification with the same tag alerts again. */
+        renotify?: boolean;
         data?: Record<string, unknown>;
         onClick?: () => void;
     } = {}
@@ -205,6 +219,7 @@ export async function showNotification(
                 tag: options.tag,
                 data: options.data,
                 requireInteraction: options.requireInteraction,
+                renotify: Boolean(options.renotify && options.tag),
             },
         });
         return;
@@ -212,12 +227,15 @@ export async function showNotification(
 
     // Fallback: Direct Notification API
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        // Same tag replaces the previous one (grouped per conversation).
+        if (options.tag) openNotifications.get(options.tag)?.close();
         const notification = new Notification(title, {
             body,
             icon: options.icon || '/icons/icon-192x192.png',
             tag: options.tag,
             requireInteraction: options.requireInteraction,
-        });
+            ...(options.renotify && options.tag ? { renotify: true } : {}),
+        } as NotificationOptions);
         if (options.tag) {
             openNotifications.set(options.tag, notification);
             notification.onclose = () => {
@@ -225,10 +243,12 @@ export async function showNotification(
             };
         }
 
-        if (options.onClick) {
+        const url = typeof options.data?.url === 'string' ? options.data.url : null;
+        if (options.onClick || url) {
             notification.onclick = () => {
                 window.focus();
-                options.onClick?.();
+                if (options.onClick) options.onClick();
+                else if (url) navigateInApp(url);
                 notification.close();
             };
         }

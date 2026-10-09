@@ -664,6 +664,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       messageId: msg.id,
       authorId: auth.botUser.id,
       authorName: botName,
+      authorAvatar: author?.avatar ?? null,
+      content: content || '',
       mentionedUserIds,
       createdAt: msg.createdAt,
     });

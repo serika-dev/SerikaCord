@@ -23,6 +23,9 @@ export async function signalChannelMessage(opts: {
   authorName?: string | null;
   mentionedUserIds?: string[];
   mentionEveryone?: boolean;
+  authorAvatar?: string | null;
+  /** Message text, for the desktop notification preview. */
+  content?: string | null;
   createdAt?: Date | string | null;
 }): Promise<void> {
   if (!opts.channel.serverId) return;
@@ -38,6 +41,8 @@ export async function signalChannelMessage(opts: {
       authorName: opts.authorName ?? undefined,
       mentionedUserIds: opts.mentionedUserIds ?? [],
       mentionEveryone: Boolean(opts.mentionEveryone),
+      authorAvatar: opts.authorAvatar ?? null,
+      preview: opts.content ? opts.content.slice(0, 200) : undefined,
       createdAt: new Date(opts.createdAt ?? Date.now()).toISOString(),
     });
   } catch {

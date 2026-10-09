@@ -14,9 +14,18 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowDown, CheckCheck } from "lucide-react";
 import { useGT, useLocale } from "gt-next";
 import { ChatGtProvider } from "./ChatGtContext";
+import { UnreadDivider } from "./UnreadDivider";
+import {
+  computeUnreadDivider,
+  newestAckable,
+  readMarkerMs,
+  type ReadMarker,
+  type UnreadDivider as UnreadDividerInfo,
+} from "@/lib/chat/unreadMarker";
+import { onHotkey } from "@/lib/keybinds";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
@@ -36,6 +45,8 @@ export interface MessageListHandle {
   scrollByViewport: (dir: 1 | -1) => void;
   /** Scroll to the very top (loading older messages happens automatically). */
   scrollToTop: () => void;
+  /** Scroll to the first unread message (the red "NEW" line). */
+  jumpToUnread: () => void;
 }
 
 interface MentionUser {
@@ -92,6 +103,52 @@ interface MessageListProps<M extends ChatMessage> {
   onJumpToMessage?: (messageId: string) => void;
   /** DMs: the other person, for call log rows ("X missed your call", Join call). */
   dmPeer?: CallRowPeer;
+  /**
+   * Read marker captured when the conversation was opened. Draws the red "NEW"
+   * line above the first unread message, opens the list there instead of at
+   * the bottom, and shows the "{n} new messages since…" bar.
+   */
+  unreadMarker?: ReadMarker | null;
+  /**
+   * The user has seen everything up to `message`: the window is focused and
+   * visible and the list sits at the bottom of the live tail. Called with the
+   * newest message (once per message).
+   */
+  onReadUpTo?: (message: { id: string; createdAt: string }) => void;
+  /** "Mark as read" on the unread bar, or Escape. */
+  onMarkRead?: () => void;
+}
+
+interface WatchState {
+  key: string;
+  caughtUp: boolean;
+  floor: ReadMarker | null;
+  kept: UnreadDividerInfo | null;
+}
+
+const EMPTY_WATCH: WatchState = { key: "", caughtUp: false, floor: null, kept: null };
+
+/** The later of two read markers. */
+function laterMarker(a: ReadMarker | null | undefined, b: ReadMarker | null | undefined): ReadMarker | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return readMarkerMs(b) > readMarkerMs(a) ? b : a;
+}
+
+/** "3:42 PM" today, otherwise a short date + time. */
+function formatSince(iso: string | null, locale: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  try {
+    return sameDay
+      ? d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })
+      : d.toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  } catch {
+    return d.toLocaleString();
+  }
 }
 
 function MessageListInner<M extends ChatMessage>(
@@ -125,6 +182,9 @@ function MessageListInner<M extends ChatMessage>(
     resetKey,
     onJumpToMessage,
     dmPeer,
+    unreadMarker,
+    onReadUpTo,
+    onMarkRead,
   }: MessageListProps<M>,
   ref: Ref<MessageListHandle>
 ) {
@@ -171,6 +231,72 @@ function MessageListInner<M extends ChatMessage>(
   const prevMessageCountRef = useRef(0);
   const prevGroupCountRef = useRef(0);
 
+  // ── Unread divider / bar / read acks ──
+  const allMessages = useMemo(() => groups.flatMap((g) => g.messages), [groups]);
+  const contextKey = resetKey ?? "";
+  // Reading session for this conversation. While the user is caught up
+  // (watching the bottom, window focused) live messages are read as they land,
+  // so they never get a "NEW" line: the line shown is the one `kept` from when
+  // they caught up. Once they look away, messages after the last ack (`floor`)
+  // form a new unread run with its own line.
+  const [watchState, setWatchState] = useState<WatchState>(EMPTY_WATCH);
+  const watch = watchState.key === contextKey ? watchState : EMPTY_WATCH;
+  const computedDivider = useMemo(
+    () => computeUnreadDivider(allMessages, laterMarker(unreadMarker, watch.floor), currentUserId, hasMoreOlder),
+    [allMessages, unreadMarker, watch.floor, currentUserId, hasMoreOlder],
+  );
+  const divider = watch.caughtUp ? watch.kept : computedDivider ?? watch.kept;
+  const newestAck = useMemo(() => newestAckable(allMessages), [allMessages]);
+  // Bar dismissed (read, "Mark as read", Escape) for this conversation.
+  const [barDismissedFor, setBarDismissedFor] = useState<string | null>(null);
+  const barDismissed = barDismissedFor === contextKey;
+  // The list sits away from the bottom (drives the jump pill).
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  // Open at the first unread message once per conversation.
+  const pendingUnreadScrollRef = useRef(true);
+  const ackedIdRef = useRef<string | null>(null);
+  const unreadRef = useRef({ divider, computedDivider, watch, newestAck, hasMoreNewer, isLoading, contextKey, barDismissed });
+  useLayoutEffect(() => {
+    unreadRef.current = { divider, computedDivider, watch, newestAck, hasMoreNewer, isLoading, contextKey, barDismissed };
+  });
+
+  const dismissBar = useCallback(() => {
+    const key = unreadRef.current.contextKey;
+    // Deferred: may be reached from an effect.
+    void Promise.resolve().then(() => setBarDismissedFor(key));
+  }, []);
+
+  /** The user stopped watching the live tail (scrolled up, switched away). */
+  const markAway = useCallback(() => {
+    const { watch: w, contextKey: key } = unreadRef.current;
+    if (!w.caughtUp) return;
+    void Promise.resolve().then(() =>
+      setWatchState((prev) => (prev.key === key && prev.caughtUp ? { ...prev, caughtUp: false } : prev)),
+    );
+  }, []);
+
+  /** Ack the newest message if the user can actually see it. */
+  const tryAck = useCallback(() => {
+    const cb = latestRef.current.onReadUpTo;
+    const { newestAck: newest, hasMoreNewer: detached, isLoading: loading, computedDivider: atAck, contextKey: key } = unreadRef.current;
+    if (!cb || !newest || detached || loading) return;
+    if (!isAtBottomRef.current) return;
+    if (typeof document === "undefined" || document.visibilityState !== "visible" || !document.hasFocus()) return;
+    if (ackedIdRef.current === newest.id) return;
+    ackedIdRef.current = newest.id;
+    cb({ id: newest.id, createdAt: newest.createdAt as string });
+    const floor: ReadMarker = { lastReadMessageId: newest.id, lastReadAt: newest.createdAt as string };
+    void Promise.resolve().then(() =>
+      setWatchState((prev) => {
+        const cur = prev.key === key ? prev : { ...EMPTY_WATCH, key };
+        // Catching up keeps the line of the run just read; staying caught up
+        // keeps it where it was.
+        return { key, caughtUp: true, floor, kept: cur.caughtUp ? cur.kept : atAck ?? cur.kept };
+      }),
+    );
+    dismissBar();
+  }, [dismissBar]);
+
   // Reset scroll state when channel/DM changes so the list scrolls to bottom
   // even if the message count happens to be identical to the previous context.
   // Must be a layout effect so the force-scroll flag is set BEFORE the
@@ -189,11 +315,14 @@ function MessageListInner<M extends ChatMessage>(
     readyForPaginationRef.current = false;
     animateInRef.current = true;
     wasLoadingRef.current = true;
+    pendingUnreadScrollRef.current = true;
+    ackedIdRef.current = null;
     Promise.resolve().then(() => {
       setNewMessagesCount(0);
       setNewMessageStartId(null);
       setAnimateIn(true);
       setShowContentFade(false);
+      setAwayFromBottom(false);
     });
   }, [resetKey]);
 
@@ -217,9 +346,9 @@ function MessageListInner<M extends ChatMessage>(
 
   // Latest mutable handlers behind stable identities so memoized rows
   // don't re-render on every parent render.
-  const latestRef = useRef({ actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange, onJumpToMessage });
+  const latestRef = useRef({ actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange, onJumpToMessage, onReadUpTo, onMarkRead });
   useEffect(() => {
-    latestRef.current = { actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange, onJumpToMessage };
+    latestRef.current = { actions, loadOlderMessages, loadNewerMessages, onReplyFocus, onAtBottomChange, onJumpToMessage, onReadUpTo, onMarkRead };
   });
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
@@ -273,6 +402,15 @@ function MessageListInner<M extends ChatMessage>(
     viewportRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
+  // The bar's "Jump" button and Shift+PageUp: the first unread message, or the
+  // top of the loaded history (which pages in older messages) when it isn't loaded.
+  const jumpToUnread = useCallback(() => {
+    const id = unreadRef.current.divider?.firstUnreadId;
+    const el = id ? document.getElementById(`message-${id}`) : null;
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    else viewportRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   useImperativeHandle(
     ref,
     () => ({
@@ -282,8 +420,9 @@ function MessageListInner<M extends ChatMessage>(
       forceScrollToBottom,
       scrollByViewport,
       scrollToTop,
+      jumpToUnread,
     }),
-    [scrollToBottom, scrollToMessage, forceScrollToBottom, scrollByViewport, scrollToTop]
+    [scrollToBottom, scrollToMessage, forceScrollToBottom, scrollByViewport, scrollToTop, jumpToUnread]
   );
 
   // Scroll restoration after loading older/newer pages — runs synchronously
@@ -333,6 +472,24 @@ function MessageListInner<M extends ChatMessage>(
         // The list is now pinned to the bottom for this context; allow the user
         // to scroll up to trigger older-history pagination from here on.
         readyForPaginationRef.current = true;
+        // Opening a conversation with unread messages: start at the first
+        // unread one (the red "NEW" line) when it's above the fold.
+        if (pendingUnreadScrollRef.current) {
+          pendingUnreadScrollRef.current = false;
+          const firstUnreadId = unreadRef.current.divider?.firstUnreadId;
+          const el = firstUnreadId ? document.getElementById(`message-${firstUnreadId}`) : null;
+          if (el) {
+            const top =
+              el.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop - 72;
+            if (top < viewport.scrollHeight - viewport.clientHeight - 80) {
+              viewport.scrollTop = Math.max(0, top);
+              stickToBottomRef.current = false;
+              isAtBottomRef.current = false;
+              latestRef.current.onAtBottomChange?.(false);
+              void Promise.resolve().then(() => setAwayFromBottom(true));
+            }
+          }
+        }
       } else {
         // Defer smooth scroll to after paint so the browser animates properly.
         requestAnimationFrame(() => {
@@ -380,10 +537,11 @@ function MessageListInner<M extends ChatMessage>(
         isAtBottomRef.current = true;
         latestRef.current.onAtBottomChange?.(true);
       }
+      tryAck();
     });
     ro.observe(content);
     return () => ro.disconnect();
-  }, []);
+  }, [tryAck]);
 
   // Detect if new groups were appended at the bottom (vs prepended at top).
   // Used to apply slide-in animation to newly arrived messages.
@@ -411,9 +569,12 @@ function MessageListInner<M extends ChatMessage>(
         isAtBottomRef.current = atBottom;
         latestRef.current.onAtBottomChange?.(atBottom);
       }
+      setAwayFromBottom(!atBottom);
+      if (!atBottom) markAway();
       if (atBottom) {
         setNewMessagesCount(0);
         setNewMessageStartId(null);
+        tryAck();
         // Detached window (jumped to a pin/search result, or trimmed): reaching
         // the bottom loads the next newer page so the user can scroll all the way
         // back to the latest message.
@@ -457,7 +618,7 @@ function MessageListInner<M extends ChatMessage>(
         });
       }
     });
-  }, [hasMoreOlder, hasMoreNewer, isLoadingMore, captureScrollAnchor]);
+  }, [hasMoreOlder, hasMoreNewer, isLoadingMore, captureScrollAnchor, tryAck, markAway]);
 
   // Stable handlers for memoized rows.
   const stable = useMemo(() => {
@@ -484,6 +645,40 @@ function MessageListInner<M extends ChatMessage>(
       onOpenReactionPicker: (messageId: string) => a().setReactionPickerMessage(messageId),
     };
   }, []);
+
+  // Ack when a new message lands while the user is watching the bottom, when
+  // the live tail comes back after a jump, and when the window regains focus.
+  const newestAckId = newestAck?.id ?? null;
+  useEffect(() => {
+    tryAck();
+  }, [newestAckId, hasMoreNewer, isLoading, tryAck]);
+  useEffect(() => {
+    const onFocus = () => tryAck();
+    const onVisibility = () => (document.visibilityState === "visible" ? tryAck() : markAway());
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", markAway);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", markAway);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [tryAck, markAway]);
+
+  const markRead = useCallback(() => {
+    const { divider: d, barDismissed: dismissed, newestAck: newest, contextKey: key } = unreadRef.current;
+    setBarDismissedFor(key);
+    // Already read up to the newest message: nothing to send.
+    if ((!d || dismissed) && newest && ackedIdRef.current === newest.id) return;
+    latestRef.current.onMarkRead?.();
+  }, []);
+
+  // Escape: mark this conversation read (the global hotkey broadcasts it).
+  useEffect(() => onHotkey("mark-channel-read", markRead), [markRead]);
+
+  const showUnreadBar = Boolean(divider) && !barDismissed && !isLoading;
+  const dividerId = divider?.firstUnreadId ?? newMessageStartId;
+  const pillCount = newMessagesCount > 0 ? newMessagesCount : awayFromBottom && showUnreadBar ? divider?.count ?? 0 : 0;
 
   return (
     <ChatGtProvider>
@@ -518,21 +713,16 @@ function MessageListInner<M extends ChatMessage>(
                 const shouldAnimate = animateIn && idx < 12;
                 const isLastGroup = idx === groups.length - 1;
                 const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
-                const showNewSeparator = newMessageStartId === group.messages[0]?.id;
+                const showNewSeparator = dividerId === group.messages[0]?.id;
                 // Unread run starting mid-group (same author kept talking): the
                 // group draws the divider above that row itself.
                 const midGroupSeparatorId =
-                  newMessageStartId && !showNewSeparator && group.messages.some((m) => m.id === newMessageStartId)
-                    ? newMessageStartId
+                  dividerId && !showNewSeparator && group.messages.some((m) => m.id === dividerId)
+                    ? dividerId
                     : undefined;
                 return (
                 <Fragment key={`group-${group.messages[0].id}`}>
-                {showNewSeparator && (
-                  <div className="flex items-center gap-2 px-4 my-2 select-none">
-                    <span className="text-xs font-semibold text-[var(--app-accent)] whitespace-nowrap">{gt("New")}</span>
-                    <div className="h-px flex-1 bg-[var(--app-accent)]" />
-                  </div>
-                )}
+                {showNewSeparator && <UnreadDivider label={gt("New")} className="mx-4" />}
                 <div
                   className={cn(
                     "msg-group-cv",
@@ -596,8 +786,42 @@ function MessageListInner<M extends ChatMessage>(
         </div>
       </div>
 
-      {/* New messages pill */}
-      {newMessagesCount > 0 && (
+      {/* Unread bar: "{n} new messages since {time}" */}
+      {showUnreadBar && divider && (
+        <div className="absolute top-0 left-0 right-0 z-20 px-2 pt-1 animate-fade-in-up">
+          <div className="flex items-center gap-2 rounded-b-lg rounded-t-md bg-[var(--app-accent)] px-3 py-1 text-xs font-semibold text-[var(--text-on-accent,#fff)] shadow-md">
+            <button
+              type="button"
+              onClick={jumpToUnread}
+              className="min-w-0 flex-1 truncate text-left hover:underline"
+              title={gt("Jump to unread")}
+            >
+              {divider.since
+                ? gt("{count} new messages since {time}", {
+                    count: divider.countIsLowerBound ? `${divider.count}+` : divider.count,
+                    time: formatSince(divider.since, locale),
+                  })
+                : gt("{count} new messages", { count: divider.count })}
+            </button>
+            <button type="button" onClick={jumpToUnread} className="shrink-0 hover:underline">
+              {gt("Jump to unread")}
+            </button>
+            <span className="h-3 w-px shrink-0 bg-current opacity-40" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={markRead}
+              className="flex shrink-0 items-center gap-1 hover:underline"
+              title={gt("Mark as read (Esc)")}
+            >
+              <CheckCheck className="h-3.5 w-3.5" />
+              {gt("Mark as read")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* New messages pill: unread below the fold */}
+      {pillCount > 0 && (
         <button
           onClick={() => {
             setNewMessagesCount(0);
@@ -605,10 +829,10 @@ function MessageListInner<M extends ChatMessage>(
             isAtBottomRef.current = true;
             scrollToBottom();
           }}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--accent-color)] text-white text-sm shadow-lg hover:opacity-90 transition-opacity animate-fade-in-up"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--app-accent)] text-[var(--text-on-accent,#fff)] text-sm shadow-lg hover:opacity-90 transition-opacity animate-fade-in-up"
         >
           <ArrowDown className="w-4 h-4" />
-          {gt("{count} new messages", { count: newMessagesCount })}
+          {gt("{count} new messages", { count: pillCount })}
         </button>
       )}
     </div>

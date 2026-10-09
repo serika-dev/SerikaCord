@@ -23,9 +23,10 @@ import {
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { useMentions } from "@/hooks/useMentions";
 import { useUnread } from "@/contexts/UnreadContext";
 import { useServerMutes } from "@/hooks/useServerMutes";
+import { useMuteOptions, useMutedUntilLabel } from "@/components/notifications/useMuteOptions";
+import { openNotificationSettings } from "@/lib/notifications/events";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout";
 import { usePolling } from "@/hooks/usePolling";
@@ -81,13 +82,13 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const confirmDialog = useConfirm();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
-  const { serverMentionCounts, markServerRead: markServerMentionsRead } = useMentions();
   const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount } = useUnread();
-  // Live mention count (activity stream) or the polled one, whichever is ahead:
-  // the poll alone left a new mention invisible on the rail for up to 30s.
-  const mentionsFor = (serverId: string) =>
-    Math.max(serverMentionCounts.get(serverId) || 0, getServerMentionCount(serverId));
-  const { isMuted, toggleMute } = useServerMutes();
+  // One source for every badge (rail, sidebar, inbox, tab title): the unread
+  // engine, which honours per-server/channel notification settings.
+  const mentionsFor = getServerMentionCount;
+  const { isMuted, muteUntilOf, muteServer, unmuteServer } = useServerMutes();
+  const muteOptions = useMuteOptions();
+  const mutedUntilLabel = useMutedUntilLabel();
   const pathname = usePathname();
   // `window` checks in markup must wait for hydration: the server renders no
   // Download button, so rendering it on the first client pass broke hydration
@@ -370,7 +371,9 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const renderServerIcon = (server: Server, inFolder: boolean) => {
     const mentionCount = mentionsFor(server.id);
     const muted = isMuted(server.id);
-    const hasMention = mentionCount > 0 && !muted;
+    // Muted servers still badge mentions (Discord parity); per-server
+    // "Nothing" / suppression already kept those out of the count.
+    const hasMention = mentionCount > 0;
     // Unread-without-mention: show the Discord-style short white pill.
     const hasUnread = !muted && isServerUnread(server.id);
     const isActive = currentServer?.id === server.id;
@@ -475,13 +478,33 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
             <span className="absolute inset-0 pointer-events-none" aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent side="right" align="start" className="w-56">
-            <DropdownMenuItem disabled={mentionCount === 0 && !hasUnread} onClick={() => { markServerUnreadRead(server.id); markServerMentionsRead(server.id); }}>
+            <DropdownMenuItem disabled={mentionCount === 0 && !hasUnread} onClick={() => markServerUnreadRead(server.id)}>
               <Check className="w-4 h-4" />
               {gt("Mark As Read")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => toggleMute(server.id)}>
-              {muted ? <Bell className="w-4 h-4" /> : <BellOff className="w-4 h-4" />}
-              {muted ? gt("Unmute Server") : gt("Mute Server")}
+            {muted ? (
+              <DropdownMenuItem onClick={() => unmuteServer(server.id)} title={mutedUntilLabel(muteUntilOf(server.id))}>
+                <Bell className="w-4 h-4" />
+                {gt("Unmute Server")}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <BellOff className="w-4 h-4" />
+                  {gt("Mute Server")}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  {muteOptions.map((o) => (
+                    <DropdownMenuItem key={o.key} onClick={() => muteServer(server.id, o.minutes)}>
+                      {o.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+            <DropdownMenuItem onClick={() => openNotificationSettings({ scope: "server", id: server.id, name: server.name })}>
+              <Bell className="w-4 h-4" />
+              {gt("Notification Settings")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {/* Folder management */}

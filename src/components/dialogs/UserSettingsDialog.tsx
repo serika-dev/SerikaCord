@@ -3489,6 +3489,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                       <div>
                         <p className="text-[var(--text-primary)] font-medium">{gt("Mentions only")} <span className="ml-1.5 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">{gt("Default")}</span></p>
                         <p className="text-sm text-[var(--text-secondary)]">{gt("Only send desktop notifications when you are mentioned. Turn off to notify on all messages.")}</p>
+                        <p className="text-xs text-[var(--text-muted)] mt-0.5">{gt("Each server, category, channel and DM can override this: right-click it and pick Notification Settings.")}</p>
                       </div>
                       <ToggleSwitch
                         size="sm"

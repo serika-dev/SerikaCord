@@ -4,6 +4,8 @@ import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 export interface MentionData {
   id: string;
+  /** How you were pinged (direct, a role you hold, or @everyone/@here). */
+  kind?: "user" | "role" | "everyone";
   content: string;
   channelId: string;
   channelName: string;
@@ -66,6 +68,23 @@ const readListeners = new Set<() => void>();
 function bumpReadVersion() {
   readVersionGlobal += 1;
   readListeners.forEach((fn) => fn());
+}
+
+/**
+ * The unread engine read a channel (here or on another device): drop its
+ * mentions from the inbox / server-rail counts. `ts` is the read time in ms.
+ */
+export function markMentionsReadLocal(channelId: string, ts = Date.now()) {
+  if (getChannelReadTimestamp(channelId) >= ts) return;
+  setChannelReadTimestamp(channelId, ts);
+  bumpReadVersion();
+}
+
+/** Mention list refresh (e.g. a new ping arrived over the activity stream). */
+export function refreshMentionsNow() {
+  for (const [url, e] of entries) {
+    if (e.listeners.size > 0) void fetchEntry(url);
+  }
 }
 
 function getEntry(url: string): MentionEntry {

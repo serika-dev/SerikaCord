@@ -30,7 +30,36 @@ export interface ChannelActivityPayload {
   authorName?: string;
   mentionedUserIds: string[];
   mentionEveryone: boolean;
+  /** Mentioned role ids (resolved to `roleMentionUserIds` before fan-out). */
+  mentionedRoleIds?: string[];
+  /** Members holding a mentioned role, so clients can badge role pings. */
+  roleMentionUserIds?: string[];
+  authorAvatar?: string | null;
+  /** Short plain-text preview for desktop notifications (shown only if the user allows previews). */
+  preview?: string;
+  /** Parent category / forum, so per-category notification settings apply. */
+  parentId?: string | null;
   createdAt: string; // ISO
+}
+
+const MAX_ROLE_MENTION_RECIPIENTS = 5000;
+
+/** Resolve role mentions to member ids (once per message, before fan-out). */
+async function resolveRoleMentionUsers(payload: ChannelActivityPayload): Promise<ChannelActivityPayload> {
+  const roleIds = payload.mentionedRoleIds ?? [];
+  if (roleIds.length === 0 || payload.roleMentionUserIds) return payload;
+  try {
+    const members = (await ServerMember.find({ serverId: payload.serverId })) as Array<{ userId: string; roles?: string[] | null }>;
+    const wanted = new Set(roleIds);
+    const ids: string[] = [];
+    for (const m of members) {
+      if ((m.roles ?? []).some((r) => wanted.has(r))) ids.push(m.userId);
+      if (ids.length >= MAX_ROLE_MENTION_RECIPIENTS) break;
+    }
+    return { ...payload, roleMentionUserIds: ids };
+  } catch {
+    return payload;
+  }
 }
 
 const ACTIVITY_BUS = 'sse:activity';
@@ -71,10 +100,15 @@ export function hasActivityConnection(userId: string): boolean {
 }
 
 function emitLocal(userIds: string[], payload: ChannelActivityPayload) {
-  const encoded = `data: ${JSON.stringify(payload)}\n\n`;
+  // Clients get a per-recipient `mentionedRole` flag instead of the member list.
+  const { roleMentionUserIds, ...rest } = payload;
+  const roleSet = new Set(roleMentionUserIds ?? []);
+  const plain = `data: ${JSON.stringify({ ...rest, mentionedRole: false })}\n\n`;
+  const pinged = `data: ${JSON.stringify({ ...rest, mentionedRole: true })}\n\n`;
   for (const userId of userIds) {
     const writers = activeActivityConnections.get(userId);
     if (!writers) continue;
+    const encoded = roleSet.has(userId) ? pinged : plain;
     writers.forEach((write) => {
       try {
         write(encoded);
@@ -138,7 +172,8 @@ export function invalidateServerMemberCache(serverId: string): void {
  * Deliver a channel-activity signal to every connected member of the server
  * (this instance), then fan out over Redis so other instances do the same.
  */
-export async function notifyChannelActivity(payload: ChannelActivityPayload): Promise<void> {
+export async function notifyChannelActivity(input: ChannelActivityPayload): Promise<void> {
+  const payload = await resolveRoleMentionUsers(input);
   await deliverLocally(payload);
   const pub = getPublisher();
   if (pub) {
@@ -214,8 +249,16 @@ export async function fanoutToUsers(target: FanoutTarget, payload: Record<string
 }
 
 /** Notify a user's own open sessions that a channel was read (cross-device). */
-export function notifyReadState(userId: string, channelId: string, lastReadAt: string): void {
-  void fanoutToUsers({ userIds: [userId] }, { type: 'read_state', channelId, lastReadAt });
+export function notifyReadState(
+  userId: string,
+  channelId: string,
+  lastReadAt: string,
+  lastReadMessageId?: string | null,
+): void {
+  void fanoutToUsers(
+    { userIds: [userId] },
+    { type: 'read_state', channelId, lastReadAt, lastReadMessageId: lastReadMessageId ?? null },
+  );
 }
 
 /**

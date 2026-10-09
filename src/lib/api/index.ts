@@ -961,8 +961,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
         const sid = channelToServer.get(msg.channelId) || '';
         if (sid) serversWithMentions.add(sid);
         const author = authorMap.get(msg.authorId);
+        // How this user was pinged, so clients can honour per-server
+        // "suppress @everyone / role mentions" settings.
+        const kind = ((msg.mentionedUserIds || []) as string[]).includes(user.id)
+          ? 'user'
+          : msg.mentionEveryone
+            ? 'everyone'
+            : 'role';
         return {
           id: msg.id,
+          kind,
           content: decryptedMentionContents[idx],
           channelId: msg.channelId,
           channelName: channelToName.get(msg.channelId) || '',
@@ -1041,6 +1049,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
         channels: channels.map((c) => ({
           channelId: c.id,
           serverId: c.serverId,
+          name: c.name,
+          parentId: (c as { parentId?: string | null }).parentId ?? null,
           lastMessageAt: c.updatedAt instanceof Date ? c.updatedAt.toISOString() : c.updatedAt,
         })),
       };
@@ -1065,29 +1075,45 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
       // Resolve the marker: an explicit messageId (preferred) or the channel's
       // current latest message. Fall back to "now" for an empty channel.
-      let readMessageId: string | null = messageId ?? null;
+      const ID_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{24})$/i;
+      if (!ID_RE.test(channelId) || (messageId !== undefined && !ID_RE.test(messageId))) {
+        set.status = 400;
+        return { error: 'Invalid id' };
+      }
+      let readMessageId: string | null = null;
       let readAt = new Date();
-      const target = messageId
-        ? await Message.findById(messageId)
-        : (await Message.find({ channelId, isDeleted: false, _limit: 1 }))[0]; // default order is newest-first
+      const latest = (await Message.find({ channelId, isDeleted: false, _limit: 1 }))[0]; // default order is newest-first
+      // An explicit messageId must belong to this channel; otherwise fall back
+      // to the channel's latest message.
+      const explicit = messageId && messageId !== latest?.id ? await Message.findById(messageId) : null;
+      const target = explicit && explicit.channelId === channelId ? explicit : latest;
       if (target) {
         readMessageId = target.id;
         readAt = target.createdAt instanceof Date ? target.createdAt : new Date(target.createdAt ?? Date.now());
+        // Acking the newest message reads the whole channel: also cover the
+        // channel's activity stamp (bumped a moment after the insert) so
+        // other devices comparing against it don't keep showing it unread.
+        if (latest && target.id === latest.id) {
+          const ch = await Channel.findById(channelId).catch(() => null);
+          const updatedAt = ch?.updatedAt ? new Date(ch.updatedAt) : null;
+          if (updatedAt && !Number.isNaN(updatedAt.getTime()) && updatedAt > readAt) readAt = updatedAt;
+        }
       }
 
       const row = await ChannelReadState.ack(user.id, channelId, readMessageId, readAt);
       const lastReadAtIso =
         (row?.lastReadAt instanceof Date ? row.lastReadAt.toISOString() : row?.lastReadAt) ?? readAt.toISOString();
+      const lastReadMessageId = row?.lastReadMessageId ?? readMessageId;
 
       // Live cross-device sync: tell this user's OTHER open sessions the channel
       // was read so their badges clear immediately (not just on next reload).
       const { notifyReadState } = await import('@/lib/api/activity');
-      notifyReadState(user.id, channelId, lastReadAtIso);
+      notifyReadState(user.id, channelId, lastReadAtIso, lastReadMessageId);
 
       return {
         ok: true,
         channelId,
-        lastReadMessageId: row?.lastReadMessageId ?? readMessageId,
+        lastReadMessageId,
         lastReadAt: lastReadAtIso,
       };
     } catch (error) {
@@ -1099,6 +1125,70 @@ const userRoutes = new Elysia({ prefix: '/users' })
     body: t.Object({
       channelId: t.String(),
       messageId: t.Optional(t.String()),
+    }),
+  })
+  // Per-server / per-channel notification settings (level, mute, @everyone and
+  // role suppression), plus each joined server's default level. Cross-device:
+  // a change is pushed to the user's other sessions over the activity stream.
+  .get('/@me/notification-settings', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    try {
+      const { getNotificationSettings, getServerDefaultLevels } = await import('@/lib/services/notificationSettings');
+      const memberships = await ServerMember.find({ userId: user.id });
+      const [settings, serverDefaults] = await Promise.all([
+        getNotificationSettings(user.id),
+        getServerDefaultLevels(memberships.map((m) => m.serverId)),
+      ]);
+      return { settings, serverDefaults };
+    } catch (error) {
+      console.error('Failed to fetch notification settings:', error);
+      set.status = 500;
+      return { error: 'Failed to fetch notification settings' };
+    }
+  })
+  .patch('/@me/notification-settings', async ({ headers, cookie, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { scope, id, settings: patch } = body as {
+      scope: 'server' | 'channel';
+      id: string;
+      settings: Record<string, unknown> | null;
+    };
+    if (!/^[0-9a-zA-Z_-]{1,64}$/.test(id)) {
+      set.status = 400;
+      return { error: 'Invalid id' };
+    }
+    try {
+      const { patchNotificationSettings } = await import('@/lib/services/notificationSettings');
+      const settings = await patchNotificationSettings(user.id, scope, id, patch);
+      const { fanoutToUsers } = await import('@/lib/api/activity');
+      void fanoutToUsers({ userIds: [user.id] }, { type: 'notification_settings', settings });
+      return { settings };
+    } catch (error) {
+      console.error('Failed to update notification settings:', error);
+      set.status = 500;
+      return { error: 'Failed to update notification settings' };
+    }
+  }, {
+    body: t.Object({
+      scope: t.Union([t.Literal('server'), t.Literal('channel')]),
+      id: t.String({ maxLength: 64 }),
+      settings: t.Union([
+        t.Null(),
+        t.Object({
+          level: t.Optional(t.Union([t.Null(), t.Literal('all'), t.Literal('mentions'), t.Literal('nothing')])),
+          muteUntil: t.Optional(t.Union([t.Null(), t.Number()])),
+          suppressEveryone: t.Optional(t.Union([t.Null(), t.Boolean()])),
+          suppressRoles: t.Optional(t.Union([t.Null(), t.Boolean()])),
+        }),
+      ]),
     }),
   })
   // App-wide unread/activity stream. Emits a lightweight `channel_activity`
@@ -3474,6 +3564,7 @@ export const api = new Elysia({ prefix: '/api' })
       // Not the creator's id: they should get unread for their webhook's posts too.
       authorId: `webhook:${webhook.id}`,
       authorName: author.username,
+      content,
       mentionedUserIds: extractUserMentionIds(content),
       createdAt: message.createdAt,
     });
@@ -3751,6 +3842,9 @@ export async function initializeAPI() {
     // Idempotent, never throws.
     const { ensureCallMessageSchema } = await import('@/lib/services/dmCallMessages');
     await ensureCallMessageSchema();
+    // Per-user notification settings table. Idempotent, never throws.
+    const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
+    await ensureNotificationSettingsSchema();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

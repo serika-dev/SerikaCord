@@ -65,14 +65,16 @@ self.addEventListener('fetch', (event) => {
 // Handle messages from the main app
 self.addEventListener('message', (event) => {
     if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-        const { title, body, icon, tag, data, requireInteraction } = event.data.payload;
+        const { title, body, icon, tag, data, requireInteraction, renotify } = event.data.payload;
 
         event.waitUntil(
             self.registration.showNotification(title, {
                 body,
                 icon: icon || '/icons/icon-192x192.png',
                 badge: '/icons/badge-72x72.png',
+                // One notification per conversation: a newer one replaces it.
                 tag: tag || 'serikacord-message',
+                renotify: Boolean(renotify && tag),
                 data: data || {},
                 vibrate: [100, 50, 100],
                 requireInteraction: Boolean(requireInteraction),
@@ -80,6 +82,15 @@ self.addEventListener('message', (event) => {
                     { action: 'open', title: 'Open' },
                     { action: 'dismiss', title: 'Dismiss' },
                 ],
+            })
+        );
+    }
+
+    // The conversation was read (on any device): drop its notification.
+    if (event.data && event.data.type === 'CLOSE_NOTIFICATIONS' && event.data.tag) {
+        event.waitUntil(
+            self.registration.getNotifications({ tag: event.data.tag }).then((list) => {
+                list.forEach((n) => n.close());
             })
         );
     }
@@ -134,9 +145,8 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 // Handle notification close
-self.addEventListener('notificationclose', (event) => {
-    // Analytics or cleanup if needed
-    console.log('Notification closed:', event.notification.tag);
+self.addEventListener('notificationclose', () => {
+    /* nothing to clean up */
 });
 
 // Background sync for offline message queue (if supported)

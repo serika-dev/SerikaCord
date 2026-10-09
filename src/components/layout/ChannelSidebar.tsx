@@ -45,6 +45,7 @@ import {
   BellOff,
   AlertTriangle,
   Phone,
+  CheckCheck,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
@@ -56,7 +57,10 @@ import { UserMenuItems } from "@/components/user/UserContextMenu";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { ServerBadge } from "@/components/ui/badges";
-import { isChannelMuted, toggleChannelMute } from "@/lib/services/notificationUX";
+import { isMuteActive, muteUntilFor } from "@/lib/notifications/levels";
+import { updateNotificationOverride, useNotificationPrefs } from "@/lib/notifications/prefsStore";
+import { openNotificationSettings } from "@/lib/notifications/events";
+import { useMuteOptions, useMutedUntilLabel } from "@/components/notifications/useMuteOptions";
 import { useUnread } from "@/contexts/UnreadContext";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -70,6 +74,9 @@ import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
+
+/** Channel types shown in a message list, which acks reads itself once seen. */
+const MESSAGE_LIST_TYPES = new Set(["text", "announcement", "public_thread", "private_thread"]);
 
 interface DMChannel {
   id: string;
@@ -128,7 +135,10 @@ export function ChannelSidebar({
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
   const canManageAny = canManageChannels || canManageServer || isAdmin;
-  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmCounts, notifyDmActivity, markChannelRead } = useUnread();
+  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmCounts, notifyDmActivity, markChannelRead, markChannelsRead, isChannelMuted } = useUnread();
+  const notifPrefs = useNotificationPrefs();
+  const muteOptions = useMuteOptions();
+  const mutedUntilLabel = useMutedUntilLabel();
   const [activeVoiceChannelName, setActiveVoiceChannelName] = useState<string | undefined>(undefined);
   const [voiceParticipants, setVoiceParticipants] = useState<import("@/lib/services/voiceService").VoiceParticipant[]>([]);
 
@@ -588,11 +598,18 @@ export function ChannelSidebar({
     return map;
   }, [normalChannels, mentionFirst]);
 
-  // Mark channel as read when it becomes active (also updates the unread engine's
-  // notion of which channel the user is viewing so its own messages don't glow).
+  // Tell the unread engine which channel is on screen (no glow / toasts for it).
+  // Reading is acked by the message list once the newest message is seen.
+  // Views without a message list (voice, stage, forum index) can't ack, so
+  // opening them reads them, as before.
+  const activeChannelId = currentChannel?.id ?? null;
+  const activeChannelType = currentChannel?.type;
   useEffect(() => {
-    setActiveChannel(currentChannel?.id ?? null);
-  }, [currentChannel?.id, setActiveChannel]);
+    setActiveChannel(activeChannelId);
+    if (activeChannelId && activeChannelType && !MESSAGE_LIST_TYPES.has(activeChannelType)) {
+      markChannelRead(activeChannelId);
+    }
+  }, [activeChannelId, activeChannelType, setActiveChannel, markChannelRead]);
 
   // Feed the unread engine the channel list (channel→server map + last-activity
   // seed) so it can compute glow/badges and per-server aggregation.
@@ -603,6 +620,8 @@ export function ChannelSidebar({
         id: c.id,
         serverId: c.serverId,
         type: c.type,
+        name: c.name,
+        parentId: c.parentId ?? null,
         lastMessageAt: c.lastMessageAt ?? null,
       }))
     );
@@ -847,7 +866,8 @@ export function ChannelSidebar({
           className={cn(
             "w-full px-2 py-1.5 mx-2 rounded press-feedback flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all group min-w-0 overflow-hidden",
             isActive && "bg-[var(--bg-active)] text-[var(--app-accent)]",
-            !isActive && unread && "text-[var(--text-primary)] font-semibold"
+            !isActive && unread && "text-[var(--text-primary)] font-semibold",
+            !isActive && isChannelMuted(channel.id) && "opacity-50"
           )}
           style={{ width: "calc(100% - 16px)" }}
         >
@@ -901,7 +921,8 @@ export function ChannelSidebar({
           className={cn(
             "w-full pl-7 pr-2 py-1 rounded press-feedback flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] transition-all min-w-0 overflow-hidden",
             isActive && "bg-[var(--bg-active)] text-[var(--app-accent)] font-medium",
-            !isActive && unread && "text-[var(--text-primary)] font-semibold"
+            !isActive && unread && "text-[var(--text-primary)] font-semibold",
+            !isActive && isChannelMuted(thread.id) && "opacity-50"
           )}
         >
           <span
@@ -1040,11 +1061,17 @@ export function ChannelSidebar({
   useEffect(() => {
     if (dmChannels.length === 0) return;
     registerChannels(
-      dmChannels.map((c) => ({
-        id: c.id,
-        type: "dm",
-        lastMessageAt: c.updatedAt ?? null,
-      }))
+      dmChannels.map((c) => {
+        const r = c.recipients[0];
+        return {
+          id: c.id,
+          type: "dm",
+          lastMessageAt: c.updatedAt ?? null,
+          name: r ? r.displayName || r.username : undefined,
+          href: r ? `/dm/${r.id}` : undefined,
+          avatar: r?.avatar ?? null,
+        };
+      })
     );
   }, [dmChannels, registerChannels]);
 
@@ -1206,7 +1233,8 @@ export function ChannelSidebar({
                         isActive
                           ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
                           : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]",
-                        !isActive && unread && "text-[var(--text-primary)] font-semibold"
+                        !isActive && unread && "text-[var(--text-primary)] font-semibold",
+                        !isActive && isChannelMuted(channel.id) && "opacity-50"
                       )}
                     >
                       {/* Unread pill: white bar on the far left, Discord-style. */}
@@ -1296,6 +1324,41 @@ export function ChannelSidebar({
               <Check className="w-4 h-4" />
               {gt("Mark As Read")}
             </button>
+            {isMuteActive(notifPrefs.doc.channels[dmContextMenu.channel.id]) ? (
+              <button
+                onClick={() => {
+                  void updateNotificationOverride("channel", dmContextMenu.channel.id, { muteUntil: null });
+                  closeDmContextMenu();
+                }}
+                className="ctx-item"
+                title={mutedUntilLabel(notifPrefs.doc.channels[dmContextMenu.channel.id]?.muteUntil)}
+              >
+                <Bell className="w-4 h-4" />
+                {gt("Unmute Conversation")}
+              </button>
+            ) : (
+              <div className="relative group/mute">
+                <button className="ctx-item w-full">
+                  <BellOff className="w-4 h-4" />
+                  <span className="flex-1 text-left">{gt("Mute Conversation")}</span>
+                  <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                </button>
+                <div className="ctx-menu absolute left-full top-0 z-50 hidden min-w-[180px] group-hover/mute:block group-focus-within/mute:block">
+                  {muteOptions.map((o) => (
+                    <button
+                      key={o.key}
+                      onClick={() => {
+                        void updateNotificationOverride("channel", dmContextMenu.channel.id, { muteUntil: muteUntilFor(o.minutes) });
+                        closeDmContextMenu();
+                      }}
+                      className="ctx-item"
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <button onClick={() => { closeDm(dmContextMenu.channel); closeDmContextMenu(); }} className="ctx-item">
               <X className="w-4 h-4" />
               {gt("Close DM")}
@@ -1446,7 +1509,7 @@ export function ChannelSidebar({
           )}
           {canManageAny && <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />}
           <DropdownMenuItem
-            onSelect={() => window.dispatchEvent(new CustomEvent('openUserSettings', { detail: { tab: 'notifications' } }))}
+            onSelect={() => openNotificationSettings({ scope: "server", id: currentServer.id, name: currentServer.name })}
             className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)] cursor-pointer"
           >
             <Bell className="w-4 h-4 mr-2" />
@@ -1631,23 +1694,81 @@ export function ChannelSidebar({
             {contextMenu?.channel?.type === "category" ? gt("Copy Category ID") : gt("Copy Channel ID")}
           </button>
           <div className="ctx-sep" />
-          <button
-            onClick={() => {
-              if (contextMenu?.channel) {
-                const nowMuted = toggleChannelMute(contextMenu.channel.id);
-                toast.success(
-                  nowMuted
-                    ? gt("#{name} muted", { name: contextMenu.channel.name })
-                    : gt("#{name} unmuted", { name: contextMenu.channel.name })
-                );
-              }
-              closeContextMenu();
-            }}
-            className="ctx-item"
-          >
-            <BellOff className="w-4 h-4" />
-            {contextMenu?.channel && isChannelMuted(contextMenu.channel.id) ? gt("Unmute Channel") : gt("Mute Channel")}
-          </button>
+          {(() => {
+            const ch = contextMenu.channel;
+            const isCategory = ch.type === "category";
+            const ids = isCategory ? channels.filter((c) => c.parentId === ch.id).map((c) => c.id) : [ch.id];
+            const hasUnread = ids.some((id) => isChannelUnread(id) || getMentionCount(id) > 0);
+            const ownEntry = notifPrefs.doc.channels[ch.id];
+            const ownMuted = isMuteActive(ownEntry);
+            const name = isCategory ? ch.name : `#${ch.name}`;
+            return (
+              <>
+                <button
+                  disabled={!hasUnread}
+                  onClick={() => { markChannelsRead(ids); closeContextMenu(); }}
+                  className="ctx-item disabled:opacity-50"
+                >
+                  <CheckCheck className="w-4 h-4" />
+                  {gt("Mark As Read")}
+                </button>
+                <button
+                  onClick={() => {
+                    openNotificationSettings({
+                      scope: "channel",
+                      id: ch.id,
+                      name,
+                      serverId: currentServer?.id,
+                      parentId: ch.parentId ?? null,
+                      kind: isCategory ? "category" : "channel",
+                    });
+                    closeContextMenu();
+                  }}
+                  className="ctx-item"
+                >
+                  <Bell className="w-4 h-4" />
+                  {gt("Notification Settings")}
+                </button>
+                {ownMuted ? (
+                  <button
+                    onClick={() => {
+                      void updateNotificationOverride("channel", ch.id, { muteUntil: null });
+                      toast.success(gt("{name} unmuted", { name }));
+                      closeContextMenu();
+                    }}
+                    className="ctx-item"
+                    title={mutedUntilLabel(ownEntry?.muteUntil)}
+                  >
+                    <Bell className="w-4 h-4" />
+                    {isCategory ? gt("Unmute Category") : gt("Unmute Channel")}
+                  </button>
+                ) : (
+                  <div className="relative group/mute">
+                    <button className="ctx-item w-full">
+                      <BellOff className="w-4 h-4" />
+                      <span className="flex-1 text-left">{isCategory ? gt("Mute Category") : gt("Mute Channel")}</span>
+                      <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+                    </button>
+                    <div className="ctx-menu absolute left-full top-0 z-50 hidden min-w-[180px] group-hover/mute:block group-focus-within/mute:block">
+                      {muteOptions.map((o) => (
+                        <button
+                          key={o.key}
+                          onClick={() => {
+                            void updateNotificationOverride("channel", ch.id, { muteUntil: muteUntilFor(o.minutes) });
+                            toast.success(gt("{name} muted", { name }));
+                            closeContextMenu();
+                          }}
+                          className="ctx-item"
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
           {canManageChannels && (
             <>
               <div className="ctx-sep" />

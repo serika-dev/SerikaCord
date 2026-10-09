@@ -881,6 +881,17 @@ export const channelReadStates = pgTable('channel_read_states', {
   userIdx: index('channel_read_states_user_id_idx').on(t.userId),
 }));
 
+// Per-user notification settings for servers, channels, categories and DMs
+// (level, mute-until, @everyone / role suppression), one JSON document per
+// user — see src/lib/notifications/levels.ts for the shape. Added at boot by
+// ensureNotificationSettingsSchema() (mirrors
+// drizzle/manual_user_notification_settings.sql).
+export const userNotificationSettings = pgTable('user_notification_settings', {
+  userId: uuid('user_id').primaryKey(),
+  settings: jsonb('settings').notNull().default({}),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 // ─── Type Exports ─────────────────────────────────────────
 
 export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;

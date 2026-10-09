@@ -49,12 +49,12 @@ export function useAppHotkeys() {
   const router = useRouter();
   const pathname = usePathname();
   const { servers, currentServer, channels, currentChannel, setCurrentServer } = useServer();
-  const { isChannelUnread, getMentionCount, markChannelRead } = useUnread();
+  const { isChannelUnread, getMentionCount, markServerRead, markAllRead } = useUnread();
 
   // Latest values without re-binding the window listener each render.
-  const ref = useRef({ servers, currentServer, channels, currentChannel, setCurrentServer, isChannelUnread, getMentionCount, markChannelRead, router });
+  const ref = useRef({ servers, currentServer, channels, currentChannel, setCurrentServer, isChannelUnread, getMentionCount, markServerRead, markAllRead, router, pathname });
   useEffect(() => {
-    ref.current = { servers, currentServer, channels, currentChannel, setCurrentServer, isChannelUnread, getMentionCount, markChannelRead, router };
+    ref.current = { servers, currentServer, channels, currentChannel, setCurrentServer, isChannelUnread, getMentionCount, markServerRead, markAllRead, router, pathname };
   });
 
   // History of visited text-channel paths for "return to previous channel".
@@ -105,7 +105,7 @@ export function useAppHotkeys() {
   }, []);
 
   const runAction = useCallback((action: HotkeyAction) => {
-    const { currentServer, currentChannel, channels, markChannelRead, isChannelUnread, getMentionCount, router } = ref.current;
+    const { currentServer, markServerRead, markAllRead, isChannelUnread, getMentionCount, router, pathname: path } = ref.current;
     switch (action) {
       case "nav-server-prev": return stepServer(-1);
       case "nav-server-next": return stepServer(1);
@@ -124,13 +124,15 @@ export function useAppHotkeys() {
       }
       case "nav-back": return void router.back();
       case "nav-forward": return void router.forward();
-      case "toggle-mentions": return void router.push("/channels/notifications");
-      case "mark-channel-read": {
-        if (currentChannel) markChannelRead(currentChannel.id);
-        return;
-      }
+      // The Inbox dialog (NotificationHosts) toggles itself.
+      case "toggle-mentions": return emitHotkey(action);
+      // The open chat list marks its own conversation read (exact message,
+      // and it also dismisses the unread bar) — works in DMs too.
+      case "mark-channel-read": return emitHotkey(action);
       case "mark-server-read": {
-        if (currentServer) channels.forEach((c) => markChannelRead(c.id));
+        // In a server: the whole server. Elsewhere (DMs, Home): everything.
+        if (currentServer && path?.startsWith(`/channels/${currentServer.id}`)) markServerRead(currentServer.id);
+        else markAllRead();
         return;
       }
       case "open-help-center": return void router.push("/developers/docs");

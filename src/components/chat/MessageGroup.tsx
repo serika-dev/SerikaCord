@@ -14,6 +14,7 @@ import { MessageEditForm } from "@/components/chat/MessageEditForm";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useChatGt } from "./ChatGtContext";
+import { UnreadDivider } from "./UnreadDivider";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 
@@ -214,10 +215,7 @@ function MessageGroupInner<M extends ChatMessage>({
         return (
           <Fragment key={message.id}>
             {index > 0 && newSeparatorBeforeId === message.id && (
-              <div className="flex items-center gap-2 my-2 select-none">
-                <span className="text-xs font-semibold text-[var(--app-accent)] whitespace-nowrap">{gt("New")}</span>
-                <div className="h-px flex-1 bg-[var(--app-accent)]" />
-              </div>
+              <UnreadDivider label={gt("New")} />
             )}
             {message.interaction && (
               <div className="ml-[3.5rem] mb-0.5 flex items-center gap-1 text-xs text-[var(--app-muted)] truncate">

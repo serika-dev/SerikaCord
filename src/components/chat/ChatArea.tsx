@@ -7,7 +7,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,6 +18,7 @@ import {
 import {
   Hash,
   Bell,
+  BellOff,
   Pin,
   Users,
   Search,
@@ -28,23 +28,17 @@ import {
   Megaphone,
   Shield,
 } from "lucide-react";
-import { cn, getTimeoutRemaining, cdnImage } from "@/lib/utils";
+import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { toast } from "sonner";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
-import {
-  incrementUnread,
-  clearUnread,
-  playNotificationSound,
-  isChannelMuted,
-  toggleChannelMute,
-  subscribeChannelMutes,
-  evaluateNotification,
-} from "@/lib/services/notificationUX";
-import { showNotification } from "@/lib/services/notificationService";
-import { useMentions, type MentionData } from "@/hooks/useMentions";
+import { notifyIncomingMessage, notificationPreview } from "@/lib/notifications/notify";
+import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
+import { refreshMentionsNow } from "@/hooks/useMentions";
+import { readMarkerMs } from "@/lib/chat/unreadMarker";
+import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { useChatSession } from "@/hooks/useChatSession";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -70,7 +64,7 @@ import {
   type AppLeafCommand,
 } from "@/lib/chat/appCommandContext";
 import type { ChatMessage } from "@/lib/chat/types";
-import { onHotkey } from "@/lib/keybinds";
+import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { EMOJI_NAMES } from "@/lib/constants/emojis";
 import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -245,10 +239,54 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const [appLeaves, setAppLeaves] = useState<AppLeafCommand[]>([]);
 
   // Header utilities
-  const [channelMuted, setChannelMuted] = useState(false);
   const [showPins, setShowPins] = useState(false);
-  const [showInbox, setShowInbox] = useState(false);
-  const { mentions: allMentions, totalUnread, markChannelRead, refresh: refreshMentions } = useMentions();
+  const {
+    isChannelMuted: isConversationMuted,
+    setActiveChannel,
+    markChannelRead,
+    getReadMarker,
+    totalMentionCount,
+    unreadChannels,
+  } = useUnread();
+  const channelMuted = currentChannel ? isConversationMuted(currentChannel.id) : false;
+  const inboxBadge = totalMentionCount;
+  const hasInboxUnreads = unreadChannels.length > 0;
+
+  // The read marker as it was when this channel was opened: the red "NEW"
+  // line and the unread bar stay put while the user reads (and acks) it.
+  // Until this view acks, a newer marker (another device's read arriving after
+  // the open) still moves it.
+  const [openMarker, setOpenMarker] = useState<{ channelId: string | null; marker: ReadMarkerSnapshot | null; acked: boolean }>({
+    channelId: null,
+    marker: null,
+    acked: false,
+  });
+  const openChannelId = currentChannel?.id ?? null;
+  const liveMarker = openChannelId ? getReadMarker(openChannelId) : null;
+  if (
+    openMarker.channelId !== openChannelId ||
+    (!openMarker.acked && readMarkerMs(liveMarker) > readMarkerMs(openMarker.marker))
+  ) {
+    setOpenMarker({ channelId: openChannelId, marker: liveMarker, acked: false });
+  }
+  const handleReadUpTo = useCallback(
+    (message: { id: string; createdAt: string }) => {
+      if (!openChannelId) return;
+      setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
+      markChannelRead(openChannelId, message);
+    },
+    [openChannelId, markChannelRead],
+  );
+  // The channel on screen (mobile has no ChannelSidebar to report it): its
+  // messages notify through this view, not the activity stream.
+  useEffect(() => {
+    if (openChannelId) setActiveChannel(openChannelId);
+  }, [openChannelId, setActiveChannel]);
+  const handleMarkRead = useCallback(() => {
+    if (!openChannelId) return;
+    setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
+    markChannelRead(openChannelId);
+  }, [openChannelId, markChannelRead]);
   const [showHelp, setShowHelp] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -505,49 +543,44 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       const isEveryoneMention = Boolean(message.mentionEveryone);
 
       if (isMentioned || isEveryoneMention) {
-        refreshMentions();
+        refreshMentionsNow();
       }
 
-      const isTabVisible = document.visibilityState === "visible" && document.hasFocus();
-
-      const decision = evaluateNotification({
-        // Direct/role mentions only: evaluateNotification decides whether an
-        // @everyone ping counts, so "Mute @everyone and @here" can apply.
-        isMentioned,
-        isDM: false,
-        isEveryoneMention,
+      // Sound / desktop notification (grouped per channel) / toast, honouring
+      // this server's and channel's notification settings.
+      const authorName = message.author?.displayName || message.author?.username || gt("Someone");
+      const showPreview = user?.settings?.notifications?.showPreview !== false;
+      const preview = showPreview
+        ? (notificationPreview(message.content) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
+        : gt("New message");
+      const parentId = currentChannel?.id === message.channelId ? currentChannel?.parentId : undefined;
+      const grandParentId = parentId ? channels.find((c) => c.id === parentId)?.parentId : undefined;
+      const serverId = currentServer?.id;
+      const channelUrl = serverId ? `/channels/${serverId}/${message.channelId}` : "/channels/me";
+      const label = currentChannel?.name ? `#${currentChannel.name}` : gt("a channel");
+      notifyIncomingMessage({
         channelId: message.channelId,
-        isTabVisible,
+        serverId,
+        ancestorIds: [parentId, grandParentId],
+        isDM: false,
+        isMentioned,
+        isRoleMention: !isDirectMention && Boolean(isRoleMention),
+        isEveryoneMention,
+        viewing: true,
+        title: isMentioned ? gt("{name} mentioned you", { name: authorName }) : gt("{name} in {channel}", { name: authorName, channel: label }),
+        body: preview,
+        showPreview,
+        icon: message.author?.avatar,
+        url: `${channelUrl}?jump=${encodeURIComponent(message.id)}`,
+        formatMany: (count) => gt("{count} new messages", { count }),
+        toastTitle: authorName,
+        toastAction: gt("View"),
+        onToastAction: () => {
+          window.focus();
+          messageListRef.current?.scrollToBottom();
+        },
+        quiet: !isMentioned && !isEveryoneMention,
       });
-
-      // The title count is for messages that arrive while you're away.
-      if (decision.incrementBadge && !isTabVisible) {
-        incrementUnread();
-      }
-
-      if (decision.playSound) {
-        playNotificationSound();
-      }
-
-      if (decision.showDesktop) {
-        const authorName = message.author?.displayName || message.author?.username || "Someone";
-        const showPreview = user?.settings?.notifications?.showPreview !== false;
-        const preview = showPreview
-          ? (message.content?.slice(0, 80) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
-          : gt("New message");
-        void showNotification(
-          isMentioned ? gt("{name} mentioned you", { name: authorName }) : authorName,
-          preview,
-          {
-            tag: `message-${message.channelId}`,
-            icon: message.author?.avatar || "/icons/icon-192x192.png",
-            data: {
-              channelId: message.channelId,
-              serverId: currentServer?.id,
-            },
-          }
-        );
-      }
 
       // Auto TTS: speak incoming messages when the listener has TTS enabled, or
       // whenever the message was explicitly sent with the /tts prefix (so a
@@ -555,7 +588,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       const ttsEnabled = user?.settings?.accessibility?.tts === true;
       const hasTtsPrefix = typeof message.content === "string" && message.content.startsWith("/tts ");
       if ((ttsEnabled || hasTtsPrefix) && message.content) {
-        const authorName = message.author?.displayName || message.author?.username || "Someone";
         void playTts({
           content: message.content,
           authorName,
@@ -563,27 +595,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           voiceGender: user?.settings?.accessibility?.ttsVoice,
         });
       }
-
-      if (decision.showToast) {
-        const authorName = message.author?.displayName || message.author?.username || "Someone";
-        const showPreview = user?.settings?.notifications?.showPreview !== false;
-        const preview = showPreview
-          ? (message.content?.slice(0, 80) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
-          : gt("New message");
-        toast(authorName, {
-          description: preview,
-          duration: 4000,
-          action: {
-            label: gt("View"),
-            onClick: () => {
-              window.focus();
-              messageListRef.current?.scrollToBottom();
-            },
-          },
-        });
-      }
     },
-    [user?.id, user?.settings, currentUserRoleIds, refreshMentions, currentServer?.id]
+    [user?.id, user?.settings, currentUserRoleIds, currentServer?.id, currentChannel?.id, currentChannel?.parentId, currentChannel?.name, channels, gt]
   );
 
   // The whole chat engine (messages, SSE, sends, pins, actions) is shared
@@ -754,7 +767,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const { setReplyToMessage } = chat.actions;
   useEffect(() => {
     if (!currentChannel) return;
-    setChannelMuted(isChannelMuted(currentChannel.id));
     setReplyToMessage(null);
     setSearchQuery("");
     setSearchResults([]);
@@ -1336,31 +1348,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     [chat]
   );
 
-  // Clear unread badge when tab becomes visible
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        clearUnread();
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
-
-  const toggleChannelNotifications = () => {
-    if (!currentChannel) return;
-    const next = toggleChannelMute(currentChannel.id);
-    setChannelMuted(next);
-    toast.success(next ? gt("Channel notifications muted") : gt("Channel notifications enabled"));
-  };
-
-  // Stay in sync when the channel is muted/unmuted from the sidebar menu
-  useEffect(() => {
-    if (!currentChannel) return;
-    return subscribeChannelMutes((channelId, muted) => {
-      if (channelId === currentChannel.id) setChannelMuted(muted);
-    });
-  }, [currentChannel]);
 
   /** Begin editing the current user's most recent editable message. */
   const editLastOwnMessage = useCallback(() => {
@@ -1419,6 +1406,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChannel?.id]);
+
+  // Inbox / notification click aimed at this (already open) channel.
+  useEffect(() => {
+    if (!currentServer?.id || !currentChannel?.id) return;
+    return onJumpToMessage(`/channels/${currentServer.id}/${currentChannel.id}`, (id) => {
+      void jumpToMessage(id);
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("jump")) {
+        url.searchParams.delete("jump");
+        window.history.replaceState(null, "", url.toString());
+      }
+    });
+  }, [currentServer?.id, currentChannel?.id, jumpToMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionSuggestions.length > 0) {
@@ -1487,6 +1487,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         chat.actions.setReplyToMessage(null);
         return;
       }
+      // Nothing to cancel: Escape marks the channel read (Discord parity).
+      emitHotkey("mark-channel-read");
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1512,8 +1514,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       onHotkey("focus-composer", () => messageBarRef.current?.getComposer()?.focus()),
       onHotkey("scroll-up", () => messageListRef.current?.scrollByViewport(-1)),
       onHotkey("scroll-down", () => messageListRef.current?.scrollByViewport(1)),
-      onHotkey("jump-oldest-unread", () => messageListRef.current?.scrollToTop()),
-      onHotkey("search-channel", () => {
+      onHotkey("jump-oldest-unread", () => messageListRef.current?.jumpToUnread()),      onHotkey("search-channel", () => {
         searchInputRef.current?.focus();
         searchInputRef.current?.select();
       }),
@@ -1528,12 +1529,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   const formatTimestamp = (ts: string) => formatMessageTimestamp(ts, gt, locale);
 
-  // Mark current channel as read when it changes
-  useEffect(() => {
-    if (currentChannel?.id) {
-      markChannelRead(currentChannel.id);
-    }
-  }, [currentChannel?.id, markChannelRead]);
+  // Opening a channel doesn't mark it read: MessageList acks the newest message
+  // once it's actually been seen (see onReadUpTo below).
 
   if (!currentChannel) {
     return (
@@ -1593,11 +1590,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         <div className="flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
-            onClick={toggleChannelNotifications}
-            title={channelMuted ? gt("Enable notifications") : gt("Mute notifications")}
-            aria-label={channelMuted ? gt("Enable notifications") : gt("Mute notifications")}
+            onClick={() =>
+              openNotificationSettings({
+                scope: "channel",
+                id: currentChannel.id,
+                name: `#${currentChannel.name}`,
+                serverId: currentServer?.id,
+                parentId: currentChannel.parentId ?? null,
+              })
+            }
+            title={gt("Notification Settings")}
+            aria-label={gt("Notification Settings")}
           >
-            <Bell className={cn("w-5 h-5", channelMuted && "text-red-400")} />
+            {channelMuted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />}
           </button>
           <button
             className="p-2 -m-1 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
@@ -1633,17 +1638,20 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           <button
             className={cn(
               "hover:text-[var(--text-primary)] transition-colors hidden sm:block relative",
-              totalUnread > 0 && "text-[var(--app-accent)]"
+              (inboxBadge > 0 || hasInboxUnreads) && "text-[var(--text-primary)]"
             )}
-            onClick={() => setShowInbox(true)}
-            title={gt("Open inbox")}
+            onClick={() => openInbox()}
+            title={gt("Inbox")}
+            aria-label={gt("Inbox")}
           >
             <Inbox className="w-5 h-5" />
-            {totalUnread > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#8B5CF6] text-[10px] font-bold text-white leading-none">
-                {totalUnread > 99 ? "99+" : totalUnread}
+            {inboxBadge > 0 ? (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
+                {inboxBadge > 99 ? "99+" : inboxBadge}
               </span>
-            )}
+            ) : hasInboxUnreads ? (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--app-accent)]" aria-hidden="true" />
+            ) : null}
           </button>
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
@@ -1729,6 +1737,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onReplyFocus={focusComposer}
         welcomeHeader={welcomeHeader}
         resetKey={currentChannel?.id}
+        unreadMarker={openMarker.marker}
+        onReadUpTo={handleReadUpTo}
+        onMarkRead={handleMarkRead}
       />
 
       <TypingIndicator text={chat.typingStatusText} />
@@ -1815,59 +1826,6 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onUnpin={(message) => void chat.actions.togglePin(message)}
       />
       </MountWhenOpened>
-
-      <Dialog open={showInbox} onOpenChange={setShowInbox}>
-        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
-          <DialogHeader>
-            <DialogTitle><T>Inbox — Mentions</T></DialogTitle>
-            <DialogDescription className="text-[var(--text-secondary)]">
-              <T>Recent mentions across all your servers (last 7 days).</T>
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[55vh] overflow-y-auto space-y-1.5 pr-1">
-            {allMentions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Inbox className="w-12 h-12 text-[var(--text-muted)] mb-3" />
-                <p className="text-sm text-[var(--text-secondary)]"><T>No unread mentions. You're all caught up!</T></p>
-              </div>
-            ) : (
-              allMentions.map((item: MentionData) => (
-                <button
-                  key={`inbox-${item.id}`}
-                  onClick={() => {
-                    if (item.serverId && item.channelId) {
-                      router.push(`/channels/${item.serverId}/${item.channelId}`);
-                      setTimeout(() => {
-                        messageListRef.current?.scrollToMessage(item.id);
-                      }, 500);
-                    }
-                    setShowInbox(false);
-                  }}
-                  className="w-full text-left p-3 rounded-md bg-[var(--bg-sidebar-elevated)] hover:bg-[var(--bg-hover)] transition group"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    {item.author?.avatar && (
-                      <Avatar className="w-5 h-5">
-                        <AvatarImage src={cdnImage(item.author.avatar)} alt="" />
-                        <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-[10px]">
-                          {item.author.displayName?.charAt(0).toUpperCase() || "?"}
-                        </AvatarFallback>
-                      </Avatar>
-                    )}
-                    <span className="text-xs font-medium text-[var(--text-primary)]">
-                      {item.author?.displayName || item.author?.username || gt("Unknown")}
-                    </span>
-                    <span className="text-xs text-[var(--text-muted)]">{gt("in")}</span>
-                    <span className="text-xs text-[var(--app-accent)] font-medium">#{item.channelName}</span>
-                    <span className="text-xs text-[var(--text-muted)] ml-auto">{formatTimestamp(item.createdAt)}</span>
-                  </div>
-                  <p className="text-sm text-[var(--text-secondary)] line-clamp-2 group-hover:text-[var(--text-primary)] transition-colors">{item.content}</p>
-                </button>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={showHelp} onOpenChange={setShowHelp}>
         <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">

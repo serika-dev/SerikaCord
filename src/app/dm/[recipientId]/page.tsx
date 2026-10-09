@@ -4,9 +4,12 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
-import { useUnread } from "@/contexts/UnreadContext";
+import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
+import { readMarkerMs } from "@/lib/chat/unreadMarker";
+import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
+import { emitHotkey } from "@/lib/keybinds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock } from "lucide-react";
+import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
@@ -123,7 +126,7 @@ export default function DMConversationPage() {
     },
   });
 
-  const { setActiveChannel, markChannelRead } = useUnread();
+  const { setActiveChannel, markChannelRead, getReadMarker, isChannelMuted } = useUnread();
   // The DM's channel id isn't in the route (which uses recipientId), so derive
   // it from loaded messages. Wire it into the unread engine so DM read state
   // persists to the DB and syncs across devices.
@@ -131,21 +134,42 @@ export default function DMConversationPage() {
     () => chat.messages.find((m) => m.channelId)?.channelId ?? null,
     [chat.messages]
   );
-  const newestMessageId = chat.messages.length
-    ? chat.messages[chat.messages.length - 1]?.id
-    : null;
   useEffect(() => {
     if (!dmChannelId) return;
     setActiveChannel(dmChannelId);
     return () => setActiveChannel(null);
   }, [dmChannelId, setActiveChannel]);
-  // Keep the read marker current as new messages arrive while the DM is open,
-  // so another device opening the same DM sees it as read.
-  useEffect(() => {
-    if (dmChannelId && newestMessageId && document.visibilityState === "visible") {
-      markChannelRead(dmChannelId);
-    }
-  }, [dmChannelId, newestMessageId, markChannelRead]);
+
+  // Read marker as it was when this DM was opened (red "NEW" line + unread
+  // bar). The list acks the exact newest message once it's actually been seen
+  // (focused, visible, scrolled to the bottom) — not merely on mount. Until
+  // then a newer marker from another device still moves it.
+  const [openMarker, setOpenMarker] = useState<{ channelId: string | null; marker: ReadMarkerSnapshot | null; acked: boolean }>({
+    channelId: null,
+    marker: null,
+    acked: false,
+  });
+  const liveMarker = dmChannelId ? getReadMarker(dmChannelId) : null;
+  if (
+    openMarker.channelId !== dmChannelId ||
+    (!openMarker.acked && readMarkerMs(liveMarker) > readMarkerMs(openMarker.marker))
+  ) {
+    setOpenMarker({ channelId: dmChannelId, marker: liveMarker, acked: false });
+  }
+  const handleReadUpTo = useCallback(
+    (message: { id: string; createdAt: string }) => {
+      if (!dmChannelId) return;
+      setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
+      markChannelRead(dmChannelId, message);
+    },
+    [dmChannelId, markChannelRead],
+  );
+  const handleMarkRead = useCallback(() => {
+    if (!dmChannelId) return;
+    setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
+    markChannelRead(dmChannelId);
+  }, [dmChannelId, markChannelRead]);
+  const dmMuted = dmChannelId ? isChannelMuted(dmChannelId) : false;
 
   const { executeCommand } = useSlashCommands({});
 
@@ -383,6 +407,19 @@ export default function DMConversationPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipientId]);
 
+  // Inbox / notification click aimed at this (already open) DM.
+  useEffect(() => {
+    if (!recipientId) return;
+    return onJumpToMessage(`/dm/${recipientId}`, (id) => {
+      void jumpToMessage(id);
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("jump")) {
+        url.searchParams.delete("jump");
+        window.history.replaceState(null, "", url.toString());
+      }
+    });
+  }, [recipientId, jumpToMessage]);
+
   // Emoji `:` / slash `/` / `@user` autocomplete for the DM composer.
   const composerSuggestions = useComposerSuggestions({
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
@@ -407,11 +444,14 @@ export default function DMConversationPage() {
       }
     }
 
-    // Escape clears the active reply.
-    if (e.key === "Escape" && chat.actions.replyToMessage) {
-      e.preventDefault();
-      chat.actions.setReplyToMessage(null);
-      return;
+    // Escape clears the active reply; with nothing to cancel it marks the DM read.
+    if (e.key === "Escape") {
+      if (chat.actions.replyToMessage) {
+        e.preventDefault();
+        chat.actions.setReplyToMessage(null);
+        return;
+      }
+      emitHotkey("mark-channel-read");
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
@@ -553,6 +593,31 @@ export default function DMConversationPage() {
             >
               <Pin className="w-5 h-5" />
             </button>
+            {dmChannelId && (
+              <button
+                onClick={() =>
+                  openNotificationSettings({
+                    scope: "channel",
+                    id: dmChannelId,
+                    name: recipientName || gt("Direct Message"),
+                    kind: "dm",
+                  })
+                }
+                className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+                title={gt("Notification Settings")}
+                aria-label={gt("Notification Settings")}
+              >
+                {dmMuted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />}
+              </button>
+            )}
+            <button
+              onClick={() => openInbox()}
+              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+              title={gt("Inbox")}
+              aria-label={gt("Inbox")}
+            >
+              <InboxIcon className="w-5 h-5" />
+            </button>
             <button
               onClick={() => setShowUserProfile(!showUserProfile)}
               className={cn(
@@ -602,6 +667,9 @@ export default function DMConversationPage() {
           emptyText={`${gt("Say hi to")} ${recipientName || gt("your friend")}!`}
           resetKey={recipientId}
           dmPeer={dmPeer}
+          unreadMarker={openMarker.marker}
+          onReadUpTo={handleReadUpTo}
+          onMarkRead={handleMarkRead}
         />
 
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />

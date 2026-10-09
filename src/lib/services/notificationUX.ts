@@ -1,6 +1,12 @@
 "use client";
 
 import type { IUserSettings } from "@/lib/models/User";
+import { MUTE_FOREVER, decideMessageAlert } from "@/lib/notifications/levels";
+import {
+  isChannelMutedNow,
+  resolveConversation,
+  updateNotificationOverride,
+} from "@/lib/notifications/prefsStore";
 
 // Notification UX service – tab badge, sound, unread tracking, DND
 
@@ -71,11 +77,18 @@ export function isDndActive(): boolean {
 // ── Central notification decision helper ─────────────────────────────────
 
 export interface NotifyContext {
+  /** Direct (@you) or role mention. */
   isMentioned: boolean;
   isDM: boolean;
   isEveryoneMention: boolean;
   channelId: string;
   isTabVisible: boolean;
+  /** Server channel: enables the per-server/per-channel levels. */
+  serverId?: string | null;
+  /** Category / forum chain, nearest first. */
+  ancestorIds?: Array<string | null | undefined>;
+  /** True when `isMentioned` came from a role ping (subject to "Suppress role mentions"). */
+  isRoleMention?: boolean;
 }
 
 export interface NotifyDecision {
@@ -85,61 +98,53 @@ export interface NotifyDecision {
   incrementBadge: boolean;
 }
 
+const SILENT: NotifyDecision = { playSound: false, showDesktop: false, showToast: false, incrementBadge: false };
+
 export function evaluateNotification(ctx: NotifyContext): NotifyDecision {
   const n = getNotifSettings();
-  const dnd = isDndActive();
-  const muted = isChannelMuted(ctx.channelId);
+  if (isDndActive()) return SILENT;
 
-  // Hard suppress: channel mute or DND
-  if (muted || dnd) {
-    return { playSound: false, showDesktop: false, showToast: false, incrementBadge: false };
-  }
+  // Per-server / per-channel levels, mutes and suppression (server-side
+  // settings, synced across devices).
+  const resolved = resolveConversation({
+    serverId: ctx.isDM ? null : ctx.serverId,
+    isDM: ctx.isDM,
+    channelId: ctx.channelId,
+    ancestorIds: ctx.ancestorIds,
+    globalAllMessages: n?.notifyAllMessages === true,
+  });
+  const muteEveryone = n?.muteEveryone === true || resolved.suppressEveryone;
+  const alert = decideMessageAlert({
+    resolved: { ...resolved, suppressEveryone: muteEveryone },
+    isDM: ctx.isDM,
+    mentionedDirectly: ctx.isMentioned && !ctx.isRoleMention,
+    mentionedRole: ctx.isMentioned && ctx.isRoleMention === true,
+    mentionedEveryone: ctx.isEveryoneMention,
+  });
+  if (!alert.notify) return SILENT;
 
   const focusMode = n?.focusMode === true;
   const soundsEnabled = n?.sounds !== false;
   const desktopEnabled = n?.desktop !== false;
   const suppressSoundWhenFocused = n?.suppressSoundWhenFocused !== false;
   const suppressToasts = n?.suppressToasts === true;
-  const muteEveryone = n?.muteEveryone === true;
-  const notifyAllMessages = n?.notifyAllMessages === true;
 
   // Per-kind switches in Notification settings ("Direct Messages", "Mentions").
   const kindEnabled = ctx.isDM
     ? n?.directMessages !== false
-    : !ctx.isMentioned || n?.mentions !== false;
+    : !alert.mention || n?.mentions !== false;
 
   // Focus mode: only direct mentions and DMs get through
   const passesFocusFilter = kindEnabled &&
-    (!focusMode || (ctx.isMentioned && !ctx.isEveryoneMention) || ctx.isDM);
+    (!focusMode || (ctx.isMentioned && !ctx.isRoleMention && !ctx.isEveryoneMention) || ctx.isDM);
+  if (!passesFocusFilter) return SILENT;
 
-  // @everyone suppression
-  const everyoneSuppressed = ctx.isEveryoneMention && muteEveryone && !ctx.isMentioned;
-  // An un-muted @everyone/@here ping notifies like a mention.
-  const effectiveMention = ctx.isMentioned || (ctx.isEveryoneMention && !muteEveryone);
+  const effectiveMention = alert.mention;
 
-  // Sound
-  const playSound = soundsEnabled &&
-    passesFocusFilter &&
-    !everyoneSuppressed &&
-    !(suppressSoundWhenFocused && ctx.isTabVisible);
-
-  // Desktop notification
-  const showDesktop = desktopEnabled &&
-    passesFocusFilter &&
-    !everyoneSuppressed &&
-    (effectiveMention || notifyAllMessages || ctx.isDM) &&
-    (!ctx.isTabVisible || effectiveMention);
-
-  // Toast
-  const showToast = !suppressToasts &&
-    passesFocusFilter &&
-    !everyoneSuppressed &&
-    (!ctx.isTabVisible || effectiveMention);
-
-  // Badge
-  const incrementBadge = passesFocusFilter && !everyoneSuppressed;
-
-  return { playSound, showDesktop, showToast, incrementBadge };
+  const playSound = soundsEnabled && !(suppressSoundWhenFocused && ctx.isTabVisible);
+  const showDesktop = desktopEnabled && (!ctx.isTabVisible || effectiveMention);
+  const showToast = !suppressToasts && (!ctx.isTabVisible || effectiveMention);
+  return { playSound, showDesktop, showToast, incrementBadge: true };
 }
 
 // ── Call alerts (settings the ringtone and call notifications follow) ────
@@ -159,31 +164,114 @@ export function areToastsEnabled(): boolean {
   return getNotifSettings()?.suppressToasts !== true;
 }
 
-// ── Tab badge ────────────────────────────────────────────────────────────
+// ── Tab / app badge ──────────────────────────────────────────────────────
+// "(n)" in the tab title, a red dot on the favicon, the PWA app badge and the
+// desktop shell's taskbar badge all show the same number: unread mentions plus
+// unread DM messages (UnreadContext computes it and calls setUnreadBadge), so
+// it clears as soon as those are read, on this or any other device.
 
 let unreadCount = 0;
-const originalTitle = typeof document !== "undefined" ? document.title : "SerikaCord";
+const TITLE_PREFIX_RE = /^\(\d+\+?\)\s*/;
 // While a call rings in a background tab the title alternates with this text.
 let flashTimer: ReturnType<typeof setInterval> | null = null;
+
+function baseTitle(): string {
+  if (typeof document === "undefined") return "SerikaCord";
+  return document.title.replace(TITLE_PREFIX_RE, "");
+}
+
+function badgeLabel(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
 
 function updateTabBadge() {
   if (typeof document === "undefined") return;
   if (flashTimer) return; // the flash restores the title when it stops
-  if (unreadCount > 0) {
-    document.title = `(${unreadCount}) ${originalTitle.replace(/^\(\d+\)\s*/, "")}`;
-  } else {
-    document.title = originalTitle.replace(/^\(\d+\)\s*/, "");
+  const title = baseTitle();
+  const next = unreadCount > 0 ? `(${badgeLabel(unreadCount)}) ${title}` : title;
+  if (document.title !== next) document.title = next;
+}
+
+// Next.js rewrites <title> on navigation; re-apply the prefix when it does.
+let titleObserver: MutationObserver | null = null;
+function watchTitle() {
+  if (titleObserver || typeof document === "undefined" || typeof MutationObserver === "undefined") return;
+  titleObserver = new MutationObserver(() => {
+    if (unreadCount > 0 && !flashTimer && !TITLE_PREFIX_RE.test(document.title)) updateTabBadge();
+  });
+  titleObserver.observe(document.head, { childList: true, subtree: true, characterData: true });
+}
+
+// ── Favicon dot ──
+let originalFavicon: string | null = null;
+let faviconDotted = false;
+let faviconJob = 0;
+
+function faviconLinks(): HTMLLinkElement[] {
+  return Array.from(document.querySelectorAll<HTMLLinkElement>("link[rel~='icon']"));
+}
+
+function updateFavicon(show: boolean) {
+  if (typeof document === "undefined") return;
+  if (show === faviconDotted) return;
+  faviconDotted = show;
+  const links = faviconLinks();
+  if (!originalFavicon) originalFavicon = links[0]?.href || "/favicon.ico";
+  const job = ++faviconJob;
+  if (!show) {
+    links.forEach((l) => { if (l.dataset.serikaBadge) { l.href = l.dataset.serikaBadge; delete l.dataset.serikaBadge; } });
+    return;
   }
+  const img = new Image();
+  img.onload = () => {
+    if (job !== faviconJob) return;
+    try {
+      const size = 64;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, size, size);
+      // Red dot, bottom-right, with a cut-out ring so it reads on any icon.
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.beginPath();
+      ctx.arc(size * 0.76, size * 0.76, size * 0.26, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.beginPath();
+      ctx.arc(size * 0.76, size * 0.76, size * 0.2, 0, 2 * Math.PI);
+      ctx.fillStyle = "#f23f43";
+      ctx.fill();
+      const url = canvas.toDataURL("image/png");
+      faviconLinks().forEach((l) => {
+        if (!l.dataset.serikaBadge) l.dataset.serikaBadge = l.href;
+        l.href = url;
+      });
+    } catch {
+      /* tainted canvas (cross-origin icon): title count still shows */
+    }
+  };
+  img.src = originalFavicon;
 }
 
-export function incrementUnread(by = 1) {
-  unreadCount += by;
+/** Set the unread badge everywhere (title, favicon, app badge, desktop shell). */
+export function setUnreadBadge(count: number) {
+  const next = Math.max(0, Math.floor(count));
+  if (next === unreadCount) return;
+  unreadCount = next;
+  watchTitle();
   updateTabBadge();
-}
-
-export function clearUnread() {
-  unreadCount = 0;
-  updateTabBadge();
+  updateFavicon(next > 0);
+  if (typeof window !== "undefined") {
+    const w = window as Window & { __serikaSetBadge?: (n: number) => void };
+    try { w.__serikaSetBadge?.(next); } catch { /* shell bridge missing */ }
+    const nav = navigator as Navigator & { setAppBadge?: (n: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    try {
+      if (next > 0) void nav.setAppBadge?.(next)?.catch?.(() => {});
+      else void nav.clearAppBadge?.()?.catch?.(() => {});
+    } catch { /* unsupported */ }
+  }
 }
 
 export function getUnreadCount() {
@@ -197,10 +285,12 @@ export function getUnreadCount() {
 export function startTitleFlash(text: string) {
   if (typeof document === "undefined") return;
   stopTitleFlash();
+  const restore = baseTitle();
+  flashRestore = restore;
   let on = false;
   const tick = () => {
     on = !on;
-    document.title = on ? text : originalTitle.replace(/^\(\d+\)\s*/, "");
+    document.title = on ? text : restore;
   };
   tick();
   flashTimer = setInterval(() => {
@@ -212,10 +302,14 @@ export function startTitleFlash(text: string) {
   }, 1000);
 }
 
+let flashRestore = "";
+
 export function stopTitleFlash() {
   if (!flashTimer) return;
   clearInterval(flashTimer);
   flashTimer = null;
+  if (flashRestore) document.title = flashRestore;
+  flashRestore = "";
   updateTabBadge();
 }
 
@@ -394,29 +488,20 @@ export function setNotificationSoundEnabled(enabled: boolean) {
 }
 
 // ── Channel mutes ────────────────────────────────────────────────────────
-// Persisted locally (same `channel-muted:<id>` keys the chat header bell toggle
-// uses); muted channels never badge, chime, or toast.
-const muteListeners = new Set<(channelId: string, muted: boolean) => void>();
+// Server-side per-user settings (src/lib/notifications/prefsStore.ts), synced
+// across devices. Muted channels never chime, pop or glow.
 
 export function isChannelMuted(channelId: string): boolean {
-  if (typeof localStorage === "undefined") return false;
-  return localStorage.getItem(`channel-muted:${channelId}`) === "1";
+  return isChannelMutedNow(channelId);
 }
 
+/** Mute (until turned back on) or unmute a channel, category or DM. */
 export function setChannelMuted(channelId: string, muted: boolean) {
-  localStorage.setItem(`channel-muted:${channelId}`, muted ? "1" : "0");
-  muteListeners.forEach((listener) => listener(channelId, muted));
+  void updateNotificationOverride("channel", channelId, { muteUntil: muted ? MUTE_FOREVER : null });
 }
 
 export function toggleChannelMute(channelId: string): boolean {
   const nowMuted = !isChannelMuted(channelId);
   setChannelMuted(channelId, nowMuted);
   return nowMuted;
-}
-
-export function subscribeChannelMutes(listener: (channelId: string, muted: boolean) => void): () => void {
-  muteListeners.add(listener);
-  return () => {
-    muteListeners.delete(listener);
-  };
 }

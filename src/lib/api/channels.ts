@@ -2454,8 +2454,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             messageId: message.id,
             authorId: user.id,
             authorName: senderNickname || author?.displayName || author?.username,
+            authorAvatar: author?.avatar ?? null,
             mentionedUserIds: (message.mentionedUserIds || []) as string[],
             mentionEveryone: Boolean(message.mentionEveryone),
+            mentionedRoleIds: (message.mentionedRoleIds || []) as string[],
+            preview: typeof sanitizedContent === 'string' ? sanitizedContent.slice(0, 200) : undefined,
+            parentId: (channel as { parentId?: string | null }).parentId ?? null,
             createdAt: new Date(message.createdAt ?? Date.now()).toISOString(),
           });
         } catch { /* best-effort */ }
