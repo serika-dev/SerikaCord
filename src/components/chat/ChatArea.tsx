@@ -88,6 +88,7 @@ import { ThreadHeaderActions, ThreadHeaderTitle } from "@/components/chat/Thread
 import { MessageContent } from "@/components/chat/MessageContent";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
+import type { RoleIconData } from "@/components/chat/RoleIcon";
 
 const ImageLightbox = dynamic(() => import("@/components/ui/image-lightbox").then((m) => m.ImageLightbox), { ssr: false });
 
@@ -516,6 +517,15 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     return colorMap;
   }, [members]);
 
+  // Role icon (highest role that has one) per member, shown next to names.
+  const userRoleIconMap = useMemo<Record<string, RoleIconData>>(() => {
+    const iconMap: Record<string, RoleIconData> = {};
+    for (const m of members as Array<{ id: string; iconRole?: RoleIconData | null }>) {
+      if (m.iconRole && (m.iconRole.icon || m.iconRole.unicodeEmoji)) iconMap[m.id] = m.iconRole;
+    }
+    return iconMap;
+  }, [members]);
+
   const currentUserRoleIds = useMemo<string[]>(() => {
     const self = (members as Array<{ id: string; roles?: Array<{ id: string }> }>).find((m) => m.id === user?.id);
     return (self?.roles || []).map((r) => r.id);
@@ -589,6 +599,22 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   // Ticks every second so the countdown label updates live and the composer
   // re-enables the moment the timeout expires.
   const selfTimeout = useTimeoutRemaining(selfTimeoutUntil);
+
+  // Server verification level (Discord): unverified email, a brand-new
+  // account or a brand-new member can't talk yet. Time-based waits tick down
+  // and lift on their own; members who get a role are exempt (server-checked).
+  const verification = perms.verification;
+  const verificationWait = useTimeoutRemaining(verification?.blocked ? verification.until : null);
+  const verificationBlocked = Boolean(
+    currentServer && verification?.blocked && (verification.reason === "email" || verificationWait.active),
+  );
+  const verificationMessage = !verificationBlocked
+    ? ""
+    : verification?.reason === "email"
+      ? gt("This server requires a verified email address before you can talk here.")
+      : verification?.reason === "account_age"
+        ? gt("This server requires your account to be older than 5 minutes. You can talk in {time}.", { time: verificationWait.label })
+        : gt("This server requires you to be a member for 10 minutes. You can talk in {time}.", { time: verificationWait.label });
 
   const emojiLookup = useMemo(
     () => [...serverEmojis, ...allServerEmojis],
@@ -805,6 +831,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     if (currentServer) {
       const self = (members as Array<{ id: string; communicationDisabledUntil?: string | null }>).find((m) => m.id === user?.id);
       if (getTimeoutRemaining(self?.communicationDisabledUntil).active) return;
+      if (verificationBlocked) return;
     }
 
     const composer = messageBarRef.current?.getComposer();
@@ -871,7 +898,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     if (currentChannelBridged && !user?.settings?.dataPrivacy?.discordBridgePrompted) {
       setBridgeConsentOpen(true);
     }
-  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted, isThread, markThreadJoined, user, currentChannel?.id]);
+  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted, isThread, markThreadJoined, user, currentChannel?.id, verificationBlocked]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
@@ -1926,6 +1953,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         mentionUsers={mentionUsers}
         mentionRoles={mentionRoles}
         userRoleColorMap={userRoleColorMap}
+        userRoleIconMap={userRoleIconMap}
         serverEmojis={serverEmojis}
         availableServerEmojis={allServerEmojis}
         onMediaClick={lightbox.openMediaViewer}
@@ -1978,13 +2006,22 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         </div>
       )}
 
+      {verificationBlocked && canSendInCurrentChannel && !selfTimeout.active && currentChannel?.type !== "voice" && currentChannel?.type !== "stage" && (
+        <div role="status" className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-500">
+          <Shield className="w-4 h-4 shrink-0" />
+          <span>{verificationMessage}</span>
+        </div>
+      )}
+
       <MessageBar
         ref={messageBarRef}
-        disabled={selfTimeout.active || !canSendInCurrentChannel || lockedOut}
+        disabled={selfTimeout.active || !canSendInCurrentChannel || lockedOut || verificationBlocked}
         secondary={isPanel}
         placeholder={
           selfTimeout.active
-            ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
+            ? gt("You're timed out â {time} remaining", { time: selfTimeout.label })
+            : verificationBlocked
+            ? verificationMessage
             : lockedOut
             ? gt("This thread is locked.")
             : !canSendInCurrentChannel
@@ -1996,6 +2033,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         ariaLabel={
           selfTimeout.active
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
+            : verificationBlocked
+            ? verificationMessage
             : lockedOut
             ? gt("This thread is locked.")
             : !canSendInCurrentChannel

@@ -995,6 +995,26 @@ export const dmMessageRequests = pgTable('dm_message_requests', {
   userStatusIdx: index('dm_message_requests_user_status_idx').on(t.userId, t.status),
 }));
 
+// Server audit log (Discord-style). One row per moderation / settings action;
+// `action_type` uses Discord's AuditLogEvent numbers (src/lib/audit/auditLog.ts)
+// and `changes` holds [{ key, old, new }]. Added at boot by
+// ensureAuditLogSchema() (mirrors drizzle/manual_server_audit_logs.sql).
+export const serverAuditLogs = pgTable('server_audit_logs', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  serverId: uuid('server_id').notNull(),
+  userId: uuid('user_id'),
+  actionType: integer('action_type').notNull(),
+  targetId: text('target_id'),
+  changes: jsonb('changes').default([]),
+  options: jsonb('options'),
+  reason: text('reason'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  serverCreatedIdx: index('server_audit_logs_server_created_idx').on(t.serverId, t.createdAt),
+  serverActionIdx: index('server_audit_logs_server_action_idx').on(t.serverId, t.actionType, t.createdAt),
+  serverUserIdx: index('server_audit_logs_server_user_idx').on(t.serverId, t.userId, t.createdAt),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
 export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;
@@ -1031,6 +1051,8 @@ export type DiscordUserRow = typeof discordUsers.$inferSelect;
 export type DiscordUserInsert = typeof discordUsers.$inferInsert;
 export type AdminLogRow = typeof adminLogs.$inferSelect;
 export type AdminLogInsert = typeof adminLogs.$inferInsert;
+export type ServerAuditLogRow = typeof serverAuditLogs.$inferSelect;
+export type ServerAuditLogInsert = typeof serverAuditLogs.$inferInsert;
 export type PlatformSettingsRow = typeof platformSettings.$inferSelect;
 export type PlatformSettingsInsert = typeof platformSettings.$inferInsert;
 export type ExperimentRow = typeof experiments.$inferSelect;

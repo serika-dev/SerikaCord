@@ -15,6 +15,7 @@ import { useChatGt } from "./ChatGtContext";
 import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
+import { RoleIcon, type RoleIconData } from "@/components/chat/RoleIcon";
 
 interface GroupAvatarProps {
   author: MessageAuthor;
@@ -67,10 +68,12 @@ interface GroupHeaderProps {
   formattedTimestamp: string;
   serverId?: string;
   roleColor?: string;
+  /** Icon of the author's highest role that has one (servers only). */
+  roleIcon?: RoleIconData;
 }
 
 /** Author name + staff pill + timestamp row above the first message of a group. */
-export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor }: GroupHeaderProps) {
+export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor, roleIcon }: GroupHeaderProps) {
   const gt = useChatGt();
   const { openUserMenu, userMenu } = useUserContextMenu(serverId);
   const { settings } = useTheme();
@@ -113,6 +116,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
         >
           <button onContextMenu={(e) => openUserMenu(e, { ...author, id: author.id!, username: author.username || "unknown" })} className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
             <span>{name}</span>
+            {serverId && roleIcon && <RoleIcon role={roleIcon} size={18} />}
             {author.isOwner && (
               <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
             )}

@@ -11,6 +11,7 @@ import { cn, cdnImage } from "@/lib/utils";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
+import { RoleIcon, type RoleIconData } from "@/components/chat/RoleIcon";
 import { T, useGT } from "gt-next";
 import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
@@ -48,6 +49,8 @@ interface Member {
   roles: MemberRole[];
   highestRole?: MemberRole | null;
   highestHoistedRole?: MemberRole | null;
+  /** Highest role with an icon (Discord shows it after the name). */
+  iconRole?: RoleIconData | null;
   customization?: {
     profileColor?: string;
     profileAccentColor?: string;
@@ -279,6 +282,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
             return (
               <div className={cn("flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
                 <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
+                <RoleIcon role={member.iconRole} size={16} />
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
                 )}

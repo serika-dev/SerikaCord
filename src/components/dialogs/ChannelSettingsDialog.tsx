@@ -18,20 +18,27 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Minus, Bold, Italic, Underline, Strikethrough, Eye, EyeOff, Copy, Lock, ChevronRight, ChevronDown, Link, Radio, Info, Search, MessageSquare, AlertCircle } from "lucide-react";
+import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Bold, Italic, Underline, Strikethrough, Eye, EyeOff, Copy, Link, Radio, Info } from "lucide-react";
 import { toast } from "sonner";
-import { CHANNEL_PERMISSIONS } from "@/lib/constants/channels";
-import { parsePermissionBitfield, stringifyPermissionBitfield } from "@/lib/roles/bitfield";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, cdnImage } from "@/lib/utils";
+import dynamic from "next/dynamic";
+import { normalizeOverwrites } from "@/lib/permissions/overwriteEditor";
+
+// The Permissions tab (overwrite editor, member/role picker) loads on first open.
+const ChannelPermissionsPanel = dynamic(
+  () => import("@/components/dialogs/ChannelPermissionsPanel").then((m) => m.ChannelPermissionsPanel),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={28} /></div> },
+);
 
 interface ServerRole {
   id: string;
   name: string;
   color?: string;
   isDefault?: boolean;
+  position?: number;
 }
 
 interface PermissionOverwrite {
@@ -102,7 +109,7 @@ export function ChannelSettingsDialog({
   onOpenChange,
   channelId,
 }: ChannelSettingsDialogProps) {
-  const { channels, updateChannel, deleteChannel, currentServer } = useServer();
+  const { channels, updateChannel, deleteChannel, currentServer, fetchChannels } = useServer();
   const gt = useGT();
 
   const channel = useMemo(
@@ -135,12 +142,9 @@ export function ChannelSettingsDialog({
   const [forumChanges, setForumChanges] = useState(false);
   const [overwrites, setOverwrites] = useState<PermissionOverwrite[]>([]);
   const [hasPermChanges, setHasPermChanges] = useState(false);
-  const [showAddRoleMenu, setShowAddRoleMenu] = useState(false);
 
   // New States for Advanced Channel Settings UI
   const [isPreviewTopic, setIsPreviewTopic] = useState(false);
-  const [showAdvancedPerms, setShowAdvancedPerms] = useState(false);
-  const [selectedOverwriteId, setSelectedOverwriteId] = useState<string | null>(null);
   const [invites, setInvites] = useState<any[]>([]);
   const [webhooks, setWebhooks] = useState<any[]>([]);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
@@ -171,10 +175,7 @@ export function ChannelSettingsDialog({
         deny: o.deny || "0",
       })));
       setHasPermChanges(false);
-      setShowAddRoleMenu(false);
       setIsPreviewTopic(false);
-      setShowAdvancedPerms(false);
-      setSelectedOverwriteId(null);
     }
   }, [channel, open]);
 
@@ -191,6 +192,7 @@ export function ChannelSettingsDialog({
           name: r.name,
           color: r.color,
           isDefault: r.isDefault,
+          position: r.position,
         }));
         setRoles(nextRoles);
       })
@@ -272,66 +274,6 @@ export function ChannelSettingsDialog({
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
   }, [open, onOpenChange]);
-
-  const getRoleName = useCallback((roleId: string) => {
-    const role = roles.find(r => r.id === roleId);
-    return role?.name || gt("Unknown");
-  }, [roles]);
-
-  const getRoleColor = useCallback((roleId: string) => {
-    const role = roles.find(r => r.id === roleId);
-    return role?.color || null;
-  }, [roles]);
-
-  const addRoleOverwrite = useCallback((roleId: string) => {
-    if (overwrites.some(o => o.id === roleId)) return;
-    setOverwrites(prev => [...prev, { id: roleId, type: 'role', allow: '0', deny: '0' }]);
-    setShowAddRoleMenu(false);
-  }, [overwrites]);
-
-  const removeOverwrite = useCallback((id: string) => {
-    setOverwrites(prev => prev.filter(o => o.id !== id));
-  }, []);
-
-  const cyclePermission = useCallback((overwriteId: string, permKey: keyof typeof CHANNEL_PERMISSIONS) => {
-    const flag = BigInt(CHANNEL_PERMISSIONS[permKey].flag);
-    setOverwrites(prev => prev.map(o => {
-      if (o.id !== overwriteId) return o;
-      const allowBits = parsePermissionBitfield(o.allow);
-      const denyBits = parsePermissionBitfield(o.deny);
-      const isAllowed = (allowBits & flag) === flag;
-      const isDenied = (denyBits & flag) === flag;
-      if (isAllowed) {
-        // allowed -> denied
-        return {
-          ...o,
-          allow: stringifyPermissionBitfield(allowBits & ~flag),
-          deny: stringifyPermissionBitfield(denyBits | flag),
-        };
-      } else if (isDenied) {
-        // denied -> neutral
-        return {
-          ...o,
-          deny: stringifyPermissionBitfield(denyBits & ~flag),
-        };
-      } else {
-        // neutral -> allowed
-        return {
-          ...o,
-          allow: stringifyPermissionBitfield(allowBits | flag),
-        };
-      }
-    }));
-  }, []);
-
-  const getPermState = useCallback((overwrite: PermissionOverwrite, permKey: keyof typeof CHANNEL_PERMISSIONS): 'allow' | 'deny' | 'neutral' => {
-    const flag = BigInt(CHANNEL_PERMISSIONS[permKey].flag);
-    const allowBits = parsePermissionBitfield(overwrite.allow);
-    const denyBits = parsePermissionBitfield(overwrite.deny);
-    if ((allowBits & flag) === flag) return 'allow';
-    if ((denyBits & flag) === flag) return 'deny';
-    return 'neutral';
-  }, []);
 
   const fetchInvites = useCallback(async () => {
     if (!currentServer || !channel) return;
@@ -435,60 +377,6 @@ export function ChannelSettingsDialog({
     }
   }, [open, channel, activeTab, fetchInvites, fetchWebhooks]);
 
-  const syncWithCategory = () => {
-    if (!channel || !channel.parentId) return;
-    const parent = channels.find(c => c.id === channel.parentId);
-    if (parent) {
-      setOverwrites((parent.permissionOverwrites || []).map(o => ({
-        id: o.id,
-        type: o.type,
-        allow: o.allow || "0",
-        deny: o.deny || "0",
-      })));
-      toast.success(gt("Synced permissions with category"));
-    }
-  };
-
-  const defaultRole = roles.find(r => r.isDefault);
-  const everyoneOverwrite = defaultRole ? overwrites.find(o => o.id === defaultRole.id) : null;
-  const isPrivate = everyoneOverwrite
-    ? (parsePermissionBitfield(everyoneOverwrite.deny) & BigInt(CHANNEL_PERMISSIONS.VIEW_CHANNEL.flag)) === BigInt(CHANNEL_PERMISSIONS.VIEW_CHANNEL.flag)
-    : false;
-
-  const handleTogglePrivate = (checked: boolean) => {
-    if (!defaultRole) return;
-    const flag = BigInt(CHANNEL_PERMISSIONS.VIEW_CHANNEL.flag);
-    
-    setOverwrites(prev => {
-      const existing = prev.find(o => o.id === defaultRole.id);
-      if (existing) {
-        const allowBits = parsePermissionBitfield(existing.allow);
-        const denyBits = parsePermissionBitfield(existing.deny);
-        
-        if (checked) {
-          // make private: remove from allow, add to deny
-          return prev.map(o => o.id === defaultRole.id ? {
-            ...o,
-            allow: stringifyPermissionBitfield(allowBits & ~flag),
-            deny: stringifyPermissionBitfield(denyBits | flag),
-          } : o);
-        } else {
-          // make public: remove from deny
-          return prev.map(o => o.id === defaultRole.id ? {
-            ...o,
-            deny: stringifyPermissionBitfield(denyBits & ~flag),
-          } : o);
-        }
-      } else {
-        if (checked) {
-          // add new overwrite denying VIEW_CHANNEL
-          return [...prev, { id: defaultRole.id, type: 'role', allow: '0', deny: stringifyPermissionBitfield(flag) }];
-        }
-        return prev;
-      }
-    });
-  };
-
   const topicRef = useRef<HTMLTextAreaElement>(null);
   const insertFormatting = (syntax: string) => {
     const el = topicRef.current;
@@ -510,8 +398,29 @@ export function ChannelSettingsDialog({
     setIsSaving(true);
     try {
       await updateChannel(channel.id, { permissionOverwrites: overwrites });
+      // A category edit also re-syncs its synced channels server-side.
+      if (channel.type === "category" && currentServer) await fetchChannels(currentServer.id);
       toast.success(gt("Channel permissions saved"));
       setHasPermChanges(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : gt("Failed to save permissions"));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Discord's "Sync Now": copy the category's permissions onto this channel immediately.
+  const parentChannel = channel?.parentId && channel.type !== "category"
+    ? channels.find((c) => c.id === channel.parentId && c.type === "category") ?? null
+    : null;
+  const handleSyncNow = async () => {
+    if (!channel || !parentChannel) return;
+    const synced = normalizeOverwrites(parentChannel.permissionOverwrites);
+    setIsSaving(true);
+    try {
+      await updateChannel(channel.id, { permissionOverwrites: synced });
+      setOverwrites(synced);
+      toast.success(gt("Synced permissions with category"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : gt("Failed to save permissions"));
     } finally {
@@ -590,8 +499,6 @@ export function ChannelSettingsDialog({
     { value: 21600, label: "6h" },
   ];
 
-  const activeOverwriteId = selectedOverwriteId || overwrites[0]?.id || null;
-  const activeOverwrite = overwrites.find(o => o.id === activeOverwriteId);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1021,236 +928,17 @@ export function ChannelSettingsDialog({
               </div>
             )}
 
-            {activeTab === "permissions" && (
-              <div className="max-w-[720px] space-y-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Channel Permissions")}</h2>
-                  <p className="text-sm text-[var(--text-muted)]">{gt("Configure who can view and interact with this channel.")}</p>
-                </div>
-                {/* Category Sync Notice */}
-                {channel.parentId && (
-                  <div className="flex items-center justify-between p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-400 leading-normal">
-                    <div className="flex items-center gap-2.5">
-                      <AlertCircle className="w-4.5 h-4.5 text-amber-400 shrink-0" />
-                      <span>
-                        Permissions not synced with category: <strong>{categories.find(c => c.id === channel.parentId)?.name || gt("Category")}</strong>
-                      </span>
-                    </div>
-                    <button
-                      onClick={syncWithCategory}
-                      className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-white rounded text-xs font-medium transition-colors"
-                    >
-                      {gt("Sync Now")}
-                    </button>
-                  </div>
-                )}
-
-                {/* Private Channel card */}
-                <div className="p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] flex items-start justify-between gap-4">
-                  <div className="flex gap-3">
-                    <div className="p-2 rounded bg-red-500/10 text-red-400 shrink-0">
-                      <Lock className="w-5 h-5" />
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-sm font-semibold text-[var(--text-primary)]">
-                        {gt("Private Channel")}
-                      </span>
-                      <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
-                        {gt("By making a channel private, only selected members and roles will be able to view this channel.")}
-                      </p>
-                    </div>
-                  </div>
-                  <ToggleSwitch
-                    checked={isPrivate}
-                    onCheckedChange={handleTogglePrivate}
-                    aria-label={gt("Toggle Private Channel")}
-                  />
-                </div>
-
-                {/* Collapsible Advanced section */}
-                <div className="mt-6 border-t border-[var(--border-subtle)] pt-6">
-                  <button
-                    onClick={() => setShowAdvancedPerms(!showAdvancedPerms)}
-                    className="flex items-center justify-between w-full py-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--text-secondary)] transition-colors"
-                  >
-                    <span>{gt("Advanced Permissions")}</span>
-                    {showAdvancedPerms ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />}
-                  </button>
-
-                  {showAdvancedPerms && (
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-[200px_1fr] gap-6 min-h-[300px] border border-[var(--border-subtle)] rounded-xl p-5 bg-[var(--bg-app)]">
-                      {/* Left list of added Overwrites */}
-                      <div className="border-r border-[var(--border-subtle)] pr-4 flex flex-col gap-1.5 justify-start min-h-[250px]">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">{gt("Roles/Members")}</span>
-                          <div className="relative">
-                            <button
-                              onClick={() => setShowAddRoleMenu(!showAddRoleMenu)}
-                              className="p-1 rounded bg-[var(--bg-sidebar)] hover:bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </button>
-                            {showAddRoleMenu && (
-                              <>
-                                <div className="fixed inset-0 z-40" onClick={() => setShowAddRoleMenu(false)} />
-                                <div className="absolute left-0 mt-1 z-50 w-56 max-h-64 overflow-y-auto bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] rounded-lg shadow-xl py-1">
-                                  {roles
-                                    .filter(r => !overwrites.some(o => o.id === r.id))
-                                    .map(role => (
-                                      <button
-                                        key={role.id}
-                                        onClick={() => addRoleOverwrite(role.id)}
-                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)] transition-colors text-left"
-                                      >
-                                        <div
-                                          className="w-3 h-3 rounded-full shrink-0"
-                                          style={{ backgroundColor: role.color || "#888" }}
-                                        />
-                                        <span className="truncate">{role.name}</span>
-                                      </button>
-                                    ))}
-                                  {roles.filter(r => !overwrites.some(o => o.id === r.id)).length === 0 && (
-                                    <div className="px-3 py-2 text-xs text-[var(--text-muted)] text-center">
-                                      {gt("All roles already added")}
-                                    </div>
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {overwrites.map(o => {
-                          const roleName = getRoleName(o.id);
-                          const roleColor = getRoleColor(o.id);
-                          const isActive = o.id === activeOverwriteId;
-                          return (
-                            <button
-                              key={o.id}
-                              onClick={() => setSelectedOverwriteId(o.id)}
-                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                                isActive
-                                  ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                                  : "text-[var(--text-muted)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-secondary)]"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 truncate">
-                                <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: roleColor || "#888" }} />
-                                <span className="truncate">{roleName}</span>
-                              </div>
-                              {o.id !== defaultRole?.id && (
-                                <span
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeOverwrite(o.id);
-                                    if (activeOverwriteId === o.id) setSelectedOverwriteId(null);
-                                  }}
-                                  className="p-0.5 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
-                      </div>
-
-                      {/* Right Grid of Cycle Permission switches */}
-                      <div className="pl-4 overflow-y-auto max-h-[380px] pr-2">
-                        {activeOverwrite ? (
-                          <div className="space-y-4">
-                            <div className="pb-2 border-b border-[var(--border-subtle)] flex items-center justify-between">
-                              <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                                Permissions Override: <strong className="text-[var(--text-primary)]">{getRoleName(activeOverwrite.id)}</strong>
-                              </span>
-                            </div>
-                            <div className="space-y-3">
-                              {(isVoice
-                                ? (['VIEW_CHANNEL', 'CONNECT', 'SPEAK', 'STREAM', 'USE_VOICE_ACTIVITY', 'PRIORITY_SPEAKER', 'MUTE_MEMBERS', 'DEAFEN_MEMBERS', 'MOVE_MEMBERS', 'MANAGE_CHANNELS', 'MANAGE_PERMISSIONS'] as const)
-                                : (['VIEW_CHANNEL', 'SEND_MESSAGES', 'READ_MESSAGE_HISTORY', 'ADD_REACTIONS', 'ATTACH_FILES', 'EMBED_LINKS', 'USE_EXTERNAL_EMOJI', 'MENTION_EVERYONE', 'MANAGE_MESSAGES', 'MANAGE_CHANNELS', 'MANAGE_PERMISSIONS'] as const)
-                              ).map(permKey => {
-                                const state = getPermState(activeOverwrite, permKey);
-                                return (
-                                  <div key={permKey} className="flex items-center justify-between py-2 border-b border-[var(--border-subtle)]/30 last:border-0">
-                                    <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                                      {CHANNEL_PERMISSIONS[permKey].name}
-                                    </span>
-
-                                    <div className="flex items-center bg-[var(--bg-sidebar)] rounded p-0.5 border border-[var(--border-subtle)] shrink-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const flag = BigInt(CHANNEL_PERMISSIONS[permKey].flag);
-                                          setOverwrites(prev => prev.map(o => o.id === activeOverwrite.id ? {
-                                            ...o,
-                                            allow: stringifyPermissionBitfield(parsePermissionBitfield(o.allow) & ~flag),
-                                            deny: stringifyPermissionBitfield(parsePermissionBitfield(o.deny) | flag),
-                                          } : o));
-                                        }}
-                                        className={`w-7 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${
-                                          state === 'deny'
-                                            ? "bg-red-500 text-white shadow-sm"
-                                            : "text-red-500/70 hover:text-red-500 hover:bg-red-500/10"
-                                        }`}
-                                        title={gt("Deny")}
-                                      >
-                                        <X className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const flag = BigInt(CHANNEL_PERMISSIONS[permKey].flag);
-                                          setOverwrites(prev => prev.map(o => o.id === activeOverwrite.id ? {
-                                            ...o,
-                                            allow: stringifyPermissionBitfield(parsePermissionBitfield(o.allow) & ~flag),
-                                            deny: stringifyPermissionBitfield(parsePermissionBitfield(o.deny) & ~flag),
-                                          } : o));
-                                        }}
-                                        className={`w-7 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${
-                                          state === 'neutral'
-                                            ? "bg-[var(--bg-active)] text-[var(--text-primary)] shadow-sm"
-                                            : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-                                        }`}
-                                        title={gt("Inherit")}
-                                      >
-                                        /
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const flag = BigInt(CHANNEL_PERMISSIONS[permKey].flag);
-                                          setOverwrites(prev => prev.map(o => o.id === activeOverwrite.id ? {
-                                            ...o,
-                                            allow: stringifyPermissionBitfield(parsePermissionBitfield(o.allow) | flag),
-                                            deny: stringifyPermissionBitfield(parsePermissionBitfield(o.deny) & ~flag),
-                                          } : o));
-                                        }}
-                                        className={`w-7 h-6 rounded flex items-center justify-center text-xs font-bold transition-all ${
-                                          state === 'allow'
-                                            ? "bg-green-500 text-white shadow-sm"
-                                            : "text-green-500/70 hover:text-green-500 hover:bg-green-500/10"
-                                        }`}
-                                        title={gt("Allow")}
-                                      >
-                                        <Check className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center h-full py-10 text-[var(--text-muted)] text-xs">
-                            <Shield className="w-8 h-8 mb-2 opacity-50 text-[var(--text-muted)]" />
-                            <span>{gt("Select a role or member on the left")}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+            {activeTab === "permissions" && currentServer && (
+              <ChannelPermissionsPanel
+                channel={{ id: channel.id, name: channel.name, type: channel.type }}
+                parent={parentChannel ? { id: parentChannel.id, name: parentChannel.name, permissionOverwrites: normalizeOverwrites(parentChannel.permissionOverwrites) } : null}
+                serverId={currentServer.id}
+                roles={roles}
+                overwrites={overwrites}
+                onChange={setOverwrites}
+                onSyncNow={() => void handleSyncNow()}
+                syncing={isSaving}
+              />
             )}
 
             {activeTab === "integrations" && (

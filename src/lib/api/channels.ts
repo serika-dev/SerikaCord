@@ -49,6 +49,11 @@ import {
   threadMembersToAdd,
 } from '@/lib/chat/threads';
 import { loadMessageExtras } from '@/lib/services/messageExtras';
+import { flagSensitiveMedia } from '@/lib/servers/verification';
+import { shouldFlagAuthorMedia, verificationDenial } from '@/lib/services/serverGate';
+import { audit } from '@/lib/services/auditLog';
+import { AuditLogEvent, CHANNEL_AUDIT_KEYS, auditReason, diffChanges, diffOverwrites, snapshotChanges } from '@/lib/audit/auditLog';
+import { childrenToResync, normalizeOverwrites, overwritesInSync } from '@/lib/permissions/overwriteEditor';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -266,7 +271,7 @@ type SpeakDenial = { status: number; body: Record<string, unknown> };
  */
 export async function checkCanSpeak(
   channel: PermissionChannel,
-  membership: { roles?: string[] | null; communicationDisabledUntil?: Date | string | null } | null | undefined,
+  membership: { roles?: string[] | null; communicationDisabledUntil?: Date | string | null; joinedAt?: Date | string | null } | null | undefined,
   userId: string,
   actions: SpeakAction[],
 ): Promise<SpeakDenial | null> {
@@ -278,6 +283,10 @@ export async function checkCanSpeak(
       body: { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() },
     };
   }
+  // Server verification level (verified email, account age, member age):
+  // blocks every way of talking, including joining an existing reaction.
+  const unverified = await verificationDenial(channel.serverId, userId, membership ?? null);
+  if (unverified) return unverified;
   if (actions.length === 0) return null;
   const [source, serverOwnerId] = await Promise.all([
     permissionSourceFor(channel),
@@ -990,7 +999,8 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
         const url = att.url || att;
         const contentType = att.contentType || '';
         const filename = att.filename || '';
-        const isSpoiler = att.spoiler === true;
+        // Media flagged by the explicit content filter goes out spoilered too.
+        const isSpoiler = att.spoiler === true || att.sensitive === true;
         if (contentType.startsWith('image/')) {
           if (isSpoiler) {
             spoileredImageUrls.push(url);
@@ -1565,12 +1575,23 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (position !== undefined) updateData.position = position;
 
     if (permissionOverwrites !== undefined) {
-      updateData.permissionOverwrites = permissionOverwrites.map((o: { id: string; type: 'role' | 'member'; allow: string; deny: string }) => ({
-        id: o.id,
-        type: o.type,
-        allow: o.allow,
-        deny: o.deny,
-      }));
+      const cleaned = normalizeOverwrites(permissionOverwrites).filter((o) => isValidObjectId(o.id));
+      if (cleaned.length > 100) {
+        set.status = 400;
+        return { error: 'A channel can have at most 100 permission overwrites' };
+      }
+      // Role overwrites must name this server's roles (or the server id, an
+      // older spelling of @everyone).
+      const roleIds = cleaned.filter((o) => o.type === 'role' && !compareIds(o.id, channel.serverId ?? '')).map((o) => o.id);
+      if (roleIds.length > 0 && channel.serverId) {
+        const ownRoles = (await Role.find({ serverId: channel.serverId, id: { in: roleIds } })) as IRole[];
+        const own = new Set(ownRoles.map((r) => String(r.id).toLowerCase()));
+        if (roleIds.some((id) => !own.has(id.toLowerCase()))) {
+          set.status = 400;
+          return { error: 'Unknown role in permission overwrites' };
+        }
+      }
+      updateData.permissionOverwrites = cleaned;
     }
 
     // A thread's parent is its forum/channel and decides who can read it
@@ -1595,6 +1616,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           return { error: 'Invalid parent category' };
         }
         updateData.parentId = parentId;
+        // Discord's lock_permissions: moving into a category syncs with it.
+        if (body.lockPermissions && permissionOverwrites === undefined) {
+          updateData.permissionOverwrites = normalizeOverwrites(parentChannel.permissionOverwrites);
+        }
       }
     }
 
@@ -1653,6 +1678,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         notifyThreadMembership(updated.serverId, updated.id, (updated.threadMemberIds || []) as string[]);
       }
     }
+    // Editing a category's permissions re-syncs the channels that were synced
+    // with it (Discord behaviour); unsynced channels keep their own overwrites.
+    const resyncedIds: string[] = [];
+    if (channel.type === 'category' && channel.serverId && updateData.permissionOverwrites !== undefined) {
+      const previous = normalizeOverwrites(channel.permissionOverwrites);
+      if (!overwritesInSync(previous, updateData.permissionOverwrites)) {
+        const children = await Channel.find({ serverId: channel.serverId, parentId: channel.id });
+        const toSync = childrenToResync(previous, children as Array<{ id: string; permissionOverwrites?: unknown }>);
+        await Promise.all(toSync.map((id) => Channel.updateById(id, { permissionOverwrites: updateData.permissionOverwrites })));
+        resyncedIds.push(...toSync);
+      }
+    }
 
     // Publish update event
     const publisher = getPublisher();
@@ -1662,9 +1699,46 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         serverId: channel.serverId,
         updates: body,
       }));
+      for (const id of resyncedIds) {
+        await publisher.publish('channel:update', JSON.stringify({
+          channelId: id,
+          serverId: channel.serverId,
+          updates: { permissionOverwrites: updateData.permissionOverwrites },
+        }));
+      }
     }
 
-    return { success: true, channel: updated };
+    // Audit log: the channel's own fields, then one entry per overwrite change.
+    if (channel.serverId) {
+      const reason = auditReason(headers['x-audit-log-reason']);
+      const changes = diffChanges(channel as Record<string, unknown>, updateData, CHANNEL_AUDIT_KEYS);
+      if (changes.length > 0) {
+        audit({
+          serverId: channel.serverId,
+          userId: user.id,
+          actionType: isThread ? AuditLogEvent.THREAD_UPDATE : AuditLogEvent.CHANNEL_UPDATE,
+          targetId: channel.id,
+          changes,
+          options: { channel_name: updated?.name ?? channel.name, channel_type: channel.type },
+          reason,
+        });
+      }
+      if (updateData.permissionOverwrites !== undefined) {
+        for (const op of diffOverwrites(normalizeOverwrites(channel.permissionOverwrites), updateData.permissionOverwrites)) {
+          audit({
+            serverId: channel.serverId,
+            userId: user.id,
+            actionType: op.action,
+            targetId: channel.id,
+            changes: op.changes,
+            options: { id: op.overwriteId, type: op.overwriteType === 'member' ? '1' : '0', channel_name: updated?.name ?? channel.name },
+            reason,
+          });
+        }
+      }
+    }
+
+    return { success: true, channel: updated, resyncedChannelIds: resyncedIds };
   }, {
     params: t.Object({
       channelId: t.String(),
@@ -1696,6 +1770,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       archived: t.Optional(t.Boolean()),
       locked: t.Optional(t.Boolean()),
       autoArchiveDuration: t.Optional(t.Number()),
+      lockPermissions: t.Optional(t.Boolean()),
     }),
   })
   // Delete channel
@@ -1773,6 +1848,19 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         channelId: params.channelId,
         serverId: channel.serverId,
       }));
+    }
+
+    if (channel.serverId) {
+      const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: isThread ? AuditLogEvent.THREAD_DELETE : AuditLogEvent.CHANNEL_DELETE,
+        targetId: channel.id,
+        changes: snapshotChanges(channel as Record<string, unknown>, { name: 'name', type: 'type', nsfw: 'nsfw', rateLimitPerUser: 'rate_limit_per_user' }, 'old'),
+        options: { channel_name: channel.name, channel_type: channel.type },
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
     }
 
     return { success: true };
@@ -2030,6 +2118,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Open forum views refetch their post list on this.
     publishToChannel(forum.id, { type: 'thread_create', threadId: thread.id });
+    if (forum.serverId) {
+      audit({
+        serverId: forum.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.THREAD_CREATE,
+        targetId: thread.id,
+        changes: [{ key: 'name', new: thread.name }, { key: 'type', new: thread.type }],
+        options: { channel_name: thread.name, channel_type: thread.type },
+      });
+    }
 
     return {
       success: true,
@@ -2699,6 +2797,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       senderId: user.id,
       mentionRepliedUser: body.mentionRepliedUser,
     });
+    // Explicit media content filter: with no classifier, scanned images and
+    // videos are stored as sensitive and shown blurred until clicked.
+    const storedAttachments = attachments.length > 0 && channel.serverId
+      && await shouldFlagAuthorMedia(channel.serverId, user.id, membership ?? null, Boolean(channel.nsfw)).catch(() => false)
+      ? flagSensitiveMedia(attachments)
+      : attachments;
 
     // Create message
     const message = await Message.create({
@@ -2708,7 +2812,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       content: encryptedContent,
       type: reference ? 'reply' : 'default',
       referencedMessageId: reference?.id,
-      attachments,
+      attachments: storedAttachments,
       sticker: stickerData,
       mentionEveryone: mentionData.mentionEveryone,
       mentionedUserIds,
@@ -3094,7 +3198,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       pinned: true,
       updatedBy: user.id,
     });
-
+    if (channel.serverId) {
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.MESSAGE_PIN,
+        targetId: message.authorId,
+        options: { channel_id: channel.id, message_id: message.id, channel_name: channel.name },
+      });
+    }
 
     return { success: true };
   }, {
@@ -3150,7 +3262,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       pinned: false,
       updatedBy: user.id,
     });
-
+    if (channel.serverId) {
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.MESSAGE_UNPIN,
+        targetId: message.authorId,
+        options: { channel_id: channel.id, message_id: message.id, channel_name: channel.name },
+      });
+    }
 
     return { success: true };
   }, {
@@ -3423,6 +3543,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (channel.type === 'public_thread' || channel.type === 'private_thread') {
       refreshThreadAfterMessage(channel.id);
     }
+    // A moderator deleting someone else's message is audited (Discord does not
+    // log self-deletes).
+    if (!isAuthor && channel.serverId) {
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.MESSAGE_DELETE,
+        targetId: message.authorId,
+        options: { channel_id: channel.id, channel_name: channel.name, count: '1' },
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
+    }
 
     return { success: true };
   }, {
@@ -3503,6 +3635,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           })),
         );
       })().catch(() => { /* best-effort */ });
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.MESSAGE_BULK_DELETE,
+        targetId: channel.id,
+        options: { count: String(deleted), channel_name: channel.name, ...(targetUserId ? { user_id: targetUserId } : {}) },
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
     }
 
     return { deleted };
@@ -4121,6 +4261,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       url: `${config.API_BASE_URL}/api/webhooks/${params.channelId}/${token}`,
       creatorId: user.id,
     });
+    if (channel.serverId) {
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.WEBHOOK_CREATE,
+        targetId: webhook.id,
+        changes: [{ key: 'name', new: webhook.name }, { key: 'channel_id', new: params.channelId }, { key: 'type', new: 1 }],
+        options: { channel_name: channel.name, webhook_name: webhook.name },
+      });
+    }
     return {
       id: webhook.id,
       type: 1,
@@ -4155,5 +4305,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
     await ChannelWebhook.deleteById(params.webhookId);
+    if (channel.serverId) {
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.WEBHOOK_DELETE,
+        targetId: webhook.id,
+        changes: [{ key: 'name', old: webhook.name }, { key: 'channel_id', old: params.channelId }],
+        options: { channel_name: channel.name, webhook_name: webhook.name },
+      });
+    }
     return { success: true };
   });

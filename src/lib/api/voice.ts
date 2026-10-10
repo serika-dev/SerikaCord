@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import { Channel, Server, ServerMember, User, type IServerSettings, type IUserSettings } from '@/lib/models';
 import { checkRateLimit, isValidObjectId } from '@/lib/security';
 import { checkVoiceModeration, channelIdOfRoom, roomsContainingUser } from '@/lib/voice/moderation';
+import { verificationDenial } from '@/lib/services/serverGate';
 import { dmCallPeers } from '@/lib/chat/dmCall';
 import { isSystemUser } from '@/lib/services/systemUsers';
 import { fanoutToUsers } from './activity';
@@ -403,7 +404,7 @@ export async function startVoiceBridge(): Promise<() => void> {
 // cached briefly per user+room because the sidebar polls /states every few
 // seconds; /join always re-checks.
 type RoomAuth =
-  | { ok: true; userLimit: number; serverMute?: boolean; serverDeaf?: boolean }
+  | { ok: true; userLimit: number; serverMute?: boolean; serverDeaf?: boolean; serverId?: string | null }
   | { ok: false; status: number; error: string };
 const ROOM_AUTH_TTL_MS = 15_000;
 const roomAuthCache = new BoundedMap<string, { result: RoomAuth; expires: number }>(5000);
@@ -456,6 +457,7 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
       userLimit: Number(access.channel.userLimit) || 0,
       serverMute: member?.mute === true,
       serverDeaf: member?.deaf === true,
+      serverId: access.channel.serverId ?? null,
     };
   } catch {
     return { ok: false, status: 500, error: 'Could not verify voice channel access' };
@@ -565,6 +567,21 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     if (await isSessionKicked(body.sessionId)) {
       set.status = 403;
       return { error: 'You were disconnected from this voice channel' };
+    }
+    // Server voice channels: timeouts and the server's verification level
+    // apply to joining voice, as on Discord.
+    if (auth.serverId) {
+      const member = await ServerMember.findOne({ serverId: auth.serverId, userId: user.id }).catch(() => null);
+      const disabledUntil = member?.communicationDisabledUntil;
+      if (disabledUntil && new Date(disabledUntil).getTime() > Date.now()) {
+        set.status = 403;
+        return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
+      }
+      const unverified = await verificationDenial(auth.serverId, user, member);
+      if (unverified) {
+        set.status = unverified.status;
+        return unverified.body;
+      }
     }
     const existing = roomState.get(body.roomId);
     if (!hasRoomForParticipant(auth.userLimit, existing?.size ?? 0, existing?.has(user.id) ?? false)) {

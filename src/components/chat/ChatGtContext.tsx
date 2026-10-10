@@ -80,6 +80,10 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "Add Reaction": gt("Add Reaction"),
       // MessageAttachments
       "? KB": gt("? KB"),
+      "Spoiler": gt("Spoiler"),
+      "Click to reveal": gt("Click to reveal"),
+      "Sensitive content": gt("Sensitive content"),
+      "This media may contain explicit content.": gt("This media may contain explicit content."),
       // LinkEmbed
       "Remove embed": gt("Remove embed"),
       "View GIF on Tenor": gt("View GIF on Tenor"),

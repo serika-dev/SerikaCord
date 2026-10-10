@@ -56,6 +56,7 @@ const ReactionsDialog = dynamic(() => import("@/components/chat/ReactionsDialog"
 const ReportMessageDialog = dynamic(() => import("@/components/chat/ReportMessageDialog").then((m) => m.ReportMessageDialog), {
   ssr: false,
 });
+import type { RoleIconData } from "@/components/chat/RoleIcon";
 
 export interface MessageListHandle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
@@ -109,6 +110,8 @@ interface MessageListProps<M extends ChatMessage> {
   mentionUsers?: MentionUser[];
   mentionRoles?: MentionRole[];
   userRoleColorMap?: Record<string, string>;
+  /** Role icon per author id (servers only). */
+  userRoleIconMap?: Record<string, RoleIconData>;
   serverEmojis?: PickerEmoji[];
   availableServerEmojis?: PickerEmoji[];
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
@@ -223,6 +226,7 @@ function MessageListInner<M extends ChatMessage>(
     mentionUsers,
     mentionRoles,
     userRoleColorMap,
+    userRoleIconMap,
     serverEmojis,
     availableServerEmojis,
     onMediaClick,
@@ -920,6 +924,7 @@ function MessageListInner<M extends ChatMessage>(
       mentionUsers={mentionUsers}
       mentionRoles={mentionRoles}
       userRoleColorMap={userRoleColorMap}
+      userRoleIconMap={userRoleIconMap}
       serverEmojis={serverEmojis}
       availableServerEmojis={availableServerEmojis}
       editingMessageId={actions.editingMessage?.id}

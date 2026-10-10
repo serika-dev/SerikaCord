@@ -17,6 +17,20 @@ import {
 } from '@/lib/permissions/botGuild';
 import type { IServer, IRole } from '@/lib/models';
 import { isSilentMessage, MESSAGE_FLAGS, sendFlags } from '@/lib/chat/messageFlags';
+import { audit } from '@/lib/services/auditLog';
+import { AuditLogEvent, auditReason } from '@/lib/audit/auditLog';
+
+/** Audit-log a bot's moderation action (reason from X-Audit-Log-Reason, like Discord). */
+function botAudit(
+  serverId: string,
+  botId: string,
+  actionType: number,
+  targetId: string,
+  headers: Record<string, string | undefined>,
+  bodyReason?: string | null,
+) {
+  audit({ serverId, userId: botId, actionType, targetId, reason: auditReason(headers['x-audit-log-reason'], bodyReason) });
+}
 
 // ─── Bot Auth Helper ───────────────────────────────────────
 
@@ -1285,6 +1299,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   }
   // Only decrements memberCount (atomically) when a member was really removed.
   await removeServerMember(params.guildId, params.userId);
+  botAudit(params.guildId, auth.botUser.id, AuditLogEvent.MEMBER_KICK, params.userId, headers);
   set.status = 204;
   return '';
 })
@@ -1313,6 +1328,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   await upsertServerBan(params.guildId, params.userId, auth.botUser.id, reason ?? null);
   // Remove member if exists; memberCount only changes when a row was deleted
   await removeServerMember(params.guildId, params.userId);
+  botAudit(params.guildId, auth.botUser.id, AuditLogEvent.MEMBER_BAN_ADD, params.userId, headers, reason);
   set.status = 204;
   return '';
 })
@@ -1332,7 +1348,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!g.ok) { set.status = g.status; return g.body; }
 
   const ban = await ServerBan.findOne({ serverId: params.guildId, userId: params.userId });
-  if (ban) await ServerBan.deleteById(ban.id);
+  if (ban) {
+    await ServerBan.deleteById(ban.id);
+    botAudit(params.guildId, auth.botUser.id, AuditLogEvent.MEMBER_BAN_REMOVE, params.userId, headers);
+  }
   set.status = 204;
   return '';
 })
@@ -1607,20 +1626,26 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const { AdminLog } = await import('@/lib/models');
+  // Discord requires VIEW_AUDIT_LOG (this used to return any guild's log).
+  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.VIEW_AUDIT_LOG);
+  if (!g.ok) { set.status = g.status; return g.body; }
+  const { listAuditLogs, toDiscordEntry } = await import('@/lib/services/auditLog');
   const limit = Math.min(parseInt(query.limit as string) || 50, 100);
-  const logs = await AdminLog.find({ targetId: params.guildId });
-  const sorted = logs.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, limit);
+  const actionType = query.action_type !== undefined ? Number(query.action_type) : null;
+  const entries = await listAuditLogs(params.guildId, {
+    userId: typeof query.user_id === 'string' ? query.user_id : null,
+    actionType: Number.isFinite(actionType) ? actionType : null,
+    limit,
+  });
   return {
-    audit_log_entries: sorted.map((l: any) => ({
-      id: l.id,
-      action_type: l.action ?? 0,
-      user_id: l.adminId ?? null,
-      target_id: l.targetId ?? null,
-      reason: l.reason ?? null,
-      changes: [],
-      created_at: l.createdAt ? new Date(l.createdAt).toISOString() : undefined,
-    })),
+    audit_log_entries: entries.map(toDiscordEntry),
+    users: [],
+    webhooks: [],
+    threads: [],
+    integrations: [],
+    application_commands: [],
+    auto_moderation_rules: [],
+    guild_scheduled_events: [],
   };
 })
 

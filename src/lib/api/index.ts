@@ -1175,6 +1175,56 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { readStates: [] };
     }
   })
+  // Quick switcher (Ctrl+K): every channel the user can open in every server
+  // (text, announcement, forum, voice, stage), name + server + parent only.
+  // Fetched when the switcher opens; private channels are filtered by access.
+  .get('/@me/switcher-channels', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const limited = await checkRateLimit('api', `switcher:${user.id}`).catch(() => ({ success: true }));
+    if (!limited.success) {
+      set.status = 429;
+      return { error: 'Rate limited' };
+    }
+    try {
+      const memberships = await ServerMember.find({ userId: user.id });
+      const serverIds = memberships.map((m) => m.serverId);
+      if (serverIds.length === 0) return { channels: [] };
+      const all = await Channel.find({
+        serverId: { in: serverIds },
+        type: { in: ['text', 'announcement', 'forum', 'voice', 'stage'] },
+      });
+      const { checkChannelAccess } = await import('./channels');
+      const visible = await Promise.all(
+        all.map((c) =>
+          Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0
+            ? checkChannelAccess(user.id, c.id).then((r) => r.hasAccess).catch(() => false)
+            : true,
+        ),
+      );
+      const categoryNames = new Map<string, string>();
+      for (const c of await Channel.find({ serverId: { in: serverIds }, type: 'category' })) {
+        categoryNames.set(c.id, c.name);
+      }
+      return {
+        channels: all
+          .filter((_, i) => visible[i])
+          .map((c) => ({
+            id: c.id,
+            serverId: c.serverId,
+            name: c.name,
+            type: c.type,
+            parentName: c.parentId ? categoryNames.get(c.parentId) ?? null : null,
+          })),
+      };
+    } catch (error) {
+      console.error('Failed to fetch switcher channels:', error);
+      return { channels: [] };
+    }
+  })
   // Lightweight seed for the unread engine: every text channel the user can see,
   // with its server id and last-activity time. Combined with /@me/read-states
   // this lets the client compute per-server unread (the white rail pill) on load
@@ -4212,6 +4262,10 @@ export async function initializeAPI() {
     void ensureUserNotesSchema();
     const { ensureMessageRequestSchema } = await import('@/lib/services/messageRequests');
     void ensureMessageRequestSchema();
+    // Server audit log table. Idempotent, never throws; not awaited (every
+    // audit read/write awaits it itself).
+    const { ensureAuditLogSchema } = await import('@/lib/services/auditLog');
+    void ensureAuditLogSchema();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, AdminLog, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
+import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { cache } from '@/lib/db';
@@ -21,6 +21,11 @@ import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleCha
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
+import { audit, listAuditLogs } from '@/lib/services/auditLog';
+import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChanges, diffMemberRoles, isAuditLogEventType, snapshotChanges } from '@/lib/audit/auditLog';
+import { invalidateServerGate, memberVerificationState } from '@/lib/services/serverGate';
+import { normalizeOverwrites } from '@/lib/permissions/overwriteEditor';
+import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -282,6 +287,8 @@ interface PopulatedRole {
   mentionable?: boolean;
   managed?: boolean;
   isDefault?: boolean;
+  icon?: string | null;
+  unicodeEmoji?: string | null;
 }
 
 interface PopulatedMemberUser {
@@ -349,6 +356,8 @@ function normalizeRoleDto(role: PopulatedRole, memberCount: number = 0) {
     mentionable: Boolean(role.mentionable),
     managed: Boolean(role.managed),
     isDefault: Boolean(role.isDefault),
+    icon: role.icon || null,
+    unicodeEmoji: role.unicodeEmoji || null,
     memberCount,
   };
 }
@@ -388,6 +397,11 @@ function normalizeMemberDto(member: {
     .sort((a, b) => b.position - a.position);
   const highestRole = memberRoles[0] || null;
   const highestHoistedRole = memberRoles.find((role) => role.hoist) || null;
+  // Discord shows the icon of the member's highest role that has one.
+  const iconRoleFull = pickIconRole(memberRoles);
+  const iconRole = iconRoleFull
+    ? { id: iconRoleFull.id, name: iconRoleFull.name, icon: iconRoleFull.icon, unicodeEmoji: iconRoleFull.unicodeEmoji }
+    : null;
   const userData = member.userId;
 
   return {
@@ -412,6 +426,7 @@ function normalizeMemberDto(member: {
     roles: memberRoles,
     highestRole,
     highestHoistedRole,
+    iconRole,
   };
 }
 
@@ -616,6 +631,28 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const position = highestChannel ? (highestChannel.position ?? 0) + 1 : 0;
 
+    // Explicit overwrites (the "Private Channel" step of the create dialog)
+    // need Manage Roles, like editing them; otherwise the channel starts
+    // synced with its category.
+    let initialOverwrites = type !== 'category' && parentChannel
+      ? copyPermissionOverwrites(parentChannel.permissionOverwrites)
+      : [];
+    if (body.permissionOverwrites && body.permissionOverwrites.length > 0) {
+      if (!(await canManageRoles(server, user.id))) {
+        set.status = 403;
+        return { error: 'You need Manage Roles permission to create a private channel' };
+      }
+      const cleaned = normalizeOverwrites(body.permissionOverwrites).filter((o) => isValidObjectId(o.id));
+      const roleIds = cleaned.filter((o) => o.type === 'role').map((o) => o.id);
+      const ownRoles = roleIds.length > 0 ? await Role.find({ serverId: server.id, id: { in: roleIds } }) : [];
+      const own = new Set(ownRoles.map((r) => String(r.id).toLowerCase()));
+      if (roleIds.some((id) => !own.has(id.toLowerCase())) || cleaned.length > 100) {
+        set.status = 400;
+        return { error: 'Invalid permission overwrites' };
+      }
+      initialOverwrites = cleaned;
+    }
+
     const channel = await Channel.create({
       serverId: server.id,
       name: sanitizedName,
@@ -625,10 +662,21 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       nsfw: type !== 'category' ? Boolean(nsfw) : false,
       // Permissions are copied, not inherited: a channel created inside a
       // private category starts synced with it instead of being public.
-      permissionOverwrites: type !== 'category' && parentChannel
-        ? copyPermissionOverwrites(parentChannel.permissionOverwrites)
-        : [],
+      permissionOverwrites: initialOverwrites,
       ...(type === 'forum' ? { forumMode: forumMode === 'tickets' ? 'tickets' : 'posts' } : {}),
+    });
+
+    audit({
+      serverId: server.id,
+      userId: user.id,
+      actionType: AuditLogEvent.CHANNEL_CREATE,
+      targetId: channel.id,
+      changes: [
+        ...snapshotChanges(channel as Record<string, unknown>, { name: 'name', type: 'type', nsfw: 'nsfw', parentId: 'parent_id' }),
+        ...(initialOverwrites.length ? [{ key: 'permission_overwrites', new: initialOverwrites }] : []),
+      ],
+      options: { channel_name: channel.name, channel_type: channel.type },
+      reason: auditReason(headers['x-audit-log-reason']),
     });
 
     return {
@@ -645,6 +693,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       parentId: t.Optional(t.Union([t.String(), t.Null()])),
       nsfw: t.Optional(t.Boolean()),
       forumMode: t.Optional(t.Union([t.Literal('posts'), t.Literal('tickets')])),
+      permissionOverwrites: t.Optional(t.Array(t.Object({
+        id: t.String(),
+        type: t.Union([t.Literal('role'), t.Literal('member')]),
+        allow: t.String(),
+        deny: t.String(),
+      }), { maxItems: 100 })),
     }),
   })
   // Bulk reorder channels (drag & drop)
@@ -851,6 +905,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to edit this server' };
     }
 
+    const beforeSettings = { ...server };
     const payload = body as { settings?: Partial<IServerSettings> & { discoveryDescription?: string; discoveryCategories?: string[] }; isAgeGated?: boolean; [key: string]: unknown };
     const serverSettings = server.settings as IServerSettings | undefined || {};
     const settingsPayload = payload.settings || {};
@@ -943,6 +998,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await Server.updateById(server.id, {
       settings: nextSettings,
+      // Kept in sync with settings.moderation: the verification gate reads them.
+      verificationLevel: server.verificationLevel,
+      explicitContentFilter: server.explicitContentFilter,
       joinMode: server.joinMode,
       isDiscoverable: server.isDiscoverable,
       discoverableAt: server.discoverableAt,
@@ -954,6 +1012,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     });
     await cache.del(`server:${server.id}`);
     await cache.del(`server:safety:${server.id}`);
+    await invalidateServerGate(server.id);
+    const settingsChanges = diffChanges(beforeSettings as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
+    if (settingsChanges.length > 0) {
+      audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: settingsChanges, reason: auditReason(headers['x-audit-log-reason']) });
+    }
 
     return {
       success: true,
@@ -999,6 +1062,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const changes = body.changes as Record<string, string | number | boolean | null>;
     const fieldErrors: Record<string, string> = {};
+    const beforeBulk = { ...server };
 
     const VERIFICATION_LEVELS = ['none', 'low', 'medium', 'high', 'very_high'];
     const CONTENT_FILTERS = ['disabled', 'members_without_roles', 'all_members'];
@@ -1301,6 +1365,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await Server.updateById(server.id, serverUpdates);
     await cache.del(`server:${server.id}`);
     await cache.del(`server:safety:${server.id}`);
+    await invalidateServerGate(server.id);
+    const bulkChanges = diffChanges(beforeBulk as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
+    if (bulkChanges.length > 0) {
+      audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: bulkChanges, reason: auditReason(headers['x-audit-log-reason']) });
+    }
 
     return {
       success: true,
@@ -1348,6 +1417,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const { name, description, icon, banner, systemChannelId, rulesChannelId, afkChannelId, afkTimeout, verificationLevel, explicitContentFilter, isAgeGated } = body;
+    const beforeServer = { ...server };
 
     if (name !== undefined) server.name = sanitizeInput(name);
     if (description !== undefined) server.description = sanitizeInput(description);
@@ -1408,6 +1478,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Invalidate cache
     await cache.del(`server:${server.id}`);
+    await invalidateServerGate(server.id);
+    const serverChanges = diffChanges(beforeServer as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
+    if (serverChanges.length > 0) {
+      audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: serverChanges, reason: auditReason(headers['x-audit-log-reason']) });
+    }
 
     return { success: true, server: { ...server, settings: publicServerSettings(server.settings) } };
   }, {
@@ -1633,6 +1708,23 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // Manual populate
     const populatedUser = member.userId ? await User.findById(member.userId) : null;
     const populatedRoles = await Role.find({ id: { in: requestedWithEveryone }, serverId: params.serverId });
+
+    {
+      const previousRoles = ((member.roles || []) as string[]).filter((id) => !sameId(id, everyoneRole.id));
+      const nextRoles = requestedWithEveryone.filter((id) => !sameId(id, everyoneRole.id));
+      const knownRoles = await Role.find({ serverId: params.serverId, id: { in: [...new Set([...previousRoles, ...nextRoles])] } });
+      const roleChanges = diffMemberRoles(previousRoles, nextRoles, new Map(knownRoles.map((r) => [r.id, r.name] as const)));
+      if (roleChanges.length > 0) {
+        audit({
+          serverId: server.id,
+          userId: user.id,
+          actionType: AuditLogEvent.MEMBER_ROLE_UPDATE,
+          targetId: params.memberUserId,
+          changes: roleChanges,
+          reason: auditReason(headers['x-audit-log-reason']),
+        });
+      }
+    }
     const populatedMember = { ...member, userId: populatedUser, roles: populatedRoles };
 
     return {
@@ -1802,6 +1894,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     if (avatar !== undefined) updates.avatar = avatar || null;
     if (banner !== undefined) updates.banner = banner || null;
     const row = await ServerMember.updateById(member.id, updates);
+    if (updates.nickname !== undefined && (updates.nickname ?? null) !== (member.nickname ?? null)) {
+      const change: { key: string; old?: unknown; new?: unknown } = { key: 'nick' };
+      if (member.nickname) change.old = member.nickname;
+      if (updates.nickname) change.new = updates.nickname;
+      audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.MEMBER_UPDATE, targetId: user.id, changes: [change] });
+    }
 
     // Report what was actually stored.
     return {
@@ -1892,7 +1990,16 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       effective |= parsePermissionBitfield((role as { permissions?: string }).permissions);
     }
 
-    return { isOwner: false, permissions: effective.toString() };
+    // The composer shows Discord's verification-level banner from this.
+    const verification = await memberVerificationState(server.id, user, member).catch(() => null);
+
+    return {
+      isOwner: false,
+      permissions: effective.toString(),
+      verification: verification
+        ? { level: verification.level, blocked: verification.blocked, reason: verification.reason, until: verification.until }
+        : null,
+    };
   }, {
     params: t.Object({
       serverId: t.String(),
@@ -1980,6 +2087,20 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       maxAge,
       temporary,
       expiresAt: maxAge > 0 ? new Date(Date.now() + maxAge * 1000) : null,
+    });
+    audit({
+      serverId: params.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.INVITE_CREATE,
+      targetId: invite.code,
+      changes: [
+        { key: 'code', new: invite.code },
+        { key: 'channel_id', new: channel.id },
+        { key: 'max_uses', new: maxUses },
+        { key: 'max_age', new: maxAge },
+        { key: 'temporary', new: temporary },
+      ],
+      options: { channel_name: channel.name },
     });
 
     return {
@@ -2265,6 +2386,16 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const roles = await getNormalizedRoles(params.serverId);
     const createdRole = roles.find((item) => item.id === role.id);
 
+    audit({
+      serverId: params.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.ROLE_CREATE,
+      targetId: role.id,
+      changes: snapshotChanges(createdRole ?? (role as Record<string, unknown>), ROLE_AUDIT_KEYS),
+      options: { role_name: role.name },
+      reason: auditReason(headers['x-audit-log-reason']),
+    });
+
     return { role: createdRole || normalizeRoleDto(role as unknown as PopulatedRole) };
   }, {
     params: t.Object({
@@ -2348,11 +2479,41 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     if (permissions !== undefined) updates.permissions = permissions;
     if (body.hoist !== undefined) updates.hoist = body.hoist;
     if (body.mentionable !== undefined) updates.mentionable = body.mentionable;
+    // Role icon: an uploaded image or a unicode emoji (mutually exclusive).
+    if (body.icon !== undefined || body.unicodeEmoji !== undefined) {
+      if (role.isDefault) {
+        set.status = 400;
+        return { error: 'The @everyone role cannot have an icon' };
+      }
+      const icon = normalizeRoleIconInput({ icon: body.icon, unicodeEmoji: body.unicodeEmoji }, config.CDN_URL);
+      if ('error' in icon) {
+        set.status = 400;
+        return { error: icon.error };
+      }
+      Object.assign(updates, icon);
+    }
     await Role.updateById(role.id, updates);
     if (permissions !== undefined) invalidateRolePerms(params.serverId, role.id);
 
     const roles = await getNormalizedRoles(params.serverId);
     const updatedRole = roles.find((item) => item.id === role.id);
+
+    const roleChanges = diffChanges(
+      normalizeRoleDto(role as unknown as PopulatedRole) as unknown as Record<string, unknown>,
+      updatedRole ? Object.fromEntries(Object.keys(updates).map((k) => [k, (updatedRole as Record<string, unknown>)[k]])) : updates,
+      ROLE_AUDIT_KEYS,
+    );
+    if (roleChanges.length > 0) {
+      audit({
+        serverId: params.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.ROLE_UPDATE,
+        targetId: role.id,
+        changes: roleChanges,
+        options: { role_name: updatedRole?.name ?? role.name },
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
+    }
     return { role: updatedRole || normalizeRoleDto(role as unknown as PopulatedRole) };
   }, {
     params: t.Object({
@@ -2365,6 +2526,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       permissions: t.Optional(t.String()),
       hoist: t.Optional(t.Boolean()),
       mentionable: t.Optional(t.Boolean()),
+      icon: t.Optional(t.Union([t.String({ maxLength: 512 }), t.Null()])),
+      unicodeEmoji: t.Optional(t.Union([t.String({ maxLength: 32 }), t.Null()])),
     }),
   })
   // Reorder server roles
@@ -2508,6 +2671,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await Role.deleteById(role.id);
     invalidateRolePerms(params.serverId, role.id);
+    audit({
+      serverId: params.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.ROLE_DELETE,
+      targetId: role.id,
+      changes: snapshotChanges(normalizeRoleDto(role as unknown as PopulatedRole) as unknown as Record<string, unknown>, ROLE_AUDIT_KEYS, 'old'),
+      options: { role_name: role.name },
+      reason: auditReason(headers['x-audit-log-reason']),
+    });
 
     const roles = await getNormalizedRoles(params.serverId);
     return { success: true, roles };
@@ -2908,6 +3080,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       animated: body.animated || false,
       uploadedBy: user.id,
     });
+    audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.EMOJI_CREATE, targetId: emoji.id, changes: [{ key: 'name', new: emoji.name }], options: { emoji_url: emoji.imageUrl } });
 
     return { emoji };
   }, {
@@ -2951,6 +3124,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     await ServerEmoji.deleteById(emoji.id);
+    audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.EMOJI_DELETE, targetId: emoji.id, changes: [{ key: 'name', old: emoji.name }], options: { emoji_url: emoji.imageUrl } });
 
     return { success: true };
   }, {
@@ -2997,6 +3171,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const updated = await ServerEmoji.updateById(emoji.id, updates);
+    const emojiChanges = diffChanges(emoji as Record<string, unknown>, updates, { name: 'name' });
+    if (emojiChanges.length > 0) {
+      audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.EMOJI_UPDATE, targetId: emoji.id, changes: emojiChanges, options: { emoji_url: emoji.imageUrl } });
+    }
     return { emoji: updated };
   }, {
     params: t.Object({
@@ -3078,6 +3256,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       tags: body.tags || [],
       uploadedBy: user.id,
     });
+    audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.STICKER_CREATE, targetId: sticker.id, changes: [{ key: 'name', new: sticker.name }] });
 
     return { sticker };
   }, {
@@ -3118,6 +3297,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const stickerToDelete = await ServerSticker.findOne({ id: params.stickerId, serverId: params.serverId });
     if (stickerToDelete) {
       await ServerSticker.deleteById(stickerToDelete.id);
+      audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.STICKER_DELETE, targetId: stickerToDelete.id, changes: [{ key: 'name', old: stickerToDelete.name }] });
     }
     return { success: true };
   }, {
@@ -3166,6 +3346,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const updated = await ServerSticker.updateById(sticker.id, updates);
+    const stickerChanges = diffChanges(sticker as Record<string, unknown>, updates, { name: 'name', description: 'description', tags: 'tags' });
+    if (stickerChanges.length > 0) {
+      audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.STICKER_UPDATE, targetId: sticker.id, changes: stickerChanges });
+    }
     return { sticker: updated };
   }, {
     params: t.Object({
@@ -3255,6 +3439,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     });
 
     await Server.updateById(server.id, { soundboardSounds: sounds });
+    {
+      const added = sounds[sounds.length - 1] as { id?: string; name?: string };
+      audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.SOUNDBOARD_SOUND_CREATE, targetId: added.id ?? null, changes: [{ key: 'name', new: added.name }] });
+    }
 
     return {
       sound: sounds[sounds.length - 1],
@@ -3297,8 +3485,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Sound not found' };
     }
 
-    sounds.splice(idx, 1);
+    const [removedSound] = sounds.splice(idx, 1) as Array<{ id?: string; name?: string }>;
     await Server.updateById(server.id, { soundboardSounds: sounds });
+    audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.SOUNDBOARD_SOUND_DELETE, targetId: removedSound?.id ?? params.soundId, changes: [{ key: 'name', old: removedSound?.name }] });
 
     return { success: true };
   }, {
@@ -3385,6 +3574,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // null / empty clears the vanity URL
     if (rawCode === null || rawCode === undefined || rawCode.trim() === '') {
       await Server.updateById(server.id, { vanityUrlCode: null });
+      if (server.vanityUrlCode) {
+        audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: [{ key: 'vanity_url_code', old: server.vanityUrlCode }] });
+      }
       return { code: null, uses: server.vanityUrlUses ?? 0, lockToVanity: false };
     }
 
@@ -3413,6 +3605,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     await Server.updateById(server.id, { vanityUrlCode: code, vanityUrlUses: 0 });
+    audit({
+      serverId: server.id,
+      userId: user.id,
+      actionType: AuditLogEvent.GUILD_UPDATE,
+      targetId: server.id,
+      changes: [server.vanityUrlCode ? { key: 'vanity_url_code', old: server.vanityUrlCode, new: code } : { key: 'vanity_url_code', new: code }],
+    });
 
     return { code, uses: 0, lockToVanity: Boolean((server.settings as IServerSettings | undefined)?.invites?.lockToVanity) };
   }, {
@@ -3563,6 +3762,18 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const inviteToDelete = await Invite.findOne({ code: params.code, serverId: params.serverId });
     if (inviteToDelete) {
       await Invite.deleteById(inviteToDelete.id);
+      audit({
+        serverId: params.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.INVITE_DELETE,
+        targetId: inviteToDelete.code,
+        changes: [
+          { key: 'code', old: inviteToDelete.code },
+          { key: 'channel_id', old: inviteToDelete.channelId },
+          { key: 'uses', old: inviteToDelete.uses ?? 0 },
+        ],
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
     }
     return { success: true };
   }, {
@@ -3678,13 +3889,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await removeServerMember(server.id, params.userId);
 
-    await AdminLog.create({
-      adminId: user.id,
-      action: 'ban_user',
-      targetType: 'server',
-      targetId: params.serverId,
-      reason: body.reason || null,
-      details: { userId: params.userId },
+    audit({
+      serverId: params.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.MEMBER_BAN_ADD,
+      targetId: params.userId,
+      reason: auditReason(headers['x-audit-log-reason'], body.reason),
     });
 
     return { success: true };
@@ -3743,13 +3953,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await removeServerMember(server.id, params.userId);
 
-    await AdminLog.create({
-      adminId: user.id,
-      action: 'ban_user',
-      targetType: 'server',
-      targetId: params.serverId,
-      reason: body.reason || null,
-      details: { userId: params.userId, kick: true },
+    audit({
+      serverId: params.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.MEMBER_KICK,
+      targetId: params.userId,
+      reason: auditReason(headers['x-audit-log-reason'], body.reason),
     });
 
     return { success: true };
@@ -3810,13 +4019,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const rawDuration = Number(body.durationMs) || 0;
     if (rawDuration <= 0) {
       await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: null });
-      await AdminLog.create({
-        adminId: user.id,
-        action: 'timeout_member',
-        targetType: 'server',
-        targetId: params.serverId,
-        reason: body.reason || null,
-        details: { userId: params.userId, durationMs: 0, cleared: true },
+      const previousUntil = targetMember.communicationDisabledUntil ? new Date(targetMember.communicationDisabledUntil).toISOString() : null;
+      audit({
+        serverId: params.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.MEMBER_UPDATE,
+        targetId: params.userId,
+        changes: [previousUntil ? { key: 'communication_disabled_until', old: previousUntil } : { key: 'communication_disabled_until' }],
+        reason: auditReason(headers['x-audit-log-reason'], body.reason),
       });
       return { success: true, communicationDisabledUntil: null };
     }
@@ -3825,13 +4035,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const until = new Date(Date.now() + durationMs);
     await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: until });
 
-    await AdminLog.create({
-      adminId: user.id,
-      action: 'timeout_member',
-      targetType: 'server',
-      targetId: params.serverId,
-      reason: body.reason || null,
-      details: { userId: params.userId, durationMs, until: until.toISOString() },
+    audit({
+      serverId: params.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.MEMBER_UPDATE,
+      targetId: params.userId,
+      changes: [{ key: 'communication_disabled_until', new: until.toISOString() }],
+      reason: auditReason(headers['x-audit-log-reason'], body.reason),
     });
 
     return { success: true, communicationDisabledUntil: until.toISOString() };
@@ -3870,13 +4080,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       await ServerBan.deleteById(banToDelete.id);
     }
 
-    await AdminLog.create({
-      adminId: user.id,
-      action: 'unban_user',
-      targetType: 'server',
-      targetId: params.serverId,
-      details: { userId: params.userId },
-    });
+    if (banToDelete) {
+      audit({
+        serverId: params.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.MEMBER_BAN_REMOVE,
+        targetId: params.userId,
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
+    }
 
     return { success: true };
   }, {
@@ -3886,7 +4098,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }),
   })
   // Get server audit log
-  .get('/:serverId/audit-log', async ({ headers, cookie, params, set }) => {
+  .get('/:serverId/audit-log', async ({ headers, cookie, params, query, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
       set.status = 401;
@@ -3909,36 +4121,44 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to view audit log' };
     }
 
-    const logs = await AdminLog.find({ targetType: 'server', targetId: params.serverId });
+    const actionType = query.action_type !== undefined ? Number(query.action_type) : null;
+    if (actionType !== null && !isAuditLogEventType(actionType)) {
+      set.status = 400;
+      return { error: 'Unknown action type' };
+    }
+    const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
+    const entries = await listAuditLogs(params.serverId, {
+      userId: query.user_id && isValidObjectId(query.user_id) ? query.user_id : null,
+      actionType,
+      before: query.before || null,
+      limit,
+    });
 
-    // Manual populate: batch fetch admins
-    const adminIds = [...new Set(logs.map((l: any) => l.adminId).filter(Boolean))];
-    const admins = adminIds.length > 0 ? await User.find({ id: { in: adminIds } }) : [];
-    const adminMap = new Map(admins.map((a: any) => [a.id, a]));
-
-    logs.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const limitedLogs = logs.slice(0, 100);
+    // Users referenced by entries (actors + user targets), slim columns.
+    const userIds = new Set<string>();
+    for (const e of entries) {
+      if (e.userId) userIds.add(e.userId);
+      if (e.targetId && isValidObjectId(e.targetId) && (e.actionType >= 20 && e.actionType < 30 || e.actionType >= 72 && e.actionType <= 75)) userIds.add(e.targetId);
+      const overwriteMember = e.options && e.options.type === '1' && typeof e.options.id === 'string' ? e.options.id : null;
+      if (overwriteMember && isValidObjectId(overwriteMember)) userIds.add(overwriteMember);
+      if (e.options && typeof e.options.user_id === 'string' && isValidObjectId(e.options.user_id)) userIds.add(e.options.user_id);
+    }
+    const users = userIds.size > 0 ? await findMemberUsers([...userIds]) : [];
 
     return {
-      logs: limitedLogs.map((log: any) => {
-        const admin = log.adminId ? adminMap.get(log.adminId) : null;
-        return {
-          id: log.id,
-          action: log.action,
-          reason: log.reason,
-          details: log.details,
-          createdAt: log.createdAt,
-          admin: {
-            id: admin?.id,
-            username: admin?.displayName || admin?.username || 'Unknown',
-            avatar: admin?.avatar,
-          },
-        };
-      }),
+      entries,
+      users: users.map((u) => ({ id: u.id, username: u.username, displayName: u.displayName ?? null, avatar: u.avatar ?? null, isBot: Boolean(u.isBot) })),
+      hasMore: entries.length >= limit,
     };
   }, {
     params: t.Object({
       serverId: t.String(),
+    }),
+    query: t.Object({
+      user_id: t.Optional(t.String()),
+      action_type: t.Optional(t.String()),
+      before: t.Optional(t.String()),
+      limit: t.Optional(t.String()),
     }),
   })
   // Application management

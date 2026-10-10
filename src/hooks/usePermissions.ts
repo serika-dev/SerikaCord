@@ -5,15 +5,26 @@ import { sharedGet } from "@/lib/bootFetch";
 import { useCallback, useEffect, useState } from "react";
 import { PERMISSIONS, bitfieldHas, type PermissionKey } from "@/lib/roles/permissions";
 
+/** The server's verification-level gate for the current member (Discord). */
+export interface VerificationState {
+  level: string;
+  blocked: boolean;
+  reason: "email" | "account_age" | "member_age" | null;
+  /** When a time-based restriction lifts on its own (ISO). */
+  until: string | null;
+}
+
 interface PermissionsState {
   isOwner: boolean;
   bitfield: bigint;
   loading: boolean;
+  verification: VerificationState | null;
 }
 
 /**
  * Loads the current user's effective permissions for a server so the UI can
- * hide controls they can't use. Returns `can(key)` plus `isOwner`/`isAdmin`.
+ * hide controls they can't use. Returns `can(key)` plus `isOwner`/`isAdmin`,
+ * and the verification-level state the composer banner uses.
  *
  * This is UX only — the server independently authorizes every mutation, so a
  * user who forges a request still can't perform an action they lack.
@@ -23,11 +34,12 @@ export function usePermissions(serverId: string | null | undefined) {
     isOwner: false,
     bitfield: 0n,
     loading: true,
+    verification: null,
   });
 
   useEffect(() => {
     if (!serverId) {
-      setState({ isOwner: false, bitfield: 0n, loading: false });
+      setState({ isOwner: false, bitfield: 0n, loading: false, verification: null });
       return;
     }
     let active = true;
@@ -41,12 +53,13 @@ export function usePermissions(serverId: string | null | undefined) {
             isOwner: Boolean(data.isOwner),
             bitfield: BigInt(data.permissions || "0"),
             loading: false,
+            verification: data.verification && typeof data.verification === "object" ? (data.verification as VerificationState) : null,
           });
         } else {
-          setState({ isOwner: false, bitfield: 0n, loading: false });
+          setState({ isOwner: false, bitfield: 0n, loading: false, verification: null });
         }
       })
-      .catch(() => active && setState({ isOwner: false, bitfield: 0n, loading: false }));
+      .catch(() => active && setState({ isOwner: false, bitfield: 0n, loading: false, verification: null }));
     return () => {
       active = false;
     };
@@ -62,5 +75,6 @@ export function usePermissions(serverId: string | null | undefined) {
     isOwner: state.isOwner,
     isAdmin: state.isOwner || bitfieldHas(state.bitfield, PERMISSIONS.ADMINISTRATOR),
     loading: state.loading,
+    verification: state.verification,
   };
 }

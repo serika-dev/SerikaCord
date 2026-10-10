@@ -59,6 +59,15 @@ import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import dynamic from "next/dynamic";
+import { RoleIconEditor } from "@/components/dialogs/RoleIconEditor";
+import { RoleIcon } from "@/components/chat/RoleIcon";
+
+// The audit log tab (filters, diffs, pagination) loads on first open.
+const ServerAuditLogPanel = dynamic(
+  () => import("@/components/dialogs/ServerAuditLogPanel").then((m) => m.ServerAuditLogPanel),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
+);
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -146,6 +155,8 @@ interface Role {
   managed: boolean;
   isDefault: boolean;
   memberCount?: number;
+  icon?: string | null;
+  unicodeEmoji?: string | null;
 }
 
 interface Invite {
@@ -211,18 +222,6 @@ interface ServerSticker {
   description?: string;
   imageUrl: string;
   tags?: string[];
-}
-
-interface AuditLogEntry {
-  id: string;
-  action: string;
-  reason?: string;
-  createdAt: string;
-  admin?: {
-    id?: string;
-    username: string;
-    avatar?: string;
-  };
 }
 
 interface ServerApplication {
@@ -291,6 +290,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     permissions: string;
     hoist: boolean;
     mentionable: boolean;
+    icon?: string | null;
+    unicodeEmoji?: string | null;
   } | null>(null);
   const [roleSearch, setRoleSearch] = useState("");
   const [permissionSearch, setPermissionSearch] = useState("");
@@ -321,7 +322,6 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [trimmerFile, setTrimmerFile] = useState<File | null>(null);
   const soundInputRef = useRef<HTMLInputElement>(null);
   const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
-  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
   const [textChannels, setTextChannels] = useState<ServerChannel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAppCount, setPendingAppCount] = useState(0);
@@ -601,13 +601,6 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               setStickers((data.stickers || []).map((s: any) => ({ id: s.id || s._id, name: s.name, description: s.description, imageUrl: s.imageUrl || s.url, tags: s.tags })));
             }
             break;
-          case "audit-log":
-            const auditRes = await fetch(`/api/servers/${serverId}/audit-log`);
-            if (auditRes.ok) {
-              const data = await auditRes.json();
-              setAuditLogs(data.logs || []);
-            }
-            break;
           case "soundboard": {
             // Settings themselves live in the shared draft (loaded on open);
             // only the sound list needs fetching per visit.
@@ -701,6 +694,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         permissions: targetRole.permissions || "0",
         hoist: Boolean(targetRole.hoist),
         mentionable: Boolean(targetRole.mentionable),
+        icon: targetRole.icon ?? null,
+        unicodeEmoji: targetRole.unicodeEmoji ?? null,
       });
     }
   }, [roles, selectedRoleId]);
@@ -997,7 +992,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       normalizeColor(roleDraft.color) !== normalizeColor(selectedRole.color || "#99AAB5") ||
       roleDraft.permissions !== (selectedRole.permissions || "0") ||
       roleDraft.hoist !== Boolean(selectedRole.hoist) ||
-      roleDraft.mentionable !== Boolean(selectedRole.mentionable)
+      roleDraft.mentionable !== Boolean(selectedRole.mentionable) ||
+      (roleDraft.icon ?? null) !== (selectedRole.icon ?? null) ||
+      (roleDraft.unicodeEmoji ?? null) !== (selectedRole.unicodeEmoji ?? null)
     );
   })();
 
@@ -1070,6 +1067,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           permissions: roleDraft.permissions,
           hoist: roleDraft.hoist,
           mentionable: roleDraft.mentionable,
+          ...(selectedRole.isDefault
+            ? {}
+            : (roleDraft.icon ?? null) !== (selectedRole.icon ?? null) || (roleDraft.unicodeEmoji ?? null) !== (selectedRole.unicodeEmoji ?? null)
+              ? { icon: roleDraft.icon ?? null, unicodeEmoji: roleDraft.unicodeEmoji ?? null }
+              : {}),
         }),
       });
 
@@ -1924,7 +1926,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     <GripVertical className={cn("w-4 h-4 flex-shrink-0", canDrag ? "text-[var(--text-muted)]" : "text-[var(--text-muted)]")} />
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color || "#888888" }} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate">{role.name}</p>
+                      <p className="text-white text-sm font-medium truncate flex items-center gap-1"><span className="truncate">{role.name}</span><RoleIcon role={role} size={14} /></p>
                       <p className="text-[11px] text-[var(--text-muted)]">
                         {role.memberCount ?? 0} members{role.isDefault ? " • default" : role.managed ? " • managed" : ""}
                       </p>
@@ -1998,6 +2000,18 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       </div>
                     </div>
                   </div>
+
+                  {/* Role icon (not for @everyone) */}
+                  {!selectedRole.isDefault && (
+                    <RoleIconEditor
+                      roleName={roleDraft.name || selectedRole.name}
+                      roleColor={roleDraft.color}
+                      icon={roleDraft.icon}
+                      unicodeEmoji={roleDraft.unicodeEmoji}
+                      disabled={selectedRole.managed}
+                      onChange={(next) => setRoleDraft((prev) => (prev ? { ...prev, ...next } : prev))}
+                    />
+                  )}
 
                   {/* Toggles */}
                   <div className="grid sm:grid-cols-2 gap-3">
@@ -3224,62 +3238,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     </div>
   );
 
-  const renderAuditLog = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Audit Log</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>View a record of all changes made to your server</T></p>
-      </div>
-
-      <div className="flex gap-4 mb-4">
-        <select className="h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
-          <option value="">{gt("All users")}</option>
-        </select>
-        <select className="h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
-          <option value="">{gt("All actions")}</option>
-          <option value="channel_create">{gt("Channel Created")}</option>
-          <option value="channel_delete">{gt("Channel Deleted")}</option>
-          <option value="role_create">{gt("Role Created")}</option>
-          <option value="role_delete">{gt("Role Deleted")}</option>
-          <option value="member_ban">{gt("Member Banned")}</option>
-          <option value="member_kick">{gt("Member Kicked")}</option>
-        </select>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : auditLogs.length === 0 ? (
-        <div className="text-center py-12">
-          <FileText className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No audit log entries</T></h3>
-          <p className="text-[var(--text-secondary)] text-sm"><T>Actions taken in your server will appear here</T></p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {auditLogs.map((log) => (
-            <div key={log.id} className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Avatar className="w-7 h-7">
-                    <AvatarImage src={cdnImage(log.admin?.avatar)} />
-                    <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
-                      {(log.admin?.username || "?").charAt(0)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-sm text-white font-medium">{log.admin?.username || gt("System")}</span>
-                  <span className="text-xs text-[var(--text-secondary)] uppercase">{log.action.replace(/_/g, " ")}</span>
-                </div>
-                <span className="text-xs text-[var(--text-muted)]">{new Date(log.createdAt).toLocaleString()}</span>
-              </div>
-              {log.reason && <p className="text-xs text-[var(--text-secondary)] mt-1">{gt("Reason")}: {log.reason}</p>}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const renderAuditLog = () => (currentServer ? <ServerAuditLogPanel serverId={currentServer.id} roles={roles} /> : null);
 
   const renderModeration = () => (
     <div className="space-y-6">
@@ -3289,45 +3248,88 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       </div>
 
       <div className="space-y-4">
-        {/* Not enforced by the server yet: shown read-only so owners don't
-            rely on protection that doesn't exist. */}
-        <p className="text-sm text-[var(--app-muted)]">
-          <T>Verification level, content filter, 2FA requirement and raid protection are coming soon and are not enforced yet.</T>
-        </p>
-        <fieldset disabled aria-disabled="true" className="space-y-4 opacity-60 cursor-not-allowed">
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-1">
             <span className="text-[var(--text-primary)] font-medium"><T>Verification Level</T></span>
           </div>
-          <select
-            value={draftString("moderation.verificationLevel", "none")}
-            onChange={(e) => settingsDraft.update("moderation.verificationLevel", e.target.value)}
-            aria-label="Verification level"
-            className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-          >
-            <option value="none">{gt("None - Unrestricted")}</option>
-            <option value="low">{gt("Low - Must have verified email")}</option>
-            <option value="medium">{gt("Medium - Registered for 5+ minutes")}</option>
-            <option value="high">{gt("High - Member for 10+ minutes")}</option>
-            <option value="very_high">{gt("Highest - Must have verified phone")}</option>
-          </select>
+          <p className="text-sm text-[var(--text-secondary)] mb-3">
+            <T>Members of the server must meet these criteria before they can send messages, react or join voice. Members with a role are exempt.</T>
+          </p>
+          <div role="radiogroup" aria-label={gt("Verification level")} className="space-y-2">
+            {([
+              { value: "none", label: gt("None"), desc: gt("Unrestricted") },
+              { value: "low", label: gt("Low"), desc: gt("Must have a verified email on their account.") },
+              { value: "medium", label: gt("Medium"), desc: gt("Must also be registered on SerikaCord for longer than 5 minutes.") },
+              { value: "high", label: gt("High"), desc: gt("Must also be a member of this server for longer than 10 minutes.") },
+              { value: "very_high", label: gt("Highest"), desc: gt("Phone verification isn't available on SerikaCord, so this works like High.") },
+            ] as const).map((opt) => {
+              const selected = draftString("moderation.verificationLevel", "none") === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => settingsDraft.update("moderation.verificationLevel", opt.value)}
+                  className={cn(
+                    "w-full flex items-start gap-3 p-3 rounded-md border text-left transition-colors",
+                    selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10" : "border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-hover)]",
+                  )}
+                >
+                  <span className={cn("mt-0.5 w-4 h-4 rounded-full border-2 shrink-0", selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]" : "border-[var(--text-muted)]")} />
+                  <span>
+                    <span className="block text-sm font-medium text-[var(--text-primary)]">{opt.label}</span>
+                    <span className="block text-xs text-[var(--text-secondary)]">{opt.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between mb-2">
+          <div className="mb-1">
             <span className="text-[var(--text-primary)] font-medium"><T>Explicit Media Content Filter</T></span>
           </div>
-          <select
-            value={draftString("moderation.explicitContentFilter", "disabled")}
-            onChange={(e) => settingsDraft.update("moderation.explicitContentFilter", e.target.value)}
-            aria-label="Explicit media content filter"
-            className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-          >
-            <option value="disabled">{gt("Don't scan any media content")}</option>
-            <option value="members_without_roles">{gt("Scan content from members without roles")}</option>
-            <option value="all_members">{gt("Scan content from all members")}</option>
-          </select>
+          <p className="text-sm text-[var(--text-secondary)] mb-3">
+            <T>Images and videos from the members you choose are blurred until clicked. Age-restricted channels are never filtered.</T>
+          </p>
+          <div role="radiogroup" aria-label={gt("Explicit media content filter")} className="space-y-2">
+            {([
+              { value: "disabled", label: gt("Don't scan any media content"), desc: gt("My friends are nice most of the time.") },
+              { value: "members_without_roles", label: gt("Scan media content from members without a role"), desc: gt("Recommended for servers that use roles for trusted members.") },
+              { value: "all_members", label: gt("Scan media content from all members"), desc: gt("Recommended when you want images to be squeaky clean.") },
+            ] as const).map((opt) => {
+              const selected = draftString("moderation.explicitContentFilter", "disabled") === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => settingsDraft.update("moderation.explicitContentFilter", opt.value)}
+                  className={cn(
+                    "w-full flex items-start gap-3 p-3 rounded-md border text-left transition-colors",
+                    selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10" : "border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-hover)]",
+                  )}
+                >
+                  <span className={cn("mt-0.5 w-4 h-4 rounded-full border-2 shrink-0", selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]" : "border-[var(--text-muted)]")} />
+                  <span>
+                    <span className="block text-sm font-medium text-[var(--text-primary)]">{opt.label}</span>
+                    <span className="block text-xs text-[var(--text-secondary)]">{opt.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {/* Not enforced by the server yet: shown read-only so owners don't
+            rely on protection that doesn't exist. */}
+        <p className="text-sm text-[var(--app-muted)]">
+          <T>The 2FA requirement and raid protection are coming soon and are not enforced yet.</T>
+        </p>
+        <fieldset disabled aria-disabled="true" className="space-y-4 opacity-60 cursor-not-allowed">
 
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
           <div className="flex items-center justify-between">

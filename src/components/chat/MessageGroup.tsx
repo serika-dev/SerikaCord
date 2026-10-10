@@ -21,6 +21,7 @@ import { ThreadChip } from "./ThreadRows";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
+import type { RoleIconData } from "@/components/chat/RoleIcon";
 
 interface MentionUser {
   id: string;
@@ -50,6 +51,8 @@ export interface MessageGroupProps<M extends ChatMessage> {
   mentionRoles?: MentionRole[];
   /** Map of userId -> highest role color for role-colored usernames. */
   userRoleColorMap?: Record<string, string>;
+  /** Map of userId -> role icon (highest role with one) shown after the name. */
+  userRoleIconMap?: Record<string, RoleIconData>;
   /** Fallback emoji set when a message carries no customEmojis of its own. */
   serverEmojis?: PickerEmoji[];
   availableServerEmojis?: PickerEmoji[];
@@ -105,6 +108,7 @@ function MessageGroupInner<M extends ChatMessage>({
   mentionUsers,
   mentionRoles,
   userRoleColorMap,
+  userRoleIconMap,
   serverEmojis,
   availableServerEmojis,
   editingMessageId,
@@ -242,7 +246,7 @@ function MessageGroupInner<M extends ChatMessage>({
 
               <div className="flex-1 min-w-0">
                 {isFirst && (
-                  <GroupHeader author={group.author} formattedTimestamp={formattedTimestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} />
+                  <GroupHeader author={group.author} formattedTimestamp={formattedTimestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} roleIcon={userRoleIconMap?.[group.author.id]} />
                 )}
 
                 {isEditing ? (
@@ -530,6 +534,7 @@ function arePropsEqual<M extends ChatMessage>(
     prev.mentionUsers === next.mentionUsers &&
     prev.mentionRoles === next.mentionRoles &&
     prev.userRoleColorMap === next.userRoleColorMap &&
+    prev.userRoleIconMap === next.userRoleIconMap &&
     prev.serverEmojis === next.serverEmojis &&
     prev.availableServerEmojis === next.availableServerEmojis &&
     prev.onMediaClick === next.onMediaClick &&

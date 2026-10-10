@@ -40,6 +40,8 @@ export interface MessageAttachment {
   contentType: string;
   size?: number;
   spoiler?: boolean;
+  /** Flagged by the server's explicit media content filter: blurred until clicked. */
+  sensitive?: boolean;
 }
 
 export interface MessageReaction {

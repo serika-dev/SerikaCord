@@ -40,6 +40,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ExternalLink } from "lucide-react";
 import { useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
+import { RoleIcon } from "@/components/chat/RoleIcon";
 
 export interface ProfileCardUser {
   id: string;
@@ -56,7 +57,7 @@ export interface ProfileCardUser {
   timezone?: string | null;
   showTimezone?: boolean;
   badges?: string[];
-  roles?: Array<{ id: string; name: string; color?: string }>;
+  roles?: Array<{ id: string; name: string; color?: string; icon?: string | null; unicodeEmoji?: string | null }>;
   joinedAt?: string | null;
   createdAt?: string | null;
   isPremium?: boolean;
@@ -579,6 +580,7 @@ export function ProfileCard({
                         className="w-2.5 h-2.5 rounded-full shrink-0"
                         style={{ backgroundColor: role.color || "#888888" }}
                       />
+                      <RoleIcon role={role} size={14} />
                       {role.name}
                       {canManageRoles &&
                         serverRoles.length > 0 &&

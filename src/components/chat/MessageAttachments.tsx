@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, Eye } from "lucide-react";
+import { FileText, Eye, ShieldAlert } from "lucide-react";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { formatFileSize } from "@/lib/chat/messages";
 import { useChatGt } from "./ChatGtContext";
@@ -58,7 +58,9 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
           }
         >
           {imageAttachments.map((attachment) => {
-            const isSpoiler = attachment.spoiler && !revealedSpoilers.has(attachment.id);
+            // Spoilers and media flagged by the server's explicit content
+            // filter stay blurred until clicked.
+            const isSpoiler = (attachment.spoiler || attachment.sensitive) && !revealedSpoilers.has(attachment.id);
             if (isSpoiler) {
               return (
                 <div
@@ -81,9 +83,19 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
                         : "w-full h-24 object-cover rounded-md blur-[6px]"
                     }
                   />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-black/40">
-                    <Eye className="w-5 h-5 text-white/80" />
-                    <span className="text-xs font-medium text-white/80">{gt("Spoiler")}</span>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-black/40 px-2 text-center">
+                    {attachment.sensitive && !attachment.spoiler ? (
+                      <>
+                        <ShieldAlert className="w-5 h-5 text-white/80" />
+                        <span className="text-xs font-medium text-white/80">{gt("Sensitive content")}</span>
+                        <span className="text-[10px] text-white/60">{gt("This media may contain explicit content.")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-5 h-5 text-white/80" />
+                        <span className="text-xs font-medium text-white/80">{gt("Spoiler")}</span>
+                      </>
+                    )}
                     <span className="text-[10px] text-white/50">{gt("Click to reveal")}</span>
                   </div>
                 </div>
@@ -122,19 +134,44 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
                     : " grid-cols-2")
           }
         >
-          {videoAttachments.map((attachment) => (
-            <VideoMediaPlayer
-              key={attachment.id}
-              src={attachment.url}
-              filename={attachment.filename}
-              contentType={attachment.contentType}
-              className={
-                videoAttachments.length === 1
-                  ? "max-w-[280px] rounded-lg overflow-hidden"
-                  : "w-full h-24 rounded-lg overflow-hidden"
-              }
-            />
-          ))}
+          {videoAttachments.map((attachment) =>
+            (attachment.spoiler || attachment.sensitive) && !revealedSpoilers.has(attachment.id) ? (
+              <button
+                key={attachment.id}
+                type="button"
+                onClick={() => toggleReveal(attachment.id)}
+                className={
+                  (videoAttachments.length === 1 ? "max-w-[280px] w-full aspect-video" : "w-full h-24") +
+                  " rounded-lg overflow-hidden flex flex-col items-center justify-center gap-1 bg-[var(--app-surface-alt)] text-[var(--app-muted)] px-2 text-center"
+                }
+              >
+                {attachment.sensitive && !attachment.spoiler ? (
+                  <>
+                    <ShieldAlert className="w-5 h-5" />
+                    <span className="text-xs font-medium">{gt("Sensitive content")}</span>
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-5 h-5" />
+                    <span className="text-xs font-medium">{gt("Spoiler")}</span>
+                  </>
+                )}
+                <span className="text-[10px]">{gt("Click to reveal")}</span>
+              </button>
+            ) : (
+              <VideoMediaPlayer
+                key={attachment.id}
+                src={attachment.url}
+                filename={attachment.filename}
+                contentType={attachment.contentType}
+                className={
+                  videoAttachments.length === 1
+                    ? "max-w-[280px] rounded-lg overflow-hidden"
+                    : "w-full h-24 rounded-lg overflow-hidden"
+                }
+              />
+            ),
+          )}
         </div>
       )}
 
