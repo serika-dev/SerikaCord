@@ -6,6 +6,7 @@ import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 import { reinsertMessage } from "@/lib/chat/messageWindow";
+import { haptic } from "@/lib/native/bridge";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
   message: M;
@@ -48,11 +49,17 @@ export function useMessageActions<M extends ChatMessage>({
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
+    // Scrolling inside the mobile action sheet itself must not close it.
+    const closeOnScroll = (e: Event) => {
+      const target = e.target as Element | null;
+      if (target && typeof target.closest === "function" && target.closest("[data-message-sheet]")) return;
+      close();
+    };
     window.addEventListener("click", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", closeOnScroll, true);
     return () => {
       window.removeEventListener("click", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", closeOnScroll, true);
     };
   }, [contextMenu]);
 
@@ -215,6 +222,7 @@ export function useMessageActions<M extends ChatMessage>({
     async (messageId: string, emoji: string) => {
       if (!apiBase || !userId) return;
       setReactionPickerMessage(null);
+      haptic("light");
       applyReactionEvent(messageId, emoji, userId, true);
       try {
         const response = await fetch(
@@ -237,6 +245,7 @@ export function useMessageActions<M extends ChatMessage>({
   const removeReaction = useCallback(
     async (messageId: string, emoji: string) => {
       if (!apiBase || !userId) return;
+      haptic("selection");
       applyReactionEvent(messageId, emoji, userId, false);
       try {
         const response = await fetch(

@@ -15,13 +15,14 @@ import {
   Megaphone,
   Users,
   ChevronLeft,
-  RefreshCw,
   MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { voiceService } from "@/lib/services/voiceService";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useGT } from "gt-next";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { PullIndicator } from "@/components/mobile/PullIndicator";
 
 interface MobileServerViewProps {
   onBack?: () => void;
@@ -57,8 +58,6 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const pullStartY = useRef(0);
-  const [pullDistance, setPullDistance] = useState(0);
 
   // Group channels by parent (category)
   const groupedChannels = useMemo(() => {
@@ -127,30 +126,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
       setIsRefreshing(false);
     }
   }, [isRefreshing, currentServer, fetchChannels, fetchServers]);
-
-  // Pull to refresh handlers
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (scrollContainerRef.current?.scrollTop === 0) {
-      pullStartY.current = e.touches[0].clientY;
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (scrollContainerRef.current?.scrollTop !== 0) return;
-    const currentY = e.touches[0].clientY;
-    const diff = currentY - pullStartY.current;
-    
-    if (diff > 0 && diff < 150) {
-      setPullDistance(diff);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (pullDistance > 80) {
-      handleRefresh();
-    }
-    setPullDistance(0);
-  };
+  const { pullDistance, pullHandlers } = usePullToRefresh(scrollContainerRef, handleRefresh);
 
   if (!currentServer) return null;
 
@@ -190,24 +166,6 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
-      {/* Pull to refresh indicator */}
-      <div 
-        className={cn(
-          "absolute left-0 right-0 top-0 flex items-center justify-center transition-all duration-200 z-20",
-          pullDistance > 0 ? "opacity-100" : "opacity-0"
-        )}
-        style={{ height: pullDistance, paddingTop: Math.max(0, pullDistance - 40) }}
-      >
-        <RefreshCw 
-          className={cn(
-            "w-6 h-6 text-[var(--app-accent)] transition-transform",
-            isRefreshing && "animate-spin",
-            pullDistance > 80 && "scale-110"
-          )}
-          style={{ transform: `rotate(${pullDistance * 2}deg)` }}
-        />
-      </div>
-
       {/* Server Header */}
       <div className="relative flex-shrink-0">
         {server.banner ? (
@@ -226,7 +184,7 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
         <button
           onClick={onBack}
           aria-label={gt("Back")}
-          style={{ top: "calc(1rem + env(safe-area-inset-top, 0px))" }}
+          style={{ top: "calc(1rem + var(--safe-area-top))" }}
           className="absolute left-4 p-2 rounded-full bg-black/40 backdrop-blur-sm text-white active:scale-95 transition-transform"
         >
           <ChevronLeft className="w-5 h-5" />
@@ -307,10 +265,9 @@ export function MobileServerView({ onBack }: MobileServerViewProps) {
       <div 
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overscroll-contain"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        {...pullHandlers}
       >
+        <PullIndicator distance={pullDistance} refreshing={isRefreshing} />
         <div className="px-2 py-2 pb-28">
           {filteredCategories.length === 0 && searchQuery ? (
             <div className="flex flex-col items-center justify-center py-20 px-6 text-center">

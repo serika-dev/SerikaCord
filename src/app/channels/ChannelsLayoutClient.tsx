@@ -293,7 +293,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
                 transition={{ duration: 0.18, ease: "easeOut" }}
                 className={cn(
                   "flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe",
-                  !showInFlowVoiceBar && "pb-[env(safe-area-inset-bottom)]"
+                  !showInFlowVoiceBar && "pb-safe"
                 )}
               >
                 {children}
@@ -341,7 +341,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           {showInFlowVoiceBar && (
             <VoiceBar
               channelName={voiceChannelName}
-              className="md:hidden pb-[calc(0.5rem+env(safe-area-inset-bottom))]"
+              className="md:hidden pb-[calc(0.5rem+var(--safe-area-bottom))]"
             />
           )}
         </div>

@@ -22,6 +22,10 @@ export const config = {
   TWITCH_CLIENT_ID: process.env.TWITCH_CLIENT_ID || '',
   TWITCH_CLIENT_SECRET: process.env.TWITCH_CLIENT_SECRET || '',
 
+  // Mobile push (Firebase Cloud Messaging HTTP v1). A Firebase service-account
+  // key as raw JSON or base64-encoded JSON. Unset = pushes are skipped.
+  FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON || '',
+
   // Public frontend base URL (used for OAuth redirects back to the UI)
   FRONTEND_URL: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || '',
   

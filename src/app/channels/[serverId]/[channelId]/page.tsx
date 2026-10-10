@@ -18,6 +18,8 @@ import { usePolling } from "@/hooks/usePolling";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { SwipeNav } from "@/components/mobile/SwipeNav";
+import { useBackHandler } from "@/hooks/useBackHandler";
 
 interface SoundboardSound {
   id: string;
@@ -654,6 +656,8 @@ export default function ChannelPage() {
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
   const [isMobile, setIsMobile] = useState(false);
+  // Phones: the Android back button closes the member drawer first.
+  useBackHandler(isMobile && showMembers, () => setShowMembers(false));
 
   // Member list rendering: inline sidebar on desktop, slide-in drawer on mobile.
   const renderMembers = (mobile: boolean) => {
@@ -667,8 +671,9 @@ export default function ChannelPage() {
             onClick={() => setShowMembers(false)}
           />
           {/* Drawer */}
-          <div
-            className="fixed top-0 right-0 z-50 h-dvh w-72 max-w-[85vw] md:hidden shadow-2xl flex flex-col bg-[var(--bg-app)] animate-in slide-in-from-right duration-200 ease-out"
+          <SwipeNav
+            onSwipeRight={() => setShowMembers(false)}
+            className="fixed top-0 right-0 bottom-0 z-50 w-72 max-w-[85vw] md:hidden shadow-2xl flex flex-col bg-[var(--bg-app)] animate-in slide-in-from-right duration-200 ease-out pt-safe pb-safe"
           >
             <div className="flex items-center justify-between h-12 px-4 border-b border-[var(--app-border)] shrink-0">
               <span className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">
@@ -686,7 +691,7 @@ export default function ChannelPage() {
             <div className="flex-1 min-h-0">
               <MemberSidebar />
             </div>
-          </div>
+          </SwipeNav>
         </>
       );
     }
@@ -1001,7 +1006,13 @@ export default function ChannelPage() {
 
   return (
     <>
-      <ChatArea onToggleMembers={() => setShowMembers(!showMembers)} showMembers={showMembers} />
+      <SwipeNav
+        enabled={isMobile && !showMembers}
+        onSwipeRight={() => router.push(`/channels/${serverId}`)}
+        onSwipeLeft={() => setShowMembers(true)}
+      >
+        <ChatArea onToggleMembers={() => setShowMembers(!showMembers)} showMembers={showMembers} />
+      </SwipeNav>
       {renderMembers(isMobile)}
     </>
   );

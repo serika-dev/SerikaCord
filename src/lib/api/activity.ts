@@ -177,6 +177,10 @@ export function invalidateServerMemberCache(serverId: string): void {
  */
 export async function notifyChannelActivity(input: ChannelActivityPayload): Promise<void> {
   const payload = await resolveRoleMentionUsers(input);
+  // Mobile push for pinged users who aren't in the app (no-op without FCM).
+  void import('@/lib/services/pushNotifications')
+    .then((m) => m.pushChannelActivity(payload))
+    .catch(() => { /* best-effort */ });
   await deliverLocally(payload);
   const pub = getPublisher();
   if (pub) {
@@ -242,6 +246,14 @@ async function deliverUserFanout(target: FanoutTarget, payload: Record<string, u
  * and clearing unread when the causing message is deleted.
  */
 export async function fanoutToUsers(target: FanoutTarget, payload: Record<string, unknown>): Promise<void> {
+  // Every DM message (user sends, bots, system DMs) signals through here:
+  // also push it to the recipients' phones when they aren't in the app.
+  if (payload.type === 'dm_activity' && target.userIds?.length) {
+    const recipients = target.userIds;
+    void import('@/lib/services/pushNotifications')
+      .then((m) => m.pushDmActivity(recipients, payload as Parameters<typeof m.pushDmActivity>[1]))
+      .catch(() => { /* best-effort */ });
+  }
   await deliverUserFanout(target, payload);
   const pub = getPublisher();
   if (pub) {

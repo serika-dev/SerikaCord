@@ -18,6 +18,7 @@ import { buildGalleryFromMessages } from "@/lib/chat/media";
 import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 import { parseCallData } from "@/lib/voice/callMessage";
+import { haptic } from "@/lib/native/bridge";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -940,6 +941,8 @@ export function useChatSession<M extends ChatMessage>({
 
       tempSeqRef.current += 1;
       const tempId = `temp-${Date.now()}-${tempSeqRef.current}`;
+      // Native app: a soft tick as the message leaves the composer.
+      haptic("light");
       const buildOptimistic = (attachments: unknown[]) => ({
           id: tempId,
           content: messageContent,

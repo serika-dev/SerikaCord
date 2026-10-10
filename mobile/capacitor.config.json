@@ -19,10 +19,11 @@
     },
     "StatusBar": {
       "style": "DARK",
-      "backgroundColor": "#0a0a0a"
+      "backgroundColor": "#0a0a0a",
+      "overlaysWebView": false
     },
     "Keyboard": {
-      "resize": "body",
+      "resize": "native",
       "style": "DARK",
       "resizeOnFullScreen": true
     },
@@ -30,8 +31,8 @@
       "presentationOptions": ["badge", "sound", "alert"]
     },
     "LocalNotifications": {
-      "smallIcon": "ic_stat_icon_config_sample",
-      "iconColor": "#e2b714"
+      "smallIcon": "ic_stat_serika",
+      "iconColor": "#8B5CF6"
     }
   },
   "ios": {

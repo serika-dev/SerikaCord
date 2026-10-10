@@ -1881,6 +1881,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onEdit={chat.actions.startEditing}
         onDelete={chat.actions.setDeleteConfirmMessage}
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
+        onToggleReaction={(message, emoji, hasReacted) => chat.actions.toggleReaction(message.id, emoji, hasReacted)}
+        currentUserId={user?.id}
       />
 
       <MountWhenOpened open={bridgeConsentOpen}>

@@ -85,6 +85,10 @@ export const rateLimiters_config = {
 
   // Bug reports
   bugReport: { points: 5, duration: 600 }, // 5 bug reports / feedback every 10 minutes
+
+  // Mobile push device registration / app foreground-background state, per user
+  pushDevice: { points: 30, duration: 600 },
+  pushState: { points: 120, duration: 600 },
 } as const;
 
 export async function checkRateLimit(

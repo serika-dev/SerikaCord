@@ -158,6 +158,18 @@ function publishMembership(roomId: string, action: 'join' | 'leave', data: objec
 // room's SSE, which the callee hasn't opened yet).
 function notifyCall(userIds: string[], payload: Record<string, unknown>) {
   void fanoutToUsers({ userIds }, payload).catch(() => {});
+  // Phones not in the app: native incoming-call notification (no-op without FCM).
+  if (payload.type === 'call_ring' || payload.type === 'call_cancel') {
+    void import('@/lib/services/pushNotifications')
+      .then((m) => {
+        if (payload.type === 'call_ring') {
+          m.pushCallRing(userIds, payload as Parameters<typeof m.pushCallRing>[1]);
+        } else {
+          m.pushCallCancel(userIds, String(payload.roomId ?? ''));
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 // Group calls: who is being rung for each room (so the ring can be stopped

@@ -4,6 +4,7 @@ import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
 import { upsertSavedAccount } from "@/lib/services/savedAccounts";
 import { clearMessageCache } from "@/hooks/useChatSession";
+import { unregisterPush } from "@/lib/native/push";
 import { shouldPromoteToOnline, toClientStatus, toServerStatus } from "@/lib/presenceChoice";
 import type { BuiltinBadgeId } from "@/lib/constants/badges";
 import { isDesktopShell } from "@/lib/desktop/bridge";
@@ -285,6 +286,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await fetch("/api/users/me/presence/disconnect", { method: "POST", keepalive: true });
     } catch {}
+    // Mobile app: stop pushes to this phone for the account signing out.
+    try { await unregisterPush(); } catch {}
     try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
     clearMessageCache();
     setUser(null);

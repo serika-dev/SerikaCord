@@ -26,6 +26,7 @@ import { developerRoutes, oauth2Routes } from './developers';
 import { botApiRoutes } from './botApi';
 import { socialSdkRoutes } from './social-sdk';
 import { mcpRoutes } from './mcp';
+import { pushRoutes } from './push';
 import { ensureSerikaBroadcastUser } from '@/lib/services/serikaBroadcast';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { getMoeActivity } from '@/lib/services/moeActivity';
@@ -3828,6 +3829,7 @@ export const api = new Elysia({ prefix: '/api' })
   })
   .use(authRoutes)
   .use(internalRoutes)
+  .use(pushRoutes)
   .use(userRoutes)
   .use(bugReportRoutes)
   .use(notificationsRoutes)
@@ -3881,6 +3883,10 @@ export async function initializeAPI() {
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();
+    // Mobile push device tokens table. Idempotent, never throws; not awaited
+    // (every push path awaits it itself) so it can never delay startup.
+    const { ensurePushSchema } = await import('@/lib/services/pushNotifications');
+    void ensurePushSchema();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

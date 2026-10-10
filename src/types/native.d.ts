@@ -31,6 +31,18 @@ interface ElectronAPI {
 interface CapacitorGlobal {
   isNativePlatform: () => boolean;
   getPlatform: () => string;
+  /** Plugin proxies (present when @capacitor/core registered them). */
+  Plugins?: Record<string, Record<string, unknown> | undefined>;
+  /** Native plugins the shell exposes (injected by the native bridge). */
+  PluginHeaders?: Array<{ name: string; methods?: Array<{ name: string; rtype?: string }> }>;
+  /** Raw bridge calls, available even without @capacitor/core on the page. */
+  nativePromise?: (plugin: string, method: string, options?: unknown) => Promise<unknown>;
+  nativeCallback?: (
+    plugin: string,
+    method: string,
+    options: unknown,
+    callback: (result: unknown, error?: unknown) => void,
+  ) => string;
 }
 
 interface TauriCore {

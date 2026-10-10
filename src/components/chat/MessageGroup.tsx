@@ -1,9 +1,9 @@
 "use client";
 
 import { Fragment, memo, useMemo } from "react";
-import { Pencil, Pin, Reply, Smile, Trash2, Clock } from "lucide-react";
+import { Pin, Reply, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { SwipeableRow, type SwipeAction } from "@/components/ui/swipe-actions";
+import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { LinkEmbed } from "@/components/chat/LinkEmbed";
 import { RichEmbed } from "@/components/chat/RichEmbed";
@@ -40,7 +40,7 @@ export interface MessageGroupProps<M extends ChatMessage> {
   canPin?: boolean;
   serverId?: string;
   serverName?: string;
-  /** Enables swipe actions on the entire row (mobile). */
+  /** Touch gestures (mobile): swipe left to reply, long-press for the action sheet. */
   swipeEnabled?: boolean;
   mentionUsers?: MentionUser[];
   mentionRoles?: MentionRole[];
@@ -170,41 +170,9 @@ function MessageGroupInner<M extends ChatMessage>({
     return map;
   }, [mergedMentionUsers, group.messages]);
 
-  const buildSwipeActions = (message: M): SwipeAction[] => {
-    if (!swipeEnabled) return [];
-    const actions: SwipeAction[] = [
-      {
-        label: gt("Reply"),
-        icon: <Reply className="w-5 h-5" />,
-        onAction: () => onReply(message),
-        className: "bg-[#8B5CF6]",
-      },
-      {
-        label: gt("React"),
-        icon: <Smile className="w-5 h-5" />,
-        onAction: () => onOpenReactionPicker(message.id),
-        className: "bg-[#6366f1]",
-      },
-    ];
-    const isOwnMessage = message.authorId === currentUserId;
-    if (isOwnMessage) {
-      actions.push({
-        label: gt("Edit"),
-        icon: <Pencil className="w-5 h-5" />,
-        onAction: () => onEdit(message),
-        className: "bg-[#3b82f6]",
-      });
-    }
-    if (isOwnMessage || canModerate) {
-      actions.push({
-        label: gt("Delete"),
-        icon: <Trash2 className="w-5 h-5" />,
-        onAction: () => onDelete(message),
-        className: "bg-red-500",
-      });
-    }
-    return actions;
-  };
+  // Long-press (touch) opens the same menu as right-click: the action sheet on phones.
+  const openMenuAt = (message: M) => (x: number, y: number) =>
+    onContextMenu({ preventDefault() {}, clientX: x, clientY: y } as unknown as React.MouseEvent, message);
 
   return (
     <div className="chat-message-row group py-0.5">
@@ -231,7 +199,12 @@ function MessageGroupInner<M extends ChatMessage>({
                 </span>
               </div>
             )}
-          <SwipeableRow actions={buildSwipeActions(message)} className="hover:z-40">
+          <SwipeReplyRow
+            disabled={!swipeEnabled || isEditing}
+            onReply={() => onReply(message)}
+            onLongPress={swipeEnabled ? openMenuAt(message) : undefined}
+            className="hover:z-40"
+          >
             <div
               id={`message-${message.id}`}
               className={cn("flex gap-4 relative group/message hover:bg-[var(--app-surface-alt)]/80 rounded transition-colors -mx-1 px-1 hover:z-50", message.pending && "opacity-60", message.ephemeral && "chat-ephemeral")}
@@ -400,7 +373,7 @@ function MessageGroupInner<M extends ChatMessage>({
                 )}
               </div>
             </div>
-          </SwipeableRow>
+          </SwipeReplyRow>
           </Fragment>
         );
       })}

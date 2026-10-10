@@ -3,15 +3,12 @@
  * Handles notifications across all platforms:
  * - Desktop: Electron native notifications OR browser Notification API
  * - Web: Service Worker notifications + Notification API
- * - Mobile (Capacitor): LocalNotifications plugin
- * 
- * This is a fully local system that relies on the website's SSE connection
- * for real-time updates - no Firebase or external push services required.
+ * - Mobile (Capacitor): LocalNotifications plugin while the app is running;
+ *   server pushes (FCM, src/lib/native/push.ts) cover it when it isn't.
  */
 
-// Types are declared in src/types/native.d.ts
-// Capacitor imports are dynamically loaded and only available in mobile builds
-/* eslint-disable @typescript-eslint/ban-ts-comment */
+import { addNativeListener, callNative, hasNativePlugin } from '@/lib/native/bridge';
+import { nativeAppState } from '@/lib/native/push';
 
 import { closeDesktopNotification, isDesktopShell, showDesktopNotification } from '@/lib/desktop/bridge';
 
@@ -100,28 +97,18 @@ export async function requestNotificationPermission(): Promise<boolean> {
 
     // Capacitor mobile - check LocalNotifications permission
     if (isMobileApp()) {
-        try {
-            // Dynamically import to avoid bundling issues
-            // @ts-ignore - Capacitor modules only available in mobile build
-            const { LocalNotifications } = await import(/* webpackIgnore: true */ '@capacitor/local-notifications');
-            const result = await LocalNotifications.checkPermissions();
-
-            if (result.display === 'granted') {
-                notificationPermission = 'granted';
-                return true;
-            }
-
-            if (result.display === 'prompt' || result.display === 'prompt-with-rationale') {
-                const requested = await LocalNotifications.requestPermissions();
-                notificationPermission = requested.display === 'granted' ? 'granted' : null;
-                return requested.display === 'granted';
-            }
-
-            return false;
-        } catch (error) {
-            console.error('Failed to check mobile notification permissions:', error);
-            return false;
+        if (!hasNativePlugin('LocalNotifications')) return false;
+        const result = await callNative<{ display?: string }>('LocalNotifications', 'checkPermissions');
+        if (result?.display === 'granted') {
+            notificationPermission = 'granted';
+            return true;
         }
+        if (result?.display === 'prompt' || result?.display === 'prompt-with-rationale') {
+            const requested = await callNative<{ display?: string }>('LocalNotifications', 'requestPermissions');
+            notificationPermission = requested?.display === 'granted' ? 'granted' : null;
+            return requested?.display === 'granted';
+        }
+        return false;
     }
 
     // Web browser
@@ -152,6 +139,8 @@ const openNotifications = new Map<string, Notification>();
  */
 export async function closeNotification(tag: string): Promise<void> {
     closeDesktopNotification(tag);
+    // Native app: drop delivered pushes / local notifications for it too.
+    if (isMobileApp()) void callNative('SerikaNative', 'clearNotifications', { tag });
     openNotifications.get(tag)?.close();
     openNotifications.delete(tag);
     // Messages to the worker are handled in order, so this also closes a
@@ -207,24 +196,24 @@ export async function showNotification(
 
     // Capacitor Mobile: Use LocalNotifications
     if (isMobileApp()) {
-        try {
-            // @ts-ignore - Capacitor modules only available in mobile build
-            const { LocalNotifications } = await import(/* webpackIgnore: true */ '@capacitor/local-notifications');
-
-            await LocalNotifications.schedule({
-                notifications: [{
-                    title,
-                    body,
-                    id: Date.now(),
-                    extra: options.data || {},
-                    smallIcon: 'ic_notification',
-                    iconColor: '#8B5CF6',
-                }],
-            });
-            return;
-        } catch (error) {
-            console.error('Failed to show mobile notification:', error);
-        }
+        // In the background the server push already notifies this phone.
+        if (nativeAppState.background && nativeAppState.pushActive) return;
+        if (!hasNativePlugin('LocalNotifications')) return;
+        await callNative('LocalNotifications', 'schedule', {
+            notifications: [{
+                title,
+                body,
+                // Java int; stays unique enough within a session.
+                id: Math.floor(Date.now() % 2_000_000_000),
+                extra: { ...(options.data || {}), tag: options.tag },
+                group: options.tag,
+                // Channel created by newer APKs (MainActivity); older ones use the default.
+                ...(hasNativePlugin('SerikaNative') ? { channelId: 'messages' } : {}),
+                smallIcon: 'ic_stat_serika',
+                iconColor: '#8B5CF6',
+            }],
+        });
+        return;
     }
 
     // Web: nothing can be shown without permission (the service worker would
@@ -535,31 +524,14 @@ export async function initNotificationService(): Promise<void> {
 
     // Setup Capacitor LocalNotification listeners for mobile
     if (isMobileApp()) {
-        try {
-            // @ts-ignore - Capacitor modules only available in mobile build
-            const { LocalNotifications } = await import(/* webpackIgnore: true */ '@capacitor/local-notifications');
-
-            // Handle notification tap
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            LocalNotifications.addListener('localNotificationActionPerformed', (notification: any) => {
-                const data = notification.notification.extra || {};
-
-                // Navigate based on notification data
-                if (data.channelId && data.serverId) {
-                    window.location.href = `/channels/${data.serverId}/${data.channelId}`;
-                } else if (data.channelId && data.isDM) {
-                    if (data.recipientId) {
-                        window.location.href = `/dm/${data.recipientId}`;
-                    } else {
-                        window.location.href = '/channels/messages';
-                    }
-                } else if (data.type === 'friend-request') {
-                    window.location.href = '/channels/me';
-                }
-            });
-        } catch (error) {
-            console.error('Failed to setup mobile notification listeners:', error);
-        }
+        addNativeListener('LocalNotifications', 'localNotificationActionPerformed', (event) => {
+            const data = ((event as { notification?: { extra?: Record<string, unknown> } })?.notification?.extra || {}) as Record<string, unknown>;
+            // Navigate in-app (no reload) based on notification data.
+            if (typeof data.url === 'string') navigateInApp(data.url);
+            else if (data.channelId && data.serverId) navigateInApp(`/channels/${data.serverId}/${data.channelId}`);
+            else if (data.channelId && data.isDM) navigateInApp(data.recipientId ? `/dm/${data.recipientId}` : '/channels/messages');
+            else if (data.type === 'friend-request') navigateInApp('/channels/me');
+        });
     }
 }
 

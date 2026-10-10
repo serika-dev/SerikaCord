@@ -4,6 +4,7 @@ import { useEffect, useCallback, useState } from "react";
 import { X, ZoomIn, ZoomOut, Download, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { useBackHandler } from "@/hooks/useBackHandler";
 
 interface ImageLightboxItem {
   src: string;
@@ -48,6 +49,9 @@ export function ImageLightbox({
     : 0;
   const currentItem = galleryItems[resolvedIndex];
   const canNavigate = galleryItems.length > 1 && Boolean(onNavigate);
+
+  // Android back closes the viewer instead of leaving the conversation.
+  useBackHandler(isOpen, onClose);
 
   const resetView = useCallback(() => {
     setScale(1);
@@ -156,6 +160,7 @@ export function ImageLightbox({
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 animate-in fade-in duration-200"
       onClick={onClose}
+      data-no-swipe=""
     >
       {canNavigate && (
         <>

@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
+import { canShare, shareLink } from "@/lib/native/bridge";
 import { Loader } from "@/components/ui/Loader";
 
 interface InviteDialogProps {
@@ -173,20 +174,14 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
 
   const handleShare = async () => {
     const inviteUrl = `https://serika.cc/${effectiveCode}`;
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: gt("Join {server} on SerikaCord", { server: activeServer?.name || "" }),
-          text: gt("Come chat with us on SerikaCord!"),
-          url: inviteUrl,
-        });
-        toast.success(gt("Shared!"));
-      } catch {
-        // User cancelled or share failed
-      }
-    } else {
-      handleCopy();
-    }
+    // Native share sheet in the mobile app, Web Share in browsers that have it.
+    const shared = await shareLink({
+      title: gt("Join {server} on SerikaCord", { server: activeServer?.name || "" }),
+      text: gt("Come chat with us on SerikaCord!"),
+      url: inviteUrl,
+      dialogTitle: gt("Share Invite Link"),
+    });
+    if (!shared) handleCopy();
   };
 
   // Handle escape key
@@ -327,7 +322,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           </div>
 
           {/* Share Button (Mobile) */}
-          {"share" in navigator && (
+          {canShare() && (
             <button
               onClick={handleShare}
               className="w-full py-2.5 rounded-md bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium transition-colors flex items-center justify-center gap-2"

@@ -4,4 +4,14 @@
     <string name="title_activity_main">SerikaCord</string>
     <string name="package_name">dev.serika.serikacord</string>
     <string name="custom_url_scheme">dev.serika.serikacord</string>
+
+    <!-- Notifications -->
+    <string name="channel_messages_name">Messages</string>
+    <string name="channel_messages_description">Direct messages and mentions</string>
+    <string name="channel_calls_name">Calls</string>
+    <string name="channel_calls_description">Incoming voice and video calls</string>
+    <string name="incoming_voice_call">Incoming voice call</string>
+    <string name="incoming_video_call">Incoming video call</string>
+    <string name="call_answer">Answer</string>
+    <string name="call_decline">Decline</string>
 </resources>

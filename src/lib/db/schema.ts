@@ -897,6 +897,21 @@ export const userNotificationSettings = pgTable('user_notification_settings', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+// Mobile push devices (FCM registration tokens from the Capacitor app). One
+// row per token; a token that signs in as someone else moves to that user.
+// Added at boot by ensurePushSchema() (mirrors drizzle/manual_push_devices.sql).
+export const pushDevices = pgTable('push_devices', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  token: text('token').notNull(),
+  platform: text('platform').notNull().default('android'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  tokenUnique: uniqueIndex('push_devices_token_unique').on(t.token),
+  userIdx: index('push_devices_user_id_idx').on(t.userId),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
 export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;

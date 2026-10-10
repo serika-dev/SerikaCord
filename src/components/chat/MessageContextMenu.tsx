@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import type { MessageContextMenuState } from "@/hooks/useMessageActions";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MessageActionSheet } from "@/components/chat/MessageActionSheet";
 
 interface MessageContextMenuProps<M extends ChatMessage> {
   menu: MessageContextMenuState<M> | null;
@@ -23,11 +25,14 @@ interface MessageContextMenuProps<M extends ChatMessage> {
   onDelete: (message: M) => void;
   /** Instant delete without a confirm prompt (Shift+Delete). */
   onDeleteNow?: (message: M) => void;
+  /** Phones: quick-reaction row in the long-press sheet. */
+  onToggleReaction?: (message: M, emoji: string, hasReacted: boolean) => void;
+  currentUserId?: string;
 }
 
 const itemClass = "ctx-item";
 
-/** Fixed-position right-click menu for a message. */
+/** Right-click menu for a message; a bottom action sheet on phones (long-press). */
 export function MessageContextMenu<M extends ChatMessage>({
   menu,
   isOwn,
@@ -41,13 +46,16 @@ export function MessageContextMenu<M extends ChatMessage>({
   onEdit,
   onDelete,
   onDeleteNow,
+  onToggleReaction,
+  currentUserId,
 }: MessageContextMenuProps<M>) {
   const gt = useGT();
+  const isMobile = useIsMobile();
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
-    if (!menu || !menuRef.current) return;
+    if (!menu || !menuRef.current || isMobile) return;
 
     const el = menuRef.current;
     const rect = el.getBoundingClientRect();
@@ -81,7 +89,7 @@ export function MessageContextMenu<M extends ChatMessage>({
     }
 
     setPos({ left, top });
-  }, [menu]);
+  }, [menu, isMobile]);
 
   // Close on Escape
   useEffect(() => {
@@ -106,6 +114,26 @@ export function MessageContextMenu<M extends ChatMessage>({
     action();
     onClose();
   };
+
+  if (isMobile) {
+    return (
+      <MessageActionSheet
+        message={message}
+        own={own}
+        canDelete={canDelete}
+        canPin={canPin}
+        currentUserId={currentUserId}
+        onClose={onClose}
+        onReply={onReply}
+        onAddReaction={onAddReaction}
+        onToggleReaction={onToggleReaction}
+        onCopy={onCopy}
+        onPinToggle={onPinToggle}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
+    );
+  }
 
   return (
     <div

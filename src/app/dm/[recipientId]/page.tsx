@@ -40,6 +40,7 @@ import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { SwipeNav } from "@/components/mobile/SwipeNav";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 
@@ -535,7 +536,11 @@ export default function DMConversationPage() {
   );
 
   return (
-    <div className="chat-shell flex-1 flex bg-[var(--bg-app)] animate-fade-in overflow-hidden">
+    <SwipeNav
+      enabled={isMobile}
+      onSwipeRight={() => router.push("/channels/messages")}
+      className="chat-shell flex-1 flex bg-[var(--bg-app)] animate-fade-in overflow-hidden"
+    >
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
@@ -786,6 +791,8 @@ export default function DMConversationPage() {
         onEdit={chat.actions.startEditing}
         onDelete={chat.actions.setDeleteConfirmMessage}
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
+        onToggleReaction={(message, emoji, hasReacted) => chat.actions.toggleReaction(message.id, emoji, hasReacted)}
+        currentUserId={user.id}
       />
 
       <ImageLightbox
@@ -795,6 +802,6 @@ export default function DMConversationPage() {
         onNavigate={lightbox.standaloneMedia ? undefined : lightbox.setLightboxIndex}
         onClose={lightbox.closeMediaViewer}
       />
-    </div>
+    </SwipeNav>
   );
 }

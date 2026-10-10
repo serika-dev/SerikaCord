@@ -15,6 +15,8 @@ import { useUnread, type DmSeed } from "@/contexts/UnreadContext";
 import { notificationPreview } from "@/lib/notifications/notify";
 import { groupDmHref } from "@/lib/chat/groupDm";
 import { groupDisplayName } from "@/lib/chat/dmCall";
+import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { PullIndicator } from "@/components/mobile/PullIndicator";
 
 interface Message {
   id: string;
@@ -49,8 +51,6 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const pullStartY = useRef(0);
-  const [pullDistance, setPullDistance] = useState(0);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -155,7 +155,6 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
-      setPullDistance(0);
     }
   }, [formatTimestamp, registerChannels, seedDmChannels]);
 
@@ -210,30 +209,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     setIsRefreshing(true);
     await fetchMessages();
   }, [fetchMessages, isRefreshing]);
-
-  // Pull to refresh handlers
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (scrollContainerRef.current?.scrollTop === 0) {
-      pullStartY.current = e.touches[0].clientY;
-    }
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (scrollContainerRef.current?.scrollTop !== 0) return;
-    const currentY = e.touches[0].clientY;
-    const diff = currentY - pullStartY.current;
-    
-    if (diff > 0 && diff < 150) {
-      setPullDistance(diff);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (pullDistance > 80) {
-      handleRefresh();
-    }
-    setPullDistance(0);
-  };
+  const { pullDistance, pullHandlers } = usePullToRefresh(scrollContainerRef, handleRefresh);
 
   const statusColors: Record<string, string> = {
     online: "#22c55e",
@@ -261,24 +237,6 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
-      {/* Pull to refresh indicator */}
-      <div 
-        className={cn(
-          "absolute left-0 right-0 top-0 flex items-center justify-center transition-all duration-200 z-20",
-          pullDistance > 0 ? "opacity-100" : "opacity-0"
-        )}
-        style={{ height: pullDistance, paddingTop: Math.max(0, pullDistance - 40) }}
-      >
-        <RefreshCw 
-          className={cn(
-            "w-6 h-6 text-[var(--app-accent)] transition-transform",
-            isRefreshing && "animate-spin",
-            pullDistance > 80 && "scale-110"
-          )}
-          style={{ transform: `rotate(${pullDistance * 2}deg)` }}
-        />
-      </div>
-
       {/* Header */}
       <div className="flex flex-col px-5 bg-[var(--bg-app)] sticky top-0 z-10 pt-safe">
         <div className="flex items-center justify-between pt-4 pb-3">
@@ -401,10 +359,9 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       <div 
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overscroll-contain"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
+        {...pullHandlers}
       >
+        <PullIndicator distance={pullDistance} refreshing={isRefreshing} />
         <div className="px-3 pb-28 pt-2">
           {isLoading ? (
             <div className="space-y-3 p-2">

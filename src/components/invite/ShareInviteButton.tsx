@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Share2, Copy, Check,  User, Hash, ChevronLeft } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { canShare, shareLink } from "@/lib/native/bridge";
 import { Loader } from "@/components/ui/Loader";
 
 interface ShareInviteButtonProps {
@@ -255,10 +256,10 @@ export function ShareInviteButton({
                   {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                 </button>
               </div>
-              {navigator.share && (
+              {canShare() && (
                 <button
                   onClick={() => {
-                    void navigator.share({ title: `Join ${serverName} on SerikaCord`, url: inviteUrl });
+                    void shareLink({ title: gt("Join {server} on SerikaCord", { server: serverName || "" }), url: inviteUrl });
                   }}
                   className="w-full py-2 rounded-lg bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-sm text-[var(--text-primary)] transition-colors"
                 >

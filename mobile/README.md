@@ -81,9 +81,36 @@ The app supports `serikacord://` deep links:
 - `serikacord://channels/{serverId}/{channelId}` - Open a specific channel
 
 ### Push Notifications
-1. Set up Firebase Cloud Messaging for Android
-2. Set up APNs for iOS
-3. Add the google-services.json (Android) and GoogleService-Info.plist (iOS) files
+Pushes go out for DMs, mentions and incoming calls when the user isn't using
+the app (no open activity stream / recent heartbeat, or the phone app reported
+it went to the background). Everything is skipped gracefully until both halves
+below are configured; the app then still shows local notifications while open.
+
+1. **App (Android)**: in the Firebase console add an Android app with package
+   `dev.serika.serikacord`, download `google-services.json` and put it at
+   `mobile/android/app/google-services.json`, then rebuild the APK. Without
+   it the app never registers for push (it checks before registering, so it
+   can't crash).
+2. **Server**: Firebase console → Project settings → Service accounts →
+   Generate new private key. Put the JSON (one line, or base64) in
+   `FCM_SERVICE_ACCOUNT_JSON` in the server `.env` and restart.
+3. Device tokens are stored in `push_devices` (created at boot, or apply
+   `drizzle/manual_push_devices.sql`).
+4. iOS (not in this repo yet): APNs key in Firebase + `GoogleService-Info.plist`.
+
+### Native integration (Android)
+`MainActivity` registers an app-local plugin, `SerikaNative`
+(`android/app/src/main/java/dev/serika/serikacord/SerikaNativePlugin.java`),
+that the hosted web app feature-detects:
+
+- status / navigation bar colours follow the app theme
+- safe-area and keyboard insets are measured natively and exposed to CSS as
+  `--native-inset-*` (works edge to edge on Android 15+)
+- notification channels (`messages`, `calls`) and a full-screen incoming-call
+  notification (`CallMessagingService` replaces the push plugin's FCM service)
+- tapped notifications open the right conversation
+- the Android back button closes sheets/dialogs, walks back up the screens,
+  then minimizes the app
 
 ## Features
 
