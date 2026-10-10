@@ -1500,6 +1500,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       if (m.author?.id !== user.id) continue;
       // Skip optimistic (not-yet-persisted) messages
       if (m.pending || m.id.startsWith("temp-")) continue;
+      // Polls and forwards have no text of their own to edit.
+      if (m.poll || m.forward || m.type === "poll_result") continue;
       chat.actions.startEditing(m);
       messageListRef.current?.scrollToMessage(m.id);
       return true;
@@ -2077,6 +2079,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         onMentionSelect={insertMentionFromSuggestion}
         activeMentionIndex={activeMentionIndex}
         channelId={currentChannel?.id}
+        pollApiBase={currentChannel ? `/api/channels/${currentChannel.id}` : undefined}
         draftKey={currentChannel ? `channel:${currentChannel.id}` : undefined}
       />
 

@@ -372,6 +372,8 @@ export default function DMConversationPage() {
       const m = chat.messages[i];
       if (m.author?.id !== user.id) continue;
       if (m.pending || m.id.startsWith("temp-")) continue;
+      // Polls and forwards have no text of their own to edit.
+      if (m.poll || m.forward || m.type === "poll_result") continue;
       chat.actions.startEditing(m);
       messageListRef.current?.scrollToMessage(m.id);
       return true;
@@ -721,6 +723,7 @@ export default function DMConversationPage() {
               availableServerStickers={availableServerStickers}
               replyTo={chat.actions.replyToMessage}
               onCancelReply={() => chat.actions.setReplyToMessage(null)}
+              pollApiBase={apiBase ?? undefined}
               draftKey={recipientId ? `dm:${recipientId}` : undefined}
             />
           )}

@@ -10,7 +10,7 @@ import { useMessageActions } from "@/hooks/useMessageActions";
 import {
   applyThreadUpdate,
   groupMessages,
-  isStandaloneRow,
+  isComposerlessMessage,
   normalizeIncomingMessage,
   type EmojiLookupEntry,
   type RawMessagePayload,
@@ -19,6 +19,7 @@ import { buildGalleryFromMessages } from "@/lib/chat/media";
 import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 import { parseCallData } from "@/lib/voice/callMessage";
+import { applyPollUpdate, type PollUpdateEvent } from "@/lib/chat/polls";
 import { haptic } from "@/lib/native/bridge";
 
 const PAGE_SIZE = 50;
@@ -724,9 +725,9 @@ export function useChatSession<M extends ChatMessage>({
         // not replace their pending bubble or skip the incoming-message path.
         const isOwnMessage = !incoming.webhookId
           && (incoming.authorId === user?.id || incoming.author?.id === user?.id);
-        // A call log row is posted by the server, never by the composer: it
-        // must not stand in for a pending bubble.
-        const isCallRow = isStandaloneRow(incoming);
+        // A call log row, poll result, poll or forward is never a composer
+        // send: it must not stand in for a pending bubble.
+        const isCallRow = isComposerlessMessage(incoming);
         // Their message landed: they're no longer "typing".
         if (incoming.author?.username) clearTypingUser(incoming.author.username);
 
@@ -805,6 +806,16 @@ export function useChatSession<M extends ChatMessage>({
         if (!call) return;
         setMessages((prev) =>
           prev.map((m) => (m.id === data.messageId ? { ...m, call } : m))
+        );
+        return;
+      }
+
+      if (data.type === "poll_update") {
+        // Votes changed or the poll closed: new tallies (and our own selection
+        // when the vote was ours, from another tab or device).
+        const update = data as unknown as PollUpdateEvent;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === update.messageId && m.poll ? { ...m, poll: applyPollUpdate(m.poll, update, user?.id) } : m))
         );
         return;
       }

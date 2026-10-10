@@ -374,7 +374,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return NOT_FOUND;
     }
-    return { messages: await loadDmMessagesPage(channel.id, query, cursorMsg), channelId: channel.id };
+    return { messages: await loadDmMessagesPage(channel.id, query, cursorMsg, user.id), channelId: channel.id };
   }, { params: t.Object({ channelId: t.String() }) })
   .post('/:channelId/messages', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Cookie);

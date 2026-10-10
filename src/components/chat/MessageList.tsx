@@ -32,6 +32,7 @@ import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
 import { GroupSystemRow } from "@/components/chat/GroupSystemRow";
 import { ThreadSystemRow } from "@/components/chat/ThreadRows";
+import { PollResultRow } from "@/components/chat/PollResultRow";
 import { isGroupDmEventType } from "@/lib/chat/groupDm";
 import type { CallGroup } from "@/lib/chat/dmCall";
 import { MessageSkeleton } from "@/components/ui/skeleton";
@@ -793,6 +794,13 @@ function MessageListInner<M extends ChatMessage>(
                   formattedTimestamp={formattedTimestamps[idx]}
                   onOpenThread={onOpenThread}
                   onSeeAllThreads={onSeeAllThreads}
+                />
+                ) : group.messages[0].type === "poll_result" ? (
+                <PollResultRow
+                  message={group.messages[0]}
+                  currentUserId={currentUserId}
+                  formattedTimestamp={formattedTimestamps[idx]}
+                  onJumpToMessage={jumpToMessage}
                 />
                 ) : isGroupDmEventType(group.messages[0].type) ? (
                 <GroupSystemRow

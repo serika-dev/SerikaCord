@@ -1,5 +1,7 @@
 import { getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
+import { toDiscordPoll, type PollResultData, type StoredPoll } from '@/lib/chat/polls';
+import type { ForwardView } from '@/lib/chat/forward';
 
 /**
  * Central bus that feeds the standalone bot Gateway (scripts/gateway.ts).
@@ -19,6 +21,8 @@ export const Intents = {
   GUILD_MESSAGES: 1 << 9,
   DIRECT_MESSAGES: 1 << 12,
   MESSAGE_CONTENT: 1 << 15,
+  GUILD_MESSAGE_POLLS: 1 << 24,
+  DIRECT_MESSAGE_POLLS: 1 << 25,
 } as const;
 
 export interface GatewayDispatch {
@@ -76,7 +80,13 @@ interface InternalMessage {
     author?: { id: string; username?: string; displayName?: string; avatar?: string | null };
     createdAt?: Date | string;
   };
+  poll?: StoredPoll | null;
+  pollResult?: PollResultData | null;
+  forward?: ForwardView | null;
 }
+
+/** Discord message type numbers for our string types. */
+const MESSAGE_TYPE_NUMBERS: Record<string, number> = { default: 0, reply: 19, call: 3, poll_result: 46 };
 
 function iso(d?: Date | string | null): string | null {
   if (!d) return null;
@@ -123,8 +133,39 @@ export function toDiscordMessage(m: InternalMessage) {
     embeds: [],
     reactions: m.reactions ?? [],
     pinned: m.pinned ?? false,
-    type: typeof m.type === 'number' ? m.type : 0,
+    type: typeof m.type === 'number' ? m.type : (MESSAGE_TYPE_NUMBERS[String(m.type)] ?? 0),
     flags: 0,
+    ...(m.poll ? { poll: toDiscordPoll(m.poll) } : {}),
+    ...(m.pollResult ? {
+      embeds: [{
+        type: 'poll_result',
+        fields: [
+          { name: 'poll_question_text', value: m.pollResult.question, inline: false },
+          { name: 'total_votes', value: String(m.pollResult.totalVotes), inline: false },
+          ...(m.pollResult.winnerIds.length === 1 ? (() => {
+            const w = m.pollResult!.answers.find((a) => a.id === m.pollResult!.winnerIds[0]);
+            return w ? [
+              { name: 'victor_answer_id', value: String(w.id), inline: false },
+              { name: 'victor_answer_text', value: w.text, inline: false },
+              { name: 'victor_answer_votes', value: String(w.votes), inline: false },
+            ] : [];
+          })() : []),
+        ],
+      }],
+    } : {}),
+    ...(m.forward ? {
+      message_snapshots: [{
+        message: {
+          content: m.forward.content,
+          attachments: m.forward.attachments,
+          embeds: m.forward.embeds,
+          timestamp: m.forward.createdAt,
+          edited_timestamp: null,
+          type: 0,
+          flags: 0,
+        },
+      }],
+    } : {}),
     referenced_message: m.referencedMessage
       ? {
           id: m.referencedMessage.id,
@@ -134,9 +175,11 @@ export function toDiscordMessage(m: InternalMessage) {
           timestamp: iso(m.referencedMessage.createdAt),
         }
       : null,
-    message_reference: m.referencedMessageId
-      ? { message_id: m.referencedMessageId, channel_id: m.channelId, guild_id: m.serverId ?? undefined }
-      : undefined,
+    message_reference: m.forward
+      ? { type: 1, message_id: m.forward.messageId, channel_id: m.forward.channelId }
+      : m.referencedMessageId
+        ? { type: 0, message_id: m.referencedMessageId, channel_id: m.channelId, guild_id: m.serverId ?? undefined }
+        : undefined,
   };
 }
 
@@ -160,6 +203,30 @@ export function emitMessageUpdate(message: InternalMessage) {
     intent: isDM ? Intents.DIRECT_MESSAGES : Intents.GUILD_MESSAGES,
     d: toDiscordMessage(message),
   });
+}
+
+/**
+ * MESSAGE_POLL_VOTE_ADD / _REMOVE for each answer a vote change added or
+ * removed, like Discord (one event per answer).
+ */
+export async function emitPollVoteChanges(opts: {
+  userId: string;
+  channelId: string;
+  guildId: string | null;
+  messageId: string;
+  previous: number[];
+  next: number[];
+}) {
+  const before = new Set(opts.previous);
+  const after = new Set(opts.next);
+  const intent = opts.guildId ? Intents.GUILD_MESSAGE_POLLS : Intents.DIRECT_MESSAGE_POLLS;
+  const base = { user_id: opts.userId, channel_id: opts.channelId, message_id: opts.messageId, ...(opts.guildId ? { guild_id: opts.guildId } : {}) };
+  for (const id of after) {
+    if (!before.has(id)) await publish({ t: 'MESSAGE_POLL_VOTE_ADD', guildId: opts.guildId, intent, d: { ...base, answer_id: id } });
+  }
+  for (const id of before) {
+    if (!after.has(id)) await publish({ t: 'MESSAGE_POLL_VOTE_REMOVE', guildId: opts.guildId, intent, d: { ...base, answer_id: id } });
+  }
 }
 
 export function emitMessageDelete(opts: { id: string; channelId: string; guildId?: string | null }) {

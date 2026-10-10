@@ -47,9 +47,9 @@ export function normalizeIncomingMessage<M extends ChatMessage>(raw: RawMessageP
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
-/** Rows drawn as a one-line notice instead of a message bubble. */
+/** Rows drawn as a one-line notice instead of a message bubble (calls, poll results, group events). */
 export function isStandaloneRow(message: Pick<ChatMessage, "type">): boolean {
-  return message.type === "call" || message.type === "thread_created" || isGroupDmEventType(message.type);
+  return message.type === "call" || message.type === "thread_created" || message.type === "poll_result" || isGroupDmEventType(message.type);
 }
 
 /**
@@ -101,8 +101,8 @@ export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGrou
 
     const lastGroup = groups[groups.length - 1];
     const lastMessage = lastGroup?.messages[lastGroup.messages.length - 1];
-    // Call log rows ("X started a call.") and group system rows ("X added Y")
-    // always stand alone.
+    // Call log rows ("X started a call."), poll results and group system rows
+    // ("X added Y") always stand alone.
     const isCallRow = isStandaloneRow(message) || (!!lastMessage && isStandaloneRow(lastMessage));
     const sameAuthor = !isCallRow && !!lastMessage && messageGroupKey(lastMessage) === messageGroupKey(message);
     const withinWindow =
@@ -237,4 +237,13 @@ export function decodeHtmlEntities(input: string): string {
     .replace(/&#x0*2f;|&#0*47;/gi, "/")
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&");
+}
+
+/**
+ * Messages the server posts for you without a composer send (call rows, poll
+ * results, polls and forwards made from dialogs). Their echo must never stand
+ * in for a pending optimistic bubble.
+ */
+export function isComposerlessMessage(message: Pick<ChatMessage, "type" | "poll" | "forward">): boolean {
+  return isStandaloneRow(message) || Boolean(message.poll) || Boolean(message.forward);
 }

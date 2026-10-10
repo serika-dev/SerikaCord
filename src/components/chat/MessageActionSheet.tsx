@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2 } from "lucide-react";
+import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2, CornerUpRight } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { canShare, haptic, shareLink } from "@/lib/native/bridge";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import type { ChatMessage } from "@/lib/chat/types";
+import { requestForward } from "@/lib/chat/forwardBus";
 
 /** Discord-style quick reactions at the top of the sheet. */
 export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"] as const;
@@ -24,6 +25,10 @@ export function hasReactedWith(message: ChatMessage, emoji: string, userId?: str
 interface MessageActionSheetProps<M extends ChatMessage> {
   message: M;
   own: boolean;
+  /** Own message with text of its own (not a poll or a forward). */
+  editable?: boolean;
+  /** Offer "Forward" (see isForwardable). */
+  forwardable?: boolean;
   canDelete: boolean;
   canPin: boolean;
   currentUserId?: string;
@@ -47,6 +52,8 @@ interface MessageActionSheetProps<M extends ChatMessage> {
 export function MessageActionSheet<M extends ChatMessage>({
   message,
   own,
+  editable = own,
+  forwardable = false,
   canDelete,
   canPin,
   currentUserId,
@@ -178,7 +185,12 @@ export function MessageActionSheet<M extends ChatMessage>({
               <MessagesSquare className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Create Thread")}
             </button>
           )}
-          {own && (
+          {forwardable && (
+            <button type="button" className={rowClass} onClick={run(() => requestForward(message))}>
+              <CornerUpRight className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Forward")}
+            </button>
+          )}
+          {editable && (
             <button type="button" className={rowClass} onClick={run(() => onEdit(message))}>
               <Pencil className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Edit Message")}
             </button>
@@ -192,13 +204,13 @@ export function MessageActionSheet<M extends ChatMessage>({
         </div>
 
         <div className="mx-3 mb-2 divide-y divide-[var(--app-border)] overflow-hidden rounded-xl bg-[var(--app-surface-alt)]">
-          {message.content && (
+          {(message.forward?.content || message.content) && (
             <button
               type="button"
               className={rowClass}
               onClick={run(() => {
                 haptic("light");
-                onCopy(message.content);
+                onCopy(message.forward?.content || message.content);
               })}
             >
               <Copy className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Copy Text")}

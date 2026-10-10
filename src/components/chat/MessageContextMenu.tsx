@@ -1,13 +1,15 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, useEffect } from "react";
-import { Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash } from "lucide-react";
+import { Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash, CornerUpRight } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import type { MessageContextMenuState } from "@/hooks/useMessageActions";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { MessageActionSheet } from "@/components/chat/MessageActionSheet";
+import { isForwardable } from "@/lib/chat/forward";
+import { requestForward } from "@/lib/chat/forwardBus";
 
 interface MessageContextMenuProps<M extends ChatMessage> {
   menu: MessageContextMenuState<M> | null;
@@ -121,6 +123,10 @@ export function MessageContextMenu<M extends ChatMessage>({
     onCreateThread && !threadId && !message.pending && !message.ephemeral && !message.id.startsWith("temp-")
       ? onCreateThread
       : undefined;
+  const forwardable = isForwardable(message);
+  // Polls and forwards have no text of their own to edit (like Discord).
+  const editable = own && !message.poll && !message.forward;
+  const copyText = message.forward?.content || message.content;
   const run = (action: () => void) => () => {
     action();
     onClose();
@@ -131,6 +137,8 @@ export function MessageContextMenu<M extends ChatMessage>({
       <MessageActionSheet
         message={message}
         own={own}
+        editable={editable}
+        forwardable={forwardable}
         canDelete={canDelete}
         canPin={canPin}
         currentUserId={currentUserId}
@@ -157,6 +165,11 @@ export function MessageContextMenu<M extends ChatMessage>({
       <button onClick={run(() => onReply(message))} className={itemClass}>
         <Reply className="w-4 h-4" /> {gt("Reply")}
       </button>
+      {forwardable && (
+        <button onClick={run(() => requestForward(message))} className={itemClass}>
+          <CornerUpRight className="w-4 h-4" /> {gt("Forward")}
+        </button>
+      )}
       {onAddReaction && (
         <button onClick={run(() => onAddReaction(message))} className={itemClass}>
           <Smile className="w-4 h-4" /> {gt("Add Reaction")}
@@ -172,7 +185,7 @@ export function MessageContextMenu<M extends ChatMessage>({
           <MessagesSquare className="w-4 h-4" /> {gt("Open Thread")}
         </button>
       )}
-      <button onClick={run(() => onCopy(message.content))} className={itemClass}>
+      <button onClick={run(() => onCopy(copyText))} className={itemClass}>
         <Copy className="w-4 h-4" /> {gt("Copy Text")}
       </button>
       <button
@@ -205,7 +218,7 @@ export function MessageContextMenu<M extends ChatMessage>({
       {(own || canDelete) && (
         <div className="ctx-sep" />
       )}
-      {own && (
+      {editable && (
         <button onClick={run(() => onEdit(message))} className={itemClass}>
           <Pencil className="w-4 h-4" /> {gt("Edit Message")}
         </button>

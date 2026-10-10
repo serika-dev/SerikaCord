@@ -336,6 +336,8 @@ export default function GroupDMPage() {
       if (m.author?.id !== user.id) continue;
       if (m.pending || m.id.startsWith("temp-")) continue;
       if (m.type && m.type !== "default" && m.type !== "reply") continue;
+      // Polls and forwards have no text of their own to edit.
+      if (m.poll || m.forward) continue;
       chat.actions.startEditing(m);
       messageListRef.current?.scrollToMessage(m.id);
       return true;
@@ -640,6 +642,7 @@ export default function GroupDMPage() {
             availableServerStickers={availableServerStickers}
             replyTo={chat.actions.replyToMessage}
             onCancelReply={() => chat.actions.setReplyToMessage(null)}
+            pollApiBase={channelId ? `/api/group-dms/${channelId}` : undefined}
             draftKey={channelId ? `gdm:${channelId}` : undefined}
           />
           <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />

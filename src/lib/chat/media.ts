@@ -36,6 +36,8 @@ export interface GalleryMessageLike {
   _id?: string;
   content?: string;
   attachments?: AttachmentLike[] | null;
+  /** A forwarded message's copy: its media opens in the same gallery. */
+  forward?: { content?: string; attachments?: AttachmentLike[] | null } | null;
 }
 
 const IMAGE_EXTENSIONS = /\.(gif|jpg|jpeg|png|webp|svg|bmp|avif)(?:$|[?#])/i;
@@ -173,6 +175,12 @@ export function extractMediaFromMessage(message: GalleryMessageLike): GalleryIte
   return [
     ...extractInlineMedia(message.content, messageId),
     ...extractAttachmentMedia(message.attachments, messageId),
+    ...(message.forward
+      ? [
+          ...extractInlineMedia(message.forward.content, messageId),
+          ...extractAttachmentMedia(message.forward.attachments, messageId),
+        ]
+      : []),
   ];
 }
 

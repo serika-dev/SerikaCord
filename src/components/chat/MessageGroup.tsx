@@ -11,6 +11,8 @@ import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";
 import { MessageHoverActions, type PickerEmoji } from "@/components/chat/MessageHoverActions";
 import { MessageEditForm } from "@/components/chat/MessageEditForm";
+import { ForwardedMessageCard } from "@/components/chat/ForwardedMessageCard";
+import { PollCard } from "@/components/chat/PollCard";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useChatGt } from "./ChatGtContext";
@@ -303,6 +305,28 @@ function MessageGroupInner<M extends ChatMessage>({
                       onMediaClick={({ src, alt }) => onMediaClick(src, alt, message.id)}
                       messageId={message.id}
                     />
+
+                    {message.forward && (
+                      <ForwardedMessageCard
+                        messageId={message.id}
+                        forward={message.forward}
+                        serverEmojis={serverEmojis}
+                        mentionUsers={mergedMentionUsers}
+                        mentionRoles={mentionRoles}
+                        currentUserId={currentUserId}
+                        serverId={serverId}
+                        showMedia={inlineMediaEnabled}
+                        onMediaClick={onMediaClick}
+                      />
+                    )}
+
+                    {message.poll && (
+                      <PollCard
+                        messageId={message.id}
+                        poll={message.poll}
+                        isAuthor={message.authorId === currentUserId}
+                      />
+                    )}
 
                     {message.pending && (
                       <span className="inline-flex items-center gap-1 ml-1 text-[11px] text-[var(--app-muted)] align-middle">

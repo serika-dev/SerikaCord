@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, MessagesSquare, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
+import { Copy, MessagesSquare, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2, CornerUpRight } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import {
@@ -14,6 +14,8 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import dynamic from "next/dynamic";
 import type { ChatMessage, MessageCustomEmoji } from "@/lib/chat/types";
+import { isForwardable } from "@/lib/chat/forward";
+import { requestForward } from "@/lib/chat/forwardBus";
 
 // Lazy-loaded so the reaction picker's code/data only load on first open,
 // keeping it out of every rendered message's bundle.
@@ -94,6 +96,11 @@ export function MessageHoverActions<M extends ChatMessage>({
     };
   }, []);
 
+  const forwardable = isForwardable(message);
+  // Polls and forwards have no text of their own to edit (like Discord).
+  const editable = isOwn && !message.poll && !message.forward;
+  const copyText = message.forward?.content || message.content;
+
   const handlePickerSelect = (
     emoji: string,
     isCustom?: boolean,
@@ -148,7 +155,7 @@ export function MessageHoverActions<M extends ChatMessage>({
             <MessagesSquare className="w-4 h-4 text-[var(--app-muted)]" />
           </button>
         )}
-        {isOwn && (
+        {editable && (
           <button
             onClick={() => onEdit(message)}
             className="p-1.5 hover:bg-black/20 transition-colors"
@@ -157,10 +164,19 @@ export function MessageHoverActions<M extends ChatMessage>({
             <Pencil className="w-4 h-4 text-[var(--app-muted)]" />
           </button>
         )}
+        {forwardable && (
+          <button
+            onClick={() => requestForward(message)}
+            className="p-1.5 hover:bg-black/20 transition-colors"
+            title={gt("Forward")}
+          >
+            <CornerUpRight className="w-4 h-4 text-[var(--app-muted)]" />
+          </button>
+        )}
         {shiftHeld ? (
           <>
             <button
-              onClick={() => onCopy(message.content)}
+              onClick={() => onCopy(copyText)}
               className="p-1.5 hover:bg-black/20 transition-colors"
               title={gt("Copy Text")}
             >
@@ -205,8 +221,13 @@ export function MessageHoverActions<M extends ChatMessage>({
                   <MessagesSquare className="w-4 h-4 mr-2" /> {gt("Create Thread")}
                 </DropdownMenuItem>
               )}
+              {forwardable && (
+                <DropdownMenuItem onClick={() => requestForward(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                  <CornerUpRight className="w-4 h-4 mr-2" /> {gt("Forward")}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
-                onClick={() => onCopy(message.content)}
+                onClick={() => onCopy(copyText)}
                 className="hover:bg-[var(--bg-hover)] cursor-pointer"
               >
                 <Copy className="w-4 h-4 mr-2" /> {gt("Copy Text")}
@@ -222,9 +243,11 @@ export function MessageHoverActions<M extends ChatMessage>({
               {isOwn && (
                 <>
                   <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
-                  <DropdownMenuItem onClick={() => onEdit(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
-                    <Pencil className="w-4 h-4 mr-2" /> {gt("Edit Message")}
-                  </DropdownMenuItem>
+                  {editable && (
+                    <DropdownMenuItem onClick={() => onEdit(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                      <Pencil className="w-4 h-4 mr-2" /> {gt("Edit Message")}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     onClick={() => onDelete(message)}
                     className="hover:bg-red-500/20 text-red-400 cursor-pointer"

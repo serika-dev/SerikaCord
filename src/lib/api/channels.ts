@@ -46,6 +46,7 @@ import {
   normalizeAutoArchiveDuration,
   threadMembersToAdd,
 } from '@/lib/chat/threads';
+import { loadMessageExtras } from '@/lib/services/messageExtras';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -132,7 +133,7 @@ async function canPinMessagesInServer(
 const everyoneRoleIdCache = new BoundedMap<string, { id: string | null; at: number }>(5000);
 const EVERYONE_ROLE_CACHE_TTL_MS = 5 * 60_000;
 
-async function getEveryoneRoleId(serverId: string): Promise<string | null> {
+export async function getEveryoneRoleId(serverId: string): Promise<string | null> {
   const hit = everyoneRoleIdCache.get(serverId);
   if (hit && Date.now() - hit.at < EVERYONE_ROLE_CACHE_TTL_MS) return hit.id;
   const role = await Role.findOne({ serverId, isDefault: true });
@@ -141,7 +142,7 @@ async function getEveryoneRoleId(serverId: string): Promise<string | null> {
   return id;
 }
 
-async function getServerOwnerIdCached(serverId: string): Promise<string | null> {
+export async function getServerOwnerIdCached(serverId: string): Promise<string | null> {
   const cacheKey = `server:owner:${serverId}`;
   const cached = await cache.get<string>(cacheKey);
   if (cached) return cached;
@@ -177,7 +178,7 @@ async function permissionSourceFor(channel: PermissionChannel): Promise<Permissi
  * get everything; MANAGE_CHANNELS keeps its bypass for view and send. Pass the
  * channel whose overwrites apply (for threads, the parent: permissionSourceFor).
  */
-async function computeMemberChannelPermissions(
+export async function computeMemberChannelPermissions(
   channel: PermissionChannel,
   userId: string,
   membership: { roles?: string[] | null } | null,
@@ -241,7 +242,7 @@ type SpeakDenial = { status: number; body: Record<string, unknown> };
  * ATTACH_FILES, ADD_REACTIONS after base perms + overwrites; threads resolve
  * against their parent's overwrites). DMs pass.
  */
-async function checkCanSpeak(
+export async function checkCanSpeak(
   channel: PermissionChannel,
   membership: { roles?: string[] | null; communicationDisabledUntil?: Date | string | null } | null | undefined,
   userId: string,
@@ -285,7 +286,7 @@ async function checkCanSpeak(
  * generic /channels/:dmChannelId routes can't bypass them.
  * Returns null when allowed, or the status + body to reply with.
  */
-async function checkCanPostInChannel(
+export async function checkCanPostInChannel(
   channel: IChannel,
   user: DmPolicyUser,
   membership: { roles?: string[] | null } | null | undefined,
@@ -2077,7 +2078,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     };
 
-    const [, authors, refMessages, decryptedContents] = await Promise.all([
+    const [, authors, refMessages, decryptedContents, extrasMap] = await Promise.all([
       loadServerBits(),
       authorIds.length > 0 ? User.find({ id: { in: authorIds } }) : Promise.resolve([]),
       // Scoped to this channel and live messages: a deleted or foreign
@@ -2085,6 +2086,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       refIds.length > 0 ? Message.find({ id: { in: refIds }, channelId: params.channelId, isDeleted: false }) : Promise.resolve([]),
       // Decrypt all message contents in parallel
       Promise.all((messages as IMessage[]).map((msg) => decryptFromStorage(msg.content || ''))),
+      // Polls (tallies + your votes), poll result rows and forwarded messages.
+      loadMessageExtras(messages as IMessage[], user.id).catch(() => new Map()),
     ]);
     const authorMap = new Map((authors as any[]).map((a: any) => [a.id, a]));
     const refMap = new Map((refMessages as any[]).map((r: any) => [r.id, r]));
@@ -2261,6 +2264,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         webhookId: (authorData as { isWebhook?: boolean } | null)?.isWebhook ? msg.authorId : undefined,
         threadId: msg.threadId ?? undefined,
         thread: msg.threadId ? (threadSummaries.get(msg.threadId) ?? null) : undefined,
+        ...extrasMap.get(msg.id),
       };
     });
 

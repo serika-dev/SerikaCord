@@ -39,6 +39,8 @@ import {
   Bot,
   Eye,
   EyeOff,
+  BarChart3,
+  Upload,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
@@ -55,6 +57,17 @@ const CustomEmojiPicker = dynamic(
   () => import("@/components/chat/CustomEmojiPicker").then((m) => m.CustomEmojiPicker),
   { ssr: false, loading: () => <div className="w-[440px] max-w-[calc(100vw-1rem)] h-[420px]" /> }
 );
+const CreatePollDialog = dynamic(
+  () => import("@/components/chat/CreatePollDialog").then((m) => m.CreatePollDialog),
+  { ssr: false }
+);
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { onHotkey } from "@/lib/keybinds";
@@ -191,6 +204,11 @@ interface MessageBarProps {
   channelId?: string;
   uploadEndpoint?: string;
 
+  /** REST base of the conversation (`/api/channels/:id`, `/api/dms/:id`,
+   *  `/api/group-dms/:id`). When set, the "+" button opens Discord's menu with
+   *  "Create Poll" next to "Upload a File". */
+  pollApiBase?: string;
+
   /** Stable per-context id (channel/DM). When it changes, the unsent draft for
    *  the previous context is saved and the new context's draft is restored so
    *  switching channels no longer loses typed-but-unsent text. */
@@ -240,6 +258,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       activeMentionIndex = 0,
       channelId,
       uploadEndpoint = "/api/upload/attachment",
+      pollApiBase,
       draftKey,
       secondary = false,
     },
@@ -291,6 +310,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       };
     }, []);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [pollOpen, setPollOpen] = useState(false);
     const [attachments, setAttachments] = useState<File[]>([]);
     const [attachmentPreviews, setAttachmentPreviews] = useState<string[]>([]);
     const [isUploading, setIsUploading] = useState(false);
@@ -1236,7 +1256,34 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
 
             {/* Editor row: upload button + composer + right buttons */}
             <div className="relative flex items-center">
-              {/* Upload button (left side, pinned to editor row) */}
+              {/* Upload button / "+" menu (left side, pinned to editor row) */}
+              {pollApiBase ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors z-10 disabled:opacity-50"
+                      title={gt("More options")}
+                      aria-label={gt("More options")}
+                    >
+                      <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    side="top"
+                    align="start"
+                    className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-w-[200px]"
+                  >
+                    <DropdownMenuItem onClick={() => fileInputRef.current?.click()} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                      <Upload className="w-4 h-4 mr-2" /> {gt("Upload a File")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPollOpen(true)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                      <BarChart3 className="w-4 h-4 mr-2" /> {gt("Create Poll")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -1245,6 +1292,19 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               >
                 <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
               </button>
+              )}
+              {pollApiBase && (
+                <MountWhenOpened open={pollOpen}>
+                  <CreatePollDialog
+                    open={pollOpen}
+                    onOpenChange={setPollOpen}
+                    apiBase={pollApiBase}
+                    serverEmojis={serverEmojis}
+                    availableServerEmojis={availableServerEmojis}
+                    serverName={serverName}
+                  />
+                </MountWhenOpened>
+              )}
               {attachments.length > 0 && (
                 <span className="absolute left-9 sm:left-11 top-1/2 -translate-y-1/2 text-xs text-[var(--app-muted)] z-10">{attachments.length}</span>
               )}

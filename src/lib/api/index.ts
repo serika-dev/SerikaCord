@@ -16,6 +16,7 @@ import { channelRoutes } from './channels';
 import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
+import { messageExtrasRoutes } from './messageExtras';
 import { adminRoutes } from './admin';
 import { badgeRoutes } from './badges';
 import { oembedRoutes } from './oembed';
@@ -3840,6 +3841,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(channelRoutes)
   .use(dmRoutes)
   .use(groupDmRoutes)
+  .use(messageExtrasRoutes)
   .use(voiceRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
@@ -3885,6 +3887,11 @@ export async function initializeAPI() {
     const { ensureThreadSchema, startThreadAutoArchive } = await import('@/lib/services/threads');
     await ensureThreadSchema();
     startThreadAutoArchive();
+    // Polls + forwarding: 'poll_result' type, messages.poll / message_snapshot,
+    // poll_votes. Idempotent, never throws. Then close expired polls.
+    const { ensureMessageExtrasSchema, startPollSweeper } = await import('@/lib/services/messageExtras');
+    await ensureMessageExtrasSchema();
+    startPollSweeper();
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();

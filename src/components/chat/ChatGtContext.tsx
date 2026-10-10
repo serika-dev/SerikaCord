@@ -132,6 +132,44 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "See all threads.": gt("See all threads."),
       // MessageHoverActions — threads
       "Create Thread": gt("Create Thread"),
+      // MessageHoverActions — forwarding
+      "Forward": gt("Forward"),
+      // ForwardedMessageCard
+      "Forwarded": gt("Forwarded"),
+      "Jump to message": gt("Jump to message"),
+      "You don't have access to the original message.": gt("You don't have access to the original message."),
+      "Today at {time}": gt("Today at {time}", { time: "{time}" }),
+      "Yesterday at {time}": gt("Yesterday at {time}", { time: "{time}" }),
+      "{date} at {time}": gt("{date} at {time}", { date: "{date}", time: "{time}" }),
+      // PollCard
+      "Poll": gt("Poll"),
+      "Poll closed": gt("Poll closed"),
+      "Select one answer": gt("Select one answer"),
+      "Select one or more answers": gt("Select one or more answers"),
+      "View votes": gt("View votes"),
+      "Your vote": gt("Your vote"),
+      "1 vote": gt("1 vote"),
+      "{count} votes": gt("{count} votes", { count: "{count}" }),
+      "{count}d left": gt("{count}d left", { count: "{count}" }),
+      "{count}h left": gt("{count}h left", { count: "{count}" }),
+      "{count}m left": gt("{count}m left", { count: "{count}" }),
+      "Show results": gt("Show results"),
+      "Go back to vote": gt("Go back to vote"),
+      "Remove Vote": gt("Remove Vote"),
+      "Vote": gt("Vote"),
+      "End Poll": gt("End Poll"),
+      "End poll now?": gt("End poll now?"),
+      "Everyone will see the results and no one can vote anymore.": gt("Everyone will see the results and no one can vote anymore."),
+      "Couldn't save your vote.": gt("Couldn't save your vote."),
+      "Couldn't end the poll.": gt("Couldn't end the poll."),
+      // PollResultRow
+      "Poll results": gt("Poll results"),
+      "Your poll {question} has closed": gt("Your poll {question} has closed", { question: "{question}" }),
+      "{name}'s poll {question} has closed": gt("{name}'s poll {question} has closed", { name: "{name}", question: "{question}" }),
+      "Winning answer · {percent}%": gt("Winning answer · {percent}%", { percent: "{percent}" }),
+      "There were no votes": gt("There were no votes"),
+      "The results were tied": gt("The results were tied"),
+      "View Poll": gt("View Poll"),
     };
 
     return (str, params) => {

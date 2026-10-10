@@ -6,6 +6,7 @@ import { UnreadProvider } from "@/contexts/UnreadContext";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { NotificationHosts } from "@/components/notifications/NotificationHosts";
 import { NativeAppBridge } from "@/components/native/NativeAppBridge";
+import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
 
 // Heavy dialogs are code-split so they don't slow the first paint, but the
 // first click must not wait on a download: warm their chunks once the browser
@@ -58,6 +59,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
         <ConfirmProvider>
           {children}
           <NotificationHosts />
+          <ForwardDialogHost />
           <NativeAppBridge />
         </ConfirmProvider>
       </UnreadProvider>

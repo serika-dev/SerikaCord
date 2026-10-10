@@ -36,6 +36,9 @@ const messageTypeEnum = pgEnum('message_type', [
   // header, not from a message). Added at boot by ensureThreadSchema() (see
   // drizzle/manual_threads.sql).
   'thread_created',
+  // "Poll results" row posted when a poll closes. Added at boot by
+  // ensureMessageExtrasSchema() (see drizzle/manual_polls_forwarding.sql).
+  'poll_result',
 ]);
 const inviteTypeEnum = pgEnum('invite_type', ['normal', 'vanity']);
 const applicationStatusEnum = pgEnum('application_status', ['pending', 'approved', 'rejected', 'interviewed']);
@@ -249,6 +252,13 @@ export const messages = pgTable('messages', {
   // Call metadata for type 'call' (CallMessageData in lib/voice/callMessage).
   // Added at boot by ensureCallMessageSchema().
   call: jsonb('call'),
+  // Poll (StoredPoll) on a poll message, or the frozen outcome (PollResultData)
+  // on a 'poll_result' row — see lib/chat/polls. Added at boot by
+  // ensureMessageExtrasSchema().
+  poll: jsonb('poll'),
+  // Forwarded message copy (StoredForward in lib/chat/forward). Added at boot
+  // by ensureMessageExtrasSchema().
+  messageSnapshot: jsonb('message_snapshot'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
@@ -262,6 +272,18 @@ export const messages = pgTable('messages', {
   channelDeletedCreatedIdx: index('messages_channel_id_is_deleted_created_at_idx').on(t.channelId, t.isDeleted, t.createdAt),
   channelAuthorCreatedIdx: index('messages_channel_id_author_id_created_at_idx').on(t.channelId, t.authorId, t.createdAt),
   referencedIdx: index('messages_referenced_message_id_idx').on(t.referencedMessageId),
+}));
+
+// One row per (poll message, voter, answer). Added at boot by
+// ensureMessageExtrasSchema() (see drizzle/manual_polls_forwarding.sql).
+export const pollVotes = pgTable('poll_votes', {
+  messageId: uuid('message_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  answerId: integer('answer_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  uniq: uniqueIndex('poll_votes_message_user_answer_idx').on(t.messageId, t.userId, t.answerId),
+  messageAnswerIdx: index('poll_votes_message_answer_idx').on(t.messageId, t.answerId),
 }));
 
 export const roles = pgTable('roles', {

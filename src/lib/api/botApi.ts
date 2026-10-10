@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { buildPollView, fromDiscordPollRequest, normalizePollInput, parseStoredPoll, toDiscordPoll, type StoredPoll } from '@/lib/chat/polls';
 import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 import { Application, ChannelWebhook } from '@/lib/models';
 import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
@@ -187,9 +188,10 @@ function formatMessage(msg: any) {
       me: r.userIds?.some((uid: string) => uid === (author as { id?: string } | undefined)?.id) ?? false,
     })),
     pinned: msg.pinned ?? false,
-    type: 0,
+    type: msg.type === 'poll_result' ? 46 : 0,
     flags: 0,
     referenced_message: null,
+    ...(msg.type !== 'poll_result' && parseStoredPoll(msg.poll) ? { poll: toDiscordPoll(parseStoredPoll(msg.poll)!) } : {}),
   };
 }
 
@@ -583,8 +585,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = await Channel.findById(params.channelId);
   if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
 
-  const { content, embeds, tts, attachments, allowed_mentions, sticker_ids, components, flags } = body as { content?: string; embeds?: unknown[]; tts?: boolean; attachments?: unknown[]; allowed_mentions?: unknown; sticker_ids?: unknown[]; components?: unknown[]; flags?: number };
-  if (!content && !embeds?.length && !attachments?.length && !sticker_ids?.length) {
+  const { content, embeds, tts, attachments, allowed_mentions, sticker_ids, components, flags, poll: pollRequest } = body as { content?: string; embeds?: unknown[]; tts?: boolean; attachments?: unknown[]; allowed_mentions?: unknown; sticker_ids?: unknown[]; components?: unknown[]; flags?: number; poll?: unknown };
+  // Discord-style polls: `poll` { question: { text }, answers: [{ poll_media }], duration, allow_multiselect }.
+  let poll: StoredPoll | null = null;
+  if (pollRequest !== undefined && pollRequest !== null) {
+    const input = fromDiscordPollRequest(pollRequest);
+    const parsed = input ? normalizePollInput(input) : { error: 'Invalid poll' };
+    if ('error' in parsed) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${parsed.error}` }; }
+    poll = parsed.poll;
+  }
+  if (!content && !embeds?.length && !attachments?.length && !sticker_ids?.length && !poll) {
     set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
   }
 
@@ -603,8 +613,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     edited: false,
     reactions: [],
     mentionedUserIds,
+    ...(poll ? { poll } : {}),
   });
   void Channel.updateById(params.channelId, { lastMessageId: msg.id, updatedAt: new Date() }).catch(() => {});
+  if (poll) {
+    const { scheduleOpenPoll } = await import('@/lib/services/messageExtras');
+    void scheduleOpenPoll(msg.id, poll.expiresAt);
+  }
 
   const populated = await Message.findById(msg.id);
   const author = populated?.authorId ? await User.findById(populated.authorId) : null;
@@ -642,6 +657,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         reactions: [],
         mentionedUserIds,
         type: 'default',
+        ...(poll ? { poll: buildPollView(poll, {}, 0, []) } : {}),
       },
     });
   } catch {}
@@ -687,6 +703,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         isSystem: author.isSystem ?? undefined,
       } : null,
       attachments: (msg.attachments ?? []) as Array<Record<string, unknown>>,
+      ...(poll ? { poll } : {}),
     });
   } catch {}
 

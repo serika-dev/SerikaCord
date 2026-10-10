@@ -21,6 +21,8 @@ import { config } from '@/lib/config';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { callPreviewText, parseCallData } from '@/lib/voice/callMessage';
 import { groupEventPreview, isGroupDmEventType, type GroupDmEventType } from '@/lib/chat/groupDm';
+import { loadMessageExtras, type MessageExtras } from '@/lib/services/messageExtras';
+import { parsePollResult, parseStoredPoll, pollPreviewText } from '@/lib/chat/polls';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -360,6 +362,7 @@ export async function loadDmMessagesPage(
   channelId: string,
   query: { limit?: unknown; before?: unknown; after?: unknown; around?: unknown },
   cursorMsg: Awaited<ReturnType<typeof Message.findById>> | null,
+  viewerId?: string | null,
 ) {
   const limit = Math.min(parseInt(query.limit as string) || 50, 100);
   const before = query.before as string | undefined;
@@ -414,9 +417,11 @@ export async function loadDmMessagesPage(
       const refMsg = refMap.get(msg.referencedMessageId as string)!;
       return { refId: msg.referencedMessageId as string, content: refMsg.content || '' };
     });
-  const [decryptedContents, refDecrypted] = await Promise.all([
+  const [decryptedContents, refDecrypted, extrasMap] = await Promise.all([
     Promise.all(msgs.map((msg) => decryptFromStorage(msg.content || ''))),
     Promise.all(refDecryptEntries.map((entry) => decryptFromStorage(entry.content))),
+    // Polls (tallies + the viewer's votes), poll result rows and forwards.
+    loadMessageExtras(msgs, viewerId ?? null).catch(() => new Map<string, MessageExtras>()),
   ]);
   const emojiResults = await batchParseCustomEmojis(decryptedContents);
   const refContentMap = new Map<string, string>();
@@ -486,6 +491,7 @@ export async function loadDmMessagesPage(
       ...(msg.type === 'call' ? { type: 'call' as const, call: parseCallData(msg.call) } : {}),
       // Group DM system row ("X added Y to the group.").
       ...(groupEvent ? { type: msg.type, groupEvent } : {}),
+      ...extrasMap.get(msg.id),
     };
   });
 }
@@ -1037,6 +1043,14 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
                     nameOf((msg.mentionedUserIds || [])[0]),
                     decryptedContent,
                   );
+                } else if (msg.type === 'poll_result') {
+                  const result = parsePollResult(msg.poll);
+                  displayContent = result ? `Poll ended: ${result.question}` : 'Poll ended';
+                } else if (!displayContent && msg.poll) {
+                  const poll = parseStoredPoll(msg.poll);
+                  displayContent = poll ? pollPreviewText(poll.question) : 'Sent a poll';
+                } else if (!displayContent && msg.messageSnapshot) {
+                  displayContent = 'Forwarded a message';
                 } else if (!displayContent) {
                   if (msg.attachments && (msg.attachments as unknown[]).length > 0) {
                     displayContent = 'Sent an attachment';
@@ -1203,7 +1217,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       channel = await getOrCreateDMChannel(user.id, params.recipientId);
     }
 
-    const messages = await loadDmMessagesPage(channel.id, query, cursorMsg);
+    const messages = await loadDmMessagesPage(channel.id, query, cursorMsg, user.id);
     return {
       messages,
       channelId: channel.id,

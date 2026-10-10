@@ -4,6 +4,8 @@
 import type { CallMessageData } from "@/lib/voice/callMessage";
 import type { GroupDmEventType } from "@/lib/chat/groupDm";
 import type { ThreadSummary } from "@/lib/chat/threads";
+import type { PollResultData, PollView } from "@/lib/chat/polls";
+import type { ForwardView } from "@/lib/chat/forward";
 
 export interface MessageAuthor {
   id: string;
@@ -102,7 +104,7 @@ export interface ReferencedMessage {
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system" | "call" | "thread_created" | GroupDmEventType;
+  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | GroupDmEventType;
   authorId: string;
   author: MessageAuthor;
   channelId: string;
@@ -140,6 +142,12 @@ export interface ChatMessage {
   threadId?: string;
   /** That thread's summary (chip: name, message count, last reply); null once deleted. */
   thread?: ThreadSummary | null;
+  /** A poll message: question, answers, live tallies and the viewer's votes. */
+  poll?: PollView | null;
+  /** A "poll results" row (type "poll_result"): the frozen outcome. */
+  pollResult?: PollResultData | null;
+  /** A forwarded message: the frozen copy of the original. */
+  forward?: ForwardView | null;
 }
 
 /** Details of a group DM system row (the actor is the message author). */
