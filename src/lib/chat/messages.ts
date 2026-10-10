@@ -49,7 +49,31 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /** Rows drawn as a one-line notice instead of a message bubble. */
 export function isStandaloneRow(message: Pick<ChatMessage, "type">): boolean {
-  return message.type === "call" || isGroupDmEventType(message.type);
+  return message.type === "call" || message.type === "thread_created" || isGroupDmEventType(message.type);
+}
+
+/**
+ * Apply a `thread_update` event to a message list: the starter message and the
+ * "started a thread" row of `threadId` get the new summary (null = deleted).
+ * Returns the same array when nothing changed.
+ */
+export function applyThreadUpdate<M extends ChatMessage>(
+  messages: M[],
+  update: { threadId: string; messageId?: string | null; thread: ChatMessage["thread"] },
+): M[] {
+  let changed = false;
+  const next = messages.map((m) => {
+    const hit =
+      m.threadId === update.threadId ||
+      (update.messageId ? m.id === update.messageId : false) ||
+      m.thread?.id === update.threadId;
+    if (!hit) return m;
+    changed = true;
+    return update.thread
+      ? { ...m, threadId: update.threadId, thread: update.thread }
+      : { ...m, threadId: undefined, thread: null };
+  });
+  return changed ? next : messages;
 }
 
 /**

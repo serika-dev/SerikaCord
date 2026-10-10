@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
 import { GroupSystemRow } from "@/components/chat/GroupSystemRow";
+import { ThreadSystemRow } from "@/components/chat/ThreadRows";
 import { isGroupDmEventType } from "@/lib/chat/groupDm";
 import type { CallGroup } from "@/lib/chat/dmCall";
 import { MessageSkeleton } from "@/components/ui/skeleton";
@@ -123,6 +124,20 @@ interface MessageListProps<M extends ChatMessage> {
   onReadUpTo?: (message: { id: string; createdAt: string }) => void;
   /** "Mark as read" on the unread bar, or Escape. */
   onMarkRead?: () => void;
+  /** Text channels: the viewer may start threads from messages. */
+  canCreateThread?: boolean;
+  /** "Create Thread" on a message (stable callback). */
+  onCreateThread?: (message: M) => void;
+  /** Open a thread from its chip / "started a thread" row (stable callback). */
+  onOpenThread?: (threadId: string) => void;
+  /** "See all threads." on a "started a thread" row (stable callback). */
+  onSeeAllThreads?: () => void;
+  /**
+   * A secondary list (the thread side panel): it neither reports bottom
+   * adjacency to the unread engine (the main list does) nor answers the
+   * global Escape "mark channel read" hotkey.
+   */
+  secondary?: boolean;
 }
 
 interface WatchState {
@@ -198,6 +213,11 @@ function MessageListInner<M extends ChatMessage>(
     unreadMarker,
     onReadUpTo,
     onMarkRead,
+    canCreateThread = false,
+    onCreateThread,
+    onOpenThread,
+    onSeeAllThreads,
+    secondary = false,
   }: MessageListProps<M>,
   ref: Ref<MessageListHandle>
 ) {
@@ -208,7 +228,7 @@ function MessageListInner<M extends ChatMessage>(
   const endRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
   // This list acks reads (the open conversation), so it reports to the engine.
-  const reportsReadingRef = useRef(Boolean(onReadUpTo));
+  const reportsReadingRef = useRef(Boolean(onReadUpTo) && !secondary);
   // True while the list should stay glued to the bottom. Set on channel switch
   // / force-scroll and cleared the moment the user scrolls up. Drives the
   // ResizeObserver re-anchor below so late-loading media can't strand the list
@@ -685,7 +705,7 @@ function MessageListInner<M extends ChatMessage>(
   );
   // Tell the unread engine whether the open conversation is being read live
   // (so live messages in it don't badge). Only lists that ack report.
-  const reportsReading = Boolean(onReadUpTo);
+  const reportsReading = Boolean(onReadUpTo) && !secondary;
   useEffect(() => {
     reportsReadingRef.current = reportsReading;
     if (!reportsReading) return;
@@ -702,7 +722,7 @@ function MessageListInner<M extends ChatMessage>(
   }, []);
 
   // Escape: mark this conversation read (the global hotkey broadcasts it).
-  useEffect(() => onHotkey("mark-channel-read", markRead), [markRead]);
+  useEffect(() => (secondary ? undefined : onHotkey("mark-channel-read", markRead)), [markRead, secondary]);
 
   const showUnreadBar = Boolean(divider) && !barDismissed && !isLoading;
   const dividerId = divider?.firstUnreadId ?? newMessageStartId;
@@ -767,6 +787,13 @@ function MessageListInner<M extends ChatMessage>(
                   group={callGroup}
                   formattedTimestamp={formattedTimestamps[idx]}
                 />
+                ) : group.messages[0].type === "thread_created" ? (
+                <ThreadSystemRow
+                  message={group.messages[0]}
+                  formattedTimestamp={formattedTimestamps[idx]}
+                  onOpenThread={onOpenThread}
+                  onSeeAllThreads={onSeeAllThreads}
+                />
                 ) : isGroupDmEventType(group.messages[0].type) ? (
                 <GroupSystemRow
                   message={group.messages[0]}
@@ -808,6 +835,9 @@ function MessageListInner<M extends ChatMessage>(
                   onJumpToMessage={jumpToMessage}
                   formattedTimestamp={formattedTimestamps[idx]}
                   newSeparatorBeforeId={midGroupSeparatorId}
+                  canCreateThread={canCreateThread}
+                  onCreateThread={onCreateThread}
+                  onOpenThread={onOpenThread}
                 />
                 )}
                 </div>

@@ -32,6 +32,10 @@ const messageTypeEnum = pgEnum('message_type', [
   // Group DM system rows ("X added Y", "X left", "X changed the group name").
   // Added at boot by ensureGroupDmSchema() (see drizzle/manual_group_dms.sql).
   'recipient_add', 'recipient_remove', 'channel_name_change', 'channel_icon_change',
+  // "X started a thread: name" row in a text channel (thread created from the
+  // header, not from a message). Added at boot by ensureThreadSchema() (see
+  // drizzle/manual_threads.sql).
+  'thread_created',
 ]);
 const inviteTypeEnum = pgEnum('invite_type', ['normal', 'vanity']);
 const applicationStatusEnum = pgEnum('application_status', ['pending', 'approved', 'rejected', 'interviewed']);
@@ -195,6 +199,13 @@ export const channels = pgTable('channels', {
   threadMemberIds: uuid('thread_member_ids').array().default([]),
   appliedTags: text('applied_tags').array().default([]),
   messageCount: integer('message_count').default(0),
+  // Threads in text channels (added at boot by ensureThreadSchema(), see
+  // drizzle/manual_threads.sql): minutes of inactivity before auto-archive
+  // (null = never, e.g. forum posts), when it was archived, and the channel
+  // message it was started from.
+  autoArchiveDuration: integer('auto_archive_duration'),
+  archiveTimestamp: timestamp('archive_timestamp'),
+  starterMessageId: uuid('starter_message_id'),
   recipientIds: uuid('recipient_ids').array().default([]),
   // Group DM icon (CDN URL). Added at boot by ensureGroupDmSchema().
   icon: text('icon'),

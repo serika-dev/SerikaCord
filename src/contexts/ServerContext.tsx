@@ -7,6 +7,7 @@ import { usePolling } from "@/hooks/usePolling";
 import { reuseUnchanged } from "@/lib/state/reuseUnchanged";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
+import { onThreadsChanged } from "@/lib/chat/threadPanelStore";
 
 interface Server {
   id: string;
@@ -53,6 +54,7 @@ interface Channel {
   position: number;
   parentId?: string; // Category parent, or parent forum for threads
   parentName?: string; // Parent forum name for threads
+  parentType?: string | null; // Parent channel type for threads (forum vs text)
   isNsfw?: boolean;
   topic?: string;
   rateLimitPerUser?: number;
@@ -597,6 +599,16 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     }
   }, [currentServerId, fetchChannels]);
 
+  // Joined / left / created / archived a thread (here or on another device):
+  // the sidebar's thread rows come from the channel list.
+  useEffect(
+    () =>
+      onThreadsChanged((serverId) => {
+        if (activeServerIdRef.current === serverId) void fetchChannels(serverId);
+      }),
+    [fetchChannels],
+  );
+
   usePolling(
     () => {
       if (currentServer) {
@@ -682,6 +694,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     </ServerContext.Provider>
   );
 }
+
+export type { Channel as ServerChannel };
 
 export function useServer() {
   const context = useContext(ServerContext);

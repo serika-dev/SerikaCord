@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Copy, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
+import { Copy, MessagesSquare, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2 } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
 import { cn } from "@/lib/utils";
 import {
@@ -45,6 +45,8 @@ interface MessageHoverActionsProps<M extends ChatMessage> {
   canPin?: boolean;
   onEdit: (message: M) => void;
   onDelete: (message: M) => void;
+  /** Start a thread from this message (text channels with CREATE_PUBLIC_THREADS). */
+  onCreateThread?: (message: M) => void;
   serverEmojis?: PickerEmoji[];
   availableServerEmojis?: PickerEmoji[];
   serverName?: string;
@@ -66,6 +68,7 @@ export function MessageHoverActions<M extends ChatMessage>({
   canPin = false,
   onEdit,
   onDelete,
+  onCreateThread,
   serverEmojis,
   availableServerEmojis,
   serverName,
@@ -135,6 +138,16 @@ export function MessageHoverActions<M extends ChatMessage>({
         >
           <Reply className="w-4 h-4 text-[var(--app-muted)]" />
         </button>
+        {onCreateThread && (
+          <button
+            onClick={() => onCreateThread(message)}
+            className="p-1.5 hover:bg-black/20 transition-colors"
+            title={gt("Create Thread")}
+            aria-label={gt("Create Thread")}
+          >
+            <MessagesSquare className="w-4 h-4 text-[var(--app-muted)]" />
+          </button>
+        )}
         {isOwn && (
           <button
             onClick={() => onEdit(message)}
@@ -187,6 +200,11 @@ export function MessageHoverActions<M extends ChatMessage>({
               <DropdownMenuItem onClick={() => onReply(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
                 <Reply className="w-4 h-4 mr-2" /> {gt("Reply")}
               </DropdownMenuItem>
+              {onCreateThread && (
+                <DropdownMenuItem onClick={() => onCreateThread(message)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                  <MessagesSquare className="w-4 h-4 mr-2" /> {gt("Create Thread")}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => onCopy(message.content)}
                 className="hover:bg-[var(--bg-hover)] cursor-pointer"

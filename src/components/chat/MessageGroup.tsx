@@ -15,6 +15,7 @@ import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useChatGt } from "./ChatGtContext";
 import { UnreadDivider } from "./UnreadDivider";
+import { ThreadChip } from "./ThreadRows";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 
@@ -72,6 +73,11 @@ export interface MessageGroupProps<M extends ChatMessage> {
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
   onSuppressEmbeds?: (messageId: string) => void;
   onJumpToMessage?: (messageId: string) => void;
+  /** Text channels where the viewer may start threads: "Create Thread" on messages. */
+  canCreateThread?: boolean;
+  onCreateThread?: (message: M) => void;
+  /** Open the thread a message started (its chip). */
+  onOpenThread?: (threadId: string) => void;
   formattedTimestamp: string;
   /** Id of a message in the middle of this group that starts the unread run;
    *  a "New" divider is drawn above that row. Undefined for every other group. */
@@ -116,6 +122,9 @@ function MessageGroupInner<M extends ChatMessage>({
   onMediaClick,
   onSuppressEmbeds,
   onJumpToMessage,
+  canCreateThread = false,
+  onCreateThread,
+  onOpenThread,
   formattedTimestamp,
   newSeparatorBeforeId,
 }: MessageGroupProps<M>) {
@@ -344,6 +353,10 @@ function MessageGroupInner<M extends ChatMessage>({
                     />
                     )}
 
+                    {message.thread && onOpenThread && (
+                      <ThreadChip thread={message.thread} onOpen={() => onOpenThread(message.thread!.id)} />
+                    )}
+
                     <MessageReactions
                       reactions={message.reactions}
                       messageId={message.id}
@@ -365,6 +378,11 @@ function MessageGroupInner<M extends ChatMessage>({
                       canPin={canPin}
                       onEdit={onEdit}
                       onDelete={onDelete}
+                      onCreateThread={
+                        canCreateThread && onCreateThread && !message.thread && !message.threadId && !message.pending && !message.ephemeral && !message.id.startsWith("temp-")
+                          ? onCreateThread
+                          : undefined
+                      }
                       serverEmojis={serverEmojis}
                       availableServerEmojis={availableServerEmojis}
                       serverName={serverName}
@@ -467,6 +485,9 @@ function arePropsEqual<M extends ChatMessage>(
     prev.onMediaClick === next.onMediaClick &&
     prev.onSuppressEmbeds === next.onSuppressEmbeds &&
     prev.onJumpToMessage === next.onJumpToMessage &&
+    prev.canCreateThread === next.canCreateThread &&
+    prev.onCreateThread === next.onCreateThread &&
+    prev.onOpenThread === next.onOpenThread &&
     prev.newSeparatorBeforeId === next.newSeparatorBeforeId
   );
 }

@@ -5,7 +5,7 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useServer, useServerMembers } from "@/contexts/ServerContext";
+import { useServer, useServerMembers, type ServerChannel } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,6 +27,9 @@ import {
   ChevronLeft, 
   Megaphone,
   Shield,
+  MessagesSquare,
+  Archive,
+  Lock,
 } from "lucide-react";
 import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { toast } from "sonner";
@@ -47,7 +50,7 @@ import { playTts } from "@/lib/chat/tts";
 import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
-import { formatMessageTimestamp } from "@/lib/chat/messages";
+import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages";
 import { parseSearchQuery, hasActiveFilters } from "@/lib/chat/searchQuery";
 import {
   getCommandSuggestions,
@@ -69,13 +72,27 @@ import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { EMOJI_NAMES } from "@/lib/constants/emojis";
 import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
-import { canSendInChannel as canSendInChannelClient } from "@/lib/roles/channelPermissions";
+import { canSendInChannel as canSendInChannelClient, hasChannelPermission } from "@/lib/roles/channelPermissions";
+import { PERMISSION_BITS } from "@/lib/permissions/bits";
+import { canHostThreads, isThreadType } from "@/lib/chat/threads";
+import {
+  closeThreadPanel,
+  onThreadsBrowserRequest,
+  openCreateThread,
+  openThreadPanel,
+} from "@/lib/chat/threadPanelStore";
+import { useThreadInfo } from "@/hooks/useThreadInfo";
+import { ThreadHeaderActions, ThreadHeaderTitle } from "@/components/chat/ThreadHeader";
+import { MessageContent } from "@/components/chat/MessageContent";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 const ImageLightbox = dynamic(() => import("@/components/ui/image-lightbox").then((m) => m.ImageLightbox), { ssr: false });
 
 const PinnedMessagesDialog = dynamic(() => import("@/components/chat/PinnedMessagesDialog").then((m) => m.PinnedMessagesDialog), { ssr: false });
 
 const DeleteMessageDialog = dynamic(() => import("@/components/chat/DeleteMessageDialog").then((m) => m.DeleteMessageDialog), { ssr: false });
+
+const ThreadsBrowser = dynamic(() => import("@/components/chat/ThreadsBrowser").then((m) => m.ThreadsBrowser), { ssr: false });
 
 const DiscordBridgeConsentDialog = dynamic(() => import("@/components/chat/DiscordBridgeConsentDialog").then((m) => m.DiscordBridgeConsentDialog), { ssr: false });
 
@@ -150,6 +167,15 @@ function replaceAliasMention(content: string, alias: string, token: string): str
 interface ChatAreaProps {
   onToggleMembers?: () => void;
   showMembers?: boolean;
+  /** Show this channel instead of the selected one (the thread side panel). */
+  channelOverride?: ServerChannel | null;
+  /**
+   * "panel": the thread side panel next to the channel. It keeps the channel's
+   * hotkeys, unread engine reporting and ?jump handling with the main view.
+   */
+  variant?: "main" | "panel";
+  /** Panel: close it (X). */
+  onClosePanel?: () => void;
 }
 
 // Per-server SWR caches so bouncing between servers paints emojis/roles instantly
@@ -158,8 +184,11 @@ type ServerEmoji = { id: string; name: string; url: string; serverId: string; an
 const serverEmojiCache = new Map<string, ServerEmoji[]>();
 const serverRoleCache = new Map<string, MentionRole[]>();
 
-export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
-  const { currentChannel, currentServer, channels } = useServer();
+export function ChatArea({ onToggleMembers, showMembers, channelOverride, variant = "main", onClosePanel }: ChatAreaProps) {
+  const { currentChannel: selectedChannel, currentServer, channels } = useServer();
+  // The thread side panel renders its thread through this same view.
+  const currentChannel = channelOverride ?? selectedChannel;
+  const isPanel = variant === "panel";
   // Reuse the members already fetched by ServerContext instead of fetching the
   // full member list a second time on every server open.
   const { members } = useServerMembers();
@@ -168,6 +197,19 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const locale = useLocale();
   const perms = usePermissions(currentServer?.id);
   const canModerateMessages = perms.isOwner || perms.can("MANAGE_MESSAGES");
+
+  // Threads (full view, or the side panel): header data, join / archive actions.
+  const isThread = isThreadType(currentChannel?.type);
+  const threadState = useThreadInfo(isThread && currentChannel ? currentChannel.id : null, currentServer?.id);
+  const threadInfo = threadState.info;
+  const threadParentId = isThread ? currentChannel?.parentId ?? null : null;
+  const parentChannel = useMemo(
+    () => (threadParentId ? channels.find((c) => c.id === threadParentId) ?? null : null),
+    [threadParentId, channels],
+  );
+  // Names are stored HTML-escaped (sanitizeInput).
+  const threadName = decodeHtmlEntities(threadInfo?.thread?.name || currentChannel?.name || "");
+  const hostsThreads = !isPanel && !isThread && canHostThreads(currentChannel?.type);
 
   // Discord bridge consent: know whether the active channel mirrors to Discord
   // so we can prompt the sender for data-processing consent on their first send.
@@ -244,6 +286,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   const {
     isChannelMuted: isConversationMuted,
     setActiveChannel,
+    setActivePanelChannel,
     markChannelRead,
     getReadMarker,
     totalMentionCount,
@@ -281,8 +324,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // The channel on screen (mobile has no ChannelSidebar to report it): its
   // messages notify through this view, not the activity stream.
   useEffect(() => {
-    if (openChannelId) setActiveChannel(openChannelId);
-  }, [openChannelId, setActiveChannel]);
+    if (!openChannelId) return;
+    // The side panel's thread is on screen too, next to the channel.
+    if (isPanel) {
+      setActivePanelChannel(openChannelId);
+      return () => setActivePanelChannel(null);
+    }
+    setActiveChannel(openChannelId);
+  }, [openChannelId, isPanel, setActiveChannel, setActivePanelChannel]);
   const handleMarkRead = useCallback(() => {
     if (!openChannelId) return;
     setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
@@ -465,9 +514,41 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // Check if the user can send messages in the current channel based on
   // permission overwrites. Admin/owner bypass all overwrites.
   const everyoneRole = useMemo(() => mentionRoles.find((r) => r.isDefault) ?? null, [mentionRoles]);
+  // Threads have no overwrites of their own: the parent's apply.
+  const threadOverwrites = threadState.permissionOverwrites;
+  const permissionChannel = useMemo(() => {
+    if (!currentChannel || !isThread) return currentChannel;
+    return {
+      ...currentChannel,
+      permissionOverwrites: parentChannel?.permissionOverwrites ?? threadOverwrites ?? currentChannel.permissionOverwrites,
+    };
+  }, [currentChannel, isThread, parentChannel, threadOverwrites]);
+  const permOpts = useMemo(
+    () => ({
+      everyoneRoleId: everyoneRole?.id ?? null,
+      everyonePermissions: typeof everyoneRole?.permissions === "string" ? BigInt(everyoneRole.permissions) : null,
+      userId: user?.id ?? null,
+    }),
+    [everyoneRole, user?.id],
+  );
+  const canCreateThreads = useMemo(
+    () =>
+      hostsThreads &&
+      hasChannelPermission(currentChannel, PERMISSION_BITS.CREATE_PUBLIC_THREADS, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, permOpts),
+    [hostsThreads, currentChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, permOpts],
+  );
+  const canModerateThreads = useMemo(
+    () =>
+      isThread &&
+      hasChannelPermission(permissionChannel, PERMISSION_BITS.MANAGE_THREADS, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, permOpts),
+    [isThread, permissionChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, permOpts],
+  );
+  const threadLocked = Boolean(threadInfo?.thread?.locked);
+  const threadArchived = Boolean(threadInfo?.thread?.archived);
+  const lockedOut = isThread && threadLocked && !canModerateThreads;
   const canSendInCurrentChannel = useMemo(() => {
     return canSendInChannelClient(
-      currentChannel,
+      permissionChannel,
       currentUserRoleIds,
       currentUserRolePerms,
       perms.isOwner,
@@ -478,7 +559,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         userId: user?.id ?? null,
       },
     );
-  }, [currentChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, everyoneRole, user?.id]);
+  }, [permissionChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, everyoneRole, user?.id]);
 
   // Server-only: if the signed-in user is timed out, block the composer.
   const selfTimeoutUntil = useMemo(() => {
@@ -611,6 +692,48 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     [user?.id, user?.settings, currentUserRoleIds, currentServer?.id, currentChannel?.id, currentChannel?.parentId, currentChannel?.name, channels, gt, previewNames]
   );
 
+  const applyThreadSummary = threadState.applySummary;
+  const markThreadJoined = threadState.markJoined;
+  // Threads browser (header popout) and the panel openers.
+  const [showThreads, setShowThreads] = useState(false);
+  const [threadsVersion, setThreadsVersion] = useState(0);
+  const currentChannelId = currentChannel?.id ?? null;
+  const handleCreateThread = useCallback(
+    (message: Message) => {
+      if (!currentChannelId) return;
+      openCreateThread(currentChannelId, {
+        id: message.id,
+        content: message.content,
+        createdAt: message.createdAt,
+        author: message.author
+          ? {
+              id: message.author.id,
+              username: message.author.username,
+              displayName: message.author.displayName,
+              avatar: message.author.avatar,
+            }
+          : null,
+        attachments: message.attachments,
+      });
+    },
+    [currentChannelId],
+  );
+  const handleOpenThread = useCallback(
+    (threadId: string) => {
+      if (currentChannelId) openThreadPanel(currentChannelId, threadId);
+    },
+    [currentChannelId],
+  );
+  const handleSeeAllThreads = useCallback(() => setShowThreads(true), []);
+  // "See all threads." on a "started a thread" row.
+  useEffect(
+    () =>
+      onThreadsBrowserRequest((parentId) => {
+        if (parentId === currentChannelId && !isPanel) setShowThreads(true);
+      }),
+    [currentChannelId, isPanel],
+  );
+
   // The whole chat engine (messages, SSE, sends, pins, actions) is shared
   // with DMs via useChatSession.
   const chat = useChatSession<Message>({
@@ -621,6 +744,12 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     emojiLookup,
     normalizeContent: normalizeMessageMentions,
     onIncomingMessage: handleIncomingMessage,
+    onOtherEvent: (event) => {
+      // This thread's header (archived, locked, renamed, counts).
+      if (event.type === "thread_state" && event.thread) applyThreadSummary(event.thread);
+      // Threads started here changed: the open threads browser refetches.
+      else if (event.type === "thread_create" || event.type === "thread_update") setThreadsVersion((v) => v + 1);
+    },
     onShouldScrollToBottom: () => {
       if (messageListRef.current?.isAtBottom()) {
         requestAnimationFrame(() => messageListRef.current?.scrollToBottom());
@@ -715,12 +844,14 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     // the message endpoint dispatches the interaction and returns without
     // persisting the raw "/command" text (see sendMessage reconciliation).
     void chat.sendMessage();
+    // Posting in a thread joins it (the server adds you).
+    if (isThread) markThreadJoined();
 
     // First message in a Discord-bridged channel → ask for sync consent once.
     if (currentChannelBridged && !user?.settings?.dataPrivacy?.discordBridgePrompted) {
       setBridgeConsentOpen(true);
     }
-  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted]);
+  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted, isThread, markThreadJoined, user, currentChannel?.id]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
@@ -1405,7 +1536,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
   // Honor a ?jump=<messageId> query param (from a copied message link) once the
   // channel's messages have had a moment to load.
   useEffect(() => {
-    if (!currentChannel?.id || typeof window === "undefined") return;
+    // ?jump belongs to the page's channel, not the side panel's thread.
+    if (isPanel || !currentChannel?.id || typeof window === "undefined") return;
     const jid = new URLSearchParams(window.location.search).get("jump");
     if (!jid) return;
     const t = setTimeout(() => {
@@ -1421,7 +1553,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   // Inbox / notification click aimed at this (already open) channel.
   useEffect(() => {
-    if (!currentServer?.id || !currentChannel?.id) return;
+    if (isPanel || !currentServer?.id || !currentChannel?.id) return;
     return onJumpToMessage(`/channels/${currentServer.id}/${currentChannel.id}`, (id) => {
       void jumpToMessage(id);
       const url = new URL(window.location.href);
@@ -1430,7 +1562,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         window.history.replaceState(null, "", url.toString());
       }
     });
-  }, [currentServer?.id, currentChannel?.id, jumpToMessage]);
+  }, [currentServer?.id, currentChannel?.id, jumpToMessage, isPanel]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (mentionSuggestions.length > 0) {
@@ -1500,7 +1632,9 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         return;
       }
       // Nothing to cancel: Escape marks the channel read (Discord parity).
-      emitHotkey("mark-channel-read");
+      // The side panel marks its own thread read instead of the channel.
+      if (isPanel) handleMarkRead();
+      else emitHotkey("mark-channel-read");
     }
 
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1520,6 +1654,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
   // Wire broadcast keyboard-shortcut actions owned by the chat surface.
   useEffect(() => {
+    // Global shortcuts belong to the main channel view, not the thread panel.
+    if (isPanel) return;
     const unsubs = [
       onHotkey("toggle-pins", () => setShowPins((v) => !v)),
       onHotkey("toggle-members", () => onToggleMembers?.()),
@@ -1537,7 +1673,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       onHotkey("edit-last-message", () => editLastOwnMessage()),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [onToggleMembers, editLastOwnMessage]);
+  }, [onToggleMembers, editLastOwnMessage, isPanel]);
 
   const formatTimestamp = (ts: string) => formatMessageTimestamp(ts, gt, locale);
 
@@ -1564,7 +1700,41 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
 
 
-  const welcomeHeader = (
+  const starter = threadInfo?.starterMessage ?? null;
+  const threadOwnerId = threadInfo?.thread?.ownerId ?? null;
+  const threadOwnerName = threadOwnerId
+    ? (members as Array<{ id: string; username: string; displayName?: string }>).find((m) => m.id === threadOwnerId)?.displayName ||
+      (starter?.author?.id === threadOwnerId ? starter.author.displayName : null)
+    : null;
+  const welcomeHeader = isThread ? (
+    <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
+      <div className="w-16 h-16 mb-2 rounded-full bg-[var(--app-surface-alt)] flex items-center justify-center border border-[var(--app-border)]">
+        <MessagesSquare className="w-8 h-8 text-[var(--text-primary)]" />
+      </div>
+      <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-1 break-words">{threadName}</h1>
+      {threadOwnerName && (
+        <p className="text-sm text-[var(--app-muted)]">{gt("Started by {name}", { name: threadOwnerName })}</p>
+      )}
+      {starter && (
+          <div className="mt-3 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] p-3">
+            <p className="mb-1 text-sm font-semibold text-[var(--text-primary)]">
+              {starter.author?.displayName || starter.author?.username || gt("Unknown")}
+              <span className="ml-2 text-xs font-normal text-[var(--app-muted)]">{formatMessageTimestamp(starter.createdAt, gt, locale)}</span>
+            </p>
+            <MessageContent
+              content={starter.content}
+              serverEmojis={serverEmojis}
+              mentionUsers={mentionUsers}
+              mentionRoles={mentionRoles}
+              currentUserId={user?.id}
+              serverId={currentServer?.id}
+              edited={starter.edited}
+              className="chat-message-body text-[var(--app-text)]"
+            />
+          </div>
+      )}
+    </div>
+  ) : (
     <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
       <div className="w-16 h-16 mb-2 rounded-2xl bg-[var(--app-surface-alt)] flex items-center justify-center border border-[var(--app-border)]">
         <Hash className="w-10 h-10 text-[var(--text-primary)]" />
@@ -1581,25 +1751,97 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       {/* Channel Header */}
       <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          {isMobile && (
+          {isMobile && !isPanel && (
             <button
-              onClick={() => router.push(`/channels/${currentServer?.id}`)}
+              onClick={() =>
+                router.push(
+                  isThread && currentChannel.parentId
+                    ? `/channels/${currentServer?.id}/${currentChannel.parentId}`
+                    : `/channels/${currentServer?.id}`,
+                )
+              }
+              aria-label={gt("Back")}
               className="p-2 -ml-1 rounded-lg hover:bg-[var(--app-surface-alt)] transition-colors"
             >
               <ChevronLeft className="w-5 h-5 text-[var(--app-muted)]" />
             </button>
           )}
-          {currentChannel.type === "announcement" ? (
+          {isThread ? (
+            <ThreadHeaderTitle
+              name={threadName}
+              parentName={isPanel ? null : parentChannel?.name ?? threadInfo?.parentName ?? currentChannel.parentName ?? null}
+              onOpenParent={
+                !isPanel && currentChannel.parentId
+                  ? () => router.push(`/channels/${currentServer?.id}/${currentChannel.parentId}`)
+                  : undefined
+              }
+              isPrivate={currentChannel.type === "private_thread" || threadInfo?.thread?.type === "private_thread"}
+            />
+          ) : currentChannel.type === "announcement" ? (
             <Megaphone className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           ) : (
             <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           )}
-          <span className="font-semibold text-[var(--text-primary)] truncate text-sm sm:text-base">{currentChannel.name}</span>
+          {!isThread && (
+            <span className="font-semibold text-[var(--text-primary)] truncate text-sm sm:text-base">{currentChannel.name}</span>
+          )}
           {currentChannel.type === "announcement" && (
             <span className="ml-1 shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/15 text-blue-400 select-none hidden sm:inline">ANNOUNCEMENTS</span>
           )}
         </div>
         <div className="flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
+          {isThread && (
+            <ThreadHeaderActions
+              threadId={currentChannel.id}
+              serverId={currentServer?.id}
+              state={threadState}
+              canModerateThreads={canModerateThreads}
+              onExpand={
+                isPanel
+                  ? () => {
+                      closeThreadPanel();
+                      router.push(`/channels/${currentServer?.id}/${currentChannel.id}`);
+                    }
+                  : undefined
+              }
+              onClose={isPanel ? onClosePanel : undefined}
+            />
+          )}
+          {hostsThreads && (
+            <Popover open={showThreads} onOpenChange={setShowThreads}>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "p-2 -m-1 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
+                    showThreads && "text-[var(--text-primary)]",
+                  )}
+                  title={gt("Threads")}
+                  aria-label={gt("Threads")}
+                >
+                  <MessagesSquare className="w-5 h-5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-auto p-0 border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--text-primary)]">
+                <MountWhenOpened open={showThreads}>
+                  <ThreadsBrowser
+                    channelId={currentChannel.id}
+                    channelName={currentChannel.name}
+                    version={threadsVersion}
+                    canCreate={canCreateThreads}
+                    onOpenThread={(threadId) => {
+                      setShowThreads(false);
+                      handleOpenThread(threadId);
+                    }}
+                    onCreate={() => {
+                      setShowThreads(false);
+                      openCreateThread(currentChannel.id, null);
+                    }}
+                  />
+                </MountWhenOpened>
+              </PopoverContent>
+            </Popover>
+          )}
+          {!isPanel && (<>
           <button
             className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
             onClick={() =>
@@ -1672,6 +1914,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           >
             <HelpCircle className="w-5 h-5" />
           </button>
+          </>)}
         </div>
       </div>
 
@@ -1752,6 +1995,11 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         unreadMarker={openMarker.marker}
         onReadUpTo={handleReadUpTo}
         onMarkRead={handleMarkRead}
+        canCreateThread={canCreateThreads}
+        onCreateThread={canCreateThreads ? handleCreateThread : undefined}
+        onOpenThread={hostsThreads ? handleOpenThread : undefined}
+        onSeeAllThreads={hostsThreads ? handleSeeAllThreads : undefined}
+        secondary={isPanel}
       />
 
       <TypingIndicator text={chat.typingStatusText} />
@@ -1763,7 +2011,21 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         </div>
       )}
 
-      {currentChannel?.type !== "announcement" && canSendInCurrentChannel === false && currentChannel?.type !== "voice" && currentChannel?.type !== "stage" && (
+      {isThread && threadLocked && (
+        <div className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] flex items-center gap-2.5 text-xs text-[var(--app-muted)]">
+          <Lock className="w-4 h-4 shrink-0" />
+          <span>{canModerateThreads ? gt("This thread is locked. Only moderators can send messages.") : gt("This thread is locked.")}</span>
+        </div>
+      )}
+
+      {isThread && !threadLocked && threadArchived && (
+        <div className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] flex items-center gap-2.5 text-xs text-[var(--app-muted)]">
+          <Archive className="w-4 h-4 shrink-0" />
+          <span>{gt("This thread is archived. Sending a message will unarchive it.")}</span>
+        </div>
+      )}
+
+      {currentChannel?.type !== "announcement" && canSendInCurrentChannel === false && !lockedOut && currentChannel?.type !== "voice" && currentChannel?.type !== "stage" && (
         <div className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-400">
           <Shield className="w-4 h-4 shrink-0" />
           <span><T>You do not have permission to send messages in this channel.</T></span>
@@ -1772,19 +2034,28 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
 
       <MessageBar
         ref={messageBarRef}
-        disabled={selfTimeout.active || !canSendInCurrentChannel}
+        disabled={selfTimeout.active || !canSendInCurrentChannel || lockedOut}
+        secondary={isPanel}
         placeholder={
           selfTimeout.active
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
+            : lockedOut
+            ? gt("This thread is locked.")
             : !canSendInCurrentChannel
             ? gt("You don't have permission to send messages here")
+            : isThread
+            ? `${gt("Message")} ${threadName}`
             : `${gt("Message")} #${currentChannel?.name ?? ""}`
         }
         ariaLabel={
           selfTimeout.active
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
+            : lockedOut
+            ? gt("This thread is locked.")
             : !canSendInCurrentChannel
             ? gt("You don't have permission to send messages here")
+            : isThread
+            ? `${gt("Message")} ${threadName}`
             : `${gt("Message")} #${currentChannel?.name ?? ""}`
         }
         onSend={() => void handleSend()}
@@ -1883,6 +2154,8 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
         onToggleReaction={(message, emoji, hasReacted) => chat.actions.toggleReaction(message.id, emoji, hasReacted)}
         currentUserId={user?.id}
+        onCreateThread={canCreateThreads ? handleCreateThread : undefined}
+        onOpenThread={hostsThreads ? handleOpenThread : undefined}
       />
 
       <MountWhenOpened open={bridgeConsentOpen}>

@@ -77,6 +77,7 @@ import {
 } from "@/lib/unread/store";
 import { isReadingLive } from "@/lib/unread/attentionTracker";
 import { groupDmHref } from "@/lib/chat/groupDm";
+import { emitThreadsChanged } from "@/lib/chat/threadPanelStore";
 
 interface ActivityEvent {
   type: "channel_activity";
@@ -172,6 +173,8 @@ interface UnreadContextValue {
   registerChannels: (channels: ChannelMeta[]) => void;
   /** Called when the user opens a conversation. Doesn't mark it read. */
   setActiveChannel: (channelId: string | null) => void;
+  /** The thread open in the side panel next to the active channel (also on screen). */
+  setActivePanelChannel: (channelId: string | null) => void;
   /**
    * Seed DMs from `/api/dms` (newest message + the server's unread count,
    * reconciled with what this device saw since `issuedAt`, local ms).
@@ -219,6 +222,15 @@ function markAlerted(messageId: string | undefined): boolean {
     if (oldest) alertedMessageIds.delete(oldest);
   }
   return true;
+}
+
+/** The conversation is on screen: the open channel or the thread beside it. */
+function isOnScreenIn(
+  main: { current: string | null },
+  panel: { current: string | null },
+  channelId: string,
+): boolean {
+  return main.current === channelId || panel.current === channelId;
 }
 
 function ancestorsOf(meta: Record<string, ChannelMeta>, channelId: string, parentId?: string | null): string[] {
@@ -295,6 +307,9 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     channelMetaRef.current = channelMeta;
   }, [channelMeta]);
   const activeChannelRef = useRef<string | null>(null);
+  // A thread open in the side panel is on screen too.
+  const activePanelChannelRef = useRef<string | null>(null);
+
   // Last message id POSTed per channel, so repeated acks of the same message
   // (scroll jitter, focus events) cost nothing.
   const postedAckRef = useRef<Record<string, string>>({});
@@ -378,6 +393,10 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
 
   const setActiveChannel = useCallback((channelId: string | null) => {
     activeChannelRef.current = channelId;
+  }, []);
+
+  const setActivePanelChannel = useCallback((channelId: string | null) => {
+    activePanelChannelRef.current = channelId;
   }, []);
 
   const registerChannels = useCallback((channels: ChannelMeta[]) => {
@@ -487,7 +506,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         isDM: true,
         mention: true,
         notify: false, // the activity stream's dm_activity alerts
-        active: activeChannelRef.current === channelId,
+        active: isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
         readingLive: isReadingLive(),
       });
       if (outcome.event) dispatchUnread(outcome.event);
@@ -709,6 +728,13 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Joined / left / archived threads: the sidebar's thread list refetches.
+      if (data.type === "thread_members_update") {
+        const serverId = (data as { serverId?: string }).serverId;
+        if (serverId) emitThreadsChanged(serverId);
+        return;
+      }
+
       // An edit removed this user's mention from a message.
       if (data.type === "mention_retract") {
         const { channelId, messageId, keepUserIds } = data as { channelId?: string; messageId?: string; keepUserIds?: string[] };
@@ -750,7 +776,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           isDM: true,
           mention: decision.mention,
           notify: decision.notify && !dm.isCall && !dm.isSystem,
-          active: activeChannelRef.current === channelId,
+          active: isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
           readingLive: isReadingLive(),
         });
         if (outcome.event) dispatchUnread(outcome.event);
@@ -767,7 +793,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           isDM: true,
           isMentioned: false,
           isEveryoneMention: false,
-          viewing: outcome.viewing || activeChannelRef.current === channelId,
+          viewing: outcome.viewing || isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
           title,
           body,
           showPreview,
@@ -842,7 +868,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         isDM: false,
         mention: alert.mention,
         notify: alert.notify,
-        active: activeChannelRef.current === event.channelId,
+        active: isOnScreenIn(activeChannelRef, activePanelChannelRef, event.channelId),
         readingLive: isReadingLive(),
       });
       if (outcome.event) dispatchUnread(outcome.event);
@@ -954,7 +980,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
 
   const isChannelUnread = useCallback(
     (channelId: string) => {
-      if (activeChannelRef.current === channelId) return false;
+      if (isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId)) return false;
       if (mutedChannels.has(channelId)) return false;
       return hasUnread(unread, channelId);
     },
@@ -1029,6 +1055,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       markAllRead,
       registerChannels,
       setActiveChannel,
+      setActivePanelChannel,
       seedDmChannels,
       notifyDmActivity,
     }),
@@ -1048,6 +1075,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       markAllRead,
       registerChannels,
       setActiveChannel,
+      setActivePanelChannel,
       seedDmChannels,
       notifyDmActivity,
     ],
@@ -1075,6 +1103,7 @@ const NOOP_UNREAD: UnreadContextValue = {
   markAllRead: () => {},
   registerChannels: () => {},
   setActiveChannel: () => {},
+  setActivePanelChannel: () => {},
   seedDmChannels: () => {},
   notifyDmActivity: () => {},
 };

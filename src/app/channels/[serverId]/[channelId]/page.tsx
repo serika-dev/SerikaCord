@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useParams, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +21,11 @@ import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { SwipeNav } from "@/components/mobile/SwipeNav";
 import { useBackHandler } from "@/hooks/useBackHandler";
+import { useThreadPanel } from "@/lib/chat/threadPanelStore";
+import { canHostThreads, isThreadType } from "@/lib/chat/threads";
+
+// The thread side panel's chunk loads the first time a thread is opened.
+const ThreadPanel = dynamic(() => import("@/components/chat/ThreadPanel").then((m) => m.ThreadPanel), { ssr: false });
 
 interface SoundboardSound {
   id: string;
@@ -652,6 +658,8 @@ export default function ChannelPage() {
   const router = useRouter();
   const gt = useGT();
   const { servers, setCurrentServer, channels, channelsServerId, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
+  // Discord's thread side panel, next to a text / announcement channel.
+  const threadPanel = useThreadPanel(currentChannel && canHostThreads(currentChannel.type) ? currentChannel.id : null);
   const [showMembers, setShowMembers] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -812,6 +820,7 @@ export default function ChannelPage() {
           position: ch.position ?? 0,
           parentId: ch.parentId?.toString?.() || ch.parentId || null,
           parentName: ch.parentName,
+          parentType: ch.parentType ?? null,
           isNsfw: ch.nsfw || ch.isNsfw,
           topic: ch.topic,
           rateLimitPerUser: ch.rateLimitPerUser || 0,
@@ -987,11 +996,17 @@ export default function ChannelPage() {
     );
   }
 
-  // Forum thread experience — show the parent forum post list + thread chat
+  // Forum thread experience — show the parent forum post list + thread chat.
+  // A thread in a text / announcement channel opens as a full chat view below
+  // (header: "# parent › thread").
+  const threadParentType = currentChannel?.parentId
+    ? currentChannel.parentType ?? channels.find((c) => c.id === currentChannel.parentId)?.type ?? null
+    : null;
   const isForumThread =
     currentChannel &&
-    (currentChannel.type === "public_thread" || currentChannel.type === "private_thread") &&
-    currentChannel.parentId;
+    isThreadType(currentChannel.type) &&
+    currentChannel.parentId &&
+    (threadParentType === "forum" || threadParentType === null);
 
   if (isForumThread) {
     return (
@@ -1013,7 +1028,12 @@ export default function ChannelPage() {
       >
         <ChatArea onToggleMembers={() => setShowMembers(!showMembers)} showMembers={showMembers} />
       </SwipeNav>
-      {renderMembers(isMobile)}
+      {threadPanel.mode !== "closed" && currentChannel ? (
+        // The member list makes way for the thread panel (Discord).
+        <ThreadPanel parentChannel={currentChannel} state={threadPanel} serverId={serverId} />
+      ) : (
+        renderMembers(isMobile)
+      )}
     </>
   );
 }

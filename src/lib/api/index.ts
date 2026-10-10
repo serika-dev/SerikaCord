@@ -3880,6 +3880,11 @@ export async function initializeAPI() {
     // Group DMs: system message types + channels.icon. Idempotent, never throws.
     const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
     await ensureGroupDmSchema();
+    // Threads in text channels: 'thread_created' message type + thread columns
+    // on channels, then the auto-archive sweep. Idempotent, never throws.
+    const { ensureThreadSchema, startThreadAutoArchive } = await import('@/lib/services/threads');
+    await ensureThreadSchema();
+    startThreadAutoArchive();
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();

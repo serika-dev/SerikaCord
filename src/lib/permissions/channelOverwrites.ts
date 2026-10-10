@@ -120,7 +120,7 @@ export function computeChannelPermissions(opts: {
 
   let perms = applyChannelOverwrites(base, opts.overwrites, opts.ctx);
   if ((base & PERMISSION_BITS.MANAGE_CHANNELS) === PERMISSION_BITS.MANAGE_CHANNELS) {
-    perms |= PERMISSION_BITS.VIEW_CHANNEL | PERMISSION_BITS.SEND_MESSAGES;
+    perms |= PERMISSION_BITS.VIEW_CHANNEL | PERMISSION_BITS.SEND_MESSAGES | PERMISSION_BITS.SEND_MESSAGES_IN_THREADS;
   }
   return perms;
 }

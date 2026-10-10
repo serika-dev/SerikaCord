@@ -10,7 +10,8 @@ export type MessageType =
   | 'member_leave'
   | 'channel_pinned_message'
   | 'user_premium_guild_subscription'
-  | 'call';
+  | 'call'
+  | 'thread_created';
 
 export type IMessage = typeof schema.messages.$inferSelect;
 

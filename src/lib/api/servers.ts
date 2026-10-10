@@ -2052,6 +2052,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         if (ch.type === 'public_thread' || ch.type === 'private_thread') {
           // Joined threads only, and never one whose parent the member can't see.
           if (!(Array.isArray(ch.threadMemberIds) && ch.threadMemberIds.includes(user.id))) return false;
+          // Archived threads leave the sidebar (Discord); the threads browser lists them.
+          if (ch.archived) return false;
           return !ch.parentId || visibleIds.has(ch.parentId) || !allChannels.some((p: { id: string }) => p.id === ch.parentId);
         }
         return visibleIds.has(ch.id);

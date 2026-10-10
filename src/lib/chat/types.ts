@@ -3,6 +3,7 @@
  */
 import type { CallMessageData } from "@/lib/voice/callMessage";
 import type { GroupDmEventType } from "@/lib/chat/groupDm";
+import type { ThreadSummary } from "@/lib/chat/threads";
 
 export interface MessageAuthor {
   id: string;
@@ -101,7 +102,7 @@ export interface ReferencedMessage {
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system" | "call" | GroupDmEventType;
+  type?: "default" | "reply" | "system" | "call" | "thread_created" | GroupDmEventType;
   authorId: string;
   author: MessageAuthor;
   channelId: string;
@@ -135,6 +136,10 @@ export interface ChatMessage {
   call?: CallMessageData | null;
   /** Group DM system row ("X added Y to the group."): who it's about, the new name. */
   groupEvent?: GroupEventData | null;
+  /** Thread started from this message, or announced by this "started a thread" row. */
+  threadId?: string;
+  /** That thread's summary (chip: name, message count, last reply); null once deleted. */
+  thread?: ThreadSummary | null;
 }
 
 /** Details of a group DM system row (the actor is the message author). */

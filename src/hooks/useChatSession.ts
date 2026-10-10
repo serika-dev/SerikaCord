@@ -8,6 +8,7 @@ import type { MessageBarHandle } from "@/components/chat/MessageBar";
 import { useChatStream, useTypingSignal, type ChatStreamEvent } from "@/hooks/useChatStream";
 import { useMessageActions } from "@/hooks/useMessageActions";
 import {
+  applyThreadUpdate,
   groupMessages,
   isStandaloneRow,
   normalizeIncomingMessage,
@@ -843,6 +844,22 @@ export function useChatSession<M extends ChatMessage>({
           String(data.userId),
           data.type === "reaction_add"
         );
+        return;
+      }
+
+      if (data.type === "thread_update") {
+        // A thread started here changed (new reply, renamed, archived, deleted):
+        // its starter message chip / "started a thread" row follows.
+        if (typeof data.threadId === "string") {
+          setMessages((prev) =>
+            applyThreadUpdate(prev, {
+              threadId: data.threadId,
+              messageId: typeof data.messageId === "string" ? data.messageId : null,
+              thread: data.thread ?? null,
+            })
+          );
+        }
+        latestRef.current.onOtherEvent?.(data);
         return;
       }
 

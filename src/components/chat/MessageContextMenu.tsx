@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, useEffect } from "react";
-import { Copy, Link2, Pencil, Pin, Reply, Smile, Trash2, Hash } from "lucide-react";
+import { Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
@@ -28,6 +28,10 @@ interface MessageContextMenuProps<M extends ChatMessage> {
   /** Phones: quick-reaction row in the long-press sheet. */
   onToggleReaction?: (message: M, emoji: string, hasReacted: boolean) => void;
   currentUserId?: string;
+  /** Text channels where the viewer may start threads: "Create Thread". */
+  onCreateThread?: (message: M) => void;
+  /** Open the thread a message started. */
+  onOpenThread?: (threadId: string) => void;
 }
 
 const itemClass = "ctx-item";
@@ -48,6 +52,8 @@ export function MessageContextMenu<M extends ChatMessage>({
   onDeleteNow,
   onToggleReaction,
   currentUserId,
+  onCreateThread,
+  onOpenThread,
 }: MessageContextMenuProps<M>) {
   const gt = useGT();
   const isMobile = useIsMobile();
@@ -110,6 +116,11 @@ export function MessageContextMenu<M extends ChatMessage>({
   const { message } = menu;
   const own = isOwn(message);
   const canDelete = own || canModerate;
+  const threadId = message.thread?.id ?? message.threadId;
+  const startThread =
+    onCreateThread && !threadId && !message.pending && !message.ephemeral && !message.id.startsWith("temp-")
+      ? onCreateThread
+      : undefined;
   const run = (action: () => void) => () => {
     action();
     onClose();
@@ -131,6 +142,7 @@ export function MessageContextMenu<M extends ChatMessage>({
         onPinToggle={onPinToggle}
         onEdit={onEdit}
         onDelete={onDelete}
+        onCreateThread={startThread}
       />
     );
   }
@@ -148,6 +160,16 @@ export function MessageContextMenu<M extends ChatMessage>({
       {onAddReaction && (
         <button onClick={run(() => onAddReaction(message))} className={itemClass}>
           <Smile className="w-4 h-4" /> {gt("Add Reaction")}
+        </button>
+      )}
+      {startThread && (
+        <button onClick={run(() => startThread(message))} className={itemClass}>
+          <MessagesSquare className="w-4 h-4" /> {gt("Create Thread")}
+        </button>
+      )}
+      {threadId && onOpenThread && message.thread !== null && (
+        <button onClick={run(() => onOpenThread(threadId))} className={itemClass}>
+          <MessagesSquare className="w-4 h-4" /> {gt("Open Thread")}
         </button>
       )}
       <button onClick={run(() => onCopy(message.content))} className={itemClass}>

@@ -27,6 +27,25 @@ import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { canStartDm } from '@/lib/chat/dmAccess';
+import { signalChannelMessage } from '@/lib/services/messageSignals';
+import {
+  addThreadMembers,
+  broadcastThreadUpdate,
+  claimStarterMessage,
+  loadThreadSummaries,
+  loadThreadSummariesByIds,
+  notifyThreadMembership,
+  releaseThreadMessages,
+  refreshThreadAfterMessage,
+  removeThreadMember,
+  setThreadArchived,
+} from '@/lib/services/threads';
+import {
+  canHostThreads,
+  cleanThreadName,
+  normalizeAutoArchiveDuration,
+  threadMembersToAdd,
+} from '@/lib/chat/threads';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -45,6 +64,10 @@ const PERM_MENTION_EVERYONE = 1n << 17n;
 const PERM_MANAGE_WEBHOOKS = 1n << 29n;
 const PERM_ATTACH_FILES = PERMISSION_BITS.ATTACH_FILES;
 const PERM_ADD_REACTIONS = PERMISSION_BITS.ADD_REACTIONS;
+const PERM_SEND_MESSAGES_IN_THREADS = PERMISSION_BITS.SEND_MESSAGES_IN_THREADS;
+const PERM_CREATE_PUBLIC_THREADS = PERMISSION_BITS.CREATE_PUBLIC_THREADS;
+const PERM_CREATE_PRIVATE_THREADS = PERMISSION_BITS.CREATE_PRIVATE_THREADS;
+const PERM_MANAGE_THREADS = PERMISSION_BITS.MANAGE_THREADS;
 
 /**
  * Whether a user can moderate messages in a server — i.e. delete other people's
@@ -180,6 +203,23 @@ async function computeMemberChannelPermissions(
   });
 }
 
+/**
+ * A member's permission bitfield in `channel`, resolved on the channel whose
+ * overwrites apply (a thread's parent). DMs: everything.
+ */
+async function memberPermissionsIn(
+  channel: PermissionChannel,
+  userId: string,
+  membership: { roles?: string[] | null } | null | undefined,
+): Promise<bigint> {
+  if (!channel.serverId) return ALL_PERMISSIONS;
+  const [source, serverOwnerId] = await Promise.all([
+    permissionSourceFor(channel),
+    getServerOwnerIdCached(channel.serverId),
+  ]);
+  return computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
+}
+
 /** Whether a user can view a channel (VIEW_CHANNEL after base perms + overwrites). */
 async function canViewChannel(
   channel: PermissionChannel,
@@ -221,8 +261,13 @@ async function checkCanSpeak(
     getServerOwnerIdCached(channel.serverId),
   ]);
   const perms = await computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
-  if (actions.includes('send') && !hasPermissionBit(perms, PERM_SEND_MESSAGES)) {
-    return { status: 403, body: { error: 'You do not have permission to send messages in this channel' } };
+  // Threads speak with SEND_MESSAGES_IN_THREADS (resolved on the parent), as in Discord.
+  const inThread = channel.type === 'public_thread' || channel.type === 'private_thread';
+  if (actions.includes('send') && !hasPermissionBit(perms, inThread ? PERM_SEND_MESSAGES_IN_THREADS : PERM_SEND_MESSAGES)) {
+    return {
+      status: 403,
+      body: { error: inThread ? 'You do not have permission to send messages in threads here' : 'You do not have permission to send messages in this channel' },
+    };
   }
   if (actions.includes('attach') && !hasPermissionBit(perms, PERM_ATTACH_FILES)) {
     return { status: 403, body: { error: 'You do not have permission to attach files in this channel' } };
@@ -728,7 +773,10 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
             hasAccessRole = memberRoles.some((r: string) => accessRoles.includes(r));
           }
         }
-        if (!isServerOwner && !hasAccessRole) {
+        // Thread moderators (MANAGE_THREADS) see private threads too.
+        const canManageThreads = !isServerOwner && !hasAccessRole && !!server
+          && await hasServerPermission({ id: server.id, ownerId: server.ownerId }, userId, PERM_MANAGE_THREADS, membership);
+        if (!isServerOwner && !hasAccessRole && !canManageThreads) {
           return { hasAccess: false, error: 'You do not have access to this thread' };
         }
       }
@@ -1022,6 +1070,224 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
   }
 }
 
+/**
+ * The channel message a thread was started from, shaped like a fetched
+ * message (for the top of the thread view). Null when it's gone.
+ */
+async function loadStarterMessage(messageId: string, parentId: string) {
+  if (!isValidObjectId(messageId)) return null;
+  const msg = await Message.findOne({ id: messageId, channelId: parentId, isDeleted: false });
+  if (!msg) return null;
+  const [author, content] = await Promise.all([
+    msg.authorId ? User.findById(msg.authorId) : Promise.resolve(null),
+    decryptFromStorage(msg.content || ''),
+  ]);
+  return {
+    id: msg.id,
+    channelId: msg.channelId,
+    content,
+    authorId: msg.authorId,
+    author: author ? {
+      id: author.id,
+      username: author.username,
+      displayName: author.displayName || author.username,
+      avatar: author.avatar,
+      isBot: Boolean(author.isBot),
+    } : null,
+    createdAt: msg.createdAt,
+    edited: msg.edited,
+    attachments: msg.attachments || [],
+    sticker: msg.sticker || undefined,
+  };
+}
+
+/** Thread owner, server owner, or MANAGE_THREADS (on the parent): rename, archive, lock, delete. */
+async function canManageThreadAs(
+  thread: { ownerId?: string | null; serverId?: string | null; type?: string | null; parentId?: string | null; permissionOverwrites?: unknown },
+  userId: string,
+  membership: { roles?: string[] | null } | null | undefined,
+): Promise<boolean> {
+  if (thread.ownerId && compareIds(thread.ownerId, userId)) return true;
+  return hasPermissionBit(await memberPermissionsIn(thread, userId, membership), PERM_MANAGE_THREADS);
+}
+
+type ThreadCreateUser = { id: string; username: string; displayName?: string | null; avatar?: string | null; badges?: string[] | null; isBot?: boolean | null; isSystem?: boolean | null; isVerified?: boolean | null; customization?: unknown };
+
+/**
+ * Start a thread in a text / announcement channel (Discord "Create Thread"):
+ * from a message (the message gets the thread chip) or from the header (a
+ * "X started a thread" row is posted). Optional first message in the thread.
+ */
+async function createChannelThread(
+  parent: IChannel,
+  user: ThreadCreateUser,
+  membership: { roles?: string[] | null; communicationDisabledUntil?: Date | null } | null | undefined,
+  body: { name: string; content?: string; messageId?: string; type?: 'public' | 'private'; autoArchiveDuration?: number },
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  // Timed-out members can't start threads.
+  const timedOut = await checkCanSpeak(parent, membership, user.id, []);
+  if (timedOut) return timedOut;
+
+  const fromMessage = Boolean(body.messageId);
+  const wantsPrivate = body.type === 'private' && !fromMessage;
+  const perms = await memberPermissionsIn(parent, user.id, membership);
+  if (!hasPermissionBit(perms, wantsPrivate ? PERM_CREATE_PRIVATE_THREADS : PERM_CREATE_PUBLIC_THREADS)) {
+    return { status: 403, body: { error: wantsPrivate ? 'You do not have permission to create private threads here' : 'You do not have permission to create threads here' } };
+  }
+  const content = (body.content ?? '').trim() ? body.content! : '';
+  if (content && !hasPermissionBit(perms, PERM_SEND_MESSAGES_IN_THREADS)) {
+    return { status: 403, body: { error: 'You do not have permission to send messages in threads here' } };
+  }
+  if (!fromMessage && !content) {
+    return { status: 400, body: { error: 'A thread needs a first message' } };
+  }
+
+  const [limit, globalLimit] = await Promise.all([
+    checkRateLimit('message', `${user.id}:${parent.id}`),
+    checkRateLimit('messageGlobal', user.id),
+  ]);
+  if (!limit.success || !globalLimit.success) {
+    return { status: 429, body: { error: 'You are creating threads too fast', retryAfter: !limit.success ? limit.retryAfter : globalLimit.retryAfter } };
+  }
+
+  const name = cleanThreadName(sanitizeInput(body.name));
+  if (!name) return { status: 400, body: { error: 'Thread name is required' } };
+  if (content) {
+    const validation = validateMessageContent(content);
+    if (!validation.valid) return { status: 400, body: { error: validation.error } };
+  }
+
+  let starter: IMessage | null = null;
+  if (body.messageId) {
+    starter = isValidObjectId(body.messageId)
+      ? await Message.findOne({ id: body.messageId, channelId: parent.id, isDeleted: false })
+      : null;
+    if (!starter) return { status: 404, body: { error: 'Message not found' } };
+    if (starter.threadId) return { status: 409, body: { error: 'A thread already exists for this message', threadId: starter.threadId } };
+    if (starter.type !== 'default' && starter.type !== 'reply') {
+      return { status: 400, body: { error: 'You cannot start a thread from this message' } };
+    }
+  }
+
+  const autoArchiveDuration = normalizeAutoArchiveDuration(
+    body.autoArchiveDuration,
+    normalizeAutoArchiveDuration(parent.defaultAutoArchiveDuration),
+  );
+  const thread = await Channel.create({
+    serverId: parent.serverId,
+    name,
+    type: wantsPrivate ? 'private_thread' : 'public_thread',
+    parentId: parent.id,
+    ownerId: user.id,
+    position: 0,
+    threadMemberIds: [user.id],
+    messageCount: 0,
+    archived: false,
+    locked: false,
+    autoArchiveDuration,
+    starterMessageId: starter?.id ?? null,
+  });
+
+  if (starter && !(await claimStarterMessage(starter.id, thread.id))) {
+    // Someone else started a thread on it a moment earlier.
+    await Channel.deleteById(thread.id);
+    const fresh = await Message.findById(starter.id);
+    return { status: 409, body: { error: 'A thread already exists for this message', threadId: fresh?.threadId ?? null } };
+  }
+
+  // The first message in the thread.
+  let firstMessage: IMessage | null = null;
+  let mentionedUserIds: string[] = [];
+  if (content) {
+    const sanitizedContent = normalizeEmojiFormat(sanitizeMessageContent(content));
+    const mentionData = await limitMentionsToPermissions(
+      await extractMentionsFromContent(sanitizedContent, parent.serverId || null),
+      parent as Parameters<typeof limitMentionsToPermissions>[1],
+      user.id,
+    );
+    mentionedUserIds = mentionData.mentionedUserIds;
+    firstMessage = await Message.create({
+      channelId: thread.id,
+      serverId: parent.serverId,
+      authorId: user.id,
+      content: await encryptForStorage(sanitizedContent),
+      type: 'default',
+      mentionEveryone: mentionData.mentionEveryone,
+      mentionedUserIds: mentionData.mentionedUserIds,
+      mentionedRoleIds: mentionData.mentionedRoleIds,
+      mentionedChannelIds: mentionData.mentionedChannelIds,
+    });
+    await Channel.updateById(thread.id, { lastMessageId: firstMessage.id, messageCount: 1 });
+    const joined = await addThreadMembers(thread.id, threadMembersToAdd([user.id], user.id, mentionedUserIds));
+    notifyThreadMembership(parent.serverId, thread.id, joined);
+    void signalChannelMessage({
+      channel: { id: thread.id, serverId: parent.serverId, name, parentId: parent.id },
+      messageId: firstMessage.id,
+      authorId: user.id,
+      authorName: user.displayName || user.username,
+      authorAvatar: user.avatar ?? null,
+      mentionedUserIds: mentionData.mentionedUserIds,
+      mentionEveryone: mentionData.mentionEveryone,
+      content: sanitizedContent,
+      createdAt: firstMessage.createdAt,
+    });
+  }
+
+  const row = (await Channel.findById(thread.id)) ?? thread;
+  const summary = (await loadThreadSummaries([row])).get(row.id) ?? null;
+
+  // Header thread: Discord's "X started a thread: name" row in the channel
+  // (public threads only: a private thread isn't announced).
+  if (!starter && !wantsPrivate) {
+    const notice = await Message.create({
+      channelId: parent.id,
+      serverId: parent.serverId,
+      authorId: user.id,
+      content: await encryptForStorage(name),
+      type: 'thread_created',
+      threadId: thread.id,
+    });
+    publishToChannel(parent.id, {
+      type: 'message',
+      message: {
+        id: notice.id,
+        content: name,
+        authorId: user.id,
+        author: {
+          id: user.id,
+          username: user.username,
+          displayName: membership && (membership as { nickname?: string | null }).nickname || user.displayName || user.username,
+          avatar: user.avatar,
+          badges: user.badges || [],
+          isBot: Boolean(user.isBot),
+          isSystem: Boolean(user.isSystem),
+          isVerified: Boolean(user.isVerified),
+        },
+        channelId: parent.id,
+        serverId: parent.serverId,
+        createdAt: notice.createdAt,
+        updatedAt: notice.updatedAt,
+        type: 'thread_created',
+        threadId: thread.id,
+        thread: summary,
+        attachments: [],
+        embeds: [],
+        reactions: [],
+        mentionedUserIds: [],
+        mentionedRoleIds: [],
+        mentionedChannelIds: [],
+      },
+    });
+  }
+
+  // Open threads browsers refetch; the starter's chip appears.
+  publishToChannel(parent.id, { type: 'thread_create', threadId: thread.id });
+  await broadcastThreadUpdate(row);
+  notifyThreadMembership(parent.serverId, thread.id, [user.id]);
+
+  return { status: 200, body: { success: true, thread: summary ?? { id: thread.id, name, parentId: parent.id } } };
+}
+
 export const channelRoutes = new Elysia({ prefix: '/channels' })
   // Get channel
   .get('/:channelId', async ({ headers, cookie, params, set }) => {
@@ -1031,7 +1297,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(
+    const { hasAccess, channel, membership, error } = await checkChannelAccess(
       user.id,
       params.channelId
     );
@@ -1042,10 +1308,28 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     // Expose the parent forum name for thread channels so the client can
-    // render the forum post list alongside the open thread.
+    // render the forum post list alongside the open thread. Threads also carry
+    // their summary, the starter message and what the viewer may do with them
+    // (thread panel / full view header).
     if (channel && (channel.type === 'public_thread' || channel.type === 'private_thread') && channel.parentId) {
       const parent = await Channel.findById(channel.parentId);
-      const enriched = { ...channel, parentName: parent?.name, parentId: channel.parentId };
+      const [summaries, starterMessage, canManageThread] = await Promise.all([
+        loadThreadSummaries([channel]),
+        channel.starterMessageId ? loadStarterMessage(channel.starterMessageId, channel.parentId) : Promise.resolve(null),
+        canManageThreadAs(channel, user.id, membership),
+      ]);
+      const enriched = {
+        ...channel,
+        parentName: parent?.name,
+        parentType: parent?.type ?? null,
+        parentId: channel.parentId,
+        // Threads have no overwrites of their own: the parent's apply.
+        permissionOverwrites: parent?.permissionOverwrites ?? channel.permissionOverwrites,
+        thread: summaries.get(channel.id) ?? null,
+        starterMessage,
+        joined: (channel.threadMemberIds || []).some((m: string) => compareIds(m, user.id)),
+        canManageThread,
+      };
       return { channel: enriched };
     }
 
@@ -1141,7 +1425,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(
+    const { hasAccess, channel, membership: editorMembership, error } = await checkChannelAccess(
       user.id,
       params.channelId
     );
@@ -1154,9 +1438,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
 
     // Check permissions (owner or manage channels). Thread owners may manage
-    // their own thread (rename / archive / lock).
+    // their own thread (rename / archive); MANAGE_THREADS manages any thread,
+    // and only it (or Manage Channels) may lock.
     let isServerOwner = false;
     let canManageChannel = false;
+    let canModerateThreads = false;
     let editServer: { id: string; ownerId: string } | null = null;
     if (channel.serverId) {
       const server = await Server.findById(channel.serverId);
@@ -1164,14 +1450,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       isServerOwner = !!server && compareIds(server.ownerId, user.id);
       canManageChannel = isServerOwner
         || (!!editServer && await hasServerPermission(editServer, user.id, PERM_MANAGE_CHANNELS));
+      canModerateThreads = isThread && (canManageChannel
+        || hasPermissionBit(await memberPermissionsIn(channel, user.id, editorMembership), PERM_MANAGE_THREADS));
       const isThreadOwner = isThread && compareIds(channel.ownerId, user.id);
-      if (!canManageChannel && !isThreadOwner) {
+      if (isThread && channel.locked && !canModerateThreads) {
+        set.status = 403;
+        return { error: 'This thread is locked' };
+      }
+      if (!canManageChannel && !isThreadOwner && !canModerateThreads) {
         set.status = 403;
         return { error: 'You do not have permission to edit this channel' };
       }
     }
 
-    const { name, topic, nsfw, rateLimitPerUser, bitrate, userLimit, parentId, position, permissionOverwrites, type, forumMode, ticketAccessRoleIds, availableTags, archived, locked } = body;
+    const { name, topic, nsfw, rateLimitPerUser, bitrate, userLimit, parentId, position, permissionOverwrites, type, forumMode, ticketAccessRoleIds, availableTags, archived, locked, autoArchiveDuration } = body;
 
     // Editing permission overwrites additionally needs Manage Roles (Discord's
     // "Manage Permissions"), so Manage Channels alone cannot grant itself access.
@@ -1236,10 +1528,22 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    // Thread self-management
+    // Thread self-management. Archive state goes through setThreadArchived
+    // (stamps archive_timestamp, which restarts the inactivity clock).
+    let threadArchiveChange: { archived: boolean; locked?: boolean } | null = null;
     if (isThread) {
-      if (archived !== undefined) updateData.archived = Boolean(archived);
-      if (locked !== undefined && canManageChannel) updateData.locked = Boolean(locked);
+      if (name !== undefined) updateData.name = cleanThreadName(sanitizeInput(name)) || channel.name;
+      const nextLocked = locked !== undefined && canModerateThreads ? Boolean(locked) : undefined;
+      if (archived !== undefined && Boolean(archived) !== Boolean(channel.archived)) {
+        threadArchiveChange = { archived: Boolean(archived), locked: nextLocked };
+      } else if (nextLocked !== undefined) {
+        updateData.locked = nextLocked;
+        // Locking archives too (Discord: a locked thread is closed).
+        if (nextLocked && !channel.archived) threadArchiveChange = { archived: true, locked: true };
+      }
+      if (autoArchiveDuration !== undefined) {
+        updateData.autoArchiveDuration = normalizeAutoArchiveDuration(autoArchiveDuration, normalizeAutoArchiveDuration(channel.autoArchiveDuration));
+      }
     }
 
     // Forum configuration (owner or Manage Channels; ticket access also needs Manage Roles)
@@ -1266,7 +1570,19 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     await Channel.updateById(channel.id, updateData);
+    if (threadArchiveChange) {
+      await setThreadArchived(channel.id, threadArchiveChange.archived, threadArchiveChange.locked);
+    }
     const updated = await Channel.findById(channel.id);
+
+    // Threads: the parent's chip / browser and the thread's own header update
+    // live; an archive change adds or removes it from members' sidebars.
+    if (isThread && updated) {
+      void broadcastThreadUpdate(updated).catch(() => null);
+      if (threadArchiveChange || updateData.name !== undefined) {
+        notifyThreadMembership(updated.serverId, updated.id, (updated.threadMemberIds || []) as string[]);
+      }
+    }
 
     // Publish update event
     const publisher = getPublisher();
@@ -1309,6 +1625,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }))),
       archived: t.Optional(t.Boolean()),
       locked: t.Optional(t.Boolean()),
+      autoArchiveDuration: t.Optional(t.Number()),
     }),
   })
   // Delete channel
@@ -1319,7 +1636,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(
+    const { hasAccess, channel, membership: deleterMembership, error } = await checkChannelAccess(
       user.id,
       params.channelId
     );
@@ -1335,12 +1652,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Cannot delete DM channels' };
     }
 
-    // Check permissions
+    const deletingThread = channel.type === 'public_thread' || channel.type === 'private_thread';
+
+    // Check permissions (threads: MANAGE_THREADS on the parent also deletes)
     if (channel.serverId) {
       const server = await Server.findById(channel.serverId);
       const canDelete = !!server && (
         compareIds(server.ownerId, user.id)
         || await hasServerPermission({ id: server.id, ownerId: server.ownerId }, user.id, PERM_MANAGE_CHANNELS)
+        || (deletingThread && hasPermissionBit(await memberPermissionsIn(channel, user.id, deleterMembership), PERM_MANAGE_THREADS))
       );
       if (!canDelete) {
         set.status = 403;
@@ -1360,6 +1680,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     await Promise.all(orphaned.map((child) => Channel.updateById(child.id, { parentId: null })));
 
     await Channel.deleteById(channel.id);
+
+    // A deleted thread: its starter loses the chip, members' sidebars drop it.
+    if (deletingThread && channel.parentId) {
+      await releaseThreadMessages(channel.id, channel.parentId).catch(() => {});
+      void broadcastThreadUpdate(channel, { deleted: true }).catch(() => null);
+      notifyThreadMembership(channel.serverId, channel.id, (channel.threadMemberIds || []) as string[]);
+    }
 
     const publisher = getPublisher();
     if (publisher) {
@@ -1393,11 +1720,38 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    const { hasAccess, channel, membership: listerMembership, error } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) {
       set.status = 403;
       return { error: error || 'Access denied' };
     }
+
+    // Text / announcement channels: the header's threads browser (active and
+    // archived threads, joined first on the client).
+    if (canHostThreads(channel.type)) {
+      const includeArchivedThreads = (query as { archived?: string }).archived === 'true';
+      const rows = (await Channel.find({ parentId: channel.id }))
+        .filter((t) => t.type === 'public_thread' || t.type === 'private_thread')
+        .filter((t) => includeArchivedThreads || !t.archived);
+      const isMember = (t: IChannel) => (t.threadMemberIds || []).some((m: string) => compareIds(m, user.id));
+      const seesPrivate = rows.some((t) => t.type === 'private_thread' && !isMember(t))
+        ? hasPermissionBit(await memberPermissionsIn(channel, user.id, listerMembership), PERM_MANAGE_THREADS)
+        : true;
+      const visible = rows
+        .filter((t) => t.type !== 'private_thread' || isMember(t) || compareIds(t.ownerId ?? '', user.id) || seesPrivate)
+        .sort((a, b) => new Date(b.updatedAt ?? b.createdAt ?? 0).getTime() - new Date(a.updatedAt ?? a.createdAt ?? 0).getTime())
+        .slice(0, 100);
+      const summaries = await loadThreadSummaries(visible);
+      return {
+        threads: visible
+          .map((t) => {
+            const summary = summaries.get(t.id);
+            return summary ? { ...summary, joined: isMember(t) } : null;
+          })
+          .filter(Boolean),
+      };
+    }
+
     if (channel.type !== 'forum') {
       set.status = 400;
       return { error: 'Channel is not a forum' };
@@ -1501,6 +1855,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 403;
       return { error: error || 'Access denied' };
     }
+    if (canHostThreads(forum.type)) {
+      const result = await createChannelThread(forum, user, membership, body);
+      set.status = result.status;
+      return result.body;
+    }
     if (forum.type !== 'forum') {
       set.status = 400;
       return { error: 'Channel is not a forum' };
@@ -1543,7 +1902,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    const { name, content, appliedTags = [] } = body;
+    const { name, appliedTags = [] } = body;
+    const content = body.content ?? '';
     const trimmedName = sanitizeInput(name).slice(0, 100);
     if (!trimmedName) {
       set.status = 400;
@@ -1618,8 +1978,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     params: t.Object({ channelId: t.String() }),
     body: t.Object({
       name: t.String({ minLength: 1, maxLength: 100 }),
-      content: t.String({ minLength: 1, maxLength: 4000 }),
+      // Required for forum posts; optional for a thread started from a message.
+      content: t.Optional(t.String({ maxLength: 4000 })),
       appliedTags: t.Optional(t.Array(t.String())),
+      // Text / announcement channels only:
+      messageId: t.Optional(t.String()),
+      type: t.Optional(t.Union([t.Literal('public'), t.Literal('private')])),
+      autoArchiveDuration: t.Optional(t.Number()),
     }),
   })
   // Get messages
@@ -1730,12 +2095,17 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // (one batched parse across all contents — no server restriction: access
     // was validated at send time, and restricting to the message's own server
     // broke rendering of cross-server emojis on fetch).
-    const [discordAuthors, refAuthors, emojiResults] = await Promise.all([
+    // Thread chips: starter messages and "started a thread" rows carry their thread.
+    const pageThreadIds = (messages as IMessage[]).map((m) => m.threadId).filter((id): id is string => Boolean(id));
+    const [discordAuthors, refAuthors, emojiResults, threadSummaries] = await Promise.all([
       missingAuthorIds.length > 0
         ? import('@/lib/models/DiscordUser').then(({ DiscordUser }) => DiscordUser.findMany(missingAuthorIds))
         : Promise.resolve([]),
       refAuthorIds.length > 0 ? User.find({ id: { in: refAuthorIds } }) : Promise.resolve([]),
       batchParseCustomEmojis(decryptedContents),
+      pageThreadIds.length > 0
+        ? loadThreadSummariesByIds(pageThreadIds).catch(() => new Map<string, never>())
+        : Promise.resolve(new Map<string, never>()),
     ]);
     for (const da of discordAuthors as any[]) {
       authorMap.set(da.id, {
@@ -1889,6 +2259,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
         suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
         webhookId: (authorData as { isWebhook?: boolean } | null)?.isWebhook ? msg.authorId : undefined,
+        threadId: msg.threadId ?? undefined,
+        thread: msg.threadId ? (threadSummaries.get(msg.threadId) ?? null) : undefined,
       };
     });
 
@@ -2079,12 +2451,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return postDenied.body;
     }
 
-    if (channel.type === 'public_thread' || channel.type === 'private_thread') {
-      const threadMembers = Array.isArray(channel.threadMemberIds) ? (channel.threadMemberIds as string[]) : [];
-      if (!threadMembers.includes(user.id)) {
-        const nextMembers = [...threadMembers, user.id];
-        await Channel.updateById(channel.id, { threadMemberIds: nextMembers });
-        channel.threadMemberIds = nextMembers;
+    // Threads: a locked thread only takes messages from thread moderators; an
+    // archived one is reopened by the message (Discord). The author (and anyone
+    // they @mention) joins the thread once the message is stored, below.
+    const isThreadChannel = channel.type === 'public_thread' || channel.type === 'private_thread';
+    let unarchivedThread = false;
+    if (isThreadChannel && (channel.locked || channel.archived)) {
+      if (channel.locked && !hasPermissionBit(await memberPermissionsIn(channel, user.id, membership), PERM_MANAGE_THREADS)) {
+        set.status = 403;
+        return { error: 'This thread is locked' };
+      }
+      if (channel.archived) {
+        await setThreadArchived(channel.id, false);
+        channel.archived = false;
+        unarchivedThread = true;
       }
     }
 
@@ -2339,6 +2719,21 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Update channel's last message — not needed for the sender's response, so
     // fire-and-forget to keep the send round-trip as short as possible.
     void Channel.updateById(channel.id, { lastMessageId: message.id });
+
+    // Thread: the author and @mentioned members join before the activity
+    // fan-out below (which only reaches thread members), then the parent's
+    // chip / browser get the new count.
+    if (isThreadChannel) {
+      const toAdd = threadMembersToAdd(channel.threadMemberIds as string[] | null, user.id, mentionData.mentionedUserIds);
+      const joinedNow = toAdd.length > 0 ? await addThreadMembers(channel.id, toAdd).catch(() => []) : [];
+      if (joinedNow.length > 0) channel.threadMemberIds = [...((channel.threadMemberIds as string[] | null) || []), ...joinedNow];
+      notifyThreadMembership(
+        channel.serverId,
+        channel.id,
+        unarchivedThread ? ((channel.threadMemberIds as string[] | null) || []) : joinedNow,
+      );
+      refreshThreadAfterMessage(channel.id);
+    }
 
     // The authenticated `user` is already the full (cached) author record —
     // reuse it instead of re-querying the DB on every send.
@@ -2994,6 +3389,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     void replicateToDiscord('delete', params.channelId, { id: params.messageId });
 
+    // A thread's chip shows its message count.
+    if (channel.type === 'public_thread' || channel.type === 'private_thread') {
+      refreshThreadAfterMessage(channel.id);
+    }
+
     return { success: true };
   }, {
     params: t.Object({
@@ -3424,10 +3824,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Channel is not a thread' };
     }
 
-    const threadMemberIds = Array.isArray(channel.threadMemberIds) ? (channel.threadMemberIds as string[]) : [];
-    if (!threadMemberIds.includes(user.id)) {
-      const nextMembers = [...threadMemberIds, user.id];
-      await Channel.updateById(channel.id, { threadMemberIds: nextMembers });
+    const joined = await addThreadMembers(channel.id, [user.id]);
+    if (joined.length > 0) {
+      notifyThreadMembership(channel.serverId, channel.id, joined);
+      const updated = await Channel.findById(channel.id);
+      if (updated) void broadcastThreadUpdate(updated).catch(() => null);
     }
 
     return { success: true };
@@ -3456,9 +3857,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     const threadMemberIds = Array.isArray(channel.threadMemberIds) ? (channel.threadMemberIds as string[]) : [];
-    if (threadMemberIds.includes(user.id)) {
-      const nextMembers = threadMemberIds.filter((id) => id !== user.id);
-      await Channel.updateById(channel.id, { threadMemberIds: nextMembers });
+    if (threadMemberIds.some((id) => compareIds(id, user.id))) {
+      await removeThreadMember(channel.id, user.id);
+      notifyThreadMembership(channel.serverId, channel.id, [user.id]);
+      const updated = await Channel.findById(channel.id);
+      if (updated) void broadcastThreadUpdate(updated).catch(() => null);
     }
 
     return { success: true };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Hash, Link2, Pencil, Pin, Reply, Share2, SmilePlus, Trash2 } from "lucide-react";
+import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
@@ -35,6 +35,8 @@ interface MessageActionSheetProps<M extends ChatMessage> {
   onPinToggle: (message: M) => void;
   onEdit: (message: M) => void;
   onDelete: (message: M) => void;
+  /** Start a thread from the message (omitted where threads aren't allowed). */
+  onCreateThread?: (message: M) => void;
 }
 
 /**
@@ -56,6 +58,7 @@ export function MessageActionSheet<M extends ChatMessage>({
   onPinToggle,
   onEdit,
   onDelete,
+  onCreateThread,
 }: MessageActionSheetProps<M>) {
   const gt = useGT();
   const [dragY, setDragY] = useState(0);
@@ -170,6 +173,11 @@ export function MessageActionSheet<M extends ChatMessage>({
           <button type="button" className={rowClass} onClick={run(() => onReply(message))}>
             <Reply className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Reply")}
           </button>
+          {onCreateThread && (
+            <button type="button" className={rowClass} onClick={run(() => onCreateThread(message))}>
+              <MessagesSquare className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Create Thread")}
+            </button>
+          )}
           {own && (
             <button type="button" className={rowClass} onClick={run(() => onEdit(message))}>
               <Pencil className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Edit Message")}

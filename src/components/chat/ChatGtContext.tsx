@@ -120,6 +120,18 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "{actor} changed the group name: {name}": gt("{actor} changed the group name: {name}", { actor: "{actor}", name: "{name}" }),
       "{actor} removed the group name.": gt("{actor} removed the group name.", { actor: "{actor}" }),
       "{actor} changed the group icon.": gt("{actor} changed the group icon.", { actor: "{actor}" }),
+      // ThreadRows — thread chip on a starter message, "started a thread" row
+      "Open thread {name}": gt("Open thread {name}", { name: "{name}" }),
+      "Locked": gt("Locked"),
+      "Archived": gt("Archived"),
+      "1 Message": gt("1 Message"),
+      "{count} Messages": gt("{count} Messages", { count: "{count}" }),
+      "There are no recent messages in this thread.": gt("There are no recent messages in this thread."),
+      "{actor} started a thread: {name}.": gt("{actor} started a thread: {name}.", { actor: "{actor}", name: "{name}" }),
+      "a thread": gt("a thread"),
+      "See all threads.": gt("See all threads."),
+      // MessageHoverActions — threads
+      "Create Thread": gt("Create Thread"),
     };
 
     return (str, params) => {

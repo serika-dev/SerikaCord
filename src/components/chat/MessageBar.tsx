@@ -195,6 +195,12 @@ interface MessageBarProps {
    *  the previous context is saved and the new context's draft is restored so
    *  switching channels no longer loses typed-but-unsent text. */
   draftKey?: string;
+  /**
+   * A second composer on screen (the thread side panel): global composer
+   * hotkeys (emoji/GIF/sticker pickers, upload) and type-anywhere-to-focus
+   * stay with the main channel composer.
+   */
+  secondary?: boolean;
 }
 
 const DRAFT_PREFIX = "serika:draft:";
@@ -235,6 +241,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       channelId,
       uploadEndpoint = "/api/upload/attachment",
       draftKey,
+      secondary = false,
     },
     ref
   ) {
@@ -327,6 +334,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           setShowEmojiPicker(true);
         }
       };
+      if (secondary) return;
       const unsubs = [
         onHotkey("toggle-emoji", () => toggleTab("emoji")),
         onHotkey("toggle-gifs", () => toggleTab("gifs")),
@@ -334,9 +342,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         onHotkey("upload-file", () => fileInputRef.current?.click()),
       ];
       return () => unsubs.forEach((u) => u());
-    }, []);
+    }, [secondary]);
 
     useEffect(() => {
+      if (secondary) return;
       const handleGlobalKeyDown = (e: KeyboardEvent) => {
         // 1. Only capture keydown when tab is visible
         if (document.visibilityState !== "visible") return;
@@ -372,7 +381,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       return () => {
         window.removeEventListener("keydown", handleGlobalKeyDown);
       };
-    }, []);
+    }, [secondary]);
 
     // Ref mirror of attachments.length so addFiles doesn't depend on state
     // (prevents stale closures on mobile where the file picker can suspend the page).

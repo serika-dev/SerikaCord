@@ -99,7 +99,9 @@ Channel and DM streams carry JSON objects with a `type`:
 | `reaction_add` / `reaction_remove` | reaction changed | `applyReactionToMessages` (idempotent) |
 | `pin_update` | pin / unpin | update pins |
 | `typing` | user typing | typing indicator (`useChatStream`) |
-| `thread_create` | forum post / thread created | forum view |
+| `thread_create` | forum post / thread created | forum view, threads browser refetch |
+| `thread_update` | (parent stream) a thread started here changed: reply, rename, archive, delete (`thread: null`) | `applyThreadUpdate`: starter chip / "started a thread" row |
+| `thread_state` | (thread stream) the thread's own summary changed | thread header (archived, locked, name) |
 | `connected`, `ping` | stream lifecycle | ignored |
 
 The activity stream (`/api/users/@me/activity`) carries user-scoped events:
@@ -107,7 +109,11 @@ The activity stream (`/api/users/@me/activity`) carries user-scoped events:
 counts; carries `mentionNames` for the preview), `dm_activity` (DM to this
 user), `read_state` (read on another device, or your own message sent from
 any device — `ackOwnMessage`), `unread_reset` (messages deleted; `deleted`
-lists them), `mention_retract` (an edit removed your mention). The DM-list
+lists them), `mention_retract` (an edit removed your mention),
+`thread_members_update` (you joined / left a thread or one of yours was
+archived / deleted: the sidebar refetches the server's channels). Activity in
+a thread only reaches its members; the author and anyone they @mention join
+it when the message is stored (`src/lib/services/threads.ts`). The DM-list
 stream carries `dm:list:update`.
 
 `useChatStream` reconnects with exponential backoff and calls `onReconnect`,

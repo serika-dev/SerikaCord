@@ -208,6 +208,13 @@ async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
   // can actually see the channel may learn about its activity (name, author,
   // @everyone pings). Open channels skip this per-recipient check.
   const channel = await Channel.findById(payload.channelId).catch(() => null);
+  // Threads: only members hear about activity (Discord). Authors and anyone
+  // they @mention join the thread before this runs (channels.ts send route).
+  if (channel && (channel.type === 'public_thread' || channel.type === 'private_thread')) {
+    const members = new Set(((channel.threadMemberIds || []) as string[]).map((id) => id.toLowerCase()));
+    recipients = recipients.filter((id) => members.has(id.toLowerCase()));
+    if (recipients.length === 0) return;
+  }
   let restricted = !!channel && (channel.type === 'private_thread' || hasOverwrites(channel.permissionOverwrites));
   if (channel && !restricted && channel.type === 'public_thread' && channel.parentId) {
     const parent = await Channel.findById(channel.parentId).catch(() => null);

@@ -17,7 +17,7 @@ export function extractUserMentionIds(content: string | null | undefined): strin
 
 /** A message landed in a server channel. */
 export async function signalChannelMessage(opts: {
-  channel: { id: string; serverId?: string | null; name?: string | null };
+  channel: { id: string; serverId?: string | null; name?: string | null; parentId?: string | null };
   messageId: string;
   authorId: string;
   authorName?: string | null;
@@ -47,6 +47,7 @@ export async function signalChannelMessage(opts: {
       authorAvatar: opts.authorAvatar ?? null,
       preview,
       mentionNames,
+      ...(opts.channel.parentId !== undefined ? { parentId: opts.channel.parentId } : {}),
       createdAt: new Date(opts.createdAt ?? Date.now()).toISOString(),
     });
   } catch {
