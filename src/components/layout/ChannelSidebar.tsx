@@ -68,12 +68,17 @@ import { usePolling } from "@/hooks/usePolling";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { startGroupCall } from "@/lib/services/dmCallController";
 import { groupDisplayName } from "@/lib/chat/dmCall";
+import { dmChannelApiBase, dmChannelHref, groupDmHref, isDmChannelOpen } from "@/lib/chat/groupDm";
+import type { GroupInfo } from "@/lib/chat/groupDmClient";
+import { GroupDmIcon } from "@/components/dm/GroupDmIcon";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { T, useGT } from "gt-next";
 import { useIsClient } from "@/hooks/useIsClient";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
+const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 
 /** Channel types shown in a message list, which acks reads itself once seen. */
 const MESSAGE_LIST_TYPES = new Set(["text", "announcement", "public_thread", "private_thread"]);
@@ -110,6 +115,19 @@ interface DMChannel {
   unreadCount?: number;
   /** Group DMs only: the group's own name (may be a default). */
   name?: string | null;
+  /** Group DMs only: the group icon. */
+  icon?: string | null;
+  /** Group DMs only: the owner. */
+  ownerId?: string | null;
+}
+
+/** A DM list row's title: the other person, or the group's name / members. */
+function dmRowTitle(channel: DMChannel): string {
+  if (channel.type === "group_dm") {
+    return groupDisplayName(channel.name, channel.recipients.map((r) => r.displayName || r.username));
+  }
+  const r = channel.recipients[0];
+  return r ? r.displayName || r.username : "";
 }
 
 const CLOSED_DMS_KEY = "serikacord:closed-dms";
@@ -708,8 +726,9 @@ export function ChannelSidebar({
       try { localStorage.setItem(CLOSED_DMS_KEY, JSON.stringify(next)); } catch { /* best effort */ }
       return next;
     });
-    if (pathname === `/dm/${channel.recipients[0]?.id}`) router.push("/channels/me");
+    if (isDmChannelOpen(channel, pathname)) router.push("/channels/me");
   };
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [externalVoiceParticipants, setExternalVoiceParticipants] = useState<Map<string, VoiceParticipant[]>>(new Map());
   const pathname = usePathname();
   // Hide closed DMs until a newer message arrives; the open conversation always shows.
@@ -717,7 +736,7 @@ export function ChannelSidebar({
     () => dmChannels.filter((channel) => {
       const closedAt = closedDms[channel.id];
       if (closedAt === undefined) return true;
-      if (pathname === `/dm/${channel.recipients[0]?.id}`) return true;
+      if (isDmChannelOpen(channel, pathname)) return true;
       return (channel.lastMessageId ?? "") !== closedAt;
     }),
     [dmChannels, closedDms, pathname],
@@ -725,9 +744,8 @@ export function ChannelSidebar({
   // Opening a closed DM (from Friends, a profile, "Send Message"...) reopens
   // it for good, so it doesn't vanish again when the user navigates away.
   const reopenedDmId = useMemo(() => {
-    const recipientId = pathname?.match(/^\/dm\/([^/]+)/)?.[1];
-    if (!recipientId) return null;
-    const channel = dmChannels.find((ch) => ch.recipients[0]?.id === recipientId);
+    if (!pathname?.startsWith("/dm/")) return null;
+    const channel = dmChannels.find((ch) => isDmChannelOpen(ch, pathname));
     return channel && closedDms[channel.id] !== undefined ? channel.id : null;
   }, [dmChannels, closedDms, pathname]);
   useEffect(() => {
@@ -1072,9 +1090,9 @@ export function ChannelSidebar({
           lastMessageAt: c.lastMessage?.createdAt ?? null,
           lastMessageId: c.lastMessage?.id ?? null,
           lastMessageAuthorId: c.lastMessage?.authorId ?? null,
-          name: r ? r.displayName || r.username : undefined,
-          href: r ? `/dm/${r.id}` : undefined,
-          avatar: r?.avatar ?? null,
+          name: dmRowTitle(c) || undefined,
+          href: dmChannelHref(c) ?? undefined,
+          avatar: c.type === "group_dm" ? c.icon ?? r?.avatar ?? null : r?.avatar ?? null,
         };
       })
     );
@@ -1100,6 +1118,42 @@ export function ChannelSidebar({
       source.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          // A group was created / renamed / changed members: upsert its row.
+          if (data.type === "group:update" && data.group) {
+            const g = data.group as GroupInfo;
+            const me = (user?.id ?? "").toLowerCase();
+            setDmChannels((prev) => {
+              const idx = prev.findIndex((c) => c.id === g.id);
+              const row: DMChannel = {
+                ...(idx === -1 ? { updatedAt: new Date().toISOString() } : prev[idx]),
+                id: g.id,
+                type: "group_dm",
+                name: g.name,
+                icon: g.icon,
+                ownerId: g.ownerId,
+                recipients: g.members
+                  .filter((m) => m.id.toLowerCase() !== me)
+                  .map((m) => ({
+                    id: m.id,
+                    username: m.username,
+                    displayName: m.displayName || m.username,
+                    avatar: m.avatar ?? undefined,
+                    status: m.status || "offline",
+                  })),
+              };
+              if (idx === -1) return [row, ...prev];
+              const next = prev.slice();
+              next[idx] = row;
+              return next;
+            });
+            return;
+          }
+          // We left / were removed from a group.
+          if (data.type === "group:remove") {
+            const channelId = String(data.channelId ?? "");
+            setDmChannels((prev) => prev.filter((c) => c.id !== channelId));
+            return;
+          }
           if (data.type === "dm:list:update") {
             // Apply in place: bump the conversation to the top instantly. A
             // full /api/dms refetch (recipients + decrypt) is only needed when
@@ -1211,10 +1265,7 @@ export function ChannelSidebar({
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  router.push("/channels/me?tab=add");
-                  window.dispatchEvent(new CustomEvent("openFriendsTab", { detail: { tab: "add" } }));
-                }}
+                onClick={() => setShowGroupPicker(true)}
                 aria-label={gt("Create DM")}
                 title={gt("Create DM")}
                 className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
@@ -1226,17 +1277,22 @@ export function ChannelSidebar({
             {visibleDmChannels.length > 0 ? (
               <div className="space-y-0.5">
                 {visibleDmChannels.map((channel) => {
+                  const isGroup = channel.type === "group_dm";
                   const recipient = channel.recipients[0];
-                  if (!recipient) return null;
-                  const isActive = pathname === `/dm/${recipient.id}`;
+                  const href = dmChannelHref(channel);
+                  if (!href || (!recipient && !isGroup)) return null;
+                  const isActive = pathname === href;
                   const unread = !isActive && isChannelUnread(channel.id);
                   const dmMentions = isActive ? 0 : getMentionCount(channel.id);
 
                   return (
                     <Link
                       key={channel.id}
-                      href={`/dm/${recipient.id}`}
-                      onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${recipient.id}`); }}
+                      href={href}
+                      onMouseEnter={() => {
+                        const base = dmChannelApiBase(channel);
+                        if (base) void prefetchChannelMessages(base);
+                      }}
                       onContextMenu={(e) => { e.preventDefault(); setDmContextMenu({ x: e.clientX, y: e.clientY, channel }); }}
                       className={cn(
                         "group relative flex items-center gap-2 px-2 py-[5px] rounded-md press-feedback transition-colors min-w-0",
@@ -1251,6 +1307,9 @@ export function ChannelSidebar({
                       {unread && (
                         <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-[var(--text-primary)]" />
                       )}
+                      {isGroup || !recipient ? (
+                        <GroupDmIcon icon={channel.icon} members={channel.recipients} size={32} />
+                      ) : (
                       <div className="relative shrink-0">
                         <Avatar className="w-8 h-8">
                           <AvatarImage src={cdnImage(recipient.avatar)} />
@@ -1263,6 +1322,15 @@ export function ChannelSidebar({
                           style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
                         />
                       </div>
+                      )}
+                      {isGroup || !recipient ? (
+                      <div className="relative flex-1 min-w-0 overflow-hidden flex flex-col leading-tight">
+                        <span className={cn("truncate text-sm", unread && "font-semibold")}>{dmRowTitle(channel)}</span>
+                        <span className="truncate text-xs text-[var(--text-muted)] font-normal">
+                          {gt("{count} Members", { count: channel.recipients.length + 1 })}
+                        </span>
+                      </div>
+                      ) : (
                       <div className="relative flex-1 min-w-0 overflow-hidden flex items-center gap-1">
                         <span className={cn("truncate text-sm", unread && "font-semibold", getDisplayNameStyleClasses(recipient.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient.customization?.displayNameStyle)}>
                           {recipient.displayName || recipient.username}
@@ -1278,6 +1346,7 @@ export function ChannelSidebar({
                           </span>
                         )}
                       </div>
+                      )}
                       {dmMentions > 0 && (
                         <span className="shrink-0 min-w-[18px] h-[18px] px-1.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-[11px] font-bold text-[var(--text-on-accent)] leading-none group-hover:hidden">
                           {dmMentions > 99 ? "99+" : dmMentions}
@@ -1290,8 +1359,8 @@ export function ChannelSidebar({
                           e.stopPropagation();
                           closeDm(channel);
                         }}
-                        title={gt("Close DM")}
-                        aria-label={gt("Close DM")}
+                        title={isGroup ? gt("Close Group DM") : gt("Close DM")}
+                        aria-label={isGroup ? gt("Close Group DM") : gt("Close DM")}
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -1318,6 +1387,10 @@ export function ChannelSidebar({
 
         {/* User Panel */}
         <UserPanel user={user} />
+
+        <MountWhenOpened open={showGroupPicker}>
+          <GroupDmPickerDialog open={showGroupPicker} onOpenChange={setShowGroupPicker} mode="create" />
+        </MountWhenOpened>
 
         {/* DM row context menu */}
         {dmContextMenu && (
@@ -1382,11 +1455,12 @@ export function ChannelSidebar({
                   void startGroupCall({
                     group: {
                       channelId: ch.id,
-                      name: groupDisplayName(ch.name, ch.recipients.map((r) => r.displayName || r.username)),
-                      icon: null,
+                      name: dmRowTitle(ch),
+                      icon: ch.icon ?? null,
                       memberCount: ch.recipients.length + 1,
                     },
                   });
+                  router.push(groupDmHref(ch.id));
                 }}
                 className="ctx-item"
               >
@@ -1394,9 +1468,44 @@ export function ChannelSidebar({
                 {gt("Start Call")}
               </button>
             )}
+            {dmContextMenu.channel.type === "group_dm" && (
+              <button
+                onClick={() => {
+                  const ch = dmContextMenu.channel;
+                  closeDmContextMenu();
+                  void (async () => {
+                    const ok = await confirmDialog({
+                      title: gt("Leave '{name}'", { name: dmRowTitle(ch) }),
+                      description: gt("Are you sure you want to leave this group? You won't be able to rejoin unless someone adds you back."),
+                      confirmLabel: gt("Leave Group"),
+                    });
+                    if (!ok) return;
+                    const res = await fetch(`/api/group-dms/${ch.id}`, { method: "DELETE" });
+                    if (!res.ok) {
+                      toast.error(gt("Couldn't leave the group"));
+                      return;
+                    }
+                    setDmChannels((prev) => prev.filter((c) => c.id !== ch.id));
+                    if (isDmChannelOpen(ch, pathname)) router.push("/channels/me");
+                  })();
+                }}
+                className="ctx-item text-red-400"
+              >
+                <LogOut className="w-4 h-4" />
+                {gt("Leave Group")}
+              </button>
+            )}
             <div className="ctx-sep" />
             {dmContextMenu.channel.type === "dm" && dmContextMenu.channel.recipients[0] ? (
               <UserMenuItems user={dmContextMenu.channel.recipients[0]} onDone={closeDmContextMenu} />
+            ) : dmContextMenu.channel.type === "group_dm" ? (
+              <button
+                onClick={() => { void navigator.clipboard.writeText(dmContextMenu.channel.id); closeDmContextMenu(); }}
+                className="ctx-item"
+              >
+                <Copy className="w-4 h-4" />
+                {gt("Copy Channel ID")}
+              </button>
             ) : (
               <button
                 onClick={() => { navigator.clipboard.writeText(dmContextMenu.channel.recipients[0]?.id || ""); closeDmContextMenu(); }}

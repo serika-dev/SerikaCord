@@ -42,6 +42,8 @@ interface UseComposerSuggestionsOptions {
   customEmojis?: CustomEmoji[];
   /** Recipient (DM) offered for `@` autocomplete. */
   recipient?: SuggestionRecipient | null;
+  /** Group DMs: everyone `@` can mention (takes precedence over `recipient`). */
+  recipients?: SuggestionRecipient[] | null;
   /** Called with the composer's serialized text after an insertion (e.g. typing signal). */
   onAfterInsert?: (text: string) => void;
 }
@@ -57,6 +59,7 @@ export function useComposerSuggestions({
   isServer = false,
   customEmojis = [],
   recipient = null,
+  recipients = null,
   onAfterInsert,
 }: UseComposerSuggestionsOptions) {
   const [suggestions, setSuggestions] = useState<ComposerSuggestion[]>([]);
@@ -124,14 +127,18 @@ export function useComposerSuggestions({
         }
       }
 
-      // @user: offer the DM recipient.
+      // @user: offer the DM recipient (or the group's members).
       const atMatch = beforeCursor.match(/(^|\s)@([a-zA-Z0-9_]*)$/);
-      if (atMatch && recipient) {
+      const people = recipients ?? (recipient ? [recipient] : []);
+      if (atMatch && people.length > 0) {
         const q = atMatch[2].toLowerCase();
-        const name = (recipient.displayName || recipient.username || "").toLowerCase();
-        if (!q || name.includes(q) || recipient.username.toLowerCase().includes(q)) {
+        const matches = people.filter((p) => {
+          const name = (p.displayName || p.username || "").toLowerCase();
+          return !q || name.includes(q) || p.username.toLowerCase().includes(q);
+        });
+        if (matches.length > 0) {
           rangeRef.current = { start: caretPosition - atMatch[2].length - 1, end: caretPosition };
-          setSuggestions([{ id: recipient.id, kind: "user", label: recipient.displayName || recipient.username }]);
+          setSuggestions(matches.slice(0, 10).map((p) => ({ id: p.id, kind: "user" as const, label: p.displayName || p.username })));
           setActiveIndex(0);
           return;
         }
@@ -139,7 +146,7 @@ export function useComposerSuggestions({
 
       close();
     },
-    [getComposer, isServer, customEmojis, recipient, close]
+    [getComposer, isServer, customEmojis, recipient, recipients, close]
   );
 
   const onMentionSelect = useCallback(

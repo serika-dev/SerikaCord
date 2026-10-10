@@ -51,7 +51,7 @@ export async function loadGroupCallChannel(channelId: string) {
 
 /** The group info shown on ring cards and missed-call notifications. */
 export async function describeCallGroup(
-  channel: { id: string; name?: string | null; recipientIds?: string[] | null },
+  channel: { id: string; name?: string | null; recipientIds?: string[] | null; icon?: string | null },
   viewerId?: string,
 ): Promise<CallGroup> {
   const ids = (channel.recipientIds || []).filter((id) => !viewerId || id.toLowerCase() !== viewerId.toLowerCase());
@@ -60,7 +60,7 @@ export async function describeCallGroup(
   return {
     channelId: channel.id,
     name: groupDisplayName(channel.name, names),
-    icon: null,
+    icon: channel.icon ?? null,
     memberCount: (channel.recipientIds || []).length,
   };
 }
@@ -215,6 +215,7 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
   let channel: { id: string };
   let recipients: string[];
   let call: CallMessageData;
+  let group: CallGroup | null = null;
   if (target.kind === 'dm') {
     const peers = target.peers;
     const callee = peers[0] === caller.id.toLowerCase() ? peers[1] : peers[0];
@@ -223,11 +224,12 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
     recipients = [caller.id, callee];
     call = newCallData(caller.id);
   } else {
-    const group = await loadGroupCallChannel(target.channelId);
-    if (!group) throw new Error('Group DM not found');
-    channel = group;
-    recipients = [...(group.recipientIds || [])];
+    const groupChannel = await loadGroupCallChannel(target.channelId);
+    if (!groupChannel) throw new Error('Group DM not found');
+    channel = groupChannel;
+    recipients = [...(groupChannel.recipientIds || [])];
     call = newCallData(caller.id, Date.now(), recipients);
+    group = await describeCallGroup(groupChannel).catch(() => null);
   }
   const message = await Message.create({
     id: messageId,
@@ -274,6 +276,7 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
     content: callPreviewText(call, someCallee),
     createdAt: message.createdAt,
     isCall: true,
+    group,
   });
 }
 

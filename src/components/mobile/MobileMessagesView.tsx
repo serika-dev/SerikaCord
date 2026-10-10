@@ -4,15 +4,23 @@ import { sharedGet } from "@/lib/bootFetch";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft } from "lucide-react";
+import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft, MessageSquarePlus } from "lucide-react";
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+
+const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { useUnread, type DmSeed } from "@/contexts/UnreadContext";
 import { notificationPreview } from "@/lib/notifications/notify";
+import { groupDmHref } from "@/lib/chat/groupDm";
+import { groupDisplayName } from "@/lib/chat/dmCall";
 
 interface Message {
   id: string;
   recipientId: string;
+  /** Where the row opens (the 1:1 DM or the group page). */
+  href: string;
   type: "dm" | "group";
   name: string;
   username: string;
@@ -39,6 +47,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pullStartY = useRef(0);
   const [pullDistance, setPullDistance] = useState(0);
@@ -68,37 +77,65 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       const response = await sharedGet("/api/dms");
       if (response.ok) {
         const data = await response.json();
-        // Use Map to deduplicate by recipient ID
+        // 1:1 DMs are de-duplicated by the other person; groups are their own rows.
         const seenRecipients = new Map<string, Message>();
-        
-        (data.channels || []).forEach((channel: any) => {
-          const recipient = channel.recipients?.[0];
-          if (!recipient) return;
-          
-          const recipientId = recipient.id?.toString() || recipient._id?.toString();
-          if (!recipientId) return;
-          
+        const groups: Message[] = [];
+        type ListRecipient = { id: string; username?: string; displayName?: string; avatar?: string; status?: Message["status"] };
+        type ListChannel = {
+          id: string;
+          type: string;
+          name?: string | null;
+          icon?: string | null;
+          recipients?: ListRecipient[];
+          lastMessage?: { content?: string } | null;
+          updatedAt?: string;
+        };
+
+        ((data.channels || []) as ListChannel[]).forEach((channel) => {
+          const recipients = channel.recipients || [];
+          if (channel.type === "group_dm") {
+            groups.push({
+              id: channel.id,
+              recipientId: channel.id,
+              href: groupDmHref(channel.id),
+              type: "group",
+              name: groupDisplayName(channel.name, recipients.map((r) => r.displayName || r.username || "")),
+              username: recipients.map((r) => r.username || "").join(" "),
+              avatar: channel.icon ?? undefined,
+              avatars: channel.icon ? undefined : recipients.slice(0, 2).map((r) => r.avatar || ""),
+              lastMessage: channel.lastMessage?.content || gt("{count} Members", { count: recipients.length + 1 }),
+              timestamp: formatTimestamp(channel.updatedAt || ""),
+            });
+            return;
+          }
+          const recipient = recipients[0];
+          if (!recipient?.id) return;
+          const recipientId = String(recipient.id);
+
           // Only keep the most recent conversation with each user
           const existing = seenRecipients.get(recipientId);
           const channelDate = new Date(channel.updatedAt || 0).getTime();
           const existingDate = existing ? new Date(existing.timestamp || 0).getTime() : 0;
-          
+
           if (!existing || channelDate > existingDate) {
             seenRecipients.set(recipientId, {
               id: channel.id,
-              recipientId: recipientId,
-              type: channel.type === "group" ? "group" : "dm",
-              name: recipient?.displayName || recipient?.username || gt("Unknown"),
-              username: recipient?.username || "",
-              avatar: recipient?.avatar,
+              recipientId,
+              href: `/dm/${recipientId}`,
+              type: "dm",
+              name: recipient.displayName || recipient.username || gt("Unknown"),
+              username: recipient.username || "",
+              avatar: recipient.avatar,
               lastMessage: notificationPreview(channel.lastMessage?.content, 120, data.mentionNames) || gt("Start a conversation"),
-              timestamp: formatTimestamp(channel.updatedAt),
-              status: recipient?.status || "offline",
+              timestamp: formatTimestamp(channel.updatedAt || ""),
+              status: recipient.status || "offline",
             });
           }
         });
-        
-        const list = Array.from(seenRecipients.values());
+
+        // Keep the server's newest-first order across DMs and groups.
+        const order = new Map(((data.channels || []) as ListChannel[]).map((c, i) => [c.id, i]));
+        const list = [...seenRecipients.values(), ...groups].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
         setMessages(list);
         // Feed the unread engine so DM rows light up cross-device: the newest
         // message (its own time / author) plus the server's unread counts.
@@ -143,7 +180,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         try {
           const data = JSON.parse(event.data);
           if (data.type === "connected" || data.type === "ping") return;
-          if (data.type === "dm:list:update") {
+          if (data.type === "dm:list:update" || data.type === "group:update" || data.type === "group:remove") {
             fetchMessages();
           }
         } catch {
@@ -206,7 +243,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   };
 
   const handleMessageClick = (message: Message) => {
-    router.push(`/dm/${message.recipientId}`);
+    router.push(message.href);
   };
 
   // Filter messages by search query
@@ -282,6 +319,14 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                   className="p-2.5 rounded-full bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all active:scale-95"
                 >
                   <Search className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setShowGroupPicker(true)}
+                  className="p-2.5 rounded-full bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all active:scale-95"
+                  aria-label={gt("New Group DM")}
+                  title={gt("New Group DM")}
+                >
+                  <MessageSquarePlus className="w-5 h-5" />
                 </button>
                 <button 
                   onClick={onAddFriend}
@@ -438,10 +483,12 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                       </Avatar>
                     )}
                     {/* Status indicator */}
+                    {message.type !== "group" && (
                     <div
                       className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full ring-[3px] ring-[var(--bg-app)]"
                       style={{ backgroundColor: statusColors[message.status || "offline"] }}
                     />
+                    )}
                   </div>
                   
                   <div className="flex-1 min-w-0 text-left">
@@ -488,6 +535,9 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
           )}
         </div>
       </div>
+      <MountWhenOpened open={showGroupPicker}>
+        <GroupDmPickerDialog open={showGroupPicker} onOpenChange={setShowGroupPicker} mode="create" />
+      </MountWhenOpened>
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCounts } from '
 import { channelRoutes } from './channels';
 import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
+import { groupDmRoutes } from './groupDms';
 import { adminRoutes } from './admin';
 import { badgeRoutes } from './badges';
 import { oembedRoutes } from './oembed';
@@ -3836,6 +3837,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(partnerRoutes)
   .use(channelRoutes)
   .use(dmRoutes)
+  .use(groupDmRoutes)
   .use(voiceRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
@@ -3873,6 +3875,9 @@ export async function initializeAPI() {
     // Idempotent, never throws.
     const { ensureCallMessageSchema } = await import('@/lib/services/dmCallMessages');
     await ensureCallMessageSchema();
+    // Group DMs: system message types + channels.icon. Idempotent, never throws.
+    const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
+    await ensureGroupDmSchema();
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();

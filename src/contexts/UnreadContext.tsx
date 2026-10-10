@@ -76,6 +76,7 @@ import {
   subscribeUnread,
 } from "@/lib/unread/store";
 import { isReadingLive } from "@/lib/unread/attentionTracker";
+import { groupDmHref } from "@/lib/chat/groupDm";
 
 interface ActivityEvent {
   type: "channel_activity";
@@ -199,6 +200,10 @@ interface DmActivityEvent {
   createdAt?: string;
   /** A call log message: the incoming-call card already alerted the user. */
   isCall?: boolean;
+  /** A group DM system row ("X added Y"): badge only, no notification. */
+  isSystem?: boolean;
+  /** Set for group DMs: notifications name the group and open its page. */
+  group?: { channelId: string; name: string; icon?: string | null } | null;
 }
 
 // Message ids already alerted. A DM can reach us over both the activity
@@ -723,9 +728,16 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         const dm = data as DmActivityEvent;
         const { channelId, authorId } = dm;
         if (!channelId || !authorId) return;
-        const href = `/dm/${authorId}`;
+        const group = dm.group ?? null;
+        const href = group ? groupDmHref(channelId) : `/dm/${authorId}`;
         if (authorId !== user.id && !channelMetaRef.current[channelId]?.href) {
-          registerChannels([{ id: channelId, type: "dm", name: dm.authorName, href, avatar: dm.authorAvatar ?? null }]);
+          registerChannels([{
+            id: channelId,
+            type: "dm",
+            name: group ? group.name : dm.authorName,
+            href,
+            avatar: group ? group.icon ?? dm.authorAvatar ?? null : dm.authorAvatar ?? null,
+          }]);
         }
         const resolved = resolveNotification({ doc: prefsRef.current.doc, channelId, isDM: true });
         const decision = decideMessageAlert({ resolved, isDM: true, mentionedDirectly: false, mentionedRole: false, mentionedEveryone: false });
@@ -737,29 +749,32 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           selfId: user.id,
           isDM: true,
           mention: decision.mention,
-          notify: decision.notify && !dm.isCall,
+          notify: decision.notify && !dm.isCall && !dm.isSystem,
           active: activeChannelRef.current === channelId,
           readingLive: isReadingLive(),
         });
         if (outcome.event) dispatchUnread(outcome.event);
         afterRead(channelId);
         if (!outcome.alert || !markAlerted(dm.messageId)) return;
-        const body = !showPreview
+        const preview = !showPreview
           ? s.newMessage
           : notificationPreview(dm.preview, 140, dm.mentionNames) || (dm.hasAttachments ? s.attachment : dm.hasSticker ? s.sticker : s.newMessage);
+        // Group DMs: titled with the group, "Author: message" as the body.
+        const body = group && showPreview && dm.authorName ? `${dm.authorName}: ${preview}` : preview;
+        const title = group ? channelMetaRef.current[channelId]?.name || group.name : dm.authorName || s.newMessage;
         notifyIncomingMessage({
           channelId,
           isDM: true,
           isMentioned: false,
           isEveryoneMention: false,
           viewing: outcome.viewing || activeChannelRef.current === channelId,
-          title: dm.authorName || s.newMessage,
+          title,
           body,
           showPreview,
-          icon: dm.authorAvatar,
+          icon: (group?.icon || dm.authorAvatar) ?? null,
           url: dm.messageId ? `${href}?jump=${encodeURIComponent(dm.messageId)}` : href,
           formatMany: s.many,
-          toastTitle: dm.authorName || s.newMessage,
+          toastTitle: title,
           toastAction: s.view,
           messageId: dm.messageId,
           stillUnread: () => !isMessageRead(getUnreadState(), channelId, dm.messageId, dm.createdAt),

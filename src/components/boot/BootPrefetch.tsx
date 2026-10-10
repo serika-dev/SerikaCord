@@ -16,10 +16,11 @@ const BOOT_URLS = [
 ];
 
 // The page's own data: the open channel (its channel list, permissions and
-// first page of messages) or DM. Skipped when the message cache already has
+// first page of messages), DM, or group DM (the group + its first page). Skipped when the message cache already has
 // the conversation (the client then asks only for newer messages).
 const routeScript = `var p=location.pathname.split("/"),U=/^[0-9a-f-]{36}$/i,add=function(u){if(!b[u])b[u]={p:fetch(u,{credentials:"include"}),t:t};},cached=function(k){try{var v=localStorage.getItem("sc:msgcache:"+k);return v&&v.length>2;}catch(e){return false;}};
 if(p[1]==="channels"&&U.test(p[2]||"")){add("/api/servers/"+p[2]+"/channels");add("/api/servers/"+p[2]+"/members/@me/permissions");if(U.test(p[3]||"")&&!cached("/api/channels/"+p[3]))add("/api/channels/"+p[3]+"/messages?limit=50");}
+else if(p[1]==="dm"&&p[2]==="group"&&U.test(p[3]||"")){add("/api/group-dms/"+p[3]);if(!cached("/api/group-dms/"+p[3]))add("/api/group-dms/"+p[3]+"/messages?limit=50");}
 else if(p[1]==="dm"&&U.test(p[2]||"")&&!cached("/api/dms/"+p[2]))add("/api/dms/"+p[2]+"/messages?limit=50");`;
 
 const script = `(function(){try{var b=window.__serikaBoot||(window.__serikaBoot={});var t=performance.now();${JSON.stringify(

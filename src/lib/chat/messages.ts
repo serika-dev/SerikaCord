@@ -1,4 +1,5 @@
 import type { ChatMessage, MessageAuthor, MessageGroupData, MessageReaction } from "./types";
+import { isGroupDmEventType } from "./groupDm";
 
 /** Raw message payload as it arrives from the REST API or SSE stream. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,6 +47,11 @@ export function normalizeIncomingMessage<M extends ChatMessage>(raw: RawMessageP
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
+/** Rows drawn as a one-line notice instead of a message bubble. */
+export function isStandaloneRow(message: Pick<ChatMessage, "type">): boolean {
+  return message.type === "call" || isGroupDmEventType(message.type);
+}
+
 /**
  * Identity used for grouping. Webhook posts can carry a different display name
  * per message (bridges post as many people through one webhook), so the name
@@ -71,8 +77,9 @@ export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGrou
 
     const lastGroup = groups[groups.length - 1];
     const lastMessage = lastGroup?.messages[lastGroup.messages.length - 1];
-    // Call log rows ("X started a call.") always stand alone.
-    const isCallRow = message.type === "call" || lastMessage?.type === "call";
+    // Call log rows ("X started a call.") and group system rows ("X added Y")
+    // always stand alone.
+    const isCallRow = isStandaloneRow(message) || (!!lastMessage && isStandaloneRow(lastMessage));
     const sameAuthor = !isCallRow && !!lastMessage && messageGroupKey(lastMessage) === messageGroupKey(message);
     const withinWindow =
       !!lastMessage &&

@@ -2,6 +2,7 @@
  * Shared chat message types used by both server channels (ChatArea) and DMs.
  */
 import type { CallMessageData } from "@/lib/voice/callMessage";
+import type { GroupDmEventType } from "@/lib/chat/groupDm";
 
 export interface MessageAuthor {
   id: string;
@@ -100,7 +101,7 @@ export interface ReferencedMessage {
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system" | "call";
+  type?: "default" | "reply" | "system" | "call" | GroupDmEventType;
   authorId: string;
   author: MessageAuthor;
   channelId: string;
@@ -132,6 +133,16 @@ export interface ChatMessage {
   webhookId?: string;
   /** DM call log row (type "call"): who called, when, whether it was answered. */
   call?: CallMessageData | null;
+  /** Group DM system row ("X added Y to the group."): who it's about, the new name. */
+  groupEvent?: GroupEventData | null;
+}
+
+/** Details of a group DM system row (the actor is the message author). */
+export interface GroupEventData {
+  kind: GroupDmEventType;
+  target?: { id: string; username: string; displayName: string; avatar?: string | null };
+  /** channel_name_change: the new name ("" = name removed). */
+  name?: string;
 }
 
 export interface MessageGroupData<M extends ChatMessage = ChatMessage> {

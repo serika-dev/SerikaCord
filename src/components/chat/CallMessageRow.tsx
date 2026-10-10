@@ -6,8 +6,9 @@ import { Phone, PhoneMissed } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useChatGt } from "./ChatGtContext";
 import { voiceService } from "@/lib/services/voiceService";
-import { startDmCall } from "@/lib/services/dmCallController";
-import { dmCallRoomId } from "@/lib/chat/dmCall";
+import { startDmCall, startGroupCall } from "@/lib/services/dmCallController";
+import { dmCallRoomId, type CallGroup } from "@/lib/chat/dmCall";
+import { groupCallRoomId } from "@/lib/voice/rooms";
 import { describeCallMessage, formatCallLength, parseCallData } from "@/lib/voice/callMessage";
 import type { ChatMessage } from "@/lib/chat/types";
 
@@ -59,6 +60,8 @@ interface CallMessageRowProps {
   message: ChatMessage;
   currentUserId?: string;
   peer?: CallRowPeer;
+  /** Group DM calls: the group (its call room is gdm:<channelId>). */
+  group?: CallGroup;
   formattedTimestamp?: string;
 }
 
@@ -67,12 +70,14 @@ interface CallMessageRowProps {
  * instead of a message bubble. "X started a call." (+ Join call while it's
  * going), "X started a call that lasted 5 minutes.", "You missed a call from X."
  */
-function CallMessageRowInner({ message, currentUserId, peer, formattedTimestamp }: CallMessageRowProps) {
+function CallMessageRowInner({ message, currentUserId, peer, group, formattedTimestamp }: CallMessageRowProps) {
   const gt = useChatGt();
   const locale = useLocale();
   const call = parseCallData(message.call);
   const view = call ? describeCallMessage(call, currentUserId) : null;
-  const roomId = currentUserId && peer?.id ? dmCallRoomId(currentUserId, peer.id) : null;
+  const roomId = group
+    ? groupCallRoomId(group.channelId)
+    : currentUserId && peer?.id ? dmCallRoomId(currentUserId, peer.id) : null;
   const voiceRoom = useSyncExternalStore(subscribeRoom, getRoom, getServerRoom);
   const occupied = useRoomOccupied(roomId, view?.kind === "ongoing");
 
@@ -108,13 +113,18 @@ function CallMessageRowInner({ message, currentUserId, peer, formattedTimestamp 
   }
 
   // Still going, not already in it here, and the room isn't known to be empty.
-  const canJoin = kind === "ongoing" && !!roomId && !!peer && !!currentUserId
+  const canJoin = kind === "ongoing" && !!roomId && (!!peer || !!group) && !!currentUserId
     && voiceRoom !== roomId && occupied !== false;
   const live = kind === "ongoing" && occupied !== false;
 
   const join = () => {
-    if (!currentUserId || !peer) return;
+    if (!currentUserId) return;
     voiceService.setUserId(currentUserId);
+    if (group) {
+      void startGroupCall({ group });
+      return;
+    }
+    if (!peer) return;
     void startDmCall({ myId: currentUserId, peer: { id: peer.id, name: peer.name, avatar: peer.avatar ?? null } });
   };
 

@@ -113,6 +113,13 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "{callee} missed your call.": gt("{callee} missed your call.", { callee: "{callee}" }),
       "Nobody answered your call.": gt("Nobody answered your call."),
       "You declined a call from {caller}.": gt("You declined a call from {caller}.", { caller: "{caller}" }),
+      // GroupSystemRow — group DM system rows
+      "{actor} added {target} to the group.": gt("{actor} added {target} to the group.", { actor: "{actor}", target: "{target}" }),
+      "{actor} left the group.": gt("{actor} left the group.", { actor: "{actor}" }),
+      "{actor} removed {target} from the group.": gt("{actor} removed {target} from the group.", { actor: "{actor}", target: "{target}" }),
+      "{actor} changed the group name: {name}": gt("{actor} changed the group name: {name}", { actor: "{actor}", name: "{name}" }),
+      "{actor} removed the group name.": gt("{actor} removed the group name.", { actor: "{actor}" }),
+      "{actor} changed the group icon.": gt("{actor} changed the group icon.", { actor: "{actor}" }),
     };
 
     return (str, params) => {

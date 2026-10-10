@@ -17,6 +17,7 @@ import {
   canSignalBetween,
   groupCallChannelId,
   groupCallRingTargets,
+  groupCallRoomId,
   isGroupCallMember,
 } from '@/lib/voice/rooms';
 import {
@@ -234,6 +235,18 @@ function evictFromRoom(roomId: string, userId: string) {
   // Last one out of a DM call: close its call message ("lasted 5 minutes" /
   // "missed call").
   if (empty) void onDmCallRoomEmpty(roomId);
+}
+
+/**
+ * Someone left (or was removed from) a group DM: take them out of its call at
+ * once, instead of when their auth next gets re-checked. Their client drops
+ * the call on the `voice:replaced` notice.
+ */
+export function removeFromGroupCall(channelId: string, userId: string) {
+  const roomId = groupCallRoomId(channelId);
+  roomAuthCache.delete(`${userId}|${roomId}`);
+  sendToUser(roomId, userId, { type: 'voice:replaced', sessionId: 'removed-from-group' });
+  evictFromRoom(roomId, userId);
 }
 
 // Subscribe this process to the voice buses. Call once at startup with a

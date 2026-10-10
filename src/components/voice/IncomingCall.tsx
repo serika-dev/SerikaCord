@@ -214,9 +214,8 @@ export function IncomingCall() {
       group: current.group ?? null,
       video: withVideo,
     });
-    // Group DMs have no conversation page yet: the call panel lives in the
-    // voice bar wherever the user already is.
-    if (!current.group) router.push(callConversationHref(current));
+    // Open the conversation, where the call panel lives (1:1 DM or group page).
+    router.push(callConversationHref(current));
   }, [dismiss, router, user]);
 
   const decline = useCallback(() => {

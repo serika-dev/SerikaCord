@@ -67,6 +67,10 @@ export async function signalDmMessage(opts: {
   createdAt?: Date | string | null;
   /** A call log message: badges the DM, but the ring itself is the notification. */
   isCall?: boolean;
+  /** A group DM system row ("X added Y"): badges the group without a notification. */
+  isSystem?: boolean;
+  /** Set for group DMs, so notifications name the group and open its page. */
+  group?: { channelId: string; name: string; icon: string | null; memberCount?: number } | null;
 }): Promise<void> {
   try {
     const createdAt = new Date(opts.createdAt ?? Date.now()).toISOString();
@@ -99,6 +103,8 @@ export async function signalDmMessage(opts: {
       hasAttachments: Boolean(opts.hasAttachments),
       createdAt,
       ...(opts.isCall ? { isCall: true } : {}),
+      ...(opts.isSystem ? { isSystem: true } : {}),
+      ...(opts.group ? { group: opts.group } : {}),
     });
   } catch {
     /* best-effort */

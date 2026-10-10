@@ -9,6 +9,8 @@ import { onHotkey } from "@/lib/keybinds";
 import { cn, cdnImage } from "@/lib/utils";
 import { Hash, Server as ServerIcon, AtSign, Volume2, Megaphone } from "lucide-react";
 import { useGT } from "gt-next";
+import { dmChannelHref } from "@/lib/chat/groupDm";
+import { groupDisplayName } from "@/lib/chat/dmCall";
 
 interface DMRecipient {
   id: string;
@@ -20,6 +22,9 @@ interface DMChannel {
   id: string;
   type: string;
   recipients: DMRecipient[];
+  /** Group DMs only. */
+  name?: string | null;
+  icon?: string | null;
 }
 
 type SwitchItem = {
@@ -95,9 +100,23 @@ export function QuickSwitcher() {
     }
     for (const dm of dms) {
       const r = dm.recipients?.[0];
+      const href = dmChannelHref(dm);
+      if (!href) continue;
+      const names = (dm.recipients || []).map((x) => x.displayName || x.username);
+      if (dm.type === "group_dm") {
+        list.push({
+          key: `d-${dm.id}`,
+          kind: "dm",
+          label: groupDisplayName(dm.name, names),
+          // Members are searchable too ("alice" finds the group she's in).
+          sublabel: `${gt("Group DM")} · ${names.join(", ")}`,
+          href,
+          avatar: dm.icon ?? r?.avatar,
+        });
+        continue;
+      }
       if (!r) continue;
-      const name = dm.recipients.map((x) => x.displayName || x.username).join(", ");
-      list.push({ key: `d-${dm.id}`, kind: "dm", label: name, sublabel: gt("Direct Message"), href: `/dm/${r.id}`, avatar: r.avatar });
+      list.push({ key: `d-${dm.id}`, kind: "dm", label: names.join(", "), sublabel: gt("Direct Message"), href, avatar: r.avatar });
     }
     return list;
   }, [servers, currentServer, channels, dms, gt]);

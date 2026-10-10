@@ -109,7 +109,7 @@ describe("group call rooms", () => {
   test("calls open their conversation", () => {
     const caller = { id: B };
     expect(callConversationHref({ caller })).toBe(`/dm/${B}`);
-    expect(callConversationHref({ caller, group: { channelId: G, name: "x", icon: null } })).toBe("/channels/me");
+    expect(callConversationHref({ caller, group: { channelId: G, name: "x", icon: null } })).toBe(`/dm/group/${G}`);
   });
 });
 

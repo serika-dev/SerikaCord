@@ -9,6 +9,7 @@ import { useChatStream, useTypingSignal, type ChatStreamEvent } from "@/hooks/us
 import { useMessageActions } from "@/hooks/useMessageActions";
 import {
   groupMessages,
+  isStandaloneRow,
   normalizeIncomingMessage,
   type EmojiLookupEntry,
   type RawMessagePayload,
@@ -723,7 +724,7 @@ export function useChatSession<M extends ChatMessage>({
           && (incoming.authorId === user?.id || incoming.author?.id === user?.id);
         // A call log row is posted by the server, never by the composer: it
         // must not stand in for a pending bubble.
-        const isCallRow = incoming.type === "call";
+        const isCallRow = isStandaloneRow(incoming);
         // Their message landed: they're no longer "typing".
         if (incoming.author?.username) clearTypingUser(incoming.author.username);
 

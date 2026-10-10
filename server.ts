@@ -56,7 +56,8 @@ const handle = app.getRequestHandler();
 // These are populated inside main() once the Elysia routes are wired up.
 // handleSSE references them — they're null only before the server starts.
 let registerChannelSSE: ((channelId: string, write: (data: string) => void, owner?: { userId: string; close: () => void }) => () => void) | null = null;
-let registerDmSSE: ((channelId: string, write: (data: string) => void) => () => void) | null = null;
+let registerDmSSE: ((channelId: string, write: (data: string) => void, owner?: { userId: string; close: () => void }) => () => void) | null = null;
+let loadGroupForMember: typeof import('@/lib/services/groupDms').loadGroupForMember | null = null;
 let checkChannelAccess: ((userId: string, channelId: string) => Promise<{ hasAccess: boolean; error?: string }>) | null = null;
 let openDMChannelForViewer: typeof import('@/lib/api/dms').openDMChannelForViewer | null = null;
 let registerActivitySSE: ((userId: string, write: (data: string) => void) => () => void) | null = null;
@@ -93,11 +94,13 @@ async function main() {
   // Re-broadcast channel/DM events published to Redis onto THIS instance's SSE
   // connections, so users on every app instance receive messages simultaneously.
   try {
-    const [channelMod, dmMod, activityMod] = await Promise.all([
+    const [channelMod, dmMod, activityMod, groupDmMod] = await Promise.all([
       import('@/lib/api/channels'),
       import('@/lib/api/dms'),
       import('@/lib/api/activity'),
+      import('@/lib/services/groupDms'),
     ]);
+    loadGroupForMember = groupDmMod.loadGroupForMember;
     registerChannelSSE = channelMod.registerRawSSEConnection;
     registerDmSSE = dmMod.registerRawDmSSEConnection;
     checkChannelAccess = channelMod.checkChannelAccess;
@@ -176,6 +179,10 @@ async function main() {
       if (channelMatch || dmMatch) {
         return handleSSE(req, channelMatch?.[1], dmMatch?.[1]);
       }
+      const groupDmMatch = pathname.match(/^\/api\/group-dms\/([0-9a-fA-F-]{36})\/stream$/);
+      if (groupDmMatch) {
+        return handleGroupDmSSE(req, groupDmMatch[1]);
+      }
       if (pathname === '/api/users/@me/activity') {
         return handleActivitySSE(req);
       }
@@ -235,7 +242,7 @@ async function main() {
 
   console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);
   console.log(`🔌 Gateway on ws://0.0.0.0:${port}${GATEWAY_PATH}`);
-  console.log(`📡 SSE fast-path active for /api/channels/*/stream and /api/dms/*/stream`);
+  console.log(`📡 SSE fast-path active for /api/channels/*/stream, /api/dms/*/stream and /api/group-dms/*/stream`);
 
   // Start Discord Bot real-time listener — only one instance should run
   // the bot to avoid duplicate gateway connections. Use a Redis lock with
@@ -455,6 +462,38 @@ async function handleSSE(
     const unregister = channelId
       ? registerChannelSSE!(channelKey, (data: string) => write(data), { userId: user.id, close })
       : registerDmSSE!(channelKey, (data: string) => write(data));
+    return () => { unregister(); };
+  });
+}
+
+// Group DM message stream: members only, and it closes the moment the viewer
+// is removed from / leaves the group (revokeDmStreams in dms.ts).
+async function handleGroupDmSSE(req: Request, channelId: string): Promise<Response> {
+  const cookies = parseCookies(req.headers.get('cookie'));
+  const { user, error: authError } = await authenticateRequest(req.headers.get('authorization'), cookies);
+  if (!user) {
+    return new Response(JSON.stringify({ error: authError || 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (!loadGroupForMember || !registerDmSSE) {
+    return new Response(JSON.stringify({ error: 'Stream not ready' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const channel = await loadGroupForMember(channelId, user.id).catch(() => null);
+  if (!channel) {
+    return new Response(JSON.stringify({ error: 'Group DM not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const register = registerDmSSE;
+  return sseResponse((write, close) => {
+    write('data: {"type":"connected"}\n\n');
+    const unregister = register(channel.id, (data: string) => write(data), { userId: user.id, close });
     return () => { unregister(); };
   });
 }

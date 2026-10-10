@@ -39,7 +39,11 @@ import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { toast } from "sonner";
+import dynamic from "next/dynamic";
+
+const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 
 const statusColors = {
   online: "#23A559",
@@ -84,6 +88,7 @@ export default function DMConversationPage() {
   const recipientLoading = !recipient || recipient.id !== recipientId;
   const [showUserProfile, setShowUserProfile] = useState(true);
   const [showPins, setShowPins] = useState(false);
+  const [showAddFriends, setShowAddFriends] = useState(false);
   const messageBarRef = useRef<MessageBarHandle>(null);
   const messageListRef = useRef<MessageListHandle>(null);
 
@@ -584,6 +589,16 @@ export default function DMConversationPage() {
                 >
                   <Video className="w-5 h-5" />
                 </button>
+                {!recipient?.isBot && (
+                  <button
+                    onClick={() => setShowAddFriends(true)}
+                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+                    title={gt("Add Friends to DM")}
+                    aria-label={gt("Add Friends to DM")}
+                  >
+                    <UserPlus className="w-5 h-5" />
+                  </button>
+                )}
               </>
             )}
             <button
@@ -730,6 +745,15 @@ export default function DMConversationPage() {
           ) : null}
         </div>
       )}
+
+      <MountWhenOpened open={showAddFriends}>
+        <GroupDmPickerDialog
+          open={showAddFriends}
+          onOpenChange={setShowAddFriends}
+          mode="create"
+          lockedIds={recipientId ? [recipientId] : []}
+        />
+      </MountWhenOpened>
 
       <DeleteMessageDialog
         message={chat.actions.deleteConfirmMessage}

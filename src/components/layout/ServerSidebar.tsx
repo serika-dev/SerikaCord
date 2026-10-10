@@ -34,6 +34,9 @@ import { useGT } from "gt-next";
 import { useIsClient } from "@/hooks/useIsClient";
 import { ServerBadge } from "@/components/ui/badges";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { dmChannelApiBase, dmChannelHref, isDmChannelOpen } from "@/lib/chat/groupDm";
+import { groupDisplayName } from "@/lib/chat/dmCall";
+import { GroupDmIcon } from "@/components/dm/GroupDmIcon";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
@@ -54,6 +57,9 @@ interface DMChannel {
   recipients: DMRecipient[];
   updatedAt?: string;
   lastMessageId?: string | null;
+  /** Group DMs only. */
+  name?: string | null;
+  icon?: string | null;
 }
 
 const DM_POLL_INTERVAL = 30_000;
@@ -296,9 +302,8 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
           changed = true;
         }
         // Keep the currently-open DM marked read as new messages land in it.
-        const openId = pathname?.startsWith("/dm/") ? pathname.slice(4) : null;
-        if (openId) {
-          const open = channels.find((c) => c.recipients?.[0]?.id === openId);
+        if (pathname?.startsWith("/dm/")) {
+          const open = channels.find((c) => isDmChannelOpen(c, pathname));
           if (open && next[open.id] !== (open.updatedAt || "")) {
             next[open.id] = open.updatedAt || new Date().toISOString();
             changed = true;
@@ -322,7 +327,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
         const recipient = c.recipients?.[0];
         if (!recipient || !c.lastMessageId || !c.updatedAt) return false;
         // Don't flag the DM you're currently reading.
-        if (pathname === `/dm/${recipient.id}`) return false;
+        if (isDmChannelOpen(c, pathname)) return false;
         const seen = dmSeen[c.id];
         return !seen || new Date(c.updatedAt).getTime() > new Date(seen).getTime();
       })
@@ -722,29 +727,39 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
           <div className="flex flex-col items-center gap-2 w-full">
             {(() => {
               const { channel, recipient } = unreadDMs[0];
+              const href = dmChannelHref(channel) ?? `/dm/${recipient.id}`;
+              const isGroup = channel.type === "group_dm";
+              const label = isGroup
+                ? groupDisplayName(channel.name, channel.recipients.map((r) => r.displayName || r.username))
+                : recipient.displayName || recipient.username;
               return (
                 <Tooltip key={channel.id}>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => { markDmSeen(channel); router.push(`/dm/${recipient.id}`); }}
+                      onClick={() => { markDmSeen(channel); router.push(href); }}
                       onMouseEnter={() => {
-                        void prefetchChannelMessages(`/api/dms/${recipient.id}`);
-                        router.prefetch(`/dm/${recipient.id}`);
+                        const base = dmChannelApiBase(channel);
+                        if (base) void prefetchChannelMessages(base);
+                        router.prefetch(href);
                       }}
                       className="relative flex items-center justify-center w-12 h-12 rounded-[24px] transition-[border-radius] duration-200 hover:rounded-[16px] group overflow-hidden"
                     >
+                      {isGroup ? (
+                        <GroupDmIcon icon={channel.icon} members={channel.recipients} size={48} />
+                      ) : (
                       <Avatar className="w-12 h-12">
                         <AvatarImage src={cdnImage(recipient.avatar)} alt={recipient.displayName || recipient.username} />
                         <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
                           {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
+                      )}
                       <div className="absolute left-0 w-1 h-2.5 bg-[var(--text-primary)] rounded-r-full group-hover:h-5 transition-all duration-200" />
                       <span className="absolute bottom-0 right-0 w-3.5 h-3.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)]" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-                    {recipient.displayName || recipient.username}
+                    {label}
                   </TooltipContent>
                 </Tooltip>
               );

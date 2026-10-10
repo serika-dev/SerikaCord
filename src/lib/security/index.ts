@@ -76,6 +76,10 @@ export const rateLimiters_config = {
   // Friend requests
   friendRequest: { points: 20, duration: 86400 }, // 20 friend requests per day
 
+  // Group DMs
+  groupDmCreate: { points: 10, duration: 3600 }, // 10 new groups per hour
+  groupDmManage: { points: 30, duration: 60 }, // renames / member changes per minute
+
   // Admin API (stricter)
   admin: { points: 60, duration: 60 }, // 60 admin requests per minute
 

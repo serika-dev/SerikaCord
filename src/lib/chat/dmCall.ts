@@ -51,8 +51,7 @@ export function isGroupCallRoom(roomId: string): boolean {
 
 /** Where to open the conversation a call belongs to. */
 export function callConversationHref(call: { caller: { id: string }; group?: CallGroup | null }): string {
-  // Group DMs have no conversation page yet; their calls open the DM home.
-  return call.group ? "/channels/me" : `/dm/${call.caller.id}`;
+  return call.group ? `/dm/group/${call.group.channelId}` : `/dm/${call.caller.id}`;
 }
 
 const CALL_EVENT = "serika:call";

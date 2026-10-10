@@ -30,6 +30,9 @@ import { isUserAttending, setListAtBottom, subscribeAttention } from "@/lib/unre
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
+import { GroupSystemRow } from "@/components/chat/GroupSystemRow";
+import { isGroupDmEventType } from "@/lib/chat/groupDm";
+import type { CallGroup } from "@/lib/chat/dmCall";
 import { MessageSkeleton } from "@/components/ui/skeleton";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
 import type { PickerEmoji } from "@/components/chat/MessageHoverActions";
@@ -104,6 +107,8 @@ interface MessageListProps<M extends ChatMessage> {
   onJumpToMessage?: (messageId: string) => void;
   /** DMs: the other person, for call log rows ("X missed your call", Join call). */
   dmPeer?: CallRowPeer;
+  /** Group DMs: the group, so call rows join the group call (gdm:<channelId>). */
+  callGroup?: CallGroup;
   /**
    * Read marker captured when the conversation was opened. Draws the red "NEW"
    * line above the first unread message, opens the list there instead of at
@@ -189,6 +194,7 @@ function MessageListInner<M extends ChatMessage>(
     resetKey,
     onJumpToMessage,
     dmPeer,
+    callGroup,
     unreadMarker,
     onReadUpTo,
     onMarkRead,
@@ -758,6 +764,12 @@ function MessageListInner<M extends ChatMessage>(
                   message={group.messages[0]}
                   currentUserId={currentUserId}
                   peer={dmPeer}
+                  group={callGroup}
+                  formattedTimestamp={formattedTimestamps[idx]}
+                />
+                ) : isGroupDmEventType(group.messages[0].type) ? (
+                <GroupSystemRow
+                  message={group.messages[0]}
                   formattedTimestamp={formattedTimestamps[idx]}
                 />
                 ) : (
