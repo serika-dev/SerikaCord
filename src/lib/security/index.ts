@@ -63,6 +63,9 @@ export const rateLimiters_config = {
   message: { points: 10, duration: 10 }, // 10 messages per 10 seconds
   messageGlobal: { points: 50, duration: 60 }, // 50 messages per minute globally
   typing: { points: 30, duration: 10 }, // typing pings: generous, just stops loops
+
+  // Message search (server / DM / channel), per user. Each query decrypts a page.
+  search: { points: 40, duration: 60 },
   
   // Upload rate limits
   upload: { points: 10, duration: 60 }, // 10 uploads per minute

@@ -17,6 +17,7 @@ import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
+import { searchRoutes } from './search';
 import { adminRoutes } from './admin';
 import { badgeRoutes } from './badges';
 import { oembedRoutes } from './oembed';
@@ -3835,6 +3836,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(bugReportRoutes)
   .use(notificationsRoutes)
   .use(friendsRoutes)
+  .use(searchRoutes)
   .use(serverRoutes)
   .use(inviteRoutes)
   .use(partnerRoutes)
@@ -3899,6 +3901,18 @@ export async function initializeAPI() {
     // (every push path awaits it itself) so it can never delay startup.
     const { ensurePushSchema } = await import('@/lib/services/pushNotifications');
     void ensurePushSchema();
+    // Message search blind index table, then (a minute after boot, so it
+    // never competes with startup) the gentle leader-locked history backfill.
+    // Idempotent, never throws, not awaited.
+    {
+      const search = await import('@/lib/services/messageSearch');
+      const { PROCESS_INSTANCE_ID } = await import('@/lib/realtime/processShared');
+      void search.ensureMessageSearchSchema().then((ok) => {
+        if (!ok) return;
+        const timer = setTimeout(() => search.startSearchBackfill(PROCESS_INSTANCE_ID), 60_000);
+        (timer as { unref?: () => void }).unref?.();
+      });
+    }
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

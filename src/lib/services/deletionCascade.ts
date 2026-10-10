@@ -40,6 +40,10 @@ export async function deleteServerCascade(serverId: string): Promise<void> {
     await db.delete(schema.channelReadStates)
       .where(inArray(schema.channelReadStates.channelId, channelIds))
       .catch(() => { /* table may not be applied yet; markers are harmless */ });
+    // Search index rows of the deleted messages (hashes only; best-effort).
+    await import('@/lib/services/messageSearch')
+      .then((s) => s.removeChannelsFromSearchIndex(channelIds))
+      .catch(() => { /* orphaned rows never match: search joins live messages */ });
   }
 }
 

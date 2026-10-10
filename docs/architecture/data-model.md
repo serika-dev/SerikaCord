@@ -39,6 +39,7 @@ are in `src/lib/db/redis.ts`.
 | `server_bans`, `server_member_applications` | per-server moderation and join applications | |
 | `server_emojis`, `server_stickers` | custom emoji / stickers | → servers |
 | `channel_read_states` | `user_id`, `channel_id` (unique pair), `last_read_message_id`, `last_read_at` | cross-device read markers |
+| `message_search_index` | `message_id` (PK), `channel_id`, `terms text[]` (GIN), `flags` | blind search index: keyed hashes of message words/prefixes, never plaintext (`src/lib/services/messageSearch.ts`); boot-ensured, written by the `Message` model on create/update, backfilled in the background |
 | `channel_webhooks` | `channel_id`, `token`, `creator_id` | incoming webhooks (`POST /api/webhooks/:channelId/:token`) |
 | `applications`, `app_commands`, `app_webhooks`, `app_emojis`, `developer_teams`, `authorized_apps` | developer platform: bot apps (`bot_id`, `bot_token`, Ed25519 keys), slash commands, OAuth grants | `applications.bot_id` → a `users` row with `is_bot` |
 | `rich_presence`, `activity_history`, `user_games` | game / music / watch activity | → users |
@@ -121,6 +122,7 @@ one when the owner asks; prefer its `--dry` mode where it has one.
 | `rl:<limiter>:<id>` | rate limiter buckets |
 | `qrlogin:<token>` | QR login handshake (120 s) |
 | `serikacord:discord-bot-lock` | Discord bridge leader lock |
+| `search:backfill:v1:lock`, `:state`, `:done` | message search index backfill leader lock, resume cursor, finished flag |
 | `sse:channel`, `sse:dm`, `sse:dmlist`, `sse:activity`, `sse:user-fanout`, `voice:sse`, `voice:members`, `gateway:dispatch` | pub/sub buses (see `realtime.md`) |
 
 `CacheService.delPattern` uses `SCAN`, never `KEYS`. Keep it that way.

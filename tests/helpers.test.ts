@@ -54,21 +54,19 @@ describe("extractUserMentionIds", () => {
 describe("parseSearchQuery", () => {
   test("pulls filters out of the free text", () => {
     const q = parseSearchQuery("deploy from:@alice has:Image before:2026-01-01 in:#general broke");
-    expect(q).toEqual({
-      text: "deploy broke",
-      from: "alice",
-      has: "image",
-      before: "2026-01-01",
-      inChannel: "general",
-    });
+    expect(q.text).toBe("deploy broke");
+    expect(q.from).toEqual(["alice"]);
+    expect(q.has).toEqual(["image"]);
+    expect(q.before).toBe("2026-01-01");
+    expect(q.inChannels).toEqual(["general"]);
     expect(hasActiveFilters(q)).toBeTrue();
   });
 
   test("ignores unknown has: values and empty filters", () => {
     const q = parseSearchQuery("has:pizza from: hello");
-    expect(q.has).toBeUndefined();
-    expect(q.from).toBeUndefined();
-    expect(q.text).toBe("from: hello");
+    expect(q.has).toEqual([]);
+    expect(q.from).toEqual([]);
+    expect(q.text).toBe("hello");
     expect(hasActiveFilters(q)).toBeFalse();
   });
 });

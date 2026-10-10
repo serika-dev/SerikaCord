@@ -133,6 +133,13 @@ background proxy in `auth.ts`).
   tokens, keys or message plaintext, and never return `password_hash`,
   `bot_token`, private keys, verification/reset tokens or other users'
   emails from an endpoint.
+- Message search never indexes plaintext: `message_search_index.terms` holds
+  truncated HMAC-SHA256 hashes of normalized words/prefixes, keyed by a key
+  derived from the platform encryption key. Someone with only the database
+  can see which messages share a word, not the word. Search routes only pass
+  channel ids that passed the same view checks as opening the channel
+  (`listViewableServerChannels`, DM recipients), and deleting a message
+  removes its index row.
 - The Discord bridge is consent-gated both ways (`discord_users.consent_status`,
   `settings.dataPrivacy.discordBridgeOutbound`); decline and `/forgetme` erase
   bridged data.

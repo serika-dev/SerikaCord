@@ -7,9 +7,9 @@ import { useServer } from "@/contexts/ServerContext";
 import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
 import { readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
-import { emitHotkey } from "@/lib/keybinds";
+import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon } from "lucide-react";
+import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon, Search } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
@@ -43,6 +43,10 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { SwipeNav } from "@/components/mobile/SwipeNav";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
+import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
+import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
+
+const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 
@@ -140,6 +144,31 @@ export default function DMConversationPage() {
     () => chat.messages.find((m) => m.channelId)?.channelId ?? null,
     [chat.messages]
   );
+  // Message search in this conversation (same engine as server search).
+  const searchScope = useMemo(
+    () => (dmChannelId ? { kind: "dm" as const, channelId: dmChannelId } : null),
+    [dmChannelId],
+  );
+  const searchUsers = useMemo(() => {
+    const list: Array<{ id: string; username: string; displayName?: string | null; avatar?: string | null }> = [];
+    if (user) list.push({ id: user.id, username: user.username, displayName: user.displayName, avatar: user.avatar });
+    if (recipient) list.push({ id: recipient.id, username: recipient.username, displayName: recipient.displayName, avatar: recipient.avatar });
+    return list;
+  }, [user, recipient]);
+  const search = useMessageSearch({ scope: searchScope, users: searchUsers });
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
+  // Ctrl+F / Ctrl+Shift+F focus this conversation's search (Discord).
+  const searchBarRef = useRef<MessageSearchBarHandle>(null);
+  useEffect(() => {
+    const focusSearch = () => {
+      if (isMobile) setMobileSearchOpen(true);
+      else searchBarRef.current?.focus();
+    };
+    const unsubs = [onHotkey("search-channel", focusSearch), onHotkey("search-all", focusSearch)];
+    return () => unsubs.forEach((u) => u());
+  }, [isMobile]);
+
   useEffect(() => {
     if (!dmChannelId) return;
     setActiveChannel(dmChannelId);
@@ -398,6 +427,11 @@ export default function DMConversationPage() {
     requestAnimationFrame(() => requestAnimationFrame(highlight));
   }, [chat]);
 
+  const handleSearchJump = useCallback((hit: SearchHit) => {
+    setMobileSearchOpen(false);
+    void jumpToMessage(hit.id);
+  }, [jumpToMessage]);
+
   // Honor a ?jump=<messageId> query param (from a copied message link) once the
   // conversation's messages have had a moment to load. Only `jump` is stripped
   // so other params (e.g. `call`) keep working.
@@ -615,6 +649,15 @@ export default function DMConversationPage() {
             >
               <Pin className="w-5 h-5" />
             </button>
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen(true)}
+              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] md:hidden"
+              title={gt("Search")}
+              aria-label={gt("Search")}
+            >
+              <Search className="w-5 h-5" />
+            </button>
             {dmChannelId && (
               <button
                 onClick={() =>
@@ -651,6 +694,12 @@ export default function DMConversationPage() {
             >
               <Users className="w-5 h-5" />
             </button>
+            <MessageSearchBar
+              ref={searchBarRef}
+              search={search}
+              placeholder={recipientName ? gt("Search @{name}", { name: recipientName }) : gt("Search")}
+              className="hidden md:block ml-1"
+            />
           </div>
         </div>
 
@@ -734,8 +783,42 @@ export default function DMConversationPage() {
         </div>
       </div>
 
+      {/* Search results replace the profile panel while open (Discord). */}
+      <MountWhenOpened open={search.open && !isMobile}>
+        {search.open && !isMobile && (
+          <MessageSearchPanel
+            search={search}
+            onJump={handleSearchJump}
+            onClose={search.close}
+            serverEmojis={availableServerEmojis}
+          />
+        )}
+      </MountWhenOpened>
+      <MountWhenOpened open={isMobile && mobileSearchOpen}>
+        {isMobile && mobileSearchOpen && (
+          <MessageSearchPanel
+            mobile
+            search={search}
+            onJump={handleSearchJump}
+            onClose={() => {
+              setMobileSearchOpen(false);
+              search.close();
+            }}
+            serverEmojis={availableServerEmojis}
+            searchBar={
+              <MessageSearchBar
+                search={search}
+                expanded
+                autoFocus={!search.submitted}
+                placeholder={recipientName ? gt("Search @{name}", { name: recipientName }) : gt("Search")}
+              />
+            }
+          />
+        )}
+      </MountWhenOpened>
+
       {/* User profile sidebar */}
-      {showUserProfile && (
+      {showUserProfile && !(search.open && !isMobile) && (
         <div className="w-[340px] shrink-0 bg-[var(--bg-app)] border-l border-[var(--border-subtle)] hidden lg:flex flex-col h-full overflow-hidden">
           {recipientLoading ? (
             <UserProfileSkeleton />

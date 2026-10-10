@@ -803,6 +803,53 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
 }
 
 /**
+ * Every channel (including threads) of a server the user can view, applying the
+ * same rules as checkChannelAccess but in one pass: one membership/owner/role
+ * lookup and one permission computation per overwrite source (threads resolve
+ * against their parent). Returns null when the user isn't a member. Used by
+ * server-wide message search so it can never return messages from a channel
+ * the searcher can't open.
+ */
+export async function listViewableServerChannels(userId: string, serverId: string): Promise<IChannel[] | null> {
+  const [membership, serverOwnerId, channels] = await Promise.all([
+    ServerMember.findOne({ serverId, userId }),
+    getServerOwnerIdCached(serverId),
+    Channel.find({ serverId }),
+  ]);
+  if (!membership) return null;
+  const isOwner = Boolean(serverOwnerId && compareIds(serverOwnerId, userId));
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const memberRoles = (membership.roles || []) as string[];
+  const canViewSource = new Map<string, boolean>();
+  const out: IChannel[] = [];
+  for (const channel of channels) {
+    if (channel.type === 'category' || channel.type === 'dm' || channel.type === 'group_dm') continue;
+    const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
+    const parent = isThread && channel.parentId ? byId.get(channel.parentId) ?? null : null;
+    if (channel.type === 'private_thread' && !isOwner) {
+      const isCreator = compareIds(channel.ownerId ?? '', userId);
+      const isMember = (channel.threadMemberIds || []).some((m: string) => compareIds(m, userId));
+      const accessRoles = (parent?.ticketAccessRoleIds || []) as string[];
+      const hasAccessRole = accessRoles.length > 0 && memberRoles.some((r) => accessRoles.includes(r));
+      if (!isCreator && !isMember && !hasAccessRole) continue;
+    }
+    const source = parent ?? channel;
+    let canView = canViewSource.get(source.id);
+    if (canView === undefined) {
+      canView = await canViewChannel(
+        { permissionOverwrites: (source.permissionOverwrites || []) as ChannelOverwrite[], serverId },
+        userId,
+        membership,
+        serverOwnerId,
+      );
+      canViewSource.set(source.id, canView);
+    }
+    if (canView) out.push(channel);
+  }
+  return out;
+}
+
+/**
  * Returns true if a member (with the given role ids) can see every ticket in a
  * ticket-mode forum — i.e. server owner or holder of a configured access role.
  */
@@ -2280,7 +2327,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       around: t.Optional(t.String()),
     }),
   })
-  // Search messages in channel (decrypt + filter)
+  // Search messages in one channel (Discord's channel search). Same engine as
+  // server / DM search (src/lib/api/search.ts), scoped to this channel.
   .get('/:channelId/messages/search', async ({ headers, cookie, params, query, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
@@ -2288,134 +2336,45 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, error } = await checkChannelAccess(
-      user.id,
-      params.channelId
-    );
-
-    if (!hasAccess) {
+    const { hasAccess, error, channel } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) {
       set.status = 403;
       return { error };
     }
-
-    const rawQuery = (query.q || '').trim();
-    // Structured filters (from:/has:/before:/after:), parsed on the client.
-    const fromFilter = (query.from || '').trim().toLowerCase();
-    const hasFilter = (query.has || '').trim().toLowerCase(); // link | file | image | embed | video
-    const beforeDate = query.before ? new Date(query.before) : null;
-    const afterDate = query.after ? new Date(query.after) : null;
-    const hasAnyFilter = Boolean(fromFilter || hasFilter || beforeDate || afterDate);
-    // Require either a real text query or at least one filter.
-    if (rawQuery.length < 2 && !hasAnyFilter) {
-      return { messages: [] };
+    const rl = await checkRateLimit('search', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'You are searching too fast. Try again in a moment.', retryAfter: rl.retryAfter };
     }
 
-    const resultLimit = clampInt(query.limit, 20, 50);
-    const searchLimit = clampInt(query.searchLimit, 400, 1000);
-
-    const candidates = await Message.find({
-      channelId: params.channelId,
-      isDeleted: false,
-      _limit: searchLimit,
-    });
-    const sortedCandidates = candidates;
-
-    // Batch fetch authors
-    const authorIds = Array.from(new Set(sortedCandidates.map((m: any) => m.authorId).filter(Boolean))) as string[];
-    const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
-    const authorMap = new Map(authors.map((a: any) => [a.id, a]));
-    // Fetch Discord users for authors not found in User table
-    const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
-    if (missingAuthorIds.length > 0) {
-      const { DiscordUser } = await import('@/lib/models/DiscordUser');
-      const discordAuthors = await DiscordUser.findMany(missingAuthorIds);
-      for (const da of discordAuthors) {
-        authorMap.set(da.id, {
-          id: da.id,
-          username: da.username || `discord-${da.discordId}`,
-          displayName: da.displayName,
-          avatar: da.avatar,
-        });
-      }
-      const webhookAuthorIds = missingAuthorIds.filter((id) => !authorMap.has(id));
-      if (webhookAuthorIds.length > 0) {
-        const { loadWebhookAuthors } = await import('@/lib/services/webhookAuthors');
-        for (const wa of await loadWebhookAuthors(webhookAuthorIds)) authorMap.set(wa.id, wa);
-      }
-    }
-    const lowered = rawQuery.toLowerCase();
-    const linkRegex = /https?:\/\//i;
-    const imageExtRegex = /\.(png|jpe?g|gif|webp|bmp|svg)(\?|$)/i;
-    const videoExtRegex = /\.(mp4|webm|mov|mkv|avi)(\?|$)/i;
-    const results: Array<Record<string, unknown>> = [];
-
-    for (const msg of sortedCandidates as IMessage[]) {
-      const authorData = msg.authorId ? authorMap.get(msg.authorId) : null;
-
-      // from: match author id, username, or display name
-      if (fromFilter) {
-        const idMatch = String(msg.authorId || '').toLowerCase() === fromFilter;
-        const nameMatch = authorData &&
-          ((authorData.username || '').toLowerCase().includes(fromFilter) ||
-           (authorData.displayName || '').toLowerCase().includes(fromFilter));
-        if (!idMatch && !nameMatch) continue;
-      }
-
-      // before/after: filter by created date
-      if (beforeDate && !(new Date(msg.createdAt ?? 0) < beforeDate)) continue;
-      if (afterDate && !(new Date(msg.createdAt ?? 0) > afterDate)) continue;
-
-      const decrypted = await decryptFromStorage(msg.content || '');
-      if (rawQuery.length >= 2 && !decrypted.toLowerCase().includes(lowered)) continue;
-
-      // has: link / file / image / video / embed
-      if (hasFilter) {
-        const attachments = Array.isArray(msg.attachments) ? msg.attachments : [];
-        const embeds = Array.isArray(msg.embeds) ? msg.embeds : [];
-        const attachmentUrls = attachments.map((a: any) => String(a?.url || a?.filename || a)).join(' ');
-        let ok = false;
-        if (hasFilter === 'link') ok = linkRegex.test(decrypted);
-        else if (hasFilter === 'embed') ok = embeds.length > 0;
-        else if (hasFilter === 'file') ok = attachments.length > 0;
-        else if (hasFilter === 'image') ok = imageExtRegex.test(attachmentUrls) || imageExtRegex.test(decrypted);
-        else if (hasFilter === 'video') ok = videoExtRegex.test(attachmentUrls) || videoExtRegex.test(decrypted);
-        if (!ok) continue;
-      }
-
-      results.push({
-        id: msg.id,
-        content: decrypted,
-        authorId: authorData?.id || msg.authorId,
-        author: authorData
-          ? {
-              id: authorData.id,
-              username: authorData.username,
-              displayName: authorData.displayName || authorData.username,
-              avatar: authorData.avatar,
-            }
-          : null,
-        channelId: msg.channelId,
-        createdAt: msg.createdAt,
-        updatedAt: msg.updatedAt,
-        pinned: msg.pinned,
-      });
-
-      if (results.length >= resultLimit) break;
-    }
-
-    return { messages: results };
+    const { searchInChannels, memberScopeForServer, memberScopeForUsers } = await import('./search');
+    const memberScope = channel.serverId
+      ? memberScopeForServer(channel.serverId)
+      : memberScopeForUsers((channel.recipientIds || []) as string[]);
+    // Only this channel, whatever channelId the query names.
+    return searchInChannels(user.id, [channel], { ...query, channelId: undefined }, { memberScope });
   }, {
     params: t.Object({
       channelId: t.String(),
     }),
     query: t.Object({
-      q: t.Optional(t.String()),
+      q: t.Optional(t.String({ maxLength: 512 })),
       limit: t.Optional(t.String()),
+      offset: t.Optional(t.String()),
+      sort: t.Optional(t.String()),
       searchLimit: t.Optional(t.String()),
-      from: t.Optional(t.String()),
-      has: t.Optional(t.String()),
-      before: t.Optional(t.String()),
-      after: t.Optional(t.String()),
+      from: t.Optional(t.String({ maxLength: 200 })),
+      authorId: t.Optional(t.String({ maxLength: 2000 })),
+      author: t.Optional(t.String({ maxLength: 500 })),
+      mentions: t.Optional(t.String({ maxLength: 2000 })),
+      mentionName: t.Optional(t.String({ maxLength: 500 })),
+      has: t.Optional(t.String({ maxLength: 200 })),
+      pinned: t.Optional(t.String()),
+      authorType: t.Optional(t.String({ maxLength: 50 })),
+      minTime: t.Optional(t.String({ maxLength: 40 })),
+      maxTime: t.Optional(t.String({ maxLength: 40 })),
+      before: t.Optional(t.String({ maxLength: 40 })),
+      after: t.Optional(t.String({ maxLength: 40 })),
     }),
   })
   // Send message

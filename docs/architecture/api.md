@@ -18,6 +18,7 @@ when Next runs alone.
 | `/api/servers`, `/api/invites` | `servers.ts` | servers, members, roles, bans, kicks, timeouts, emojis, stickers, channels list/create, partners, invites |
 | `/api/channels` | `channels.ts` | messages, reactions, pins, typing, threads/forums, webhooks, `/:channelId/stream` |
 | `/api/dms` | `dms.ts` | DM channels and messages, `/stream`, `/:recipientId/stream` |
+| `/api/servers/:serverId/messages/search`, `/api/dms/search` | `search.ts` | message search (server-wide over viewable channels, DMs + group DMs); `/api/channels/:id/messages/search` delegates to it |
 | `/api/voice` | `voice.ts` | voice rooms, batched states, `/signal/:roomId` SSE |
 | `/api/upload` | `uploads.ts` | uploads to B2 (type allowlist from platform settings) |
 | `/api/gifs` | `gifs.ts` | GIF search proxy |

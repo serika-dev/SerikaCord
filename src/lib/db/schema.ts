@@ -945,6 +945,25 @@ export const pushDevices = pgTable('push_devices', {
   userIdx: index('push_devices_user_id_idx').on(t.userId),
 }));
 
+// Blind search index for message content (which is encrypted at rest). One row
+// per message: `terms` holds short keyed hashes (HMAC) of the normalized words
+// and word prefixes, never plaintext; `flags` carries content-derived `has:`
+// bits (link / image URL / ...). Written on send/edit, removed on delete, and
+// backfilled for old history. Added at boot by ensureMessageSearchSchema()
+// (mirrors drizzle/manual_message_search_index.sql). See
+// src/lib/services/messageSearch.ts.
+export const messageSearchIndex = pgTable('message_search_index', {
+  messageId: uuid('message_id').primaryKey(),
+  channelId: uuid('channel_id').notNull(),
+  terms: text('terms').array().notNull().default([]),
+  flags: integer('flags').notNull().default(0),
+  version: integer('version').notNull().default(1),
+  indexedAt: timestamp('indexed_at').defaultNow(),
+}, (t) => ({
+  termsGinIdx: index('message_search_index_terms_gin_idx').using('gin', t.terms),
+  channelIdx: index('message_search_index_channel_id_idx').on(t.channelId),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
 export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;

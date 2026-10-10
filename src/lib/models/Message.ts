@@ -22,6 +22,17 @@ export type IMessage = typeof schema.messages.$inferSelect;
 // Kept a touch above 99 so "99+" is always reached before the cap bites.
 export const MAX_UNREAD_BADGE = 100;
 
+/** Lazy hop to the search indexer (keeps the model import graph light). */
+function syncSearchIndex(
+  row: IMessage,
+  changed: { content?: boolean; deleted?: boolean; extras?: boolean },
+): void {
+  if (!changed.content && !changed.deleted && !changed.extras) return;
+  void import('../services/messageSearch')
+    .then((s) => s.queueSearchIndex(row, changed))
+    .catch(() => { /* indexing is best-effort; the backfill catches up */ });
+}
+
 // Used when a caller passes an invalid `_limit` to Message.find.
 const FALLBACK_FIND_LIMIT = 100;
 
@@ -137,11 +148,21 @@ export const Message = {
 
   async create(data: typeof schema.messages.$inferInsert) {
     const [row] = await db.insert(schema.messages).values(data).returning();
+    // Keep the search index in step for every write path (sends, bots,
+    // webhooks, bridges, system DMs). Fire-and-forget; never blocks the send.
+    if (row) syncSearchIndex(row, { content: true });
     return row;
   },
 
   async updateById(id: string, data: Partial<typeof schema.messages.$inferInsert>) {
     const [row] = await db.update(schema.messages).set({ ...data, updatedAt: new Date() }).where(eq(schema.messages.id, normalizeId(id))).returning();
+    if (row) {
+      syncSearchIndex(row, {
+        content: data.content !== undefined,
+        deleted: data.isDeleted !== undefined,
+        extras: data.embeds !== undefined || data.attachments !== undefined,
+      });
+    }
     return row || null;
   },
 
@@ -176,6 +197,9 @@ export const Message = {
 
   async deleteById(id: string) {
     await db.delete(schema.messages).where(eq(schema.messages.id, normalizeId(id)));
+    void import('../services/messageSearch')
+      .then((s) => s.removeFromSearchIndex(id))
+      .catch(() => { /* best-effort: the search join skips missing messages */ });
   },
 
   async count() {

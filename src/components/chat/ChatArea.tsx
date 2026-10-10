@@ -51,7 +51,9 @@ import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages";
-import { parseSearchQuery, hasActiveFilters } from "@/lib/chat/searchQuery";
+import { quoteSearchValue } from "@/lib/chat/searchQuery";
+import { useMessageSearch, type SearchHit, type SearchHitChannel } from "@/hooks/useMessageSearch";
+import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
 import {
   getCommandSuggestions,
   parseCommandContext,
@@ -93,6 +95,7 @@ const PinnedMessagesDialog = dynamic(() => import("@/components/chat/PinnedMessa
 const DeleteMessageDialog = dynamic(() => import("@/components/chat/DeleteMessageDialog").then((m) => m.DeleteMessageDialog), { ssr: false });
 
 const ThreadsBrowser = dynamic(() => import("@/components/chat/ThreadsBrowser").then((m) => m.ThreadsBrowser), { ssr: false });
+const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 
 const DiscordBridgeConsentDialog = dynamic(() => import("@/components/chat/DiscordBridgeConsentDialog").then((m) => m.DiscordBridgeConsentDialog), { ssr: false });
 
@@ -193,8 +196,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   // full member list a second time on every server open.
   const { members } = useServerMembers();
   const { user } = useAuth();
-  const gt = useGT();
   const locale = useLocale();
+  const gt = useGT();
   const perms = usePermissions(currentServer?.id);
   const canModerateMessages = perms.isOwner || perms.can("MANAGE_MESSAGES");
 
@@ -247,7 +250,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const isMobile = useIsMobile();
   const messageBarRef = useRef<MessageBarHandle>(null);
   const messageListRef = useRef<MessageListHandle>(null);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchBarRef = useRef<MessageSearchBarHandle>(null);
+  const mobileSearchBarRef = useRef<MessageSearchBarHandle>(null);
 
   // Server emojis and stickers
   const [serverEmojis, setServerEmojis] = useState<Array<{
@@ -338,10 +342,23 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     markChannelRead(openChannelId);
   }, [openChannelId, markChannelRead]);
   const [showHelp, setShowHelp] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<Message[]>([]);
+
+  // Discord-style server-wide message search (shared engine with DMs).
+  const searchScope = useMemo(
+    () => (currentServer?.id ? { kind: "server" as const, serverId: currentServer.id } : null),
+    [currentServer?.id],
+  );
+  const searchUsers = useMemo(
+    () => members.map((m) => ({ id: m.id, username: m.username, displayName: m.displayName, avatar: m.avatar })),
+    [members],
+  );
+  const searchChannels = useMemo(
+    () => channels.filter((c) => c.type !== "category").map((c) => ({ id: c.id, name: c.name, type: c.type })),
+    [channels],
+  );
+  const search = useMessageSearch({ scope: searchScope, users: searchUsers, channels: searchChannels });
+  const setSearchDraft = search.setDraft;
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   // Fetch registered bot slash commands available in the active channel.
   useEffect(() => {
@@ -855,76 +872,15 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
-  const runMessageSearch = useCallback(async (query: string) => {
-    if (!currentChannel) {
-      setSearchResults([]);
-      return;
-    }
-    const parsed = parseSearchQuery(query);
-    const filtersActive = hasActiveFilters(parsed);
-    // Need either a 2+ char text query or at least one filter.
-    if (parsed.text.trim().length < 2 && !filtersActive) {
-      setSearchResults([]);
-      return;
-    }
-
-    // Resolve in:<#channel> to a channel id (defaults to the current channel).
-    let targetChannelId = currentChannel.id;
-    if (parsed.inChannel) {
-      const wanted = parsed.inChannel.toLowerCase();
-      const match = channels.find((c) => c.name?.toLowerCase() === wanted || c.id === parsed.inChannel);
-      if (match) targetChannelId = match.id;
-    }
-    // Resolve from:<user> to a member id when it matches a known member.
-    let fromValue = parsed.from;
-    if (parsed.from) {
-      const wanted = parsed.from.toLowerCase();
-      const member = members.find(
-        (m) => m.username?.toLowerCase() === wanted || m.displayName?.toLowerCase() === wanted
-      );
-      if (member) fromValue = member.id;
-    }
-
-    const params = new URLSearchParams({ limit: "20" });
-    if (parsed.text.trim().length >= 2) params.set("q", parsed.text.trim());
-    if (fromValue) params.set("from", fromValue);
-    if (parsed.has) params.set("has", parsed.has);
-    if (parsed.before) params.set("before", parsed.before);
-    if (parsed.after) params.set("after", parsed.after);
-
-    setIsSearching(true);
-    try {
-      const response = await fetch(
-        `/api/channels/${targetChannelId}/messages/search?${params.toString()}`
-      );
-      if (!response.ok) return;
-      const data = await response.json();
-      setSearchResults(data.messages || []);
-    } catch {
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  }, [currentChannel, channels, members]);
-
   const { setReplyToMessage } = chat.actions;
   useEffect(() => {
     if (!currentChannel) return;
     setReplyToMessage(null);
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowSearchResults(false);
     mentionRangeRef.current = null;
     setMentionSuggestions([]);
     setActiveMentionIndex(0);
   }, [currentChannel, setReplyToMessage]);
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      void runMessageSearch(searchQuery);
-    }, 220);
-    return () => clearTimeout(timer);
-  }, [searchQuery, runMessageSearch]);
 
   const updateMentionSuggestions = useCallback(
     (draft: string, explicitCaretPosition?: number | null) => {
@@ -1535,6 +1491,18 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     requestAnimationFrame(() => requestAnimationFrame(() => highlightAndScroll(id)));
   }, [chat, highlightAndScroll, gt]);
 
+  /** Search result click: jump in place, or open its channel at that message. */
+  const handleSearchJump = useCallback((hit: SearchHit, channel: SearchHitChannel | null) => {
+    if (isMobile) setMobileSearchOpen(false);
+    if (currentChannel?.id === hit.channelId) {
+      void jumpToMessage(hit.id);
+      return;
+    }
+    const serverId = channel?.serverId || hit.serverId || currentServer?.id;
+    if (!serverId) return;
+    router.push(`/channels/${serverId}/${hit.channelId}?jump=${encodeURIComponent(hit.id)}`);
+  }, [isMobile, currentChannel?.id, currentServer?.id, jumpToMessage, router]);
+
   // Honor a ?jump=<messageId> query param (from a copied message link) once the
   // channel's messages have had a moment to load.
   useEffect(() => {
@@ -1664,20 +1632,28 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       onHotkey("focus-composer", () => messageBarRef.current?.getComposer()?.focus()),
       onHotkey("scroll-up", () => messageListRef.current?.scrollByViewport(-1)),
       onHotkey("scroll-down", () => messageListRef.current?.scrollByViewport(1)),
-      onHotkey("jump-oldest-unread", () => messageListRef.current?.jumpToUnread()),      onHotkey("search-channel", () => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+      onHotkey("jump-oldest-unread", () => messageListRef.current?.jumpToUnread()),      // Ctrl+F searches this channel (pre-filled in:), Ctrl+Shift+F the server.
+      onHotkey("search-channel", () => {
+        const prefill = currentChannel?.name ? `in:${quoteSearchValue(currentChannel.name)} ` : undefined;
+        if (isMobile) {
+          setMobileSearchOpen(true);
+          if (prefill) setSearchDraft(prefill);
+          return;
+        }
+        searchBarRef.current?.focus(prefill);
       }),
       onHotkey("search-all", () => {
-        searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        if (isMobile) {
+          setMobileSearchOpen(true);
+          return;
+        }
+        searchBarRef.current?.focus();
       }),
       onHotkey("edit-last-message", () => editLastOwnMessage()),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [onToggleMembers, editLastOwnMessage, isPanel]);
+  }, [onToggleMembers, editLastOwnMessage, isPanel, currentChannel?.name, isMobile, setSearchDraft]);
 
-  const formatTimestamp = (ts: string) => formatMessageTimestamp(ts, gt, locale);
 
   // Opening a channel doesn't mark it read: MessageList acks the newest message
   // once it's actually been seen (see onReadUpTo below).
@@ -1879,18 +1855,21 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             <Users className="w-5 h-5" />
           </button>
           <div className="h-6 w-px bg-[var(--app-border)] hidden md:block" />
-          <div className="relative hidden md:block">
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder={gt("Search")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-32 h-6 px-2 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--app-muted)] focus:outline-none focus:w-48 transition-all"
-              onFocus={() => setShowSearchResults(true)}
-            />
-            <Search className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--app-muted)]" />
-          </div>
+          <MessageSearchBar
+            ref={searchBarRef}
+            search={search}
+            placeholder={currentServer?.name ? gt("Search {server}", { server: currentServer.name }) : gt("Search")}
+            className="hidden md:block"
+          />
+          <button
+            type="button"
+            className="md:hidden p-2 -m-1 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            onClick={() => setMobileSearchOpen(true)}
+            title={gt("Search")}
+            aria-label={gt("Search")}
+          >
+            <Search className="w-5 h-5" />
+          </button>
           <button
             className={cn(
               "hover:text-[var(--text-primary)] transition-colors hidden sm:block relative",
@@ -1920,51 +1899,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         </div>
       </div>
 
-      {showSearchResults && (
-        <div className="px-4 py-2 border-b border-[var(--app-border)] bg-[var(--app-surface)]/95">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs uppercase tracking-wider text-[var(--app-muted)]">{gt("Search Results")}</p>
-            <button
-              onClick={() => setShowSearchResults(false)}
-              className="text-xs text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              {gt("Close")}
-            </button>
-          </div>
-          {(() => { const p = parseSearchQuery(searchQuery); return p.text.trim().length < 2 && !hasActiveFilters(p); })() ? (
-            <div className="text-sm text-[var(--app-muted)] space-y-1">
-              <p>{gt("Type at least 2 characters, or use filters:")}</p>
-              <p className="text-xs font-mono text-[var(--app-muted)]/80">from:user · has:link|file|image|video|embed · before:2024-01-01 · after:2024-01-01 · in:#channel</p>
-            </div>
-          ) : isSearching ? (
-            <div className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
-              <Loader size={16} />
-              {gt("Searching...")}
-            </div>
-          ) : searchResults.length === 0 ? (
-            <p className="text-sm text-[var(--app-muted)]">{gt("No matching messages.")}</p>
-          ) : (
-            <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
-              {searchResults.map((result) => (
-                <button
-                  key={`search-${result.id}`}
-                  onClick={() => {
-                    void jumpToMessage(result.id);
-                    setShowSearchResults(false);
-                  }}
-                  className="w-full text-left p-2 rounded-md bg-[var(--app-surface-alt)] hover:brightness-110 transition"
-                >
-                  <p className="text-xs text-[var(--app-muted)] mb-0.5">
-                    {result.author?.displayName || result.author?.username || gt("Unknown")} • {formatTimestamp(result.createdAt)}
-                  </p>
-                  <p className="text-sm text-[var(--text-primary)] line-clamp-2">{result.content || gt("(attachment)")}</p>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
+      <div className="flex-1 flex min-h-0 min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Messages */}
       <MessageList
         onJumpToMessage={jumpToMessage}
@@ -2082,6 +2018,43 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         pollApiBase={currentChannel ? `/api/channels/${currentChannel.id}` : undefined}
         draftKey={currentChannel ? `channel:${currentChannel.id}` : undefined}
       />
+      </div>
+
+      <MountWhenOpened open={search.open && !isMobile}>
+        {search.open && !isMobile && (
+          <MessageSearchPanel
+            search={search}
+            onJump={handleSearchJump}
+            onClose={search.close}
+            serverEmojis={allServerEmojis}
+          />
+        )}
+      </MountWhenOpened>
+      </div>
+
+      <MountWhenOpened open={isMobile && mobileSearchOpen}>
+        {isMobile && mobileSearchOpen && (
+          <MessageSearchPanel
+            mobile
+            search={search}
+            onJump={handleSearchJump}
+            onClose={() => {
+              setMobileSearchOpen(false);
+              search.close();
+            }}
+            serverEmojis={allServerEmojis}
+            searchBar={
+              <MessageSearchBar
+                ref={mobileSearchBarRef}
+                search={search}
+                expanded
+                autoFocus={!search.submitted}
+                placeholder={currentServer?.name ? gt("Search {server}", { server: currentServer.name }) : gt("Search")}
+              />
+            }
+          />
+        )}
+      </MountWhenOpened>
 
       <MountWhenOpened open={lightbox.isLightboxOpen}>
         <ImageLightbox

@@ -6,14 +6,14 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
-import { ArrowLeft, Bell, BellOff, Inbox as InboxIcon, Phone, Pin, UserPlus, Users, Video } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, Inbox as InboxIcon, Phone, Pin, Search, UserPlus, Users, Video } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
 import { readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
-import { emitHotkey } from "@/lib/keybinds";
+import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { cn } from "@/lib/utils";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
@@ -50,7 +50,10 @@ import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { playTts } from "@/lib/chat/tts";
 import type { ChatMessage } from "@/lib/chat/types";
+import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
+import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
 
+const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 const EditGroupDmDialog = dynamic(() => import("@/components/dm/EditGroupDmDialog").then((m) => m.EditGroupDmDialog), { ssr: false });
 
@@ -255,6 +258,22 @@ export default function GroupDMPage() {
   );
   const title = group && group.id === channelId ? groupTitle(group, user?.id) : "";
 
+  // Message search in this group (same engine as server search).
+  const searchScope = useMemo(() => (channelId ? { kind: "dm" as const, channelId } : null), [channelId]);
+  const search = useMessageSearch({ scope: searchScope, users: members });
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
+  // Ctrl+F / Ctrl+Shift+F focus this conversation's search (Discord).
+  const searchBarRef = useRef<MessageSearchBarHandle>(null);
+  useEffect(() => {
+    const focusSearch = () => {
+      if (isMobile) setMobileSearchOpen(true);
+      else searchBarRef.current?.focus();
+    };
+    const unsubs = [onHotkey("search-channel", focusSearch), onHotkey("search-all", focusSearch)];
+    return () => unsubs.forEach((u) => u());
+  }, [isMobile]);
+
   const mentionUsers = useMemo(
     () => members.map((m) => ({ id: m.id, username: m.username, displayName: m.displayName || m.username, avatar: m.avatar ?? undefined })),
     [members],
@@ -360,6 +379,11 @@ export default function GroupDMPage() {
     if (!ok) return;
     requestAnimationFrame(() => requestAnimationFrame(highlight));
   }, [chat]);
+
+  const handleSearchJump = useCallback((hit: SearchHit) => {
+    setMobileSearchOpen(false);
+    void jumpToMessage(hit.id);
+  }, [jumpToMessage]);
 
   // ?jump=<messageId> (copied link / notification click)
   useEffect(() => {
@@ -545,6 +569,9 @@ export default function GroupDMPage() {
             <button onClick={() => setShowPins(true)} className={headerButton} title={gt("Pinned Messages")} aria-label={gt("Pinned Messages")}>
               <Pin className="w-5 h-5" />
             </button>
+            <button type="button" onClick={() => setMobileSearchOpen(true)} className={cn(headerButton, "md:hidden")} title={gt("Search")} aria-label={gt("Search")}>
+              <Search className="w-5 h-5" />
+            </button>
             <button
               onClick={() => setShowAddFriends(true)}
               disabled={!canAddMore}
@@ -577,6 +604,12 @@ export default function GroupDMPage() {
             >
               <Users className="w-5 h-5" />
             </button>
+            <MessageSearchBar
+              ref={searchBarRef}
+              search={search}
+              placeholder={title ? gt("Search {name}", { name: title }) : gt("Search")}
+              className="hidden md:block ml-1"
+            />
           </div>
         </div>
 
@@ -649,7 +682,41 @@ export default function GroupDMPage() {
         </div>
       </div>
 
-      {showMembers && !groupLoading && (
+      {/* Search results replace the member list while open (Discord). */}
+      <MountWhenOpened open={search.open && !isMobile}>
+        {search.open && !isMobile && (
+          <MessageSearchPanel
+            search={search}
+            onJump={handleSearchJump}
+            onClose={search.close}
+            serverEmojis={availableServerEmojis}
+          />
+        )}
+      </MountWhenOpened>
+      <MountWhenOpened open={isMobile && mobileSearchOpen}>
+        {isMobile && mobileSearchOpen && (
+          <MessageSearchPanel
+            mobile
+            search={search}
+            onJump={handleSearchJump}
+            onClose={() => {
+              setMobileSearchOpen(false);
+              search.close();
+            }}
+            serverEmojis={availableServerEmojis}
+            searchBar={
+              <MessageSearchBar
+                search={search}
+                expanded
+                autoFocus={!search.submitted}
+                placeholder={title ? gt("Search {name}", { name: title }) : gt("Search")}
+              />
+            }
+          />
+        )}
+      </MountWhenOpened>
+
+      {showMembers && !groupLoading && !(search.open && !isMobile) && (
         <div className="hidden lg:flex h-full">
           <GroupDmMembersPanel
             members={members}
