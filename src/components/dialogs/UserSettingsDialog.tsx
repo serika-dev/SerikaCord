@@ -95,6 +95,9 @@ import { Loader } from "@/components/ui/Loader";
 import { APP_VERSION, BUILD_COMMIT_URL, BUILD_SHA, BUILD_TIME, VERSION_LABEL } from "@/lib/version";
 import { toServerStatus } from "@/lib/presenceChoice";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDeviceSettings";
+import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
+import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
 
 interface UserSettingsDialogProps {
   open: boolean;
@@ -496,64 +499,14 @@ function VoiceVideoTab({
   saveSettingsPatchDebounced: (patch: SettingsPatch, sectionLabel: string) => void;
   gt: GTFunc;
 }) {
-  const [micTesting, setMicTesting] = useState(false);
-  const [micLevel, setMicLevel] = useState(0);
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const micAnalyserRef = useRef<{ analyser: AnalyserNode; ctx: AudioContext; stream: MediaStream } | null>(null);
-  const micAnimRef = useRef<number>(0);
-
-  const startMicTest = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: Boolean(userSettings?.voiceVideo?.echoCancellation),
-          noiseSuppression: Boolean(userSettings?.voiceVideo?.noiseSuppression),
-          autoGainControl: Boolean(userSettings?.voiceVideo?.autoGainControl),
-        },
-        video: false,
-      });
-      const ctx = new AudioContext();
-      const source = ctx.createMediaStreamSource(stream);
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      micAnalyserRef.current = { analyser, ctx, stream };
-      setMicTesting(true);
-
-      const tick = () => {
-        const data = new Uint8Array(analyser.frequencyBinCount);
-        analyser.getByteTimeDomainData(data);
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) {
-          const v = (data[i] - 128) / 128;
-          sum += v * v;
-        }
-        setMicLevel(Math.min(1, Math.sqrt(sum / data.length) * 2));
-        micAnimRef.current = requestAnimationFrame(tick);
-      };
-      tick();
-    } catch {
-      toast.error(gt("Microphone access denied"));
-    }
-  };
-
-  const stopMicTest = () => {
-    setMicTesting(false);
-    setMicLevel(0);
-    if (micAnimRef.current) cancelAnimationFrame(micAnimRef.current);
-    if (micAnalyserRef.current) {
-      micAnalyserRef.current.stream.getTracks().forEach((t) => t.stop());
-      micAnalyserRef.current.ctx.close();
-      micAnalyserRef.current = null;
-    }
-  };
 
   const startVideoPreview = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { width: 640, height: 360 },
+        video: { width: 640, height: 360, ...deviceConstraint(getPreferredDevice("video")) },
       });
       setVideoStream(stream);
       if (videoRef.current) {
@@ -573,7 +526,6 @@ function VoiceVideoTab({
 
   useEffect(() => {
     return () => {
-      stopMicTest();
       stopVideoPreview();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -612,35 +564,19 @@ function VoiceVideoTab({
               />
             </div>
 
-            {/* Mic Test */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Microphone Test")}</label>
-                <button
-                  onClick={micTesting ? stopMicTest : startMicTest}
-                  className={cn(
-                    "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors flex items-center gap-1.5",
-                    micTesting
-                      ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
-                      : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  )}
-                >
-                  {micTesting ? (
-                    <><span className="w-2 h-2 rounded-full bg-red-400 animate-pulse" /> {gt("Stop")}</>
-                  ) : (
-                    <><Mic2 className="w-3.5 h-3.5" /> {gt("Test")}</>
-                  )}
-                </button>
-              </div>
-              {micTesting && (
-                <div className="h-8 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] overflow-hidden relative">
-                  <div
-                    className="h-full bg-gradient-to-r from-[var(--app-accent)] to-[#10B981] transition-[width] duration-75"
-                    style={{ width: `${Math.round(micLevel * 100)}%` }}
-                  />
-                </div>
-              )}
-            </div>
+            <DeviceSelect role="input" label={gt("Input Device")} />
+
+            {/* Input sensitivity (voice activity) with a live level meter + mic test */}
+            <InputSensitivity
+              auto={userSettings.voiceVideo?.autoSensitivity !== false}
+              thresholdDb={typeof userSettings.voiceVideo?.inputSensitivity === "number" ? userSettings.voiceVideo.inputSensitivity : DEFAULT_SENSITIVITY_DB}
+              pushToTalk={Boolean(userSettings.voiceVideo?.pushToTalk)}
+              echoCancellation={userSettings.voiceVideo?.echoCancellation !== false}
+              noiseSuppression={userSettings.voiceVideo?.noiseSuppression !== false}
+              autoGainControl={userSettings.voiceVideo?.autoGainControl !== false}
+              onAutoChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoSensitivity: checked } }, "voice-video")}
+              onThresholdChange={(db) => saveSettingsPatchDebounced({ voiceVideo: { inputSensitivity: db } }, "voice-video")}
+            />
 
             <div className="h-px bg-[var(--border-subtle)]" />
 
@@ -705,6 +641,9 @@ function VoiceVideoTab({
           <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
         ) : (
           <div className="space-y-2">
+            <div className="pb-2">
+              <DeviceSelect role="output" label={gt("Output Device")} />
+            </div>
             <div className="flex items-center justify-between">
               <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Output Volume")}</label>
               <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.outputVolume ?? 100}%</span>
@@ -741,6 +680,7 @@ function VoiceVideoTab({
           <Camera className="w-5 h-5 text-[var(--app-accent)]" />
           <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Camera Preview")}</h3>
         </div>
+        <DeviceSelect role="video" label={gt("Camera")} />
         <div className="flex items-center gap-3">
           <button
             onClick={videoStream ? stopVideoPreview : startVideoPreview}

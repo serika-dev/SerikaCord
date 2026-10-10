@@ -92,6 +92,9 @@ export const rateLimiters_config = {
   // Mobile push device registration / app foreground-background state, per user
   pushDevice: { points: 30, duration: 600 },
   pushState: { points: 120, duration: 600 },
+
+  // Voice moderation (server mute/deafen, move, disconnect), per moderator
+  voiceModeration: { points: 60, duration: 60 },
 } as const;
 
 export async function checkRateLimit(

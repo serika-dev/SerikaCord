@@ -1,6 +1,8 @@
 // Pure helpers that turn the user's saved Voice & Video settings into what the
 // voice service applies to a call (mic processing constraints, push-to-talk,
-// input/output volume). Shared with unit tests.
+// input/output volume, input sensitivity). Shared with unit tests.
+
+import { clampSensitivityDb } from "./voiceActivity";
 
 export type MicProcessingConstraints = {
   echoCancellation?: boolean;
@@ -14,6 +16,10 @@ export type VoiceCallSettings = {
   pushToTalkKey?: string;
   inputVolume?: number;
   outputVolume?: number;
+  /** Automatically determine input sensitivity (voice activity threshold). */
+  autoSensitivity?: boolean;
+  /** Manual voice activity threshold, dBFS (-100..0). */
+  inputSensitivity?: number;
 };
 
 export const DEFAULT_PTT_KEY = "V";
@@ -50,13 +56,26 @@ export function readVoiceCallSettings(voiceVideo: unknown): VoiceCallSettings {
   if (input !== undefined) out.inputVolume = input;
   const output = clampPercent(v.outputVolume);
   if (output !== undefined) out.outputVolume = output;
+  if (typeof v.autoSensitivity === "boolean") out.autoSensitivity = v.autoSensitivity;
+  if (typeof v.inputSensitivity === "number" && Number.isFinite(v.inputSensitivity)) {
+    out.inputSensitivity = clampSensitivityDb(v.inputSensitivity);
+  }
   return out;
 }
 
 /** Whether the local mic should be sending audio right now. */
-export function shouldTransmit(state: { muted: boolean; pttEnabled: boolean; pttHeld: boolean }): boolean {
-  if (state.muted) return false;
-  return !state.pttEnabled || state.pttHeld;
+export function shouldTransmit(state: {
+  muted: boolean;
+  pttEnabled: boolean;
+  pttHeld: boolean;
+  /** Muted by a moderator (Server Mute): overrides everything. */
+  serverMuted?: boolean;
+  /** Voice activity gate (input sensitivity); only applies outside push-to-talk. */
+  voiceGateOpen?: boolean;
+}): boolean {
+  if (state.muted || state.serverMuted) return false;
+  if (state.pttEnabled) return state.pttHeld;
+  return state.voiceGateOpen !== false;
 }
 
 /**

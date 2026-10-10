@@ -6,7 +6,7 @@ import { cn, cdnImage } from "@/lib/utils";
 import type { VoiceParticipant } from "@/lib/services/voiceService";
 
 interface VoiceParticipantAvatarProps {
-  participant: Pick<VoiceParticipant, "userId" | "username" | "displayName" | "avatar" | "audio">;
+  participant: Pick<VoiceParticipant, "userId" | "username" | "displayName" | "avatar" | "audio"> & { serverMute?: boolean };
   speaking?: boolean;
   size?: "sm" | "md" | "lg";
   className?: string;
@@ -29,7 +29,7 @@ export function VoiceParticipantAvatar({
   className,
 }: VoiceParticipantAvatarProps) {
   const name = participant.displayName || participant.username || "?";
-  const muted = !participant.audio;
+  const muted = !participant.audio || participant.serverMute === true;
 
   return (
     <div className={cn("relative flex-shrink-0", className)}>

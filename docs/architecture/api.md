@@ -19,7 +19,7 @@ when Next runs alone.
 | `/api/channels` | `channels.ts` | messages, reactions, pins, typing, threads/forums, webhooks, `/:channelId/stream` |
 | `/api/dms` | `dms.ts` | DM channels and messages, `/stream`, `/:recipientId/stream` |
 | `/api/servers/:serverId/messages/search`, `/api/dms/search` | `search.ts` | message search (server-wide over viewable channels, DMs + group DMs); `/api/channels/:id/messages/search` delegates to it |
-| `/api/voice` | `voice.ts` | voice rooms, batched states, `/signal/:roomId` SSE |
+| `/api/voice` | `voice.ts` | voice rooms, batched states, `/signal/:roomId` SSE, `PATCH /servers/:serverId/members/:userId` voice moderation (server mute/deafen persisted on `server_members.mute/deaf`, move, disconnect; rules in `src/lib/voice/moderation.ts`) |
 | `/api/upload` | `uploads.ts` | uploads to B2 (type allowlist from platform settings) |
 | `/api/gifs` | `gifs.ts` | GIF search proxy |
 | `/api/oembed` | `oembed.ts` | link previews (YouTube, niconico, bilibili, fxtwitter, OpenGraph scrape) |

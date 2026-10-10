@@ -1,13 +1,15 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
 import { config } from '@/lib/config';
-import { getPublisher } from '@/lib/db';
+import { cache, getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
-import { User, type IServerSettings, type IUserSettings } from '@/lib/models';
+import { Channel, Server, ServerMember, User, type IServerSettings, type IUserSettings } from '@/lib/models';
+import { checkRateLimit, isValidObjectId } from '@/lib/security';
+import { checkVoiceModeration, channelIdOfRoom, roomsContainingUser } from '@/lib/voice/moderation';
 import { dmCallPeers } from '@/lib/chat/dmCall';
 import { isSystemUser } from '@/lib/services/systemUsers';
 import { fanoutToUsers } from './activity';
-import { checkChannelAccess } from './channels';
+import { checkChannelAccess, getMemberChannelPermissions } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import {
@@ -51,6 +53,11 @@ type VoiceParticipant = {
   joinedAt: string;
   /** The tab/device this membership belongs to; a join from another replaces it. */
   sessionId?: string;
+  /** Server Mute / Server Deafen set by a moderator (server channels only). */
+  serverMute?: boolean;
+  serverDeaf?: boolean;
+  /** Sharing their screen ("LIVE" in the channel list). */
+  screenShare?: boolean;
 };
 
 // Local mirror of every voice room's membership. Kept in sync across instances
@@ -146,7 +153,7 @@ function sendToUser(roomId: string, targetUserId: string, payload: object) {
 }
 
 // Propagate a membership change to other instances' room mirrors.
-function publishMembership(roomId: string, action: 'join' | 'leave', data: object) {
+function publishMembership(roomId: string, action: 'join' | 'leave' | 'update', data: object) {
   const pub = getPublisher();
   if (pub) {
     pub.publish(VOICE_MEMBERS_BUS, JSON.stringify({ originId: INSTANCE_ID, roomId, action, ...data })).catch(() => {});
@@ -261,6 +268,89 @@ export function removeFromGroupCall(channelId: string, userId: string) {
   evictFromRoom(roomId, userId);
 }
 
+// ── Voice moderation ────────────────────────────────────────────────────────
+
+type ModeratedFields = { serverMute?: boolean; serverDeaf?: boolean };
+type ParticipantFields = ModeratedFields & { audio?: boolean; deafened?: boolean; video?: boolean; screenShare?: boolean };
+
+/** The state fields another instance may merge into its room mirror. */
+function pickParticipantFields(raw: unknown): ParticipantFields {
+  const v = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const out: ParticipantFields = {};
+  for (const key of ['serverMute', 'serverDeaf', 'audio', 'deafened', 'video', 'screenShare'] as const) {
+    if (typeof v[key] === 'boolean') out[key] = v[key] as boolean;
+  }
+  return out;
+}
+
+// A session a moderator disconnected may not silently "resume" (its client
+// re-joins with the same session after a network blip). Redis so every
+// instance agrees; the local map covers Redis being down.
+const KICK_MARK_TTL_S = 60;
+const localKickMarks = processShared('voice:kickMarks', () => new BoundedMap<string, number>(2000));
+
+async function markSessionKicked(sessionId: string | undefined) {
+  if (!sessionId) return;
+  localKickMarks.set(sessionId, Date.now() + KICK_MARK_TTL_S * 1000);
+  await cache.set(`voice:kicked:${sessionId}`, 1, KICK_MARK_TTL_S).catch(() => {});
+}
+
+async function isSessionKicked(sessionId: string | undefined): Promise<boolean> {
+  if (!sessionId) return false;
+  const local = localKickMarks.get(sessionId);
+  if (local && local > Date.now()) return true;
+  const remote = await cache.get<number>(`voice:kicked:${sessionId}`).catch(() => null);
+  return !!remote;
+}
+
+// Moved by a moderator: the join into the destination may exceed its user
+// limit (Discord lets MOVE_MEMBERS put people into full channels).
+const MOVE_GRANT_TTL_S = 30;
+const moveGrantKey = (userId: string, roomId: string) => `voice:movegrant:${userId.toLowerCase()}|${roomId}`;
+
+/** The channel rooms (on this instance's mirror) a user is in, for one server. */
+async function findServerVoiceRoom(serverId: string, userId: string): Promise<{ roomId: string; channel: { id: string; serverId: string; name?: string | null; permissionOverwrites?: unknown; type?: string | null } } | null> {
+  for (const roomId of roomsContainingUser(roomState.entries(), userId)) {
+    const channelId = channelIdOfRoom(roomId);
+    if (!channelId) continue;
+    const channel = await Channel.findById(channelId).catch(() => null);
+    if (channel?.serverId && channel.serverId.toLowerCase() === serverId.toLowerCase()) {
+      return { roomId, channel: channel as typeof channel & { serverId: string } };
+    }
+  }
+  return null;
+}
+
+/**
+ * Apply a Server Mute / Server Deafen change to a member who may be in one of
+ * the server's voice channels right now: everyone in the room (and the member)
+ * sees it at once. Persisting it on the membership is the caller's job.
+ */
+export async function applyServerVoiceState(
+  serverId: string,
+  userId: string,
+  fields: { mute?: boolean; deaf?: boolean },
+): Promise<void> {
+  const found = await findServerVoiceRoom(serverId, userId);
+  if (!found) return;
+  const participant = roomState.get(found.roomId)?.get(userId);
+  if (!participant) return;
+  const update: ModeratedFields = {};
+  if (fields.mute !== undefined) update.serverMute = fields.mute;
+  if (fields.deaf !== undefined) update.serverDeaf = fields.deaf;
+  Object.assign(participant, update);
+  publishMembership(found.roomId, 'update', { userId, fields: update });
+  broadcastToRoom(found.roomId, {
+    type: 'voice:state_update',
+    userId,
+    audio: participant.audio,
+    deafened: participant.deafened,
+    video: participant.video,
+    serverMute: participant.serverMute === true,
+    serverDeaf: participant.serverDeaf === true,
+  });
+}
+
 // Subscribe this process to the voice buses. Call once at startup with a
 // dedicated ioredis connection.
 export async function startVoiceBridge(): Promise<() => void> {
@@ -292,6 +382,11 @@ export async function startVoiceBridge(): Promise<() => void> {
         } else if (msg.action === 'leave' && msg.userId) {
           room.delete(msg.userId as string);
           if (room.size === 0) roomState.delete(msg.roomId);
+        } else if (msg.action === 'update' && msg.userId && msg.fields) {
+          // Mute/deafen/camera/share or a moderator change: merge, never add.
+          const existing = room.get(msg.userId as string);
+          if (existing) Object.assign(existing, pickParticipantFields(msg.fields));
+          else if (room.size === 0) roomState.delete(msg.roomId);
         }
       }
     } catch (err) {
@@ -307,7 +402,9 @@ export async function startVoiceBridge(): Promise<() => void> {
 // that (voice) channel; for a DM call room, one of its two users. Results are
 // cached briefly per user+room because the sidebar polls /states every few
 // seconds; /join always re-checks.
-type RoomAuth = { ok: true; userLimit: number } | { ok: false; status: number; error: string };
+type RoomAuth =
+  | { ok: true; userLimit: number; serverMute?: boolean; serverDeaf?: boolean }
+  | { ok: false; status: number; error: string };
 const ROOM_AUTH_TTL_MS = 15_000;
 const roomAuthCache = new BoundedMap<string, { result: RoomAuth; expires: number }>(5000);
 
@@ -351,7 +448,15 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
     if (access.channel.type !== 'voice') {
       return { ok: false, status: 400, error: 'Not a voice channel' };
     }
-    return { ok: true, userLimit: Number(access.channel.userLimit) || 0 };
+    // Server mute/deafen persist on the membership (like Discord's guild
+    // member mute/deaf) and apply on every join.
+    const member = access.membership as { mute?: boolean | null; deaf?: boolean | null } | null | undefined;
+    return {
+      ok: true,
+      userLimit: Number(access.channel.userLimit) || 0,
+      serverMute: member?.mute === true,
+      serverDeaf: member?.deaf === true,
+    };
   } catch {
     return { ok: false, status: 500, error: 'Could not verify voice channel access' };
   }
@@ -456,10 +561,20 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       set.status = auth.status;
       return { error: auth.error };
     }
+    // A moderator disconnected this session: it can't resume itself back in.
+    if (await isSessionKicked(body.sessionId)) {
+      set.status = 403;
+      return { error: 'You were disconnected from this voice channel' };
+    }
     const existing = roomState.get(body.roomId);
     if (!hasRoomForParticipant(auth.userLimit, existing?.size ?? 0, existing?.has(user.id) ?? false)) {
-      set.status = 403;
-      return { error: 'This voice channel is full' };
+      // Moved here by a moderator: allowed past the user limit, once.
+      const grant = await cache.get<number>(moveGrantKey(user.id, body.roomId)).catch(() => null);
+      if (!grant) {
+        set.status = 403;
+        return { error: 'This voice channel is full' };
+      }
+      void cache.del(moveGrantKey(user.id, body.roomId)).catch(() => {});
     }
     // DM call rooms ("dm:<a>_<b>") are only joinable by those two users.
     let callee: string | null = null;
@@ -510,6 +625,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       deafened: resumed && prev ? prev.deafened : false,
       joinedAt: resumed && prev ? prev.joinedAt : new Date().toISOString(),
       sessionId,
+      ...(auth.serverMute ? { serverMute: true } : {}),
+      ...(auth.serverDeaf ? { serverDeaf: true } : {}),
     });
 
     // Sync membership to other instances' mirrors, then notify participants.
@@ -950,6 +1067,17 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     if (body.audio !== undefined) participant.audio = body.audio;
     if (body.deafened !== undefined) participant.deafened = body.deafened;
     if (body.video !== undefined) participant.video = body.video;
+    if (body.screenShare !== undefined) participant.screenShare = body.screenShare;
+    // Keep other instances' mirrors (and so the channel list) in step.
+    publishMembership(params.roomId, 'update', {
+      userId: user.id,
+      fields: {
+        audio: participant.audio,
+        deafened: participant.deafened,
+        video: participant.video,
+        ...(body.screenShare !== undefined ? { screenShare: body.screenShare } : {}),
+      },
+    });
 
     broadcastToRoom(params.roomId, {
       type: 'voice:state_update',
@@ -968,6 +1096,119 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       deafened: t.Optional(t.Boolean()),
       video: t.Optional(t.Boolean()),
       screenShare: t.Optional(t.Boolean()),
+    }),
+  })
+  // Moderate a member's voice (Discord's PATCH guild member mute/deaf/channel_id):
+  // Server Mute, Server Deafen (persist on the membership and apply live),
+  // Move To another voice channel, or Disconnect (channelId: null).
+  .patch('/servers/:serverId/members/:userId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.userId)) {
+      set.status = 404; return { error: 'Member not found' };
+    }
+    if (body.channelId && !isValidObjectId(body.channelId)) {
+      set.status = 400; return { error: 'Invalid channel' };
+    }
+    const limited = await checkRateLimit('voiceModeration', user.id);
+    if (!limited.success) {
+      set.status = 429;
+      return { error: 'You are doing that too fast', retryAfter: limited.retryAfter };
+    }
+
+    const [server, member, actorMember] = await Promise.all([
+      Server.findById(params.serverId),
+      ServerMember.findOne({ serverId: params.serverId, userId: params.userId }),
+      ServerMember.findOne({ serverId: params.serverId, userId: user.id }),
+    ]);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    if (!member) { set.status = 404; return { error: 'Member not found' }; }
+    const isOwner = server.ownerId.toLowerCase() === user.id.toLowerCase();
+    if (!actorMember && !isOwner) { set.status = 403; return { error: 'You are not a member of this server' }; }
+
+    // Permissions apply where the member is: their voice channel (overwrites
+    // included), or server-wide when they aren't in voice.
+    const targetId = member.userId;
+    const current = await findServerVoiceRoom(server.id, targetId);
+    const actorPerms = await getMemberChannelPermissions(
+      user.id,
+      current ? current.channel : { serverId: server.id, permissionOverwrites: [] },
+      actorMember ?? null,
+    );
+
+    let destination: { id: string; serverId: string; name?: string | null } | null = null;
+    let destinationPerms: bigint | null = null;
+    let targetCanJoin = true;
+    if (body.channelId) {
+      const dest = await Channel.findById(body.channelId);
+      if (dest && dest.type === 'voice' && dest.serverId?.toLowerCase() === server.id.toLowerCase()) {
+        destination = dest as typeof dest & { serverId: string };
+        const [perms, targetAccess] = await Promise.all([
+          getMemberChannelPermissions(user.id, destination, actorMember ?? null),
+          checkChannelAccess(targetId, dest.id),
+        ]);
+        destinationPerms = perms;
+        targetCanJoin = targetAccess.hasAccess;
+      }
+    }
+
+    const decision = checkVoiceModeration({
+      patch: { mute: body.mute, deaf: body.deaf, channelId: body.channelId },
+      actorPerms,
+      targetInVoice: !!current,
+      destinationPerms,
+      destinationValid: !!destination,
+      targetCanJoinDestination: targetCanJoin,
+    });
+    if (!decision.ok) { set.status = decision.status; return { error: decision.error }; }
+
+    if (body.mute !== undefined || body.deaf !== undefined) {
+      const updates: { mute?: boolean; deaf?: boolean } = {};
+      if (body.mute !== undefined) updates.mute = body.mute;
+      if (body.deaf !== undefined) updates.deaf = body.deaf;
+      await ServerMember.updateById(member.id, updates);
+      await applyServerVoiceState(server.id, targetId, updates);
+    }
+
+    if (body.channelId !== undefined && current) {
+      const participant = roomState.get(current.roomId)?.get(targetId);
+      if (body.channelId === null) {
+        // Disconnect: tell their client first (so it leaves instead of
+        // re-joining), then take them out for everyone else.
+        await markSessionKicked(participant?.sessionId);
+        sendToUser(current.roomId, targetId, { type: 'voice:force_disconnect', by: user.id });
+        evictFromRoom(current.roomId, targetId);
+      } else if (destination && destination.id.toLowerCase() !== current.channel.id.toLowerCase()) {
+        const roomId = `channel-${destination.id}`;
+        await cache.set(moveGrantKey(targetId, roomId), 1, MOVE_GRANT_TTL_S).catch(() => {});
+        roomAuthCache.delete(`${targetId}|${roomId}`);
+        sendToUser(current.roomId, targetId, {
+          type: 'voice:move',
+          roomId,
+          channelId: destination.id,
+          serverId: server.id,
+          channelName: destination.name ?? '',
+          by: user.id,
+        });
+      }
+    }
+
+    const room = current ? roomState.get(current.roomId) : null;
+    return {
+      success: true,
+      member: {
+        userId: targetId,
+        mute: body.mute ?? member.mute === true,
+        deaf: body.deaf ?? member.deaf === true,
+      },
+      participant: room?.get(targetId) ?? null,
+    };
+  }, {
+    params: t.Object({ serverId: t.String(), userId: t.String() }),
+    body: t.Object({
+      mute: t.Optional(t.Boolean()),
+      deaf: t.Optional(t.Boolean()),
+      channelId: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
     }),
   })
   // Broadcast speaking state to other participants

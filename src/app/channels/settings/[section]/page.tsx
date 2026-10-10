@@ -18,6 +18,9 @@ import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
 import { toServerStatus } from "@/lib/presenceChoice";
+import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDeviceSettings";
+import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
+import { voiceService } from "@/lib/services/voiceService";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -310,6 +313,18 @@ export default function MobileSettingsSectionPage() {
     fetchAll();
   }, [section]);
 
+  // The sensitivity slider applies live and saves once you stop dragging.
+  const sensitivityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const changeSensitivity = (db: number) => {
+    voiceService.setInputSensitivity({ thresholdDb: db });
+    setSettings((prev) => (prev ? { ...prev, voiceVideo: { ...(prev.voiceVideo || {}), inputSensitivity: db } } : prev));
+    if (sensitivityTimer.current) clearTimeout(sensitivityTimer.current);
+    sensitivityTimer.current = setTimeout(() => {
+      sensitivityTimer.current = null;
+      void saveSettings({ voiceVideo: { inputSensitivity: db } });
+    }, 500);
+  };
+
   const saveSettings = async (patch: SettingsObject) => {
     setIsSaving(true);
     try {
@@ -496,6 +511,23 @@ export default function MobileSettingsSectionPage() {
             <ToggleRow label={gt("Noise suppression")} checked={Boolean(settings.voiceVideo?.noiseSuppression)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), noiseSuppression: checked } })} />
             <ToggleRow label={gt("Echo cancellation")} checked={Boolean(settings.voiceVideo?.echoCancellation)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), echoCancellation: checked } })} />
             <ToggleRow label={gt("Push to talk")} checked={Boolean(settings.voiceVideo?.pushToTalk)} onChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), pushToTalk: checked } })} />
+            <div className="space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+              <DeviceSelect role="input" label={gt("Input Device")} />
+              <DeviceSelect role="output" label={gt("Output Device")} />
+              <DeviceSelect role="video" label={gt("Camera")} />
+            </div>
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+              <InputSensitivity
+                auto={settings.voiceVideo?.autoSensitivity !== false}
+                thresholdDb={typeof settings.voiceVideo?.inputSensitivity === "number" ? settings.voiceVideo.inputSensitivity : DEFAULT_SENSITIVITY_DB}
+                pushToTalk={Boolean(settings.voiceVideo?.pushToTalk)}
+                echoCancellation={settings.voiceVideo?.echoCancellation !== false}
+                noiseSuppression={settings.voiceVideo?.noiseSuppression !== false}
+                autoGainControl={settings.voiceVideo?.autoGainControl !== false}
+                onAutoChange={(checked) => saveSettings({ voiceVideo: { ...(settings.voiceVideo || {}), autoSensitivity: checked } })}
+                onThresholdChange={changeSensitivity}
+              />
+            </div>
           </div>
         )}
 

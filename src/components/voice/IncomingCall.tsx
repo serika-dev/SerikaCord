@@ -38,6 +38,7 @@ export function voiceErrorText(gt: Gt, code: VoiceErrorCode | undefined, fallbac
     case "join-failed": return gt("Could not connect to voice. Please try again.");
     case "disconnected": return gt("Disconnected from voice.");
     case "moved": return gt("You joined this call on another device.");
+    case "kicked": return gt("A moderator disconnected you from the voice channel.");
     case "screen-unsupported": return gt("Screen sharing isn't supported on this device or browser.");
     case "screen-failed": return gt("Could not start screen share.");
     default: return fallback;

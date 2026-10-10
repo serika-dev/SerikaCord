@@ -1234,6 +1234,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     updates.communicationDisabledUntil = patch.communication_disabled_until ? new Date(patch.communication_disabled_until as string) : undefined;
   }
   const updated = await ServerMember.updateById(member.id, updates);
+  // Server mute/deafen take effect in voice right away (lazy: voice.ts pulls
+  // in the realtime buses).
+  if (updates.mute !== undefined || updates.deaf !== undefined) {
+    void import('./voice')
+      .then((m) => m.applyServerVoiceState(params.guildId, member.userId, {
+        mute: updates.mute as boolean | undefined,
+        deaf: updates.deaf as boolean | undefined,
+      }))
+      .catch(() => {});
+  }
 
   const user = await User.findById(params.userId);
   return formatMember(updated || member, user);

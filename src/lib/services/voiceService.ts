@@ -2,6 +2,24 @@ import type SimplePeer from "simple-peer";
 import { isPttKeyEvent, normalizePttKey, readVoiceCallSettings, shouldTransmit, DEFAULT_PTT_KEY } from "@/lib/voice/settings";
 import { isPolitePeer, peerRetryDelayMs, signalRetryDelayMs } from "@/lib/voice/callState";
 import { isListenOnlyError, mediaAttempts, mediaOutcome, micIssue, type MicIssue } from "@/lib/voice/media";
+import {
+  DEFAULT_SENSITIVITY_DB,
+  amplitudeToDb,
+  clampSensitivityDb,
+  createVoiceGateState,
+  rmsFromByteTimeDomain,
+  stepVoiceGate,
+  type VoiceGateState,
+} from "@/lib/voice/voiceActivity";
+import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
+import {
+  displayMediaVideoConstraints,
+  loadStreamQuality,
+  normalizeStreamQuality,
+  streamContentHint,
+  streamMaxBitrate,
+  type StreamQuality,
+} from "@/lib/voice/streamQuality";
 
 // simple-peer (+ its stream polyfills, ~95KB) is only needed once you join
 // voice, so it's loaded then instead of with every page.
@@ -28,6 +46,21 @@ export interface VoiceParticipant {
   screenStream?: MediaStream;
   /** Which device/tab this participant joined from (a new one replaces the old). */
   sessionId?: string;
+  /** Server Mute / Server Deafen set by a moderator. */
+  serverMute?: boolean;
+  serverDeaf?: boolean;
+}
+
+/** One reading of your microphone for level meters and the sensitivity slider. */
+export interface InputLevel {
+  /** Current mic level, dBFS (-100..0). */
+  levelDb: number;
+  /** The voice activity threshold in effect, dBFS. */
+  thresholdDb: number;
+  /** The voice activity gate is open (your voice is above the threshold). */
+  gateOpen: boolean;
+  /** Your mic is actually being sent right now. */
+  transmitting: boolean;
 }
 
 /**
@@ -45,6 +78,7 @@ export type VoiceErrorCode =
   | "join-failed"
   | "disconnected"
   | "moved"
+  | "kicked"
   | "screen-unsupported"
   | "screen-failed"
   | "soundboard";
@@ -71,7 +105,13 @@ export type VoiceEvent =
   | { type: "listen_only"; enabled: boolean; reason?: MicIssue }
   | { type: "meta_changed" }
   /** Push-to-talk mode or key changed (the desktop app re-registers its global key). */
-  | { type: "push_to_talk_changed" };
+  | { type: "push_to_talk_changed" }
+  /** A moderator server-muted/deafened you (or lifted it). */
+  | { type: "server_voice_state"; mute: boolean; deaf: boolean }
+  /** A moderator moved you to another voice channel. */
+  | { type: "moved_by_moderator"; channelName: string }
+  /** Screen share resolution / frame rate changed. */
+  | { type: "stream_quality_changed"; quality: StreamQuality };
 
 type VoiceListener = (event: VoiceEvent) => void;
 
@@ -106,6 +146,7 @@ const ERROR_FALLBACK: Record<VoiceErrorCode, string> = {
   "join-failed": "Could not connect to voice. Please try again.",
   disconnected: "Disconnected from voice.",
   moved: "You joined this call on another device.",
+  kicked: "A moderator disconnected you from the voice channel.",
   "screen-unsupported": "Screen sharing isn't supported on this device or browser.",
   "screen-failed": "Could not start screen share.",
   soundboard: "Failed to play sound.",
@@ -193,6 +234,95 @@ class VoiceService {
     }
   }
 
+  /** getUserMedia audio constraints: processing flags + the chosen microphone. */
+  private micConstraints(): MediaTrackConstraints {
+    return { ...this.audioConstraints, ...deviceConstraint(getPreferredDevice("input")) };
+  }
+
+  /** getUserMedia video constraints for the camera (720p, chosen device). */
+  private cameraConstraints(): MediaTrackConstraints {
+    return { width: 1280, height: 720, ...deviceConstraint(getPreferredDevice("video")) };
+  }
+
+  /** Swap a sent track for every peer (simple-peer keeps its sender map in step). */
+  private replaceSentTrack(old: MediaStreamTrack, next: MediaStreamTrack, stream: MediaStream) {
+    this.peers.forEach((peer) => {
+      try {
+        (peer as unknown as { replaceTrack: (o: MediaStreamTrack, n: MediaStreamTrack, s: MediaStream) => void })
+          .replaceTrack(old, next, stream);
+      } catch { /* not sent to this peer */ }
+    });
+  }
+
+  /**
+   * The chosen microphone changed: mid-call, switch to it without rejoining
+   * (input gain and noise suppression are rebuilt around the new device).
+   */
+  async switchInputDevice(): Promise<boolean> {
+    if (!this.localStream || !this.roomId || this.micMissing) return false;
+    const roomId = this.roomId;
+    let raw: MediaStreamTrack | undefined;
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({ audio: this.micConstraints(), video: false });
+      raw = fresh.getAudioTracks()[0];
+    } catch {
+      return false;
+    }
+    if (!raw) return false;
+    if (this.roomId !== roomId || !this.localStream) {
+      raw.stop();
+      return false;
+    }
+    const stream = this.localStream;
+    const old = stream.getAudioTracks()[0];
+    const hadNoiseSuppression = this.noiseSuppressionOn;
+    if (hadNoiseSuppression) this.cleanupNoiseSuppression();
+    this.teardownInputGain();
+    const sent = this.wrapWithInputGain(raw);
+    if (old) {
+      this.replaceSentTrack(old, sent, stream);
+      stream.removeTrack(old);
+      old.stop();
+    }
+    stream.addTrack(sent);
+    if (!old) {
+      this.peers.forEach((peer) => {
+        try { peer.addTrack(sent, stream); } catch { /* peer closing */ }
+      });
+    }
+    this.applyMicState();
+    if (hadNoiseSuppression) this.enableNoiseSuppression();
+    return true;
+  }
+
+  /** The chosen camera changed: switch the live camera (if on) to it. */
+  async switchVideoDevice(): Promise<boolean> {
+    if (!this.localStream || !this.isVideoOn) return false;
+    const stream = this.localStream;
+    let next: MediaStreamTrack | undefined;
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({ video: this.cameraConstraints(), audio: false });
+      next = fresh.getVideoTracks()[0];
+    } catch {
+      this.emitError("camera-denied");
+      return false;
+    }
+    if (!next) return false;
+    if (this.localStream !== stream || !this.isVideoOn) {
+      next.stop();
+      return false;
+    }
+    const old = stream.getVideoTracks()[0];
+    if (old) {
+      this.replaceSentTrack(old, next, stream);
+      stream.removeTrack(old);
+      old.stop();
+    }
+    stream.addTrack(next);
+    this.emit({ type: "video_toggled", enabled: true });
+    return true;
+  }
+
   /**
    * Apply the user's saved Voice & Video settings (mic processing,
    * push-to-talk, input/output volume). Safe to call with a partial object.
@@ -205,6 +335,185 @@ class VoiceService {
     }
     if (s.inputVolume !== undefined) this.setInputVolume(s.inputVolume);
     if (s.outputVolume !== undefined) this.setOutputVolume(s.outputVolume);
+    if (s.autoSensitivity !== undefined || s.inputSensitivity !== undefined) {
+      this.setInputSensitivity({ auto: s.autoSensitivity, thresholdDb: s.inputSensitivity });
+    }
+  }
+
+  // -- Input sensitivity (voice activity gate) --------------------------------
+  // Outside push-to-talk, the mic only transmits while it hears more than the
+  // threshold (Discord's "Input Sensitivity"). The meter runs on a clone of
+  // the outgoing mic track, so it keeps hearing you while the gate is closed.
+  private autoSensitivity = true;
+  private sensitivityDb = DEFAULT_SENSITIVITY_DB;
+  private gateState: VoiceGateState = createVoiceGateState();
+  private voiceGateOpen = true;
+  private meterCtx: AudioContext | null = null;
+  private meterAnalyser: AnalyserNode | null = null;
+  private meterTrack: MediaStreamTrack | null = null;
+  private meterSourceId: string | null = null;
+  private meterInterval: ReturnType<typeof setInterval> | null = null;
+  private meterBuffer: Uint8Array<ArrayBuffer> | null = null;
+  private levelListeners = new Set<(level: InputLevel) => void>();
+
+  setInputSensitivity(opts: { auto?: boolean; thresholdDb?: number }) {
+    if (typeof opts.auto === "boolean") this.autoSensitivity = opts.auto;
+    if (opts.thresholdDb !== undefined) this.sensitivityDb = clampSensitivityDb(opts.thresholdDb);
+  }
+
+  get inputSensitivity() {
+    return { auto: this.autoSensitivity, thresholdDb: this.sensitivityDb };
+  }
+
+  /** Live mic level while in a call (about 20 times a second). */
+  onInputLevel(fn: (level: InputLevel) => void): () => void {
+    this.levelListeners.add(fn);
+    return () => { this.levelListeners.delete(fn); };
+  }
+
+  private transmitState() {
+    return {
+      muted: this.isMuted,
+      serverMuted: this.serverMuted,
+      pttEnabled: this.pttEnabled,
+      pttHeld: this.pttHeld || this.externalPttHeld,
+    };
+  }
+
+  /** Point the meter at the track currently being sent (rebuilt when it changes). */
+  private ensureMeter(): boolean {
+    const sent = this.localStream?.getAudioTracks()[0] ?? null;
+    if (!sent) {
+      this.teardownMeter();
+      return false;
+    }
+    if (this.meterAnalyser && this.meterSourceId === sent.id) return true;
+    this.teardownMeter();
+    try {
+      const probe = sent.clone();
+      probe.enabled = true;
+      const ctx = new AudioContext();
+      const source = ctx.createMediaStreamSource(new MediaStream([probe]));
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0.2;
+      source.connect(analyser);
+      void ctx.resume().catch(() => {});
+      this.meterCtx = ctx;
+      this.meterAnalyser = analyser;
+      this.meterTrack = probe;
+      this.meterSourceId = sent.id;
+      this.meterBuffer = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+      return true;
+    } catch {
+      this.teardownMeter();
+      return false;
+    }
+  }
+
+  private teardownMeter() {
+    if (this.meterCtx) void this.meterCtx.close().catch(() => {});
+    this.meterTrack?.stop();
+    this.meterCtx = null;
+    this.meterAnalyser = null;
+    this.meterTrack = null;
+    this.meterSourceId = null;
+    this.meterBuffer = null;
+  }
+
+  private meterTick() {
+    if (!this.ensureMeter() || !this.meterAnalyser || !this.meterBuffer) {
+      if (!this.voiceGateOpen) {
+        this.voiceGateOpen = true;
+        this.applyMicState();
+      }
+      this.setLocalSpeaking(false);
+      return;
+    }
+    if (this.meterCtx && this.meterCtx.state !== "running") {
+      // Audio blocked until a click (autoplay policy): the meter hears
+      // silence, so fail open rather than keep the mic gated shut.
+      void this.meterCtx.resume().catch(() => {});
+      if (!this.voiceGateOpen) {
+        this.voiceGateOpen = true;
+        this.applyMicState();
+      }
+      return;
+    }
+    this.meterAnalyser.getByteTimeDomainData(this.meterBuffer);
+    const levelDb = amplitudeToDb(rmsFromByteTimeDomain(this.meterBuffer));
+    this.gateState = stepVoiceGate(this.gateState, {
+      levelDb,
+      now: Date.now(),
+      auto: this.autoSensitivity,
+      manualThresholdDb: this.sensitivityDb,
+    });
+    const gateOpen = this.gateState.open;
+    if (gateOpen !== this.voiceGateOpen) {
+      this.voiceGateOpen = gateOpen;
+      this.applyMicState();
+    }
+    const transmitting = shouldTransmit({ ...this.transmitState(), voiceGateOpen: gateOpen });
+    // Speaking ring = actually sending and above the threshold (in push-to-
+    // talk too, so holding the key in silence doesn't light it up).
+    this.setLocalSpeaking(transmitting && gateOpen);
+    if (this.levelListeners.size) {
+      const level: InputLevel = { levelDb, thresholdDb: this.gateState.thresholdDb, gateOpen, transmitting };
+      this.levelListeners.forEach((fn) => fn(level));
+    }
+  }
+
+  private setLocalSpeaking(speaking: boolean) {
+    const was = this.speakingState.get("local") || false;
+    if (speaking === was) return;
+    this.speakingState.set("local", speaking);
+    const me = this.getMyUserId();
+    if (me) this.speakingState.set(me, speaking);
+    this.emit({ type: "speaking", userId: me, speaking });
+    if (this.roomId) {
+      fetch(`/api/voice/speaking/${this.roomId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speaking }),
+      }).catch(() => {});
+    }
+  }
+
+  private startInputMeter() {
+    this.stopInputMeter();
+    this.gateState = createVoiceGateState();
+    this.voiceGateOpen = true;
+    this.meterInterval = setInterval(() => this.meterTick(), 50);
+  }
+
+  private stopInputMeter() {
+    if (this.meterInterval) clearInterval(this.meterInterval);
+    this.meterInterval = null;
+    this.teardownMeter();
+    this.voiceGateOpen = true;
+  }
+
+  // -- Server mute / deafen (set by a moderator) -------------------------------
+  private serverMuted = false;
+  private serverDeafened = false;
+
+  private applyServerVoiceFlags(mute: boolean, deaf: boolean) {
+    if (mute === this.serverMuted && deaf === this.serverDeafened) return;
+    this.serverMuted = mute;
+    this.serverDeafened = deaf;
+    this.applyMicState();
+    this.applyRemoteAudioEnabled();
+    this.emit({ type: "server_voice_state", mute, deaf });
+  }
+
+  /** Remote voices are silenced while you're deafened, by yourself or a moderator. */
+  private get hearingOff() { return this.isDeafened || this.serverDeafened; }
+
+  private applyRemoteAudioEnabled() {
+    const on = !this.hearingOff;
+    this.remoteStreams.forEach((stream) => {
+      stream.getAudioTracks().forEach((t) => { t.enabled = on; });
+    });
   }
 
   // -- Push to talk ----------------------------------------------------------
@@ -303,11 +612,7 @@ class VoiceService {
   /** Enable/disable the outgoing mic track(s) from mute + push-to-talk state. */
   private applyMicState() {
     if (!this.localStream) return;
-    const on = shouldTransmit({
-      muted: this.isMuted,
-      pttEnabled: this.pttEnabled,
-      pttHeld: this.pttHeld || this.externalPttHeld,
-    });
+    const on = shouldTransmit({ ...this.transmitState(), voiceGateOpen: this.voiceGateOpen });
     this.localStream.getAudioTracks().forEach((t) => {
       t.enabled = on;
     });
@@ -502,6 +807,8 @@ class VoiceService {
     this.reconnectAttempt = 0;
     this.isMuted = false;
     this.isDeafened = false;
+    this.serverMuted = false;
+    this.serverDeafened = false;
     this.isScreenSharing = false;
 
     // Get mic (and optionally camera). No usable mic (none plugged in,
@@ -517,8 +824,8 @@ class VoiceService {
     for (const request of mediaAttempts(withVideo)) {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: request.audio ? this.audioConstraints : false,
-          video: request.video ? { width: 1280, height: 720 } : false,
+          audio: request.audio ? this.micConstraints() : false,
+          video: request.video ? this.cameraConstraints() : false,
         });
         break;
       } catch (err) {
@@ -720,6 +1027,23 @@ class VoiceService {
     this.emitParticipants();
   }
 
+  /**
+   * Moved by a moderator: join the new channel, keeping self mute/deafen
+   * (Discord keeps them across a move).
+   */
+  private async followModeratorMove(roomId: string, info: { channelName: string; serverId: string; channelId: string }) {
+    const wasMuted = this.isMuted && !this.micMissing;
+    const wasDeafened = this.isDeafened;
+    await this.joinChannel(roomId, false, {
+      label: info.channelName || undefined,
+      href: info.serverId && info.channelId ? `/channels/${info.serverId}/${info.channelId}` : undefined,
+    });
+    if (this.roomId !== roomId) return;
+    if (wasDeafened && !this.isDeafened) this.toggleDeafen();
+    else if (wasMuted && !this.isMuted) this.toggleMute();
+    this.emit({ type: "moved_by_moderator", channelName: info.channelName });
+  }
+
   /** Torn down locally only — another device took over, or the server let us go. */
   private async dropLocally(code: VoiceErrorCode) {
     this.emitError(code);
@@ -740,6 +1064,7 @@ class VoiceService {
           break;
         }
         this.participants = new Map(parts.map((p) => [p.userId, p]));
+        if (mine) this.applyServerVoiceFlags(mine.serverMute === true, mine.serverDeaf === true);
         // Connections to people who are gone are stale.
         for (const userId of Array.from(this.peers.keys())) {
           if (!this.participants.has(userId)) this.destroyPeer(userId);
@@ -775,6 +1100,22 @@ class VoiceService {
       }
       case "voice:replaced": {
         if (msg.sessionId && this.sessionId && msg.sessionId !== this.sessionId) void this.dropLocally("moved");
+        break;
+      }
+      case "voice:force_disconnect": {
+        // A moderator disconnected us: leave (the server already let us go).
+        void this.dropLocally("kicked");
+        break;
+      }
+      case "voice:move": {
+        // A moderator moved us to another voice channel of the same server.
+        const roomId = typeof msg.roomId === "string" ? msg.roomId : "";
+        if (!roomId.startsWith("channel-") || roomId === this.roomId) break;
+        void this.followModeratorMove(roomId, {
+          channelName: typeof msg.channelName === "string" ? msg.channelName : "",
+          serverId: typeof msg.serverId === "string" ? msg.serverId : "",
+          channelId: typeof msg.channelId === "string" ? msg.channelId : "",
+        });
         break;
       }
       case "voice:call_declined": {
@@ -819,10 +1160,18 @@ class VoiceService {
       }
       case "voice:state_update": {
         const userId = msg.userId as string;
+        if (userId === this.getMyUserId() && (typeof msg.serverMute === "boolean" || typeof msg.serverDeaf === "boolean")) {
+          this.applyServerVoiceFlags(
+            typeof msg.serverMute === "boolean" ? msg.serverMute : this.serverMuted,
+            typeof msg.serverDeaf === "boolean" ? msg.serverDeaf : this.serverDeafened,
+          );
+        }
         const participant = this.participants.get(userId);
         if (participant) {
           if (msg.audio !== undefined) participant.audio = msg.audio as boolean;
           if (msg.deafened !== undefined) participant.deafened = msg.deafened as boolean;
+          if (typeof msg.serverMute === "boolean") participant.serverMute = msg.serverMute;
+          if (typeof msg.serverDeaf === "boolean") participant.serverDeaf = msg.serverDeaf;
           if (msg.video !== undefined) participant.video = msg.video as boolean;
           if (msg.screenShare !== undefined) {
             participant.screenShare = msg.screenShare as boolean;
@@ -971,13 +1320,16 @@ class VoiceService {
     peer.on("connect", () => {
       if (!current()) return;
       this.peerRetryAttempts.delete(targetUserId);
+      // Someone who joined (or reconnected) while we're sharing gets the
+      // screen too, not just the people who were there when it started.
+      if (this.isScreenSharing) this.sendScreenTo(peer);
     });
 
     peer.on("stream", (stream) => {
       if (!current()) return;
       // Respect an active deafen for streams that arrive after toggling
       stream.getAudioTracks().forEach((t) => {
-        t.enabled = !this.isDeafened;
+        t.enabled = !this.hearingOff;
       });
       // The first stream from a peer is their primary mic/camera. Any later
       // stream is a screen share (getDisplayMedia produces a distinct stream),
@@ -1030,7 +1382,7 @@ class VoiceService {
         if (primary && stream.id === primary.id) return;
         if (primary && primary.getTracks().includes(track)) return;
 
-        track.enabled = !this.isDeafened;
+        track.enabled = !this.hearingOff;
         if (primary) {
           primary.addTrack(track);
         } else {
@@ -1124,6 +1476,10 @@ class VoiceService {
     this.isMuted = false;
     this.micMissing = false;
     this.isDeafened = false;
+    const hadServerState = this.serverMuted || this.serverDeafened;
+    this.serverMuted = false;
+    this.serverDeafened = false;
+    if (hadServerState) this.emit({ type: "server_voice_state", mute: false, deaf: false });
 
     // Destroy all peers
     for (const userId of Array.from(this.peers.keys())) this.destroyPeer(userId);
@@ -1164,44 +1520,9 @@ class VoiceService {
 
   private startSpeakingDetection() {
     this.stopSpeakingDetection();
+    // Your own speaking state comes from the input meter (voice activity gate).
+    this.startInputMeter();
     this.speakingInterval = setInterval(() => {
-      // Check local stream
-      if (this.localStream && !this.isMuted) {
-        const audioTracks = this.localStream.getAudioTracks();
-        if (audioTracks.length > 0 && audioTracks[0].enabled) {
-          try {
-            if (!this.speakingAnalysers.has("local")) {
-              const ctx = new AudioContext();
-              const source = ctx.createMediaStreamSource(this.localStream);
-              const analyser = ctx.createAnalyser();
-              analyser.fftSize = 256;
-              source.connect(analyser);
-              this.speakingAnalysers.set("local", { analyser, ctx });
-            }
-            const entry = this.speakingAnalysers.get("local")!;
-            const data = new Uint8Array(entry.analyser.frequencyBinCount);
-            entry.analyser.getByteFrequencyData(data);
-            const avg = data.reduce((a, b) => a + b, 0) / data.length;
-            const isSpeaking = avg > 20;
-            const wasSpeaking = this.speakingState.get("local") || false;
-            if (isSpeaking !== wasSpeaking) {
-              this.speakingState.set("local", isSpeaking);
-              this.emit({ type: "speaking", userId: this.getMyUserId(), speaking: isSpeaking });
-              // Broadcast to other peers via server
-              if (this.roomId) {
-                fetch(`/api/voice/speaking/${this.roomId}`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ speaking: isSpeaking }),
-                }).catch(() => {});
-              }
-            }
-          } catch {
-            // AudioContext may fail in some browsers
-          }
-        }
-      }
-
       // Check remote streams using persistent analysers
       this.remoteStreams.forEach((stream, userId) => {
         const audioTracks = stream.getAudioTracks();
@@ -1244,6 +1565,7 @@ class VoiceService {
   }
 
   private stopSpeakingDetection() {
+    this.stopInputMeter();
     if (this.speakingInterval) {
       clearInterval(this.speakingInterval);
       this.speakingInterval = null;
@@ -1287,7 +1609,7 @@ class VoiceService {
     const attempt = (async () => {
       let track: MediaStreamTrack | undefined;
       try {
-        const micStream = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints, video: false });
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: this.micConstraints(), video: false });
         track = micStream.getAudioTracks()[0];
         if (!track) throw Object.assign(new Error("no audio track"), { name: "NotFoundError" });
       } catch (err) {
@@ -1327,12 +1649,8 @@ class VoiceService {
 
   toggleDeafen(): boolean {
     this.isDeafened = !this.isDeafened;
-    // Mute remote streams when deafened
-    this.remoteStreams.forEach((stream) => {
-      stream.getAudioTracks().forEach((t) => {
-        t.enabled = !this.isDeafened;
-      });
-    });
+    // Mute remote streams when deafened (a server deafen keeps them off)
+    this.applyRemoteAudioEnabled();
     // If deafening, also mute
     if (this.isDeafened && !this.isMuted) {
       this.isMuted = true;
@@ -1461,7 +1779,7 @@ class VoiceService {
       // We need the original track back — re-acquire it from getUserMedia
       // since we can't easily reverse the Web Audio processing
       navigator.mediaDevices.getUserMedia({
-        audio: this.audioConstraints,
+        audio: this.micConstraints(),
         video: false,
       }).then((origStream) => {
         const rawTrack = origStream.getAudioTracks()[0];
@@ -1538,7 +1856,7 @@ class VoiceService {
       // Turn on video
       try {
         const videoStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 1280, height: 720 },
+          video: this.cameraConstraints(),
           audio: false,
         });
         const videoTrack = videoStream.getVideoTracks()[0];
@@ -1568,8 +1886,66 @@ class VoiceService {
     return this.isVideoOn;
   }
 
-  async startScreenShare(): Promise<boolean> {
+  // -- Screen share quality ----------------------------------------------------
+  private streamQuality: StreamQuality = loadStreamQuality();
+
+  get screenShareQuality(): StreamQuality { return this.streamQuality; }
+
+  /** Cap one peer's screen share sender to the chosen bitrate / frame rate. */
+  private tuneScreenSender(peer: SimplePeer.Instance, track: MediaStreamTrack) {
+    const pc = (peer as unknown as { _pc?: RTCPeerConnection })._pc;
+    const sender = pc?.getSenders?.().find((x) => x.track === track);
+    if (!sender || typeof sender.getParameters !== "function") return;
+    const apply = () => {
+      try {
+        const params = sender.getParameters();
+        if (!params.encodings || params.encodings.length === 0) return;
+        params.encodings = params.encodings.map((e) => ({
+          ...e,
+          maxBitrate: streamMaxBitrate(this.streamQuality),
+          maxFramerate: this.streamQuality.frameRate,
+        }));
+        void sender.setParameters(params).catch(() => { /* renegotiating; retried below */ });
+      } catch {
+        // unsupported in this browser
+      }
+    };
+    apply();
+    // Encodings only exist once negotiation has run: try again shortly.
+    setTimeout(apply, 2500);
+  }
+
+  /** Send our screen share to one peer (new peers join mid-share too). */
+  private sendScreenTo(peer: SimplePeer.Instance) {
+    const stream = this.screenStream;
+    const track = stream?.getVideoTracks()[0];
+    if (!stream || !track || !this.isScreenSharing) return;
+    try {
+      peer.addTrack(track, stream);
+    } catch {
+      // already sent to this peer
+    }
+    this.tuneScreenSender(peer, track);
+  }
+
+  /**
+   * Change the screen share's resolution / frame rate (Discord's stream
+   * quality). Applies to a live share right away and to the next one.
+   */
+  async setScreenShareQuality(quality: Partial<StreamQuality>): Promise<void> {
+    this.streamQuality = normalizeStreamQuality({ ...this.streamQuality, ...quality });
+    const track = this.screenStream?.getVideoTracks()[0];
+    if (track) {
+      try { track.contentHint = streamContentHint(this.streamQuality); } catch { /* unsupported */ }
+      await track.applyConstraints(displayMediaVideoConstraints(this.streamQuality)).catch(() => {});
+      this.peers.forEach((peer) => this.tuneScreenSender(peer, track));
+    }
+    this.emit({ type: "stream_quality_changed", quality: this.streamQuality });
+  }
+
+  async startScreenShare(quality?: Partial<StreamQuality>): Promise<boolean> {
     if (!this.roomId) return false;
+    if (quality) this.streamQuality = normalizeStreamQuality({ ...this.streamQuality, ...quality });
 
     // getDisplayMedia is unavailable on most mobile browsers (iOS Safari has no
     // support at all). Surface a clear message instead of a generic "denied".
@@ -1580,21 +1956,20 @@ class VoiceService {
 
     try {
       this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: "always" } as MediaTrackConstraints,
+        video: displayMediaVideoConstraints(this.streamQuality),
         audio: false,
       });
       this.isScreenSharing = true;
 
       const screenTrack = this.screenStream.getVideoTracks()[0];
       if (screenTrack) {
+        try { screenTrack.contentHint = streamContentHint(this.streamQuality); } catch { /* unsupported */ }
         screenTrack.onended = () => {
           this.stopScreenShare();
         };
 
         // Add screen track to all peers
-        this.peers.forEach((peer) => {
-          try { (peer as unknown as { addTrack: (t: MediaStreamTrack, s: MediaStream) => void }).addTrack(screenTrack, this.screenStream!); } catch { /* ignore */ }
-        });
+        this.peers.forEach((peer) => this.sendScreenTo(peer));
       }
 
       // Notify server
@@ -1649,7 +2024,7 @@ class VoiceService {
 
   // Local playback for soundboard sounds; respects deafen and clamps volume.
   private playSoundboardAudio(url: string, volumePercent: number) {
-    if (this.isDeafened) return;
+    if (this.hearingOff) return;
     try {
       const audio = new Audio(url);
       // Combine the server-configured volume with the user's personal
@@ -1695,6 +2070,10 @@ class VoiceService {
   /** Snapshot of who is currently speaking (userId -> speaking). */
   get speakingSnapshot(): Map<string, boolean> { return new Map(this.speakingState); }
   get deafened() { return this.isDeafened; }
+  /** Muted by a moderator (Server Mute). */
+  get serverMute() { return this.serverMuted; }
+  /** Deafened by a moderator (Server Deafen). */
+  get serverDeaf() { return this.serverDeafened; }
   get videoOn() { return this.isVideoOn; }
   get screenSharing() { return this.isScreenSharing; }
   get connected() { return this.joined && this.roomId !== null; }

@@ -221,6 +221,26 @@ async function memberPermissionsIn(
   return computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
 }
 
+/**
+ * A member's effective permissions in a server channel (base role permissions
+ * + the channel's overwrites; threads use their parent's). Pass a channel-less
+ * `{ serverId }` for server-wide permissions. Loads the membership unless the
+ * caller already has it; a non-member gets 0.
+ */
+export async function getMemberChannelPermissions(
+  userId: string,
+  channel: PermissionChannel & { serverId: string },
+  membership?: { roles?: string[] | null } | null,
+): Promise<bigint> {
+  const [source, serverOwnerId, member] = await Promise.all([
+    permissionSourceFor(channel),
+    getServerOwnerIdCached(channel.serverId),
+    membership !== undefined ? Promise.resolve(membership) : ServerMember.findOne({ serverId: channel.serverId, userId }),
+  ]);
+  if (!member && !(serverOwnerId && compareIds(serverOwnerId, userId))) return 0n;
+  return computeMemberChannelPermissions(source, userId, member ?? null, serverOwnerId);
+}
+
 /** Whether a user can view a channel (VIEW_CHANNEL after base perms + overwrites). */
 async function canViewChannel(
   channel: PermissionChannel,

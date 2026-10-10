@@ -12,6 +12,7 @@ import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
 import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
 import { onHotkey } from "@/lib/keybinds";
 import { useGT } from "gt-next";
+import { useVoiceUserMenu } from "@/components/voice/VoiceUserMenu";
 
 interface VoiceBarProps {
   /** Overrides the room label the call was joined with. */
@@ -46,6 +47,9 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
   const [participants, setParticipants] = useState<VoiceParticipant[]>(() => voiceService.currentParticipants);
   const [currentChannel, setCurrentChannel] = useState<string | null>(() => voiceService.currentRoomId);
   const speakingUsers = useSpeakingUsers();
+  const [serverVoice, setServerVoice] = useState(() => ({ mute: voiceService.serverMute, deaf: voiceService.serverDeaf }));
+  // Right-click someone in the bar: their volume / local mute.
+  const { openVoiceUserMenu, voiceUserMenu } = useVoiceUserMenu({});
 
   useEffect(() => {
     const unsub = voiceService.subscribe((event) => {
@@ -77,6 +81,8 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
       } else if (event.type === "deafen_toggled") {
         setIsDeafened(event.deafened);
         if (event.deafened) setIsMuted(true);
+      } else if (event.type === "server_voice_state") {
+        setServerVoice({ mute: event.mute, deaf: event.deaf });
       }
     });
     return unsub;
@@ -188,6 +194,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
                   username: gt("You"),
                   displayName: gt("You"),
                   audio: !isMuted,
+                  serverMute: serverVoice.mute,
                 }}
                 speaking={speakingUsers.has(voiceService.myId)}
                 size="md"
@@ -195,7 +202,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
               <span className="text-[10px] text-[var(--app-muted)] max-w-[56px] truncate">{gt("You")}</span>
             </div>
             {participants.filter(p => p.userId !== voiceService.myId).map((p) => (
-              <div key={p.userId} className="flex flex-col items-center gap-1">
+              <div key={p.userId} className="flex flex-col items-center gap-1" onContextMenu={(e) => openVoiceUserMenu(e, p)}>
                 <VoiceParticipantAvatar
                   participant={p}
                   speaking={speakingUsers.has(p.userId)}
@@ -212,29 +219,29 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
           <div className="flex items-center gap-2 sm:gap-1">
             <button
               onClick={handleMute}
-              title={listenOnly ? gt("No microphone — press to try again") : isMuted ? gt("Unmute") : gt("Mute")}
-              aria-label={listenOnly ? gt("No microphone — press to try again") : isMuted ? gt("Unmute") : gt("Mute")}
+              title={serverVoice.mute ? gt("Server Muted") : listenOnly ? gt("No microphone — press to try again") : isMuted ? gt("Unmute") : gt("Mute")}
+              aria-label={serverVoice.mute ? gt("Server Muted") : listenOnly ? gt("No microphone — press to try again") : isMuted ? gt("Unmute") : gt("Mute")}
               className={cn(
                 "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
-                isMuted
+                isMuted || serverVoice.mute
                   ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
                   : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
               )}
             >
-              {isMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              {isMuted || serverVoice.mute ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </button>
 
             <button
               onClick={handleDeafen}
-              title={isDeafened ? gt("Undeafen") : gt("Deafen")}
+              title={serverVoice.deaf ? gt("Server Deafened") : isDeafened ? gt("Undeafen") : gt("Deafen")}
               className={cn(
                 "flex items-center justify-center w-10 h-10 sm:w-8 sm:h-8 rounded-lg transition-all active:scale-95",
-                isDeafened
+                isDeafened || serverVoice.deaf
                   ? "bg-[#ef4444]/20 text-[#ef4444] hover:bg-[#ef4444]/30"
                   : "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
               )}
             >
-              {isDeafened ? <HeadphoneOff className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
+              {isDeafened || serverVoice.deaf ? <HeadphoneOff className="w-4 h-4" /> : <Headphones className="w-4 h-4" />}
             </button>
 
             <button
@@ -275,6 +282,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
               <PhoneOff className="w-4 h-4" />
             </button>
           </div>
+          {voiceUserMenu}
         </motion.div>
       )}
     </AnimatePresence>

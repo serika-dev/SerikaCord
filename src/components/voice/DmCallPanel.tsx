@@ -9,7 +9,12 @@ import { getCallSnapshot, getServerCallSnapshot, hangUp, subscribeCall } from "@
 import { callPanelPeople, formatCallDuration } from "@/lib/voice/callState";
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
 import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
-import { VideoGrid } from "@/components/voice/VideoGrid";
+import dynamic from "next/dynamic";
+import { useVoiceUserMenu } from "@/components/voice/VoiceUserMenu";
+import { StreamQualityPicker } from "@/components/voice/StreamQualityPicker";
+
+// Video stage (spotlight, fullscreen, pop-out): loaded with the first call.
+const CallStage = dynamic(() => import("@/components/voice/CallStage").then((m) => m.CallStage), { ssr: false });
 
 type Person = { id: string; name: string; avatar?: string | null };
 
@@ -63,6 +68,8 @@ export function DmCallPanel({
   const [videoOn, setVideoOn] = useState(() => voiceService.videoOn);
   const [sharing, setSharing] = useState(() => voiceService.screenSharing);
   const speaking = useSpeakingUsers();
+  // Right-click someone: their volume / local mute (no server moderation in DMs).
+  const { openVoiceUserMenu, voiceUserMenu } = useVoiceUserMenu({});
 
   useEffect(() => voiceService.subscribe((event) => {
     switch (event.type) {
@@ -151,7 +158,11 @@ export function DmCallPanel({
           const isMe = index === 0;
           const here = isMe ? undefined : participantOf(person.id);
           return (
-            <li key={person.id} className="flex w-16 flex-col items-center gap-1.5 sm:w-20">
+            <li
+              key={person.id}
+              className="flex w-16 flex-col items-center gap-1.5 sm:w-20"
+              onContextMenu={(e) => openVoiceUserMenu(e, { userId: person.id, username: person.name, displayName: person.name })}
+            >
               <div className={cn("relative", !isMe && !here && "opacity-60")}>
                 {!isMe && !here && ringingOut && (
                   <span className="pointer-events-none absolute inset-0 rounded-full bg-[var(--app-accent)]/40 animate-ping" />
@@ -193,7 +204,7 @@ export function DmCallPanel({
         </p>
       )}
 
-      <VideoGrid className="mt-3 rounded-lg border-t-0 bg-transparent p-0" />
+      <CallStage variant="dm" className="mt-3 max-h-[60vh]" />
 
       <div className="mt-4 flex items-center justify-center gap-3">
         <button
@@ -234,16 +245,19 @@ export function DmCallPanel({
         >
           {videoOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
         </button>
-        <button
-          type="button"
-          onClick={() => void toggleShare()}
-          title={sharing ? gt("Stop Sharing") : gt("Share Your Screen")}
-          aria-label={sharing ? gt("Stop Sharing") : gt("Share Your Screen")}
-          aria-pressed={sharing}
-          className={cn(controlBase, sharing ? off : neutral, !sharing && "hidden md:flex")}
-        >
-          {sharing ? <MonitorOff className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
-        </button>
+        <div className={cn("items-center", sharing ? "flex" : "hidden md:flex")}>
+          <button
+            type="button"
+            onClick={() => void toggleShare()}
+            title={sharing ? gt("Stop Sharing") : gt("Share Your Screen")}
+            aria-label={sharing ? gt("Stop Sharing") : gt("Share Your Screen")}
+            aria-pressed={sharing}
+            className={cn(controlBase, sharing ? off : neutral)}
+          >
+            {sharing ? <MonitorOff className="h-5 w-5" /> : <Monitor className="h-5 w-5" />}
+          </button>
+          <StreamQualityPicker sharing={sharing} onStarted={setSharing} className="h-11 w-5" />
+        </div>
         <button
           type="button"
           onClick={() => void hangUp()}
@@ -254,6 +268,7 @@ export function DmCallPanel({
           <PhoneOff className="h-5 w-5" />
         </button>
       </div>
+      {voiceUserMenu}
     </section>
   );
 }

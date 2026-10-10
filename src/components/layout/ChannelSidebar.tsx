@@ -56,6 +56,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { UserMenuItems } from "@/components/user/UserContextMenu";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
+import { VoiceChannelMembers, isVoiceMemberDrag, readVoiceMemberDrag } from "@/components/voice/VoiceChannelMembers";
+import { VOICE_STATES_REFRESH_EVENT, moderateVoiceMember } from "@/components/voice/VoiceUserMenu";
 import { ServerBadge } from "@/components/ui/badges";
 import { isMuteActive, muteUntilFor } from "@/lib/notifications/levels";
 import { updateNotificationOverride, useNotificationPrefs } from "@/lib/notifications/prefsStore";
@@ -730,6 +732,8 @@ export function ChannelSidebar({
   };
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [externalVoiceParticipants, setExternalVoiceParticipants] = useState<Map<string, VoiceParticipant[]>>(new Map());
+  const [voiceDropTarget, setVoiceDropTarget] = useState<string | null>(null);
+  const canMoveMembers = can("MOVE_MEMBERS");
   const pathname = usePathname();
   // Hide closed DMs until a newer message arrives; the open conversation always shows.
   const visibleDmChannels = useMemo(
@@ -775,11 +779,41 @@ export function ChannelSidebar({
           draggable={canManageChannels}
           onDragStart={(e) => handleDragStart(e, channel)}
           onDragEnd={handleDragEnd}
-          onDragOver={(e) => handleDragOverChannel(e, channel)}
-          onDrop={(e) => handleDropOnChannel(e, channel)}
+          onDragOver={(e) => {
+            // Someone being dragged out of a voice channel (Move Members).
+            if (isVoiceMemberDrag(e)) {
+              if (!canMoveMembers) return;
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "move";
+              if (voiceDropTarget !== channel.id) setVoiceDropTarget(channel.id);
+              return;
+            }
+            handleDragOverChannel(e, channel);
+          }}
+          onDragLeave={(e) => {
+            if (voiceDropTarget === channel.id && !e.currentTarget.contains(e.relatedTarget as Node | null)) setVoiceDropTarget(null);
+          }}
+          onDrop={(e) => {
+            if (isVoiceMemberDrag(e)) {
+              e.preventDefault();
+              e.stopPropagation();
+              setVoiceDropTarget(null);
+              const drag = readVoiceMemberDrag(e);
+              if (!drag || !currentServer || drag.fromChannelId === channel.id) return;
+              void moderateVoiceMember(currentServer.id, drag.userId, { channelId: channel.id }).then((r) => {
+                if (!r.ok) toast.error(r.error || gt("Something went wrong. Please try again."));
+              });
+              return;
+            }
+            void handleDropOnChannel(e, channel);
+          }}
         >
           {showDropBefore && <div className="absolute -top-px left-2 right-2 h-0.5 bg-[var(--app-accent)] rounded-full z-20" />}
           {showDropAfter && <div className="absolute -bottom-px left-2 right-2 h-0.5 bg-[var(--app-accent)] rounded-full z-20" />}
+          {voiceDropTarget === channel.id && (
+            <div className="pointer-events-none absolute inset-x-2 inset-y-0 rounded ring-2 ring-[var(--app-accent)] z-20" />
+          )}
           <button
             onClick={() => handleVoiceChannelClick(channel)}
             onContextMenu={(e) => handleContextMenu(e, channel)}
@@ -823,29 +857,15 @@ export function ChannelSidebar({
               />
             )}
           </button>
-          {/* Participants — Discord style */}
-          {channelParticipants.length > 0 && (
-            <div className="ml-6 mr-2 space-y-0.5 mb-1">
-              {channelParticipants.map((p) => (
-                <div
-                  key={p.userId}
-                  className="flex items-center gap-1.5 px-1.5 py-0.5 rounded group/vp"
-                >
-                  <Avatar className="w-5 h-5 shrink-0">
-                    <AvatarImage src={cdnImage(p.avatar)} />
-                    <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-[9px]">
-                      {(p.displayName || p.username).charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-xs text-[var(--text-secondary)] truncate flex-1">
-                    {p.displayName || p.username}
-                  </span>
-                  {!p.audio && (
-                    <MicOff className="w-3 h-3 text-red-400 shrink-0" />
-                  )}
-                </div>
-              ))}
-            </div>
+          {/* Participants — Discord style (right-click: volume / moderation; drag to move) */}
+          {currentServer && (
+            <VoiceChannelMembers
+              participants={channelParticipants}
+              active={isActive}
+              serverId={currentServer.id}
+              channelId={channel.id}
+              canMove={canMoveMembers}
+            />
           )}
         </div>
       );
@@ -1036,6 +1056,12 @@ export function ChannelSidebar({
     setExternalVoiceParticipants(results);
   }, [currentServer, voiceChannels]);
   usePolling(() => void fetchVoiceStates(), 5000, !!currentServer, currentServer?.id);
+  // A moderator action (server mute, move, disconnect) shows up right away.
+  useEffect(() => {
+    const refresh = () => void fetchVoiceStates();
+    window.addEventListener(VOICE_STATES_REFRESH_EVENT, refresh);
+    return () => window.removeEventListener(VOICE_STATES_REFRESH_EVENT, refresh);
+  }, [fetchVoiceStates]);
 
   // Fetch DM channels when no server is selected
   const fetchDMChannels = useCallback(async () => {
@@ -1940,12 +1966,15 @@ export function UserPanel({ user }: UserPanelProps) {
   const gt = useGT();
   const [isMuted, setIsMuted] = useState(voiceService.muted);
   const [isDeafened, setIsDeafened] = useState(voiceService.deafened);
+  // Server Mute / Server Deafen from a moderator (shown like Discord: red, with a tooltip).
+  const [serverVoice, setServerVoice] = useState(() => ({ mute: voiceService.serverMute, deaf: voiceService.serverDeaf }));
 
   // Stay in sync with mute/deafen changes made elsewhere (VoiceBar, shortcuts)
   useEffect(() => {
     const unsubscribe = voiceService.subscribe((event) => {
       if (event.type === "mute_toggled") setIsMuted(event.muted);
       if (event.type === "deafen_toggled") setIsDeafened(event.deafened);
+      if (event.type === "server_voice_state") setServerVoice({ mute: event.mute, deaf: event.deaf });
     });
     return unsubscribe;
   }, []);
@@ -2015,21 +2044,21 @@ export function UserPanel({ user }: UserPanelProps) {
           onClick={handleMuteToggle}
           className={cn(
             "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
-            isMuted ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            isMuted || serverVoice.mute ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
-          title={isMuted ? gt("Unmute") : gt("Mute")}
+          title={serverVoice.mute ? gt("Server Muted") : isMuted ? gt("Unmute") : gt("Mute")}
         >
-          {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          {isMuted || serverVoice.mute ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
         </button>
         <button
           onClick={handleDeafenToggle}
           className={cn(
             "p-1.5 rounded hover:bg-[var(--bg-sidebar-elevated)] transition-colors",
-            isDeafened ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            isDeafened || serverVoice.deaf ? "text-red-500" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
-          title={isDeafened ? gt("Undeafen") : gt("Deafen")}
+          title={serverVoice.deaf ? gt("Server Deafened") : isDeafened ? gt("Undeafen") : gt("Deafen")}
         >
-          {isDeafened ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
+          {isDeafened || serverVoice.deaf ? <HeadphoneOff className="w-5 h-5" /> : <Headphones className="w-5 h-5" />}
         </button>
         <button
           onClick={handleSettingsClick}
