@@ -11,6 +11,7 @@ import { AppProviders } from "@/components/boot/AppProviders";
 import { SettingsHydrator } from "@/components/boot/SettingsHydrator";
 import { MotionPreferences } from "@/components/boot/MotionPreferences";
 import { TauriUpdater } from "@/components/TauriUpdater";
+import { DesktopShell } from "@/components/desktop/DesktopShell";
 import { buildRootMetadata } from "@/lib/seo";
 import "./globals.css";
 
@@ -162,6 +163,7 @@ export default function RootLayout({
                 <ToasterWrapper />
                 <ChunkReloadGuard />
                 <TauriUpdater />
+                <DesktopShell />
               </AuthProvider>
             </MotionPreferences>
           </ThemeProvider>

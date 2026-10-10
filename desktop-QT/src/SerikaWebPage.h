@@ -1,70 +1,40 @@
 #pragma once
 
 #include <QWebEnginePage>
-#include <QWebEngineUrlRequestInterceptor>
 #include <QWebEngineProfile>
-#include <QDesktopServices>
 #include <QUrl>
-#include <QWebEngineUrlRequestInfo>
 
-// Intercepts navigation requests: external URLs are opened in the browser
-// instead of navigating the webview to them.
-class NavigationInterceptor : public QWebEngineUrlRequestInterceptor {
-    Q_OBJECT
-public:
-    explicit NavigationInterceptor(const QString &allowedPrefix, QObject *parent = nullptr)
-        : QWebEngineUrlRequestInterceptor(parent), m_allowedPrefix(allowedPrefix) {}
-
-    void interceptRequest(QWebEngineUrlRequestInfo &info) override {
-        QUrl url = info.requestUrl();
-        QString urlStr = url.toString();
-
-        if (urlStr.startsWith(m_allowedPrefix, Qt::CaseInsensitive) ||
-            urlStr.startsWith("http://localhost", Qt::CaseInsensitive)) {
-            return;
-        }
-
-        if (info.navigationType() == QWebEngineUrlRequestInfo::NavigationTypeLink ||
-            info.navigationType() == QWebEngineUrlRequestInfo::NavigationTypeTyped) {
-            QDesktopServices::openUrl(url);
-            info.block(true);
-        }
-    }
-
-private:
-    QString m_allowedPrefix;
-};
-
-// Custom web page that handles external navigation by opening links in browser.
+// Main page: keeps the app (and the Serika sign-in flow) in the window and
+// sends every other link to the default browser.
 class SerikaWebPage : public QWebEnginePage {
     Q_OBJECT
 public:
-    explicit SerikaWebPage(QWebEngineProfile *profile, QObject *parent = nullptr)
-        : QWebEnginePage(profile, parent) {}
+    explicit SerikaWebPage(QWebEngineProfile *profile, QObject *parent = nullptr);
+
+signals:
+    // An in-app link opened with target=_blank / window.open (route it in the
+    // existing window instead of spawning another).
+    void inAppLinkRequested(const QUrl &url);
 
 protected:
-    bool acceptNavigationRequest(const QUrl &url, NavigationType type,
-                                  bool isMainFrame) override {
-        if (!isMainFrame) return true;
-
-        QString urlStr = url.toString();
-        if (urlStr.startsWith("https://serika.chat", Qt::CaseInsensitive) ||
-            urlStr.startsWith("http://localhost", Qt::CaseInsensitive) ||
-            urlStr.startsWith("https://waifu.ws", Qt::CaseInsensitive)) {
-            return true;
-        }
-
-        if (type == QWebEnginePage::NavigationTypeLinkClicked ||
-            type == QWebEnginePage::NavigationTypeTyped) {
-            QDesktopServices::openUrl(url);
-            return false;
-        }
-
-        return true;
-    }
-
-    QWebEnginePage *createWindow(WebWindowType) override {
-        // Let acceptNavigationRequest handle it
-        return this;
-    }
+    bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) override;
+    QWebEnginePage *createWindow(WebWindowType type) override;
 };
+
+// Throwaway page handed to window.open()/target=_blank: it catches the first
+// URL it is asked to load, forwards it, and deletes itself.
+class PopupCatcherPage : public QWebEnginePage {
+    Q_OBJECT
+public:
+    explicit PopupCatcherPage(QWebEngineProfile *profile, SerikaWebPage *owner);
+
+protected:
+    bool acceptNavigationRequest(const QUrl &url, NavigationType type, bool isMainFrame) override;
+
+private:
+    SerikaWebPage *m_owner;
+    bool m_handled{false};
+};
+
+// Opens a URL in the OS default handler when it's a safe scheme.
+bool openExternally(const QUrl &url);

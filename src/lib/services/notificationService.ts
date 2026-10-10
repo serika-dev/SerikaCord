@@ -13,6 +13,8 @@
 // Capacitor imports are dynamically loaded and only available in mobile builds
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 
+import { closeDesktopNotification, isDesktopShell, showDesktopNotification } from '@/lib/desktop/bridge';
+
 // Check platform
 export const isElectron = (): boolean => {
     return typeof window !== 'undefined' && !!window.electron?.isElectron;
@@ -90,8 +92,8 @@ let notificationPermission: NotificationPermission | 'granted' | null = null;
  * Request notification permissions
  */
 export async function requestNotificationPermission(): Promise<boolean> {
-    // Electron handles notifications natively
-    if (isElectron()) {
+    // Native shells handle notifications themselves
+    if (isElectron() || isDesktopShell()) {
         notificationPermission = 'granted';
         return true;
     }
@@ -149,6 +151,7 @@ const openNotifications = new Map<string, Notification>();
  * answered or stopped ringing). Best-effort; native shells keep theirs.
  */
 export async function closeNotification(tag: string): Promise<void> {
+    closeDesktopNotification(tag);
     openNotifications.get(tag)?.close();
     openNotifications.delete(tag);
     // Messages to the worker are handled in order, so this also closes a
@@ -182,6 +185,20 @@ export async function showNotification(
         onClick?: () => void;
     } = {}
 ): Promise<void> {
+    // SerikaCord desktop app: native OS notification (avatar, click to jump,
+    // closed once the conversation is read).
+    if (isDesktopShell()) {
+        const url = typeof options.data?.url === 'string' ? options.data.url : null;
+        showDesktopNotification(title, body, {
+            tag: options.tag,
+            icon: options.icon || '/icons/icon-192x192.png',
+            url,
+            requireInteraction: options.requireInteraction,
+            onClick: options.onClick,
+        });
+        return;
+    }
+
     // Electron: Use native notifications via IPC
     if (isElectron()) {
         await window.electron!.notifications.show(title, body, options);

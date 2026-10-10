@@ -48,6 +48,7 @@ import {
   Clock,
   BellRing,
   MonitorSmartphone,
+  Monitor,
   Target,
   MinusCircle,
   Award,
@@ -79,6 +80,8 @@ import { badgeLabel } from "@/components/ui/badges";
 import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
+import { DesktopSettingsPanel } from "@/components/settings/DesktopSettingsPanel";
+import { isDesktopShell } from "@/lib/desktop/bridge";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
 import { BugReportPanel } from "@/components/settings/BugReportPanel";
@@ -113,6 +116,7 @@ type SettingsTab =
   | "voice-video"
   | "text-images"
   | "keybinds"
+  | "desktop"
   | "language"
   | "advanced"
   | "premium"
@@ -2121,6 +2125,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           { id: "notifications" as SettingsTab, label: gt("Notifications"), icon: Bell },
           { id: "keybinds" as SettingsTab, label: gt("Keybinds"), icon: Keyboard },
           { id: "language" as SettingsTab, label: gt("Language"), icon: Languages },
+          // Only inside the desktop app (tray, start on login, global keys...).
+          ...(isDesktopShell() ? [{ id: "desktop" as SettingsTab, label: gt("Desktop"), icon: Monitor }] : []),
           { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings },
         ],
       },
@@ -3916,6 +3922,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
                       {activeTab === "keybinds" && (
                         <KeybindSettingsPanel />
+                      )}
+
+                      {activeTab === "desktop" && (
+                        <DesktopSettingsPanel />
                       )}
 
                       {activeTab === "language" && (

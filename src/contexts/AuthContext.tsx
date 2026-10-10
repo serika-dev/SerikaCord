@@ -6,6 +6,7 @@ import { upsertSavedAccount } from "@/lib/services/savedAccounts";
 import { clearMessageCache } from "@/hooks/useChatSession";
 import { shouldPromoteToOnline, toClientStatus, toServerStatus } from "@/lib/presenceChoice";
 import type { BuiltinBadgeId } from "@/lib/constants/badges";
+import { isDesktopShell } from "@/lib/desktop/bridge";
 
 // Built-in ids keep autocomplete; badges created in the DB are plain strings.
 export type BadgeId = BuiltinBadgeId | (string & {});
@@ -71,7 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshInFlight = useRef(false);
 
   const sendPresenceHeartbeat = useCallback(async () => {
-    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    // The desktop app keeps you online while it sits in the tray (like
+    // Discord); a hidden browser tab stops beating.
+    if (typeof document !== "undefined" && document.visibilityState !== "visible" && !isDesktopShell()) return;
 
     try {
       await fetch("/api/users/me/presence/heartbeat", {
@@ -157,8 +160,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    // Handle visibility change (tab switch, minimize)
+    // Handle visibility change (tab switch, minimize). The desktop app goes
+    // idle from real system inactivity instead (DesktopIntegration), so hiding
+    // its window to the tray doesn't make you idle.
+    const desktop = isDesktopShell();
     const handleVisibilityChange = () => {
+      if (desktop) {
+        if (document.visibilityState === 'visible') void sendPresenceHeartbeat();
+        return;
+      }
       if (document.visibilityState === 'hidden') {
         // Only set idle, not offline, when tab is hidden
         if (user.status === "online") {
@@ -189,6 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Handle page hide (mobile background)
     const handlePageHide = (e: PageTransitionEvent) => {
       if (e.persisted) {
+        if (desktop) return;
         // Page is going into bfcache: only an online user goes idle (same rule
         // as hiding the tab). DND / Invisible / idle are left untouched.
         if (user.status === "online") {

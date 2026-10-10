@@ -1,123 +1,161 @@
 # SerikaCord Desktop (Qt6)
 
-Fully native desktop app for SerikaCord, built with [Qt6](https://www.qt.io/)
-and [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html). This is a
-complete alternative to the Tauri app in `../desktop-tauri`, with **full feature
-parity**. This is now the **default** desktop client — the Tauri app is deprecated.
+The native desktop client for SerikaCord, built with [Qt6](https://www.qt.io/)
+and [Qt WebEngine](https://doc.qt.io/qt-6/qtwebengine-index.html). It loads the
+hosted web app (`https://serika.chat`) and adds what a Discord-class desktop
+client needs. This is the **default** desktop client; `../desktop-tauri` is
+deprecated.
 
-## Why Qt?
+## Features
 
-Qt provides a truly native cross-platform framework with:
-- Native widgets, menus, tray icons, and window decorations on every platform
-- Qt WebEngine (Chromium-based) for rendering the hosted web app
-- QWebChannel for type-safe JS ↔ C++ communication
-- First-class support for Windows, macOS, and Linux (X11/Wayland)
-- No Rust toolchain required — pure C++
+| Area | What it does | How |
+|------|--------------|-----|
+| Notifications | Native OS notifications with the sender's round avatar; one per conversation (replaced, not stacked); click focuses the window and jumps to the message; closed when the conversation is read anywhere | Linux: `org.freedesktop.Notifications` over D-Bus. Windows/macOS: tray notification (`QSystemTrayIcon::showMessage`). Page `new Notification()` is routed through the same path via `QWebEngineProfile::setNotificationPresenter` |
+| Unread badge | Taskbar/dock count + red dot on the tray and window icon | `QGuiApplication::setBadgeNumber` (Qt ≥ 6.5: dock badge, Windows overlay, Unity LauncherEntry on Linux) |
+| Tray | Unread dot; menu: Open, Mute, Deafen (mirror the live call state), Status (Online/Idle/DND/Invisible), Restart to Update, Check for Updates, Quit | `TrayIcon` |
+| Window | Close to tray (default on), minimize to tray, window size/position/maximized and zoom remembered, off-screen guard | `AppSettings`, `MainWindow` |
+| Start on login | Optional, with "start minimized" | Windows `HKCU\…\Run`, macOS `~/Library/LaunchAgents/dev.serika.serikacord.plist`, Linux `~/.config/autostart/serikacord.desktop`; launched with `--autostart` |
+| Global shortcuts | Push to talk (hold), toggle mute, toggle deafen while unfocused; keys configurable in the app (Keybinds → Global), incl. F13–F24 and mouse side buttons | Key-state polling every 15 ms: `GetAsyncKeyState` (Windows), `CGEventSourceKeyState` (macOS, needs Input Monitoring permission), `XQueryKeymap` (Linux/X11) |
+| Screen share | "Share your screen" picker (Screens / Applications tabs, screen thumbnails) for `getDisplayMedia()` | `QWebEnginePage::desktopMediaRequested` (Qt ≥ 6.7) |
+| Permissions | Mic, camera, screen capture, notifications and clipboard granted to the app itself without prompts; third-party frames get a native Allow/Block dialog, remembered per origin | `permissionRequested` + `PersistentPermissionsPolicy::StoreOnDisk` (Qt ≥ 6.8); `featurePermissionRequested` + QSettings on older Qt |
+| Single instance | A second launch focuses the running window and hands it its link | `QLocalServer` |
+| Deep links | `serika://invite/<code>`, `serika://channels/<server>/<channel>`, `serika://dm/<user>` (and legacy `serikacord://`, and `https://serika.chat/...` on the command line) open in the running app without a reload | Windows registry, macOS `Info.plist` (`QFileOpenEvent`), Linux `.desktop` `MimeType` (an AppImage registers a per-user entry itself) |
+| Links | External links open in the default browser; `target=_blank` / `window.open` to app URLs stay in the window | `SerikaWebPage`, `PopupCatcherPage` |
+| Spellcheck | Misspellings underlined; suggestions, cut/copy/paste and "Check Spelling" in the right-click menu of text fields | `SerikaWebView` context menu; Hunspell `.bdic` dictionaries (see below) or the macOS system checker |
+| Downloads | Native "Save File" dialog, tray message when done | `QWebEngineProfile::downloadRequested` |
+| Auto-idle | Idle after N minutes without keyboard/mouse input anywhere (default 10), back to Online on return | `GetLastInputInfo`, `CGEventSourceSecondsSinceLastEventType`, GNOME Mutter IdleMonitor / `org.freedesktop.ScreenSaver` over D-Bus, X11 sampling fallback |
+| Updates | Splash check at launch; background check every 4 h; signed (minisign) download; in-app "Update ready" card + tray item; AppImage replaces itself | `Updater` against `releases/latest/download/latest.json` |
+| Zoom / keys | Ctrl+= / Ctrl+- / Ctrl+0 (persisted), F11 fullscreen, Ctrl+R reload, F12 / Ctrl+Shift+I native DevTools window | injected script + `QWebEnginePage::setDevToolsPage` |
+| Rich presence | Detects games/apps and reports them as your activity | `PresenceDetector` |
 
-## Features (parity with the Tauri app)
+## Web ↔ native bridge
 
-- ✅ Loads the hosted app (`https://serika.chat/channels/me`)
-- ✅ System tray icon: left-click toggles the window, menu has Open/Quit
-- ✅ Close-to-tray (closing the window hides it; quit via the tray)
-- ✅ Single instance — launching again focuses the existing window
-- ✅ `serikacord://` deep links (registered in the OS)
-- ✅ External links open in the default browser
-- ✅ Rich-presence detection (process enumeration, Steam library metadata,
-  IGDB game resolution, heartbeat)
-- ✅ Updater splash window (branded "Checking for updates…" with progress bar)
-- ✅ Keyboard shortcuts (zoom, fullscreen, devtools)
-- ✅ Window title tracking (SPA-aware)
-- ✅ Badge count on taskbar/dock
-- ✅ Mute/unmute audio from tray menu
-- ✅ Spellcheck enabled in the webview
-- ✅ Persistent cookies (stays logged in between launches)
+The page talks to the shell through `window.qt.webBridge` (QWebChannel). The
+web wrapper is `src/lib/desktop/bridge.ts` (feature-detected; a no-op in
+browsers) with pure helpers in `src/lib/desktop/protocol.ts` (unit tested in
+`tests/desktop.test.ts`). `src/components/desktop/DesktopIntegration.tsx` is
+mounted once in the root layout (only inside the shell) and wires it to the
+app: notification clicks, deep links, tray actions, global shortcuts, idle,
+voice state and the update card. The Desktop settings section is
+`src/components/settings/DesktopSettingsPanel.tsx`; the global keys are in
+`src/components/settings/GlobalShortcutSettings.tsx` (Keybinds tab).
 
-## Architecture
+Before any page script runs, the shell defines:
+
+```js
+window.__serikaDesktop = { shell: "qt", protocol: 2, version: "2.0.0", platform: "linux" };
+window.__serikaSetBadge(count); // used by notificationUX.setUnreadBadge
+```
+
+and fires `serika-desktop-bridge` on `window` once `window.qt.webBridge` is
+usable. Bump `WebBridge::PROTOCOL_VERSION` (and the web constant) on an
+incompatible change.
+
+Methods (JS → native; results arrive in a trailing callback):
+
+| Method | |
+|--------|---|
+| `getInfo()` | `{ version, protocol, platform, arch, qt, windowSystem, capabilities }` |
+| `pageCreated()` | Sent by the injected channel script for every new document (resets shortcuts and readiness) |
+| `webReady()` | The page is listening; deep links are now routed as `navigateRequested` instead of a reload |
+| `showNotification({ id, title, body, icon, url, tag, requireInteraction })` / `closeNotification(tag)` | |
+| `setBadgeCount(n)` | |
+| `setVoiceState({ connected, muted, deafened })` / `setUserStatus(status)` | Mirrored in the tray |
+| `setGlobalShortcuts([{ action, accelerator, hold, whileFocused }])` | Returns the actions that could be bound. Accelerators: `Ctrl+Shift+M`, `F13`, `Alt+Mouse4`, `Num5`, `` ` `` … |
+| `getSettings()` / `setSetting(key, value)` | `closeToTray`, `minimizeToTray`, `startOnLogin`, `startMinimized`, `spellcheck`, `nativeNotifications`, `globalShortcuts`, `hardwareAcceleration` (restart), `idleTimeoutMinutes` |
+| `getIdleSeconds()` | |
+| `checkForUpdates()` / `installUpdate()` / `getUpdateState()` | `{ state: idle|checking|downloading|ready|uptodate|error, version, percent }` |
+| `setZoom(delta)`, `toggleFullscreen()`, `toggleDevTools()`, `openExternal(url)`, `focusWindow()`, `readClipboardImage()` | |
+
+Signals (native → JS): `notificationClicked(id, url)`, `navigateRequested(path)`,
+`trayAction(action, value)` (`toggle-mute`, `toggle-deafen`, `set-status`,
+`open-settings`), `globalShortcut(action, pressed)` (`push-to-talk`,
+`toggle-mute`, `toggle-deafen`), `idleChanged(idle)`, `updateStateChanged(state)`,
+`settingsChanged(settings)`.
+
+Global shortcut defaults follow the in-app bindings (Ctrl+Shift+M / Ctrl+Shift+D
+and the Voice & Video push-to-talk key). While the window is focused the page's
+own key handlers act, so a default binding never fires twice; a custom global
+key (`whileFocused: true`) works focused or not.
+
+## Layout
 
 ```
 desktop-QT/
-├── CMakeLists.txt              # Build system
-├── src/
-│   ├── main.cpp                # Entry point, single-instance, updater splash
-│   ├── MainWindow.h/cpp        # QWebEngineView, web channel, keyboard shortcuts
-│   ├── TrayIcon.h/cpp          # System tray with menu
-│   ├── SingleInstance.h/cpp    # QLocalServer-based single instance guard
-│   ├── UpdaterWindow.h/cpp     # Splash window with progress bar
-│   ├── PresenceDetector.h/cpp  # Process enumeration + Steam + game matching
-│   ├── WebBridge.h/cpp         # QWebChannel bridge (replaces Tauri invoke)
-│   ├── DeepLinkHandler.h/cpp   # serikacord:// URL scheme registration
-│   └── resources/
-│       └── serikacord.qrc      # Qt resource file (icons)
-└── .github/workflows/
-    └── build-qt.yml            # CI build for Windows, macOS, Linux
+├── CMakeLists.txt
+├── Info.plist / serikacord.desktop
+└── src/
+    ├── main.cpp                 # flags, single instance, splash + update, deep links, start hidden
+    ├── AppConfig.*              # app URL (--app-url / SERIKA_APP_URL) and URL policy
+    ├── AppSettings.*            # desktop preferences + window state (QSettings)
+    ├── AutoStart.*              # start on login per OS
+    ├── MainWindow.*             # web view, profile, permissions, tray, downloads, updates
+    ├── InjectedScripts.h        # page scripts (marker, channel init, shortcuts, polyfills)
+    ├── WebBridge.*              # QWebChannel object
+    ├── NotificationManager.*    # native notifications
+    ├── TrayIcon.*               # tray icon + menu
+    ├── GlobalShortcuts.* / KeyState.*  # system-wide keys (+ idle on Windows/macOS)
+    ├── IdleMonitor.*            # auto-idle
+    ├── ScreenPicker.*           # getDisplayMedia picker
+    ├── SerikaWebPage.* / SerikaWebView.*  # navigation policy, context menu
+    ├── DeepLinkHandler.*        # serika:// parsing + registration
+    ├── SingleInstance.*         # QLocalServer guard
+    ├── Updater.* / UpdaterWindow.*      # update check, verification, splash
+    └── PresenceDetector.*       # rich presence
 ```
 
 ## Development
 
 ### Prerequisites
 
-- **Qt 6.5+** with modules: Widgets, WebEngineWidgets, WebEngineCore, Network, WebChannel
-- **CMake 3.21+**
-- **C++20 compiler** (GCC 10+, Clang 12+, MSVC 2019+)
-
-#### Installing Qt
-
-**Linux (Debian/Ubuntu):**
-```sh
-sudo apt install qt6-webengine-dev qt6-webchannel-dev qt6-base-dev \
-  cmake build-essential
-```
-
-**macOS (Homebrew):**
-```sh
-brew install qt cmake
-```
-
-**Windows:** Download the Qt Online Installer from https://www.qt.io/download
-and select Qt 6.5+ with WebEngine.
-
-### Build
+- **Qt 6.7+ recommended** (Widgets, WebEngineWidgets, WebEngineCore, Network,
+  WebChannel; DBus on Linux). Builds down to Qt 6.2; older Qt loses the screen
+  picker (Qt 6.7), per-origin permission storage (6.8) and the taskbar/dock
+  badge (6.5).
+- **Linux:** `libx11-dev` for global shortcuts / idle fallback (optional).
+- **CMake 3.21+**, a **C++20** compiler, **OpenSSL** (update signatures).
 
 ```sh
-mkdir build && cd build
-cmake .. -DCMAKE_PREFIX_PATH=/path/to/qt6
-cmake --build . --config Release
+# Debian/Ubuntu
+sudo apt install qt6-webengine-dev qt6-webchannel-dev qt6-base-dev libx11-dev libssl-dev cmake build-essential
+# macOS
+brew install qt cmake openssl
 ```
 
-### Run
+Windows: Qt Online Installer, Qt 6.7+ with WebEngine.
+
+### Build & run
 
 ```sh
-./SerikaCord        # Linux
-./SerikaCord.exe    # Windows
-open SerikaCord.app # macOS
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+./build/SerikaCord                                   # Linux
+./build/SerikaCord --app-url http://localhost:3000   # against a local `bun run dev`
 ```
 
-To point the dev build at a local SerikaCord instance, change `APP_URL` in
-`src/main.cpp`.
+Flags: `--app-url <url>`, `--start-minimized`, `--autostart` (set by the login
+entry), and an optional link (`serika://invite/abc`).
 
-## Updates
+### Spellcheck dictionaries
 
-The updater splash window checks for updates on startup. Currently it shows the
-splash and proceeds to the main window. To wire up real auto-updates, implement
-a network check against the GitHub releases API in `UpdaterWindow.cpp` and
-download/install the new binary.
+Qt WebEngine uses Hunspell dictionaries converted to `.bdic` (macOS uses the
+system checker). It looks in `$QTWEBENGINE_DICTIONARIES_PATH`, then
+`qtwebengine_dictionaries/` next to the binary, then Qt's data dir. Convert with
+Qt's `qwebengine_convert_dict en_US.dic en-US.bdic` and ship them in
+`qtwebengine_dictionaries/`; without any, the spellcheck switch has no effect.
 
-## Deep Links
+## Platform notes
 
-The `serikacord://` scheme is registered automatically:
-- **Windows**: via `HKEY_CURRENT_USER\Software\Classes\serikacord`
-- **macOS**: via `Info.plist` `CFBundleURLTypes` (in the app bundle)
-- **Linux**: via `.desktop` file `MimeType=x-scheme-handler/serikacord`
-
-## Rich Presence
-
-The `PresenceDetector` runs in a background timer (every 15s) and:
-1. Enumerates running processes (via `/proc` on Linux, `Toolhelp32` on Windows,
-   `sysctl` on macOS)
-2. Matches against a curated table of known apps and games
-3. Resolves Steam games via local `appmanifest_*.acf` files
-4. Pushes detected activities to the web page via `runJavaScript()`
-5. The web page resolves game names via IGDB and reports to the rich-presence API
+- **Wayland:** global shortcuts and the X11 idle fallback only see input that
+  goes to XWayland windows, so push-to-talk while a native Wayland app is
+  focused doesn't register (Discord has the same limitation). Idle uses D-Bus
+  (GNOME/KDE) and works. Screen sharing goes through the desktop portal's own
+  picker.
+- **macOS:** global shortcuts need *System Settings → Privacy & Security →
+  Input Monitoring*. Mic/camera prompts use the `NS*UsageDescription` strings
+  in `Info.plist`.
+- **Windows:** notifications use the tray balloon/toast (no per-notification
+  close; clicking the latest one routes correctly).
 
 ## License
 

@@ -6,4 +6,5 @@ Exec=SerikaCord %u
 Icon=serikacord
 Terminal=false
 Categories=Network;InstantMessaging;
-MimeType=x-scheme-handler/serikacord;
+MimeType=x-scheme-handler/serika;x-scheme-handler/serikacord;
+StartupWMClass=SerikaCord

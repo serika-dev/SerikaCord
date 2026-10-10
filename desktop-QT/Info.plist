@@ -31,10 +31,15 @@
             <string>SerikaCord</string>
             <key>CFBundleURLSchemes</key>
             <array>
+                <string>serika</string>
                 <string>serikacord</string>
             </array>
         </dict>
     </array>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>SerikaCord uses your microphone for voice chat and calls.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>SerikaCord uses your camera for video calls.</string>
     <key>LSUIElement</key>
     <false/>
 </dict>

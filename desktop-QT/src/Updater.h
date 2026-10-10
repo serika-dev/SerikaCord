@@ -22,6 +22,12 @@ public:
     // noUpdate() OR readyToInstall() OR (on any error) noUpdate().
     void checkForUpdates();
 
+    // Hand a verified installer to the OS (msiexec / .exe / .dmg / AppImage /
+    // package manager). The caller quits right after so it can be replaced.
+    static void launchInstaller(const QString &installerPath);
+    // "1.2.3" > "1.2.2"; ignores a leading v and pre-release suffixes.
+    static bool isNewer(const QString &remote, const QString &local);
+
 signals:
     // Progress passthrough for the splash window.
     void statusChanged(const QString &message);
@@ -30,6 +36,9 @@ signals:
 
     // No update (up to date, or check/download failed) — start the app.
     void noUpdate();
+    // The check itself failed (offline, GitHub down, bad signature). Emitted
+    // just before noUpdate() so manual checks can say so.
+    void checkFailed();
     // Update downloaded to `installerPath`; caller should install + quit.
     void readyToInstall(const QString &installerPath, const QString &newVersion);
 
@@ -40,8 +49,6 @@ private slots:
 private:
     // Returns the platform key used in latest.json (e.g. "linux-x86_64").
     static QString platformKey();
-    // Semantic-ish version compare: returns true if `remote` > `local`.
-    static bool isNewer(const QString &remote, const QString &local);
     // Verify a downloaded file against a minisign signature (the base64 blob
     // Tauri stores in latest.json's per-platform `signature` field) using the
     // bundled Ed25519 public key. Returns true only on a valid signature.

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { isDesktopShell } from "@/lib/desktop/bridge";
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -9,7 +10,9 @@ export function TauriUpdater() {
   const dismissedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.__TAURI__) return;
+    // The Qt app sets a __TAURI__ shim for older web builds but updates itself
+    // (DesktopUpdateBanner); only the deprecated Tauri app uses this.
+    if (typeof window === "undefined" || !window.__TAURI__ || isDesktopShell()) return;
 
     let cancelled = false;
 

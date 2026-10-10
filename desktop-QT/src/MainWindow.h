@@ -1,33 +1,34 @@
 #pragma once
 
+#include <QJsonArray>
 #include <QMainWindow>
-#include <QWebEngineView>
-#include <QWebEngineProfile>
-#include <QWebEnginePage>
-#include <QWebEngineScript>
-#include <QWebChannel>
+#include <QPointer>
+#include <QString>
 #include <QTimer>
-#include <QAction>
-#include <QLabel>
-#include <atomic>
+#include <QUrl>
+#include <QVariantMap>
 
-#include "SerikaWebPage.h"
+#include "AppConfig.h"
 
-// Shared constants
-namespace SerikaConfig {
-    inline constexpr const char *APP_URL = "https://serika.chat";
-    inline constexpr const char *START_PATH = "/channels/me";
-}
-
-class WebBridge;
-class TrayIcon;
+class AppSettings;
+class GlobalShortcuts;
+class IdleMonitor;
+class NotificationManager;
 class PresenceDetector;
+class QWebChannel;
+class QWebEngineDownloadRequest;
+class QWebEngineProfile;
+class SerikaWebPage;
+class SerikaWebView;
+class TrayIcon;
+class Updater;
+class WebBridge;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent = nullptr);
+    explicit MainWindow(AppSettings *settings, QWidget *parent = nullptr);
     ~MainWindow() override;
 
     void loadUrl(const QString &url);
@@ -37,40 +38,65 @@ public:
     void toggleFullscreen();
     void toggleDevTools();
     void setBadgeCount(int count);
-    void toggleMute();
-    bool isMuted() const { return m_muted.load(); }
+    // Route an in-app path (from a deep link) into the running app.
     void navigateToDeepLink(const QString &path);
     void injectPresenceActivities(const QJsonArray &activities);
 
-    WebBridge *webBridge() const { return m_webBridge; }
+    // Background update check (manual = from the tray/settings: report
+    // "up to date" / errors instead of staying quiet).
+    void checkForUpdates(bool manual);
+    void installUpdate();
+    // Restore the saved size/position (call before the first show()).
+    void restoreWindowState();
 
-signals:
-    void windowTitleChanged(const QString &title);
-    void muteToggled(bool muted);
+    WebBridge *webBridge() const { return m_webBridge; }
 
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void changeEvent(QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void moveEvent(QMoveEvent *event) override;
+    void resizeEvent(QResizeEvent *event) override;
 
 private slots:
     void onTitleChanged(const QString &title);
-    void onUrlChanged(const QUrl &url);
     void onPresenceHeartbeat();
+    void onDownloadRequested(QWebEngineDownloadRequest *download);
+    void saveWindowState();
 
 private:
-    void setupWebChannel();
-    void injectInitScripts();
+    void setupProfile();
+    void setupScripts();
+    void setupPermissions();
+    void setupTray();
+    void applySetting(const QString &key, const QVariant &value);
+    void applySpellcheck(bool enabled);
+    void navigateInApp(const QString &pathAndQuery);
+    void setUpdateState(const QString &state, const QString &version = QString(), int percent = -1);
+    QString desktopMarkerScript() const;
+    void quitApp();
 
-    QWebEngineView *m_view;
+    AppSettings *m_settings;
+    SerikaWebView *m_view;
     QWebEngineProfile *m_profile{nullptr};
-    QWebEnginePage *m_page;
+    SerikaWebPage *m_page{nullptr};
     QWebChannel *m_channel;
+    GlobalShortcuts *m_shortcuts;
+    IdleMonitor *m_idle;
     WebBridge *m_webBridge;
-    TrayIcon *m_trayIcon;
-    PresenceDetector *m_presenceDetector;
+    TrayIcon *m_trayIcon{nullptr};
+    NotificationManager *m_notifications{nullptr};
+    PresenceDetector *m_presenceDetector{nullptr};
     QTimer *m_presenceHeartbeat;
+    QTimer m_saveStateTimer;
+    QTimer m_updateTimer;
+    QPointer<QMainWindow> m_devTools;
+    QPointer<Updater> m_updater;
+    bool m_manualUpdateCheck{false};
+    QString m_pendingInstaller;
+    QString m_pendingVersion;
 
-    std::atomic<bool> m_muted{false};
     double m_currentZoom{1.0};
     QString m_lastPresenceJson;
+    bool m_quitting{false};
 };

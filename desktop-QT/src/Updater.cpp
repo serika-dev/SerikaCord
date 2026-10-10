@@ -7,11 +7,13 @@
 #include <QJsonValue>
 #include <QUrl>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QDesktopServices>
 #include <QDebug>
+#include <QProcess>
 
 #include <openssl/evp.h>
 
@@ -87,6 +89,7 @@ void Updater::onManifestFinished() {
 
     if (reply->error() != QNetworkReply::NoError) {
         // Offline or no release published — just launch.
+        emit checkFailed();
         emit noUpdate();
         return;
     }
@@ -160,6 +163,7 @@ void Updater::onDownloadFinished() {
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
+        emit checkFailed();
         emit noUpdate();
         return;
     }
@@ -174,6 +178,7 @@ void Updater::onDownloadFinished() {
     if (!verifySignature(m_downloadPath, m_pendingSignature)) {
         qWarning() << "[Updater] Signature verification FAILED — discarding update.";
         QFile::remove(m_downloadPath);
+        emit checkFailed();
         emit noUpdate();
         return;
     }
@@ -259,4 +264,46 @@ bool Updater::verifySignature(const QString &filePath, const QString &signatureB
     if (ctx) EVP_MD_CTX_free(ctx);
     EVP_PKEY_free(pkey);
     return ok;
+}
+
+void Updater::launchInstaller(const QString &installerPath) {
+#if defined(Q_OS_WIN)
+    if (installerPath.endsWith(".msi", Qt::CaseInsensitive)) {
+        QProcess::startDetached("msiexec", {"/i", installerPath});
+    } else {
+        QProcess::startDetached(installerPath, {});
+    }
+#elif defined(Q_OS_MACOS)
+    // Open the .dmg for the user to drag-install.
+    QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
+#else
+    // Relaunch the new AppImage directly; otherwise open the package (.deb)
+    // in the system installer.
+    if (installerPath.endsWith(".AppImage", Qt::CaseInsensitive)) {
+        // Replace the AppImage the user launched (so the next launch from the
+        // menu/autostart is the new version), then start it.
+        QString target = installerPath;
+        const QString current = qEnvironmentVariable("APPIMAGE");
+        if (!current.isEmpty() && QFileInfo(QFileInfo(current).absolutePath()).isWritable()) {
+            const QString backup = current + QStringLiteral(".old");
+            QFile::remove(backup);
+            if (QFile::rename(current, backup)) {
+                if (QFile::copy(installerPath, current)) {
+                    QFile(current).setPermissions(QFile(current).permissions() | QFileDevice::ExeOwner
+                                                  | QFileDevice::ExeGroup | QFileDevice::ExeOther);
+                    QFile::remove(backup);
+                    target = current;
+                } else {
+                    QFile::rename(backup, current);
+                }
+            }
+        }
+        // Start after we've exited, or the single-instance guard would just
+        // hand the launch back to this (quitting) process.
+        QProcess::startDetached(QStringLiteral("/bin/sh"),
+                                {QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\""), target});
+    } else {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
+    }
+#endif
 }

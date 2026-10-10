@@ -17,6 +17,9 @@ import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { RotateCcw, X, AlertTriangle, Search } from "lucide-react";
 import { toast } from "sonner";
+import { useIsClient } from "@/hooks/useIsClient";
+import { isDesktopShell } from "@/lib/desktop/bridge";
+import { GlobalShortcutSettings } from "@/components/settings/GlobalShortcutSettings";
 
 const CATEGORY_ORDER: Hotkey["category"][] = ["Navigation", "Chat", "Voice", "Application"];
 
@@ -44,6 +47,8 @@ export function KeybindSettingsPanel() {
   const [recording, setRecording] = useState<RecordingState | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [conflictAction, setConflictAction] = useState<HotkeyAction | null>(null);
+  const isClient = useIsClient();
+  const desktop = isClient && isDesktopShell();
 
   // Load overrides on mount and when keybinds change.
   const refresh = useCallback(() => {
@@ -153,6 +158,9 @@ export function KeybindSettingsPanel() {
           {gt("Reset All")}
         </button>
       </div>
+
+      {/* Desktop app: system-wide push to talk / mute / deafen */}
+      {desktop && !searchQuery.trim() && <GlobalShortcutSettings />}
 
       {/* Keybind categories */}
       {CATEGORY_ORDER.map((category) => {

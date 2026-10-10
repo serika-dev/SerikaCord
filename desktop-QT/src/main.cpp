@@ -1,198 +1,207 @@
 // SerikaCord native desktop shell (Qt6).
 //
-// Loads the hosted web app and provides desktop niceties: tray icon,
-// close-to-tray, single instance, serikacord:// deep links, external
-// links opening in the browser, rich-presence detection, and an
-// updater splash window — all with full feature parity to the Tauri app.
+// Loads the hosted web app and adds what a native client needs: native
+// notifications, tray + unread badge, global push-to-talk / mute / deafen,
+// a screen-share picker, permissions, single instance, serika:// deep links,
+// window state, spellcheck, downloads, auto-idle and auto-update.
 
 #include <QApplication>
 #include <QCommandLineParser>
-#include <QUrl>
-#include <QTimer>
-#include <QStandardPaths>
-#include <QDir>
-#include <QWebEngineProfile>
+#include <QFileOpenEvent>
 #include <QIcon>
 #include <QLocalSocket>
-#include <QGuiApplication>
-#include <QScreen>
+#include <QSettings>
+#include <QTimer>
+#include <QUrl>
 
+#include "AppConfig.h"
+#include "AppSettings.h"
+#include "AutoStart.h"
+#include "DeepLinkHandler.h"
+#include "KeyState.h"
 #include "MainWindow.h"
 #include "SingleInstance.h"
-#include "UpdaterWindow.h"
 #include "Updater.h"
-#include "DeepLinkHandler.h"
-#include "TrayIcon.h"
-#include "PresenceDetector.h"
+#include "UpdaterWindow.h"
 
-#include <QProcess>
-#include <QDesktopServices>
-#include <QFileInfo>
-
-#ifdef Q_OS_WIN
-#include <windows.h>
+#ifndef SERIKA_APP_VERSION
+#define SERIKA_APP_VERSION "0.0.0"
 #endif
 
-// Set Chromium flags for hardware acceleration and smooth rendering
-// Must be set before QApplication is created
-static void setupChromiumFlags() {
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS",
-        "--enable-gpu-rasterization "
+namespace {
+const char *INSTANCE_KEY = "serikacord-desktop-qt-single-instance";
+const char *SHOW_MESSAGE = "serika:show";
+
+// Chromium flags must be set before QApplication exists, so the hardware
+// acceleration preference is read straight from QSettings here.
+void setupChromiumFlags() {
+    QSettings prefs(QSettings::NativeFormat, QSettings::UserScope,
+                    QStringLiteral("SerikaCord"), QStringLiteral("SerikaCord"));
+    const bool gpu = prefs.value(QStringLiteral("prefs/hardwareAcceleration"), true).toBool();
+    QByteArray flags =
         "--enable-smooth-scrolling "
         "--enable-features=OverlayScrollbar "
+        // Keep timers/rendering alive while hidden in the tray, so calls,
+        // notifications and presence keep working like Discord's client.
         "--disable-background-timer-throttling "
         "--disable-renderer-backgrounding "
         "--disable-backgrounding-occluded-windows "
-        "--disable-features=BackForwardCache"
-    );
+        "--disable-features=BackForwardCache ";
+    flags += gpu ? "--enable-gpu-rasterization" : "--disable-gpu --disable-gpu-compositing";
+    const QByteArray existing = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
+    if (!existing.isEmpty()) flags = existing + ' ' + flags;
+    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
 }
 
-// Enable high-DPI scaling so the app looks crisp on all displays
-static void setupHighDpi() {
-    // Qt6 enables high-DPI by default, but we set the rounding policy
-    // to pass-through for fractional scaling (e.g. 1.25x, 1.5x)
-    qputenv("QT_ENABLE_HIGHDPI_SCALING", "1");
-    qputenv("QT_AUTO_SCREEN_SCALE_FACTOR", "1");
-    // Use pass-through rounding so 1.5x displays don't get rounded to 1x or 2x
-    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(
-        Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
-}
+// macOS delivers serika:// links (and dock re-opens) as application events.
+class AppEventFilter : public QObject {
+public:
+    AppEventFilter(DeepLinkHandler *links, MainWindow *window)
+        : m_links(links), m_window(window) {}
 
-static const char *INSTANCE_KEY = "serikacord-desktop-qt-single-instance";
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override {
+        if (event->type() == QEvent::FileOpen) {
+            auto *open = static_cast<QFileOpenEvent *>(event);
+            const QString link = open->url().isValid() ? open->url().toString() : open->file();
+            if (m_links->handleLink(link)) return true;
+        } else if (event->type() == QEvent::ApplicationActivate && m_window && !m_window->isVisible()) {
+#if defined(Q_OS_MACOS)
+            // Clicking the dock icon brings back a window closed to the tray.
+            m_window->showAndFocus();
+#endif
+        }
+        return QObject::eventFilter(obj, event);
+    }
+
+private:
+    DeepLinkHandler *m_links;
+    MainWindow *m_window;
+};
+} // namespace
 
 int main(int argc, char *argv[]) {
-    // Set Chromium flags before QApplication is created
     setupChromiumFlags();
-    setupHighDpi();
-
-    // High-DPI support is automatic in Qt6.
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
     QApplication app(argc, argv);
-    app.setApplicationName("SerikaCord");
-    app.setApplicationVersion("2.0.0");
-    app.setOrganizationName("SerikaCord");
-    app.setQuitOnLastWindowClosed(false); // keep running in tray
+    app.setApplicationName(QStringLiteral("SerikaCord"));
+    app.setApplicationVersion(QStringLiteral(SERIKA_APP_VERSION));
+    app.setOrganizationName(QStringLiteral("SerikaCord"));
+    app.setOrganizationDomain(QStringLiteral("serika.chat"));
+    app.setQuitOnLastWindowClosed(false); // keep running in the tray
+    QGuiApplication::setDesktopFileName(QStringLiteral("serikacord")); // badges, Wayland app id
+    app.setWindowIcon(QIcon(QStringLiteral(":/icons/app-icon.png")));
 
-    // Set app icon
-    app.setWindowIcon(QIcon(":/icons/app-icon.png"));
-
-    // Parse command line for deep links
     QCommandLineParser parser;
-    parser.setApplicationDescription("SerikaCord — native desktop client");
+    parser.setApplicationDescription(QStringLiteral("SerikaCord — native desktop client"));
     parser.addHelpOption();
     parser.addVersionOption();
-    parser.addPositionalArgument("url", "Optional serikacord:// deep link to open");
+    QCommandLineOption autostartOpt(QStringLiteral("autostart"), QStringLiteral("Launched at login."));
+    QCommandLineOption minimizedOpt(QStringLiteral("start-minimized"), QStringLiteral("Start in the tray."));
+    QCommandLineOption appUrlOpt(QStringLiteral("app-url"),
+                                 QStringLiteral("Load the app from this URL (development)."), QStringLiteral("url"));
+    parser.addOption(autostartOpt);
+    parser.addOption(minimizedOpt);
+    parser.addOption(appUrlOpt);
+    parser.addPositionalArgument(QStringLiteral("link"), QStringLiteral("Optional serika:// link to open"));
     parser.process(app);
 
-    // ── Single instance guard ────────────────────────────────────────────────
-    SingleInstance single(INSTANCE_KEY);
+    if (parser.isSet(appUrlOpt)) SerikaConfig::setAppUrl(parser.value(appUrlOpt));
+
+    QString launchLink;
+    for (const QString &arg : parser.positionalArguments()) {
+        if (DeepLinkHandler::isDeepLink(arg)) { launchLink = arg; break; }
+    }
+
+    // ── Single instance: hand the link to the running app and exit ───────
+    SingleInstance single(QString::fromLatin1(INSTANCE_KEY));
     if (!single.tryLock()) {
-        // Another instance is already running. Send it the deep link (if any)
-        // via a local socket so it can navigate + focus.
-        const auto positional = parser.positionalArguments();
-        QString message = positional.isEmpty() ? "" : positional.first();
         QLocalSocket socket;
-        socket.connectToServer(INSTANCE_KEY);
+        socket.connectToServer(QString::fromLatin1(INSTANCE_KEY));
         if (socket.waitForConnected(1000)) {
-            socket.write(message.toUtf8());
+            // A second login-time launch shouldn't pop the window up.
+            const QString msg = !launchLink.isEmpty() ? launchLink
+                : parser.isSet(autostartOpt) ? QString() : QString::fromLatin1(SHOW_MESSAGE);
+            socket.write(msg.toUtf8());
+            socket.flush();
             socket.waitForBytesWritten(1000);
             socket.disconnectFromServer();
         }
         return 0;
     }
 
-    // ── Updater splash window ────────────────────────────────────────────────
-    UpdaterWindow updater;
-    updater.showSplash();
+    AppSettings settings;
+    // Keep the OS login entry in sync with the preference (the binary may
+    // have moved since it was written, e.g. a new AppImage).
+    if (settings.startOnLogin()) AutoStart::setEnabled(true);
 
-    // ── Main window ──────────────────────────────────────────────────────────
-    MainWindow mainWindow;
+    MainWindow mainWindow(&settings);
+    mainWindow.restoreWindowState();
 
-    // ── Deep link handler ────────────────────────────────────────────────────
-    DeepLinkHandler deepLinkHandler;
-    deepLinkHandler.registerScheme();
-    QObject::connect(&deepLinkHandler, &DeepLinkHandler::deepLinkReceived,
-                     &mainWindow, &MainWindow::navigateToDeepLink);
+    DeepLinkHandler deepLinks;
+    deepLinks.registerScheme();
+    QObject::connect(&deepLinks, &DeepLinkHandler::deepLinkReceived, &mainWindow, &MainWindow::navigateToDeepLink);
 
-    // Handle deep link passed as command-line argument
-    const auto positional = parser.positionalArguments();
-    for (const auto &arg : positional) {
-        if (arg.startsWith("serikacord://")) {
-            deepLinkHandler.handleLink(arg);
-        }
-    }
+    AppEventFilter filter(&deepLinks, &mainWindow);
+    app.installEventFilter(&filter);
 
-    // ── Single instance: focus existing window when another launches ─────────
-    QObject::connect(&single, &SingleInstance::anotherInstanceStarted,
-                     &mainWindow, [&mainWindow, &deepLinkHandler](const QString &msg) {
-        if (msg.startsWith("serikacord://")) {
-            deepLinkHandler.handleLink(msg);
-        }
-        mainWindow.showAndFocus();
+    QObject::connect(&single, &SingleInstance::anotherInstanceStarted, &mainWindow,
+                     [&mainWindow, &deepLinks](const QString &msg) {
+        if (msg.isEmpty()) return;
+        if (msg == QLatin1String(SHOW_MESSAGE) || !deepLinks.handleLink(msg)) mainWindow.showAndFocus();
     });
 
-    updater.setVersionText(QStringLiteral("v%1").arg(app.applicationVersion()));
+    const QString startPath = launchLink.isEmpty()
+        ? QString::fromLatin1(SerikaConfig::START_PATH)
+        : DeepLinkHandler::normalizeLink(launchLink);
+    const QString startUrl = SerikaConfig::appUrl()
+        + (startPath.isEmpty() ? QString::fromLatin1(SerikaConfig::START_PATH) : startPath);
 
-    // Shared launcher: closes the splash and loads the web app.
+    const bool startHidden = parser.isSet(minimizedOpt)
+        || (parser.isSet(autostartOpt) && settings.startMinimized() && launchLink.isEmpty());
+
+    if (startHidden) {
+        // Straight to the tray: no splash, update check in the background.
+        mainWindow.loadUrl(startUrl);
+        QTimer::singleShot(60 * 1000, &mainWindow, [&mainWindow]() { mainWindow.checkForUpdates(false); });
+        const int rc = app.exec();
+        KeyState::shutdown();
+        return rc;
+    }
+
+    // ── Splash + update check, then the app ─────────────────────────────
+    UpdaterWindow splash;
+    splash.setVersionText(QStringLiteral("v%1").arg(app.applicationVersion()));
+    splash.showSplash();
+
+    bool launched = false;
     auto launchApp = [&]() {
-        updater.closeSplash();
-        QString startUrl = QString("%1%2").arg(SerikaConfig::APP_URL, SerikaConfig::START_PATH);
+        if (launched) return;
+        launched = true;
+        splash.closeSplash();
         mainWindow.loadUrl(startUrl);
         mainWindow.showAndFocus();
     };
 
-    // ── Real auto-update check (Tauri parity) ────────────────────────────────
-    // Hits the GitHub releases latest.json, and if a newer build exists for this
-    // platform downloads it with progress and installs on quit. Any failure just
-    // starts the app normally — updates never block launch.
     Updater updateChecker(app.applicationVersion());
-    QObject::connect(&updateChecker, &Updater::indeterminate,
-                     &updater, &UpdaterWindow::setIndeterminate);
-    QObject::connect(&updateChecker, &Updater::progressChanged,
-                     &updater, &UpdaterWindow::setProgress);
-    QObject::connect(&updateChecker, &Updater::statusChanged,
-                     &updater, &UpdaterWindow::setIndeterminate);
-
+    QObject::connect(&updateChecker, &Updater::indeterminate, &splash, &UpdaterWindow::setIndeterminate);
+    QObject::connect(&updateChecker, &Updater::progressChanged, &splash, &UpdaterWindow::setProgress);
+    QObject::connect(&updateChecker, &Updater::statusChanged, &splash, &UpdaterWindow::setIndeterminate);
     QObject::connect(&updateChecker, &Updater::noUpdate, &mainWindow, launchApp);
-
     QObject::connect(&updateChecker, &Updater::readyToInstall, &mainWindow,
                      [&](const QString &installerPath, const QString &newVersion) {
-        updater.setDone(QStringLiteral("Installing %1…").arg(newVersion));
-
-        // Hand the downloaded artifact to the OS, then quit so it can replace us.
-#if defined(Q_OS_WIN)
-        // Run the installer (.msi via msiexec, .exe directly), then exit.
-        if (installerPath.endsWith(".msi", Qt::CaseInsensitive)) {
-            QProcess::startDetached("msiexec", {"/i", installerPath});
-        } else {
-            QProcess::startDetached(installerPath, {});
-        }
+        if (launched) return; // took too long; the in-app banner picks it up later
+        splash.setDone(QStringLiteral("Installing %1…").arg(newVersion));
+        Updater::launchInstaller(installerPath);
         QApplication::quit();
-#elif defined(Q_OS_MACOS)
-        // Open the .dmg for the user to drag-install, then exit.
-        QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
-        QApplication::quit();
-#else
-        // Linux: relaunch the new AppImage directly; otherwise open the package
-        // (.deb) in the system installer. Then exit.
-        if (installerPath.endsWith(".AppImage", Qt::CaseInsensitive)) {
-            QProcess::startDetached(installerPath, {});
-        } else {
-            QDesktopServices::openUrl(QUrl::fromLocalFile(installerPath));
-        }
-        QApplication::quit();
-#endif
     });
 
-    // Give the splash a brief beat so it's visible, then check.
-    QTimer::singleShot(600, &updateChecker, [&updateChecker]() {
-        updateChecker.checkForUpdates();
-    });
+    QTimer::singleShot(400, &updateChecker, [&updateChecker]() { updateChecker.checkForUpdates(); });
+    // Never let a slow network keep the splash up.
+    QTimer::singleShot(12000, &mainWindow, launchApp);
 
-    // Safety net: never let a hung network keep the splash up forever.
-    QTimer::singleShot(15000, &mainWindow, [&, launchApp]() {
-        if (!mainWindow.isVisible()) launchApp();
-    });
-
-    return app.exec();
+    const int rc = app.exec();
+    KeyState::shutdown();
+    return rc;
 }

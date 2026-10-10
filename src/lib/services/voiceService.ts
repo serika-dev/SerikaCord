@@ -69,7 +69,9 @@ export type VoiceEvent =
   | { type: "call_declined"; userId: string }
   /** No usable mic: in the call listen-only (others can't hear you), or back to normal. */
   | { type: "listen_only"; enabled: boolean; reason?: MicIssue }
-  | { type: "meta_changed" };
+  | { type: "meta_changed" }
+  /** Push-to-talk mode or key changed (the desktop app re-registers its global key). */
+  | { type: "push_to_talk_changed" };
 
 type VoiceListener = (event: VoiceEvent) => void;
 
@@ -212,13 +214,31 @@ class VoiceService {
   private pttListening = false;
 
   setPushToTalk(enabled: boolean, key: string = this.pttKey) {
+    const nextKey = normalizePttKey(key);
+    const changed = this.pttEnabled !== Boolean(enabled) || this.pttKey !== nextKey;
     this.pttEnabled = Boolean(enabled);
-    this.pttKey = normalizePttKey(key);
-    if (!this.pttEnabled) this.pttHeld = false;
+    this.pttKey = nextKey;
+    if (!this.pttEnabled) {
+      this.pttHeld = false;
+      this.externalPttHeld = false;
+    }
     this.applyMicState();
+    if (changed) this.emit({ type: "push_to_talk_changed" });
   }
 
   get pushToTalkEnabled() { return this.pttEnabled; }
+  get pushToTalkKey() { return this.pttKey; }
+
+  // Held from outside the page: the desktop app's system-wide push-to-talk
+  // key, which works while SerikaCord isn't focused.
+  private externalPttHeld = false;
+
+  setExternalPushToTalk(held: boolean) {
+    const next = this.pttEnabled && Boolean(held);
+    if (next === this.externalPttHeld) return;
+    this.externalPttHeld = next;
+    this.applyMicState();
+  }
 
   private onPttKeyDown = (e: KeyboardEvent) => {
     if (!this.pttEnabled || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -270,6 +290,7 @@ class VoiceService {
 
   private detachPttListeners() {
     this.pttHeld = false;
+    this.externalPttHeld = false;
     if (!this.pttListening || typeof window === "undefined") return;
     window.removeEventListener("keydown", this.onPttKeyDown, true);
     window.removeEventListener("keyup", this.onPttKeyUp, true);
@@ -282,7 +303,11 @@ class VoiceService {
   /** Enable/disable the outgoing mic track(s) from mute + push-to-talk state. */
   private applyMicState() {
     if (!this.localStream) return;
-    const on = shouldTransmit({ muted: this.isMuted, pttEnabled: this.pttEnabled, pttHeld: this.pttHeld });
+    const on = shouldTransmit({
+      muted: this.isMuted,
+      pttEnabled: this.pttEnabled,
+      pttHeld: this.pttHeld || this.externalPttHeld,
+    });
     this.localStream.getAudioTracks().forEach((t) => {
       t.enabled = on;
     });
