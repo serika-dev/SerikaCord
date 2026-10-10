@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "718956931916",
+    "project_id": "serikacord",
+    "storage_bucket": "serikacord.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:718956931916:android:23dca183e407379cda7de9",
+        "android_client_info": {
+          "package_name": "dev.serika.serikacord"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAchhCdbYQCUbihhqctzuvxo0Lo3-_UtAw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
