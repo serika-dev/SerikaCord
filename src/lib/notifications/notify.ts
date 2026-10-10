@@ -12,30 +12,52 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { cdnImage } from "@/lib/utils";
 import { evaluateNotification, playNotificationSound, type NotifyContext } from "@/lib/services/notificationUX";
 import { closeNotification, navigateInApp, showNotification } from "@/lib/services/notificationService";
+import { renderMentionText, type MentionNames } from "@/lib/chat/mentionText";
+import { isUserAttending } from "@/lib/unread/attentionTracker";
 import { NotificationGroups, conversationTag, groupedNotificationBody } from "./grouping";
 
 const groups = new NotificationGroups();
 
-/** The user is looking at the app right now (tab shown and window focused). */
+/**
+ * The user is looking at the app right now: tab shown and either focused or
+ * touched within the last minute (see `lib/unread/attention.ts`).
+ */
 export function isAppFocused(): boolean {
-  if (typeof document === "undefined") return false;
-  return document.visibilityState === "visible" && document.hasFocus();
+  return isUserAttending();
 }
 
 /**
  * Plain-text preview of a stored message for a notification: decodes HTML
- * entities and turns mention/emoji markup into readable text.
+ * entities and turns mention/emoji markup into readable text, using `names`
+ * to show "@Alice" / "@Moderators" / "#general" when they are known.
  */
-export function notificationPreview(raw: string | null | undefined, max = 140): string {
+export function notificationPreview(raw: string | null | undefined, max = 140, names?: MentionNames | null): string {
   if (!raw) return "";
-  const text = decodeHtmlEntities(raw)
-    .replace(/<@&[\w-]+>/g, "@role")
-    .replace(/<@!?[\w-]+>/g, "@user")
-    .replace(/<#[\w-]+>/g, "#channel")
-    .replace(/<a?:(\w+):[\w-]+>/g, ":$1:")
+  const text = renderMentionText(decodeHtmlEntities(raw), names)
     .replace(/\s+/g, " ")
     .trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/**
+ * Every open tab receives the same live message; only one of them alerts:
+ * the first to claim the message id (a Web Lock held for a while). A tab
+ * where the user is reading claims at once, background tabs wait a beat.
+ */
+async function claimAlert(messageId: string | undefined, attending: boolean): Promise<boolean> {
+  if (!messageId || typeof navigator === "undefined") return true;
+  const locks = (navigator as Navigator & { locks?: LockManager }).locks;
+  if (!locks?.request) return true;
+  if (!attending) await new Promise((r) => setTimeout(r, 150));
+  return new Promise<boolean>((resolve) => {
+    locks
+      .request(`serika-alert-${messageId}`, { ifAvailable: true }, async (lock) => {
+        resolve(Boolean(lock));
+        // Hold it long enough for every other tab to find it taken.
+        if (lock) await new Promise((r) => setTimeout(r, 15_000));
+      })
+      .catch(() => resolve(true));
+  });
 }
 
 export interface IncomingMessageAlert extends Omit<NotifyContext, "isTabVisible"> {
@@ -58,10 +80,22 @@ export interface IncomingMessageAlert extends Omit<NotifyContext, "isTabVisible"
   quiet?: boolean;
   /** Override what the toast's action does (defaults to opening `url`). */
   onToastAction?: () => void;
+  /** Deduplicates the alert across open tabs. */
+  messageId?: string;
+  /** Checked right before alerting: false once the message was read meanwhile. */
+  stillUnread?: () => boolean;
 }
 
 export function notifyIncomingMessage(alert: IncomingMessageAlert): void {
   const focused = isAppFocused();
+  void claimAlert(alert.messageId, focused && alert.viewing).then((mine) => {
+    if (!mine) return;
+    if (alert.stillUnread && !alert.stillUnread()) return;
+    deliverAlert(alert, isAppFocused());
+  });
+}
+
+function deliverAlert(alert: IncomingMessageAlert, focused: boolean): void {
   const decision = evaluateNotification({
     isMentioned: alert.isMentioned,
     isDM: alert.isDM,

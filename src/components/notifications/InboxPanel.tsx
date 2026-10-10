@@ -18,6 +18,7 @@ import { useUnread } from "@/contexts/UnreadContext";
 import { useMentions, type MentionData } from "@/hooks/useMentions";
 import { formatMessageTimestamp } from "@/lib/chat/messages";
 import { notificationPreview } from "@/lib/notifications/notify";
+import type { MentionNames } from "@/lib/chat/mentionText";
 import { navigateToMessage, type InboxTab } from "@/lib/notifications/events";
 import {
   clearMissedCalls,
@@ -40,7 +41,7 @@ export function InboxPanel({ initialTab = "mentions", onNavigate, className }: I
   const router = useRouter();
   const { servers } = useServer();
   const { unreadChannels, markChannelRead, markAllRead, getMentionCount } = useUnread();
-  const { allMentions: rawMentions, mentions: rawUnreadMentions, loading } = useMentions();
+  const { allMentions: rawMentions, mentions: rawUnreadMentions, mentionNames, loading } = useMentions();
   const missedCalls = useMissedCalls();
   const [tab, setTab] = useState<InboxTab>(initialTab);
   const { user } = useAuth();
@@ -112,6 +113,7 @@ export function InboxPanel({ initialTab = "mentions", onNavigate, className }: I
         {tab === "mentions" && (
           <MentionsList
             mentions={allMentions}
+            names={mentionNames}
             unreadIds={unreadMentionIds}
             loading={loading}
             serverName={(id) => serverById.get(id)?.name}
@@ -245,6 +247,7 @@ function EmptyState({ text }: { text: string }) {
 
 function MentionsList({
   mentions,
+  names,
   unreadIds,
   loading,
   serverName,
@@ -252,6 +255,7 @@ function MentionsList({
   onOpen,
 }: {
   mentions: MentionData[];
+  names: MentionNames;
   unreadIds: Set<string>;
   loading: boolean;
   serverName: (id: string) => string | undefined;
@@ -293,7 +297,7 @@ function MentionsList({
               {unread && <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" aria-label={gt("Unread")} />}
             </div>
             <p className="line-clamp-2 text-sm text-[var(--text-secondary)] group-hover:text-[var(--text-primary)]">
-              {notificationPreview(item.content, 280)}
+              {notificationPreview(item.content, 280, names)}
             </p>
           </button>
         );

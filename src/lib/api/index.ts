@@ -985,9 +985,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
         };
       });
 
+      // Names for the mention markup in the previews ("@Alice", not "@user").
+      const { lookupMentionNames } = await import('@/lib/services/mentionNames');
+      const mentionNames = await lookupMentionNames(decryptedMentionContents, {
+        serverIds: [...serversWithMentions],
+      });
+
       return {
         servers: Array.from(serversWithMentions).map(id => ({ id })),
         mentions,
+        mentionNames,
       };
     } catch (error) {
       console.error('Failed to fetch mentions:', error);
@@ -1033,7 +1040,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const memberships = await ServerMember.find({ userId: user.id });
       const serverIds = memberships.map((m) => m.serverId);
       if (serverIds.length === 0) return { channels: [] };
-      const allChannels = await Channel.find({ serverId: { in: serverIds }, type: 'text' });
+      const allChannels = await Channel.find({ serverId: { in: serverIds }, type: { in: ['text', 'announcement'] } });
       // Hide channels the user can't view (permission overwrites), otherwise
       // their server shows unread forever for a channel they can't open.
       const { checkChannelAccess } = await import('./channels');
@@ -1045,14 +1052,33 @@ const userRoutes = new Elysia({ prefix: '/users' })
         ),
       );
       const channels = allChannels.filter((_, i) => visible[i]);
+      // The newest message's own time + author (one id-only query). The
+      // channel's `updatedAt` also moves on renames and permission edits,
+      // which used to light channels up with nothing new in them.
+      const lastIds = [...new Set(channels.map((c) => c.lastMessageId).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+      const lastById = new Map<string, { createdAt: Date | null; authorId: string; isDeleted: boolean | null }>();
+      if (lastIds.length > 0) {
+        const rows = await db
+          .select({ id: schema.messages.id, createdAt: schema.messages.createdAt, authorId: schema.messages.authorId, isDeleted: schema.messages.isDeleted })
+          .from(schema.messages)
+          .where(inArray(schema.messages.id, lastIds.map((id) => normalizeId(id))));
+        for (const r of rows) lastById.set(r.id, r);
+      }
       return {
-        channels: channels.map((c) => ({
-          channelId: c.id,
-          serverId: c.serverId,
-          name: c.name,
-          parentId: (c as { parentId?: string | null }).parentId ?? null,
-          lastMessageAt: c.updatedAt instanceof Date ? c.updatedAt.toISOString() : c.updatedAt,
-        })),
+        channels: channels.map((c) => {
+          const last = c.lastMessageId ? lastById.get(c.lastMessageId) : undefined;
+          const live = last && !last.isDeleted && last.createdAt ? last : null;
+          return {
+            channelId: c.id,
+            serverId: c.serverId,
+            type: c.type,
+            name: c.name,
+            parentId: (c as { parentId?: string | null }).parentId ?? null,
+            lastMessageAt: live?.createdAt ? new Date(live.createdAt).toISOString() : null,
+            lastMessageId: live ? c.lastMessageId : null,
+            lastMessageAuthorId: live?.authorId ?? null,
+          };
+        }),
       };
     } catch (error) {
       console.error('Failed to fetch channel activity:', error);
@@ -1100,15 +1126,20 @@ const userRoutes = new Elysia({ prefix: '/users' })
         }
       }
 
-      const row = await ChannelReadState.ack(user.id, channelId, readMessageId, readAt);
+      const advanced = await ChannelReadState.ack(user.id, channelId, readMessageId, readAt);
+      // Not advanced (an equal or newer marker exists, e.g. another device got
+      // there first): answer with the stored marker, never an older one.
+      const row = advanced ?? (await ChannelReadState.findByUserChannels(user.id, [channelId]))[0] ?? null;
       const lastReadAtIso =
         (row?.lastReadAt instanceof Date ? row.lastReadAt.toISOString() : row?.lastReadAt) ?? readAt.toISOString();
       const lastReadMessageId = row?.lastReadMessageId ?? readMessageId;
 
       // Live cross-device sync: tell this user's OTHER open sessions the channel
       // was read so their badges clear immediately (not just on next reload).
-      const { notifyReadState } = await import('@/lib/api/activity');
-      notifyReadState(user.id, channelId, lastReadAtIso, lastReadMessageId);
+      if (advanced) {
+        const { notifyReadState } = await import('@/lib/api/activity');
+        notifyReadState(user.id, channelId, lastReadAtIso, lastReadMessageId);
+      }
 
       return {
         ok: true,

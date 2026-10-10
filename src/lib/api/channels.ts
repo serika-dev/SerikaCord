@@ -2439,6 +2439,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     void replicateToDiscord('create', params.channelId, messageResponse);
 
+    // Sending reads the channel up to your message, on all your devices.
+    void import('@/lib/api/activity')
+      .then(({ ackOwnMessage }) => ackOwnMessage(user.id, message.channelId, message.id, message.createdAt))
+      .catch(() => { /* best-effort */ });
+
     // App-wide unread signal: notify every other member of this server so their
     // sidebar can glow / badge the channel even when they're not viewing it.
     // Fire-and-forget — never block the sender's response on fan-out.
@@ -2446,6 +2451,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       void (async () => {
         try {
           const { notifyChannelActivity } = await import('@/lib/api/activity');
+          const preview = typeof sanitizedContent === 'string' ? sanitizedContent.slice(0, 200) : undefined;
+          const { lookupMentionNames } = await import('@/lib/services/mentionNames');
+          const mentionNames = preview ? await lookupMentionNames([preview], { serverId: channel.serverId }) : undefined;
           await notifyChannelActivity({
             type: 'channel_activity',
             serverId: channel.serverId as string,
@@ -2458,12 +2466,31 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             mentionedUserIds: (message.mentionedUserIds || []) as string[],
             mentionEveryone: Boolean(message.mentionEveryone),
             mentionedRoleIds: (message.mentionedRoleIds || []) as string[],
-            preview: typeof sanitizedContent === 'string' ? sanitizedContent.slice(0, 200) : undefined,
+            preview,
+            mentionNames,
             parentId: (channel as { parentId?: string | null }).parentId ?? null,
             createdAt: new Date(message.createdAt ?? Date.now()).toISOString(),
           });
         } catch { /* best-effort */ }
       })();
+    } else if (channel.type === 'group_dm' || channel.type === 'dm') {
+      // Group DMs (and DMs) sent through the channel route: same DM-list bump
+      // and unread badge / notification as the DM send route, or the other
+      // members never learn about the message outside the open conversation.
+      void (async () => {
+        const { signalDmMessage } = await import('@/lib/services/messageSignals');
+        await signalDmMessage({
+          channelId: message.channelId,
+          recipientIds: ((channel as { recipientIds?: string[] | null }).recipientIds ?? []) as string[],
+          messageId: message.id,
+          authorId: user.id,
+          authorName: author?.displayName || author?.username,
+          authorAvatar: author?.avatar ?? null,
+          content: typeof sanitizedContent === 'string' ? sanitizedContent : '',
+          hasAttachments: Array.isArray(message.attachments) && message.attachments.length > 0,
+          createdAt: message.createdAt,
+        });
+      })().catch(() => { /* best-effort */ });
     }
 
     // Bot gateway dispatch must NOT block the sender's response. Fire-and-forget.
@@ -2798,6 +2825,31 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       editedTimestamp: updateData.editedTimestamp,
     });
 
+    // Mentions the edit removed: those users' badges / Inbox entries go.
+    if (content) {
+      const before = new Set(((message.mentionedUserIds || []) as string[]).map(String));
+      const after = new Set(((updateData.mentionedUserIds || []) as string[]).map(String));
+      const removed = [...before].filter((id) => !after.has(id) && id !== user.id);
+      const everyoneRemoved =
+        Boolean(message.mentionEveryone) &&
+        !updateData.mentionEveryone &&
+        ((updateData.mentionedRoleIds || []) as string[]).length === 0;
+      if (removed.length > 0 || (everyoneRemoved && channel.serverId)) {
+        void import('@/lib/api/activity')
+          .then(({ fanoutToUsers, notifyMentionRetract }) => {
+            if (everyoneRemoved && channel.serverId) {
+              void fanoutToUsers(
+                { serverId: channel.serverId },
+                { type: 'mention_retract', channelId: params.channelId, messageId: message.id, keepUserIds: [...after] },
+              );
+            } else {
+              notifyMentionRetract(removed, params.channelId, message.id);
+            }
+          })
+          .catch(() => { /* best-effort */ });
+      }
+    }
+
     const updatedMessage = await Message.findById(message.id);
     const responseMsg = { ...updatedMessage, content: sanitizedEditContent };
     void replicateToDiscord('edit', params.channelId, responseMsg);
@@ -2926,11 +2978,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // time and broadcast a reset so their badges roll back. Fire-and-forget.
     void (async () => {
       const [latest] = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: 1 });
+      // Move the channel's newest-message pointer off the deleted message (the
+      // unread seed reads it).
+      if (channel.lastMessageId && compareIds(channel.lastMessageId, message.id)) {
+        await Channel.updateById(channel.id, { lastMessageId: latest?.id ?? null }).catch(() => {});
+      }
       const lastMessageAt = latest?.createdAt
         ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
         : null;
       const { notifyUnreadReset } = await import('@/lib/api/activity');
-      notifyUnreadReset({ serverId: channel.serverId || undefined }, params.channelId, lastMessageAt);
+      notifyUnreadReset({ serverId: channel.serverId || undefined }, params.channelId, lastMessageAt, [
+        { id: message.id, at: message.createdAt ? new Date(message.createdAt).toISOString() : null },
+      ]);
     })().catch(() => { /* best-effort */ });
 
     void replicateToDiscord('delete', params.channelId, { id: params.messageId });
@@ -2999,11 +3058,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (deleted > 0) {
       void (async () => {
         const [latest] = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: 1 });
+        await Channel.updateById(channel.id, { lastMessageId: latest?.id ?? null }).catch(() => {});
         const lastMessageAt = latest?.createdAt
           ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
           : null;
         const { notifyUnreadReset } = await import('@/lib/api/activity');
-        notifyUnreadReset({ serverId: channel.serverId || undefined }, params.channelId, lastMessageAt);
+        notifyUnreadReset(
+          { serverId: channel.serverId || undefined },
+          params.channelId,
+          lastMessageAt,
+          (candidates as IMessage[]).slice(0, 100).map((m) => ({
+            id: m.id,
+            at: m.createdAt ? new Date(m.createdAt).toISOString() : null,
+          })),
+        );
       })().catch(() => { /* best-effort */ });
     }
 

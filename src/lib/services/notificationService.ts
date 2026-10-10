@@ -151,6 +151,13 @@ const openNotifications = new Map<string, Notification>();
 export async function closeNotification(tag: string): Promise<void> {
     openNotifications.get(tag)?.close();
     openNotifications.delete(tag);
+    // Messages to the worker are handled in order, so this also closes a
+    // notification whose SHOW_NOTIFICATION is still queued there.
+    try {
+        swRegistration?.active?.postMessage({ type: 'CLOSE_NOTIFICATIONS', tag });
+    } catch {
+        /* worker gone */
+    }
     try {
         const list = await swRegistration?.getNotifications({ tag });
         list?.forEach((n) => n.close());

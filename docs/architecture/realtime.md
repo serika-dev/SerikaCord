@@ -104,14 +104,17 @@ Channel and DM streams carry JSON objects with a `type`:
 
 The activity stream (`/api/users/@me/activity`) carries user-scoped events:
 `channel_activity` (message in any visible channel: unread glow, mention
-counts), `dm_activity` (DM to this user), `read_state` (read on another
-device), `unread_reset` (newest message deleted). The DM-list stream carries
-`dm:list:update`.
+counts; carries `mentionNames` for the preview), `dm_activity` (DM to this
+user), `read_state` (read on another device, or your own message sent from
+any device — `ackOwnMessage`), `unread_reset` (messages deleted; `deleted`
+lists them), `mention_retract` (an edit removed your mention). The DM-list
+stream carries `dm:list:update`.
 
 `useChatStream` reconnects with exponential backoff and calls `onReconnect`,
 which refetches messages missed while disconnected. `UnreadContext` reconnects
 its EventSource itself after HTTP errors (the browser gives up after a
-401/502/503) and re-syncs read states on reconnect and on tab focus.
+401/502/503) and re-seeds everything (read states, channel activity, mentions,
+DMs) on every reconnect and when the tab comes back.
 
 ## Messages created outside the user routes
 
@@ -151,18 +154,33 @@ members who can't see them.
 ## Notifications and unread (client)
 
 `UnreadContext` (`src/contexts/UnreadContext.tsx`) owns unread glow, mention
-counts, server-rail aggregation and background notifications:
+counts, server-rail aggregation and background notifications. The rules are a
+pure reducer, `src/lib/unread/engine.ts` (one instance per tab in
+`src/lib/unread/store.ts`, also read by the Inbox's `useMentions`), tested
+event by event in `tests/unread-engine.test.ts`:
 
-- Seeds from `/api/users/@me/read-states`, `/api/users/@me/mentions` and
-  `/api/users/@me/channel-activity` (all via `sharedGet`), plus localStorage
-  (`sc:unread:*`).
-- `notifyBackgroundMessage` decides sound / desktop notification / toast
-  through `evaluateNotification` (`src/lib/services/notificationUX.ts`), which
-  applies the user's notification settings, DND and channel mutes. The open
-  conversation is notified by its chat view instead.
+- Unread = newest known message newer than the read marker; the marker never
+  moves backwards. Badges are kept per message id (deduped, removed exactly by
+  reads, deletions and mention retractions); server counts without ids
+  (`/api/dms` `unreadCount`) are reconciled against what arrived since the
+  request was issued. Your own newest message means "read".
+- Seeds from `/api/users/@me/read-states`, `/api/users/@me/channel-activity`
+  (newest message per channel from `lastMessageId`, never `updatedAt`),
+  `/api/users/@me/mentions` and `/api/dms` (all via `sharedGet`), plus
+  localStorage (`sc:unread:read`, `sc:unread:readids`,
+  `sc:unread:activity:v2`).
+- Reading: the open list acks its newest message when the user is attending
+  (`src/lib/unread/attention.ts`: page visible and the window focused or
+  touched in the last 60 s; touch devices: visible), at the bottom.
+- Live messages go through `decideLiveMessage` (`src/lib/unread/live.ts`):
+  own messages read, already-read messages neither count nor alert.
+  `notifyIncomingMessage` (`src/lib/notifications/notify.ts`) applies
+  settings through `evaluateNotification`, claims the alert with a Web Lock so
+  only one tab alerts, and re-checks the message is still unread. The open
+  server channel is notified by its chat view instead.
 - `markChannelRead` POSTs `/api/users/@me/read-states` (DB table
-  `channel_read_states`); the server fans `read_state` out to the user's other
-  devices.
+  `channel_read_states`; failed POSTs retry on reconnect); the server fans
+  `read_state` out to the user's other devices.
 - Counts are capped at `MAX_UNREAD_BADGE` (100, shown as "99+").
 
 ## Bot gateway

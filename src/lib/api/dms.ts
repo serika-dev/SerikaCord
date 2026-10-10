@@ -417,7 +417,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return true;
     }).map(({ _recipientKey: _rk, ...rest }) => rest);
 
-    return { channels: channelsWithRecipients };
+    // Names for mention markup in the last-message previews.
+    const { lookupMentionNames } = await import('@/lib/services/mentionNames');
+    const mentionNames = await lookupMentionNames(channelsWithRecipients.map((c) => c.lastMessage?.content ?? null));
+
+    return { channels: channelsWithRecipients, mentionNames };
   })
   // SSE stream for DM list updates
   .get('/stream', async ({ headers, cookie }) => {
@@ -908,8 +912,12 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // this, DM unread badges don't appear until the user navigates to the DM list.
     void (async () => {
       try {
-        const { fanoutToUsers } = await import('@/lib/api/activity');
+        const { fanoutToUsers, ackOwnMessage } = await import('@/lib/api/activity');
         const createdAtIso = message.createdAt instanceof Date ? message.createdAt.toISOString() : new Date(message.createdAt ?? Date.now()).toISOString();
+        // Sending reads the DM up to your message, on all your devices.
+        ackOwnMessage(user.id, channel.id, message.id, createdAtIso);
+        const { lookupMentionNames } = await import('@/lib/services/mentionNames');
+        const mentionNames = await lookupMentionNames([sanitizedContent.slice(0, 120)]);
         fanoutToUsers(
           { userIds: [params.recipientId] },
           {
@@ -921,6 +929,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             authorAvatar: user.avatar ?? null,
             // Short plaintext preview for the recipient's notification.
             preview: sanitizedContent.slice(0, 120),
+            mentionNames,
             hasAttachments: Array.isArray(attachments) && attachments.length > 0,
             hasSticker: Boolean(stickerData),
             createdAt: createdAtIso,
@@ -1289,7 +1298,9 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
         : null;
       const { notifyUnreadReset } = await import('@/lib/api/activity');
-      notifyUnreadReset({ userIds: channel.recipientIds || [user.id, params.recipientId] }, channel.id, lastMessageAt);
+      notifyUnreadReset({ userIds: channel.recipientIds || [user.id, params.recipientId] }, channel.id, lastMessageAt, [
+        { id: message.id, at: message.createdAt ? new Date(message.createdAt).toISOString() : null },
+      ]);
     })().catch(() => { /* best-effort */ });
 
     return { success: true };

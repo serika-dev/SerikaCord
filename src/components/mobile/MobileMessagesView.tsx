@@ -7,7 +7,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
-import { useUnread } from "@/contexts/UnreadContext";
+import { useUnread, type DmSeed } from "@/contexts/UnreadContext";
+import { notificationPreview } from "@/lib/notifications/notify";
 
 interface Message {
   id: string;
@@ -32,7 +33,7 @@ interface MobileMessagesViewProps {
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const router = useRouter();
   const gt = useGT();
-  const { isChannelUnread, registerChannels, getMentionCount, seedDmCounts } = useUnread();
+  const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels } = useUnread();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -62,6 +63,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   }, []);
 
   const fetchMessages = useCallback(async () => {
+    const issuedAt = Date.now();
     try {
       const response = await sharedGet("/api/dms");
       if (response.ok) {
@@ -89,7 +91,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               name: recipient?.displayName || recipient?.username || gt("Unknown"),
               username: recipient?.username || "",
               avatar: recipient?.avatar,
-              lastMessage: channel.lastMessage?.content || gt("Start a conversation"),
+              lastMessage: notificationPreview(channel.lastMessage?.content, 120, data.mentionNames) || gt("Start a conversation"),
               timestamp: formatTimestamp(channel.updatedAt),
               status: recipient?.status || "offline",
             });
@@ -98,20 +100,18 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         
         const list = Array.from(seenRecipients.values());
         setMessages(list);
-        // Feed the unread engine so DM rows light up cross-device.
+        // Feed the unread engine so DM rows light up cross-device: the newest
+        // message (its own time / author) plus the server's unread counts.
         registerChannels(
-          (data.channels || []).map((c: { id: string; updatedAt?: string | null }) => ({
+          (data.channels || []).map((c: DmSeed) => ({
             id: c.id,
             type: "dm" as const,
-            lastMessageAt: c.updatedAt ?? null,
+            lastMessageAt: c.lastMessage?.createdAt ?? null,
+            lastMessageId: c.lastMessage?.id ?? null,
+            lastMessageAuthorId: c.lastMessage?.authorId ?? null,
           }))
         );
-        // Seed authoritative per-DM unread counts for the accent count badges.
-        const counts: Record<string, number> = {};
-        for (const c of (data.channels || []) as Array<{ id: string; unreadCount?: number }>) {
-          counts[c.id] = c.unreadCount || 0;
-        }
-        seedDmCounts(counts);
+        seedDmChannels((data.channels || []) as DmSeed[], issuedAt);
       }
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -120,7 +120,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       setIsRefreshing(false);
       setPullDistance(0);
     }
-  }, [formatTimestamp, registerChannels, seedDmCounts]);
+  }, [formatTimestamp, registerChannels, seedDmChannels]);
 
   useEffect(() => {
     fetchMessages();

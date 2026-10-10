@@ -26,6 +26,7 @@ import {
   type UnreadDivider as UnreadDividerInfo,
 } from "@/lib/chat/unreadMarker";
 import { onHotkey } from "@/lib/keybinds";
+import { isUserAttending, setListAtBottom, subscribeAttention } from "@/lib/unread/attentionTracker";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
@@ -128,6 +129,12 @@ interface WatchState {
 
 const EMPTY_WATCH: WatchState = { key: "", caughtUp: false, floor: null, kept: null };
 
+/** Record whether the list shows its newest message (and tell the unread engine). */
+function markBottom(ref: { current: boolean }, reportsRef: { current: boolean }, atBottom: boolean) {
+  ref.current = atBottom;
+  if (reportsRef.current) setListAtBottom(atBottom);
+}
+
 /** The later of two read markers. */
 function laterMarker(a: ReadMarker | null | undefined, b: ReadMarker | null | undefined): ReadMarker | null {
   if (!a) return b ?? null;
@@ -194,6 +201,8 @@ function MessageListInner<M extends ChatMessage>(
   const contentRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const isAtBottomRef = useRef(true);
+  // This list acks reads (the open conversation), so it reports to the engine.
+  const reportsReadingRef = useRef(Boolean(onReadUpTo));
   // True while the list should stay glued to the bottom. Set on channel switch
   // / force-scroll and cleared the moment the user scrolls up. Drives the
   // ResizeObserver re-anchor below so late-loading media can't strand the list
@@ -281,7 +290,12 @@ function MessageListInner<M extends ChatMessage>(
     const { newestAck: newest, hasMoreNewer: detached, isLoading: loading, computedDivider: atAck, contextKey: key } = unreadRef.current;
     if (!cb || !newest || detached || loading) return;
     if (!isAtBottomRef.current) return;
-    if (typeof document === "undefined" || document.visibilityState !== "visible" || !document.hasFocus()) return;
+    // Visible and (focused, or touched within the last minute): see
+    // lib/unread/attention.ts. Not looking: what lands now is a new unread run.
+    if (!isUserAttending()) {
+      markAway();
+      return;
+    }
     if (ackedIdRef.current === newest.id) return;
     ackedIdRef.current = newest.id;
     cb({ id: newest.id, createdAt: newest.createdAt as string });
@@ -295,7 +309,7 @@ function MessageListInner<M extends ChatMessage>(
       }),
     );
     dismissBar();
-  }, [dismissBar]);
+  }, [dismissBar, markAway]);
 
   // Reset scroll state when channel/DM changes so the list scrolls to bottom
   // even if the message count happens to be identical to the previous context.
@@ -309,7 +323,7 @@ function MessageListInner<M extends ChatMessage>(
     scrollAnchorRef.current = null;
     prevMessageCountRef.current = 0;
     prevGroupCountRef.current = 0;
-    isAtBottomRef.current = true;
+    markBottom(isAtBottomRef, reportsReadingRef, true);
     stickToBottomRef.current = true;
     forceScrollRef.current = true;
     readyForPaginationRef.current = false;
@@ -484,7 +498,7 @@ function MessageListInner<M extends ChatMessage>(
             if (top < viewport.scrollHeight - viewport.clientHeight - 80) {
               viewport.scrollTop = Math.max(0, top);
               stickToBottomRef.current = false;
-              isAtBottomRef.current = false;
+              markBottom(isAtBottomRef, reportsReadingRef, false);
               latestRef.current.onAtBottomChange?.(false);
               void Promise.resolve().then(() => setAwayFromBottom(true));
             }
@@ -534,7 +548,7 @@ function MessageListInner<M extends ChatMessage>(
       if (pendingScrollRestoreRef.current) return; // top-pagination owns scroll
       viewport.scrollTop = viewport.scrollHeight;
       if (!isAtBottomRef.current) {
-        isAtBottomRef.current = true;
+        markBottom(isAtBottomRef, reportsReadingRef, true);
         latestRef.current.onAtBottomChange?.(true);
       }
       tryAck();
@@ -566,7 +580,7 @@ function MessageListInner<M extends ChatMessage>(
       // reaching the bottom again re-engages it.
       stickToBottomRef.current = atBottom;
       if (atBottom !== isAtBottomRef.current) {
-        isAtBottomRef.current = atBottom;
+        markBottom(isAtBottomRef, reportsReadingRef, atBottom);
         latestRef.current.onAtBottomChange?.(atBottom);
       }
       setAwayFromBottom(!atBottom);
@@ -652,18 +666,26 @@ function MessageListInner<M extends ChatMessage>(
   useEffect(() => {
     tryAck();
   }, [newestAckId, hasMoreNewer, isLoading, tryAck]);
+  // Attention changes (focus, tab shown/hidden, the one-minute window after
+  // the last interaction running out) and any pointer / key / wheel / scroll
+  // on the page: ack when the user is looking, start a new unread run when not.
+  useEffect(
+    () =>
+      subscribeAttention(() => {
+        if (isUserAttending()) tryAck();
+        else markAway();
+      }),
+    [tryAck, markAway],
+  );
+  // Tell the unread engine whether the open conversation is being read live
+  // (so live messages in it don't badge). Only lists that ack report.
+  const reportsReading = Boolean(onReadUpTo);
   useEffect(() => {
-    const onFocus = () => tryAck();
-    const onVisibility = () => (document.visibilityState === "visible" ? tryAck() : markAway());
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", markAway);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", markAway);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [tryAck, markAway]);
+    reportsReadingRef.current = reportsReading;
+    if (!reportsReading) return;
+    setListAtBottom(isAtBottomRef.current);
+    return () => setListAtBottom(false);
+  }, [reportsReading, contextKey]);
 
   const markRead = useCallback(() => {
     const { divider: d, barDismissed: dismissed, newestAck: newest, contextKey: key } = unreadRef.current;
@@ -826,7 +848,7 @@ function MessageListInner<M extends ChatMessage>(
           onClick={() => {
             setNewMessagesCount(0);
             setNewMessageStartId(null);
-            isAtBottomRef.current = true;
+            markBottom(isAtBottomRef, reportsReadingRef, true);
             scrollToBottom();
           }}
           className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[var(--app-accent)] text-[var(--text-on-accent,#fff)] text-sm shadow-lg hover:opacity-90 transition-opacity animate-fade-in-up"

@@ -31,6 +31,9 @@ export async function signalChannelMessage(opts: {
   if (!opts.channel.serverId) return;
   try {
     const { notifyChannelActivity } = await import('@/lib/api/activity');
+    const preview = opts.content ? opts.content.slice(0, 200) : undefined;
+    const { lookupMentionNames } = await import('@/lib/services/mentionNames');
+    const mentionNames = preview ? await lookupMentionNames([preview], { serverId: opts.channel.serverId }) : undefined;
     await notifyChannelActivity({
       type: 'channel_activity',
       serverId: opts.channel.serverId,
@@ -42,7 +45,8 @@ export async function signalChannelMessage(opts: {
       mentionedUserIds: opts.mentionedUserIds ?? [],
       mentionEveryone: Boolean(opts.mentionEveryone),
       authorAvatar: opts.authorAvatar ?? null,
-      preview: opts.content ? opts.content.slice(0, 200) : undefined,
+      preview,
+      mentionNames,
       createdAt: new Date(opts.createdAt ?? Date.now()).toISOString(),
     });
   } catch {
@@ -81,6 +85,8 @@ export async function signalDmMessage(opts: {
     }
     if (others.length === 0) return;
     const { fanoutToUsers } = await import('@/lib/api/activity');
+    const { lookupMentionNames } = await import('@/lib/services/mentionNames');
+    const mentionNames = text ? await lookupMentionNames([text.slice(0, 120)]) : undefined;
     await fanoutToUsers({ userIds: others }, {
       type: 'dm_activity',
       channelId: opts.channelId,
@@ -89,6 +95,7 @@ export async function signalDmMessage(opts: {
       authorName: opts.authorName ?? undefined,
       authorAvatar: opts.authorAvatar ?? null,
       preview: text.slice(0, 120),
+      mentionNames,
       hasAttachments: Boolean(opts.hasAttachments),
       createdAt,
       ...(opts.isCall ? { isCall: true } : {}),

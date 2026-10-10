@@ -104,6 +104,8 @@ interface DMChannel {
     } | null;
   }[];
   lastMessageId?: string;
+  /** Newest message (its own time and author drive unread, not `updatedAt`). */
+  lastMessage?: { id?: string; authorId?: string; createdAt?: string } | null;
   updatedAt?: string;
   unreadCount?: number;
   /** Group DMs only: the group's own name (may be a default). */
@@ -135,7 +137,7 @@ export function ChannelSidebar({
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
   const canManageAny = canManageChannels || canManageServer || isAdmin;
-  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmCounts, notifyDmActivity, markChannelRead, markChannelsRead, isChannelMuted } = useUnread();
+  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmChannels, notifyDmActivity, markChannelRead, markChannelsRead, isChannelMuted } = useUnread();
   const notifPrefs = useNotificationPrefs();
   const muteOptions = useMuteOptions();
   const mutedUntilLabel = useMutedUntilLabel();
@@ -831,8 +833,9 @@ export function ChannelSidebar({
       );
     }
 
-    const mentionCount = getMentionCount(channel.id);
     const isActive = currentChannel?.id === channel.id;
+    // The open channel is being read: no badge on it (like DMs).
+    const mentionCount = isActive ? 0 : getMentionCount(channel.id);
     const unread = !isActive && isChannelUnread(channel.id);
     return (
       <div
@@ -895,7 +898,7 @@ export function ChannelSidebar({
   const renderThreadItem = (thread: typeof channels[0], isLast: boolean) => {
     const isActive = currentChannel?.id === thread.id;
     const unread = !isActive && isChannelUnread(thread.id);
-    const mentionCount = getMentionCount(thread.id);
+    const mentionCount = isActive ? 0 : getMentionCount(thread.id);
 
     return (
       <div key={thread.id} className="relative flex items-center pl-6 pr-2 mb-0.5 group">
@@ -1018,6 +1021,7 @@ export function ChannelSidebar({
 
   // Fetch DM channels when no server is selected
   const fetchDMChannels = useCallback(async () => {
+    const issuedAt = Date.now();
     try {
       const response = await sharedGet("/api/dms");
       if (response.ok) {
@@ -1029,18 +1033,16 @@ export function ChannelSidebar({
           return bTime - aTime;
         });
         setDmChannels(channels);
-        // Seed authoritative per-DM unread counts into the unread engine so the
-        // accent mention badges show real numbers (not just a session tally).
-        const counts: Record<string, number> = {};
-        for (const c of channels) counts[c.id] = c.unreadCount || 0;
-        seedDmCounts(counts);
+        // Seed the server's per-DM unread counts into the unread engine (it
+        // reconciles them with anything that arrived since `issuedAt`).
+        seedDmChannels(channels, issuedAt);
       }
     } catch (error) {
       console.error("Failed to fetch DM channels:", error);
     } finally {
       setDmsLoaded(true);
     }
-  }, [seedDmCounts]);
+  }, [seedDmChannels]);
 
   useEffect(() => {
     if (!currentServer) {
@@ -1056,8 +1058,9 @@ export function ChannelSidebar({
   usePolling(fetchDMChannels, 20000, !currentServer);
 
   // Feed DM channels into the unread engine so DM rows get the same
-  // read/unread treatment as server channels (bold + pill). `updatedAt` bumps
-  // whenever a new message lands, which is exactly our "last activity" signal.
+  // read/unread treatment as server channels (bold + pill). The newest
+  // message's own time and author are the signal (`updatedAt` also moves for
+  // your own sends and renames; your own newest message means "read").
   useEffect(() => {
     if (dmChannels.length === 0) return;
     registerChannels(
@@ -1066,7 +1069,9 @@ export function ChannelSidebar({
         return {
           id: c.id,
           type: "dm",
-          lastMessageAt: c.updatedAt ?? null,
+          lastMessageAt: c.lastMessage?.createdAt ?? null,
+          lastMessageId: c.lastMessage?.id ?? null,
+          lastMessageAuthorId: c.lastMessage?.authorId ?? null,
           name: r ? r.displayName || r.username : undefined,
           href: r ? `/dm/${r.id}` : undefined,
           avatar: r?.avatar ?? null,
@@ -1101,12 +1106,14 @@ export function ChannelSidebar({
             // the channel is one we've never seen (a brand-new conversation).
             const channelId = String(data.channelId ?? "");
             const createdAt = data.message?.createdAt;
-            // Live unread badge: count messages from the other participant only.
-            if (channelId && data.message?.authorId && data.message.authorId !== user?.id) {
+            // Live unread badge: messages from others count; your own (sent
+            // from another device) read the conversation.
+            if (channelId && data.message?.authorId) {
               notifyDmActivity(
                 channelId,
                 typeof createdAt === "string" ? createdAt : undefined,
                 typeof data.message?.id === "string" ? data.message.id : undefined,
+                String(data.message.authorId),
               );
             }
             setDmChannels((prev) => {
@@ -1118,6 +1125,9 @@ export function ChannelSidebar({
               const updated: DMChannel = {
                 ...prev[idx],
                 lastMessageId: data.message?.id ?? prev[idx].lastMessageId,
+                lastMessage: data.message?.id
+                  ? { id: data.message.id, authorId: data.message.authorId, createdAt: typeof createdAt === "string" ? createdAt : undefined }
+                  : prev[idx].lastMessage,
                 updatedAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
               };
               return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];

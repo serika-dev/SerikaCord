@@ -19,6 +19,7 @@ import { Channel, ServerMember } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
 import { inArray } from 'drizzle-orm';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import type { MentionNames } from '@/lib/chat/mentionText';
 
 export interface ChannelActivityPayload {
   type: 'channel_activity';
@@ -37,6 +38,8 @@ export interface ChannelActivityPayload {
   authorAvatar?: string | null;
   /** Short plain-text preview for desktop notifications (shown only if the user allows previews). */
   preview?: string;
+  /** Names for mention markup in `preview` ("@Alice" instead of "@user"). */
+  mentionNames?: MentionNames;
   /** Parent category / forum, so per-category notification settings apply. */
   parentId?: string | null;
   createdAt: string; // ISO
@@ -271,8 +274,36 @@ export function notifyUnreadReset(
   target: FanoutTarget,
   channelId: string,
   lastMessageAt: string | null,
+  /** The deleted messages, so clients drop exactly their badges. */
+  deleted?: Array<{ id: string; at: string | null }>,
 ): void {
-  void fanoutToUsers(target, { type: 'unread_reset', channelId, lastMessageAt });
+  void fanoutToUsers(target, { type: 'unread_reset', channelId, lastMessageAt, ...(deleted?.length ? { deleted } : {}) });
+}
+
+/**
+ * An edit removed these users' mention from a message: their badges and
+ * Inbox entries for it go.
+ */
+export function notifyMentionRetract(userIds: string[], channelId: string, messageId: string): void {
+  if (userIds.length === 0) return;
+  void fanoutToUsers({ userIds }, { type: 'mention_retract', channelId, messageId });
+}
+
+/**
+ * The user's own message reads the conversation up to it (Discord: sending
+ * marks the channel read) — on every device, also when the sending tab isn't
+ * focused. Fire-and-forget.
+ */
+export function ackOwnMessage(userId: string, channelId: string, messageId: string, createdAt: Date | string | null | undefined): void {
+  void (async () => {
+    const at = createdAt ? new Date(createdAt) : new Date();
+    if (Number.isNaN(at.getTime())) return;
+    const { ChannelReadState } = await import('@/lib/models/ChannelReadState');
+    const row = await ChannelReadState.ack(userId, channelId, messageId, at);
+    if (!row) return; // an equal or newer marker already exists
+    const lastReadAt = row.lastReadAt instanceof Date ? row.lastReadAt.toISOString() : String(row.lastReadAt ?? at.toISOString());
+    notifyReadState(userId, channelId, lastReadAt, row.lastReadMessageId ?? messageId);
+  })().catch((err: Error) => console.error('Own-message read ack failed:', err?.message));
 }
 
 /**

@@ -35,6 +35,7 @@ import { MessageList, type MessageListHandle } from "@/components/chat/MessageLi
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { notifyIncomingMessage, notificationPreview } from "@/lib/notifications/notify";
+import type { MentionNames } from "@/lib/chat/mentionText";
 import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
 import { refreshMentionsNow } from "@/hooks/useMentions";
 import { readMarkerMs } from "@/lib/chat/unreadMarker";
@@ -531,6 +532,16 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
     [currentServer, mentionRoles, mentionUsers]
   );
 
+  // Names for mention markup in notification previews ("@Alice", not "@user").
+  const previewNames = useMemo<MentionNames>(
+    () => ({
+      users: Object.fromEntries(mentionUsers.map((u) => [u.id, u.displayName])),
+      roles: Object.fromEntries(mentionRoles.map((r) => [r.id, r.name])),
+      channels: Object.fromEntries(channels.map((c) => [c.id, c.name])),
+    }),
+    [mentionUsers, mentionRoles, channels],
+  );
+
   // Notification UX for incoming messages from other users.
   const handleIncomingMessage = useCallback(
     (message: Message) => {
@@ -551,7 +562,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
       const authorName = message.author?.displayName || message.author?.username || gt("Someone");
       const showPreview = user?.settings?.notifications?.showPreview !== false;
       const preview = showPreview
-        ? (notificationPreview(message.content) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
+        ? (notificationPreview(message.content, 140, previewNames) || (message.attachments?.length ? "📎 " + gt("Attachment") : gt("New message")))
         : gt("New message");
       const parentId = currentChannel?.id === message.channelId ? currentChannel?.parentId : undefined;
       const grandParentId = parentId ? channels.find((c) => c.id === parentId)?.parentId : undefined;
@@ -580,6 +591,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
           messageListRef.current?.scrollToBottom();
         },
         quiet: !isMentioned && !isEveryoneMention,
+        messageId: message.id,
       });
 
       // Auto TTS: speak incoming messages when the listener has TTS enabled, or
@@ -596,7 +608,7 @@ export function ChatArea({ onToggleMembers, showMembers }: ChatAreaProps) {
         });
       }
     },
-    [user?.id, user?.settings, currentUserRoleIds, currentServer?.id, currentChannel?.id, currentChannel?.parentId, currentChannel?.name, channels, gt]
+    [user?.id, user?.settings, currentUserRoleIds, currentServer?.id, currentChannel?.id, currentChannel?.parentId, currentChannel?.name, channels, gt, previewNames]
   );
 
   // The whole chat engine (messages, SSE, sends, pins, actions) is shared

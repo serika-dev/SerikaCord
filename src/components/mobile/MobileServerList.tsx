@@ -6,7 +6,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Plus, Compass, Download } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useUnread } from "@/contexts/UnreadContext";
-import { useMentions } from "@/hooks/useMentions";
 import { useServerMutes } from "@/hooks/useServerMutes";
 
 interface MobileServerListProps {
@@ -19,7 +18,6 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
   const { servers, currentServer, setCurrentServer, setCurrentChannel } = useServer();
   // Same unread/mention sources as the desktop ServerSidebar.
   const { isServerUnread, getServerMentionCount } = useUnread();
-  const { serverMentionCounts } = useMentions();
   const { isMuted } = useServerMutes();
 
   const handleServerClick = (server: typeof servers[0]) => {
@@ -76,7 +74,9 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
           {/* Server List */}
           {servers.map((server) => {
             const muted = isMuted(server.id);
-            const unreadCount = muted ? 0 : Math.max(serverMentionCounts.get(server.id) || 0, getServerMentionCount(server.id));
+            // Muted servers still badge mentions (Discord parity, same as the
+            // desktop rail); settings already kept suppressed pings out.
+            const unreadCount = getServerMentionCount(server.id);
             const hasUnread = !muted && isServerUnread(server.id);
             const isActive = currentServer?.id === server.id;
             
