@@ -139,7 +139,7 @@ export default function DMConversationPage() {
     },
   });
 
-  const { setActiveChannel, markChannelRead, getReadMarker, isChannelMuted } = useUnread();
+  const { setActiveChannel, markChannelRead, markChannelUnread, getReadMarker, isChannelMuted } = useUnread();
   // The DM's channel id isn't in the route (which uses recipientId), so derive
   // it from loaded messages. Wire it into the unread engine so DM read state
   // persists to the DB and syncs across devices.
@@ -744,6 +744,10 @@ export default function DMConversationPage() {
           unreadMarker={openMarker.marker}
           onReadUpTo={handleReadUpTo}
           onMarkRead={handleMarkRead}
+          onMarkUnread={(plan) => {
+            if (dmChannelId) markChannelUnread(dmChannelId, plan);
+          }}
+          onJumpToPresent={chat.returnToPresent}
         />
 
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />
@@ -776,6 +780,8 @@ export default function DMConversationPage() {
               availableServerEmojis={availableServerEmojis}
               availableServerStickers={availableServerStickers}
               replyTo={chat.actions.replyToMessage}
+              replyMention={chat.actions.replyMention}
+              onToggleReplyMention={chat.actions.toggleReplyMention}
               onCancelReply={() => chat.actions.setReplyToMessage(null)}
               pollApiBase={apiBase ?? undefined}
               draftKey={recipientId ? `dm:${recipientId}` : undefined}
@@ -882,6 +888,9 @@ export default function DMConversationPage() {
         onEdit={chat.actions.startEditing}
         onDelete={chat.actions.setDeleteConfirmMessage}
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
+        onMarkUnread={(message) => messageListRef.current?.markUnreadFrom(message.id)}
+        onViewReactions={(message) => chat.actions.setReactionsViewer({ message })}
+        onReport={chat.actions.setReportMessage}
         onToggleReaction={(message, emoji, hasReacted) => chat.actions.toggleReaction(message.id, emoji, hasReacted)}
         currentUserId={user.id}
       />

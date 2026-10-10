@@ -21,6 +21,7 @@ import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 import { parseCallData } from "@/lib/voice/callMessage";
 import { applyPollUpdate, type PollUpdateEvent } from "@/lib/chat/polls";
 import { haptic } from "@/lib/native/bridge";
+import { MESSAGE_FLAGS, parseSilentPrefix } from "@/lib/chat/messageFlags";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -887,6 +888,33 @@ export function useChatSession<M extends ChatMessage>({
   });
 
   /**
+   * Load the live tail again after a jump (pin, search result, reply) left the
+   * window detached ("Jump to Present", and before sending). Optimistic sends
+   * stay. Resolves once the newest page is in state (or the fetch failed).
+   */
+  const returnToPresent = useCallback(async (): Promise<boolean> => {
+    if (!apiBase) return false;
+    const context = apiBase;
+    try {
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      if (!response.ok || activeFetchContextRef.current !== context) return false;
+      const data = await response.json();
+      if (activeFetchContextRef.current !== context) return false;
+      const raw = Array.isArray(data) ? data : data.messages || [];
+      const page = dedupeMessages<M>(raw);
+      hasMoreNewerRef.current = false;
+      setHasMoreNewer(false);
+      setHasMoreOlder(paginated && page.length >= PAGE_SIZE);
+      setMessages((prev) => [...page, ...prev.filter((m) => m.id.startsWith("temp-"))]);
+      writeCache(context, page, true);
+      return true;
+    } catch {
+      // Keep the current window.
+      return false;
+    }
+  }, [apiBase, paginated]);
+
+  /**
    * Optimistic send with rollback. Handles text, replies, stickers, GIF
    * overrides, and pending attachments (uploaded via the MessageBar).
    */
@@ -901,8 +929,11 @@ export function useChatSession<M extends ChatMessage>({
         ? latestRef.current.normalizeContent(rawContent)
         : rawContent;
       const pendingAttachments = isOverrideSend ? [] : (messageBarRef.current?.getAttachments() ?? []);
+      // "@silent hi" is sent as "hi" with notifications suppressed (the server
+      // strips the prefix too; this keeps the optimistic bubble right).
+      const silentParse = parseSilentPrefix(messageContent);
 
-      if (!messageContent.trim() && pendingAttachments.length === 0 && !sticker) {
+      if (!silentParse.content.trim() && pendingAttachments.length === 0 && !sticker) {
         return;
       }
 
@@ -911,6 +942,7 @@ export function useChatSession<M extends ChatMessage>({
       if (hasAttachments && uploadingRef.current) return;
 
       const replyReference = actions.replyToMessage;
+      const replyMention = actions.replyMention;
       if (!isOverrideSend) {
         composer?.clear();
       }
@@ -929,26 +961,7 @@ export function useChatSession<M extends ChatMessage>({
       // the present first, like Discord. Appending to the old window would put
       // the message next to week-old ones and make it the forward cursor, so the
       // gap in between would never load.
-      if (hasMoreNewerRef.current) {
-        const context = apiBase;
-        try {
-          const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
-          if (response.ok && activeFetchContextRef.current === context) {
-            const data = await response.json();
-            if (activeFetchContextRef.current === context) {
-              const raw = Array.isArray(data) ? data : data.messages || [];
-              const page = dedupeMessages<M>(raw);
-              hasMoreNewerRef.current = false;
-              setHasMoreNewer(false);
-              setHasMoreOlder(paginated && page.length >= PAGE_SIZE);
-              setMessages((prev) => [...page, ...prev.filter((m) => m.id.startsWith("temp-"))]);
-              writeCache(context, page, true);
-            }
-          }
-        } catch {
-          // Fall through and append to the current window.
-        }
-      }
+      if (hasMoreNewerRef.current) await returnToPresent();
 
       // Upload now, while the MessageBar still holds these files.
       let uploadPromise: Promise<Array<{ id: string; url: string; filename: string; contentType: string; spoiler?: boolean }>> =
@@ -973,7 +986,8 @@ export function useChatSession<M extends ChatMessage>({
       haptic("light");
       const buildOptimistic = (attachments: unknown[]) => ({
           id: tempId,
-          content: messageContent,
+          content: silentParse.content,
+          flags: silentParse.silent ? MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS : 0,
           type: replyReference ? "reply" : "default",
           authorId: user.id,
           author: {
@@ -1018,7 +1032,7 @@ export function useChatSession<M extends ChatMessage>({
             // draft and reply back so the whole message can be retried.
             setMessages((prev) => prev.filter((m) => m.id !== tempId));
             restoreDraft();
-            if (replyReference) actions.setReplyToMessage(replyReference);
+            if (replyReference) actions.setReplyToMessage(replyReference, { mention: replyMention });
             toast.error(gt("Failed to upload file(s). Your message was not sent."));
             return;
           }
@@ -1033,6 +1047,7 @@ export function useChatSession<M extends ChatMessage>({
           if (sticker) body.sticker = sticker;
           if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
           if (replyReference) body.replyTo = replyReference.id;
+          if (replyReference && !replyMention) body.mentionRepliedUser = false;
 
           const response = await fetch(`${apiBase}/messages`, {
             method: "POST",
@@ -1081,7 +1096,7 @@ export function useChatSession<M extends ChatMessage>({
       sendQueueRef.current = queued.catch(() => undefined);
       await queued;
     },
-    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt, paginated, appendCapped]
+    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt, appendCapped, returnToPresent]
   );
 
   /**
@@ -1145,6 +1160,7 @@ export function useChatSession<M extends ChatMessage>({
     loadOlderMessages,
     loadNewerMessages,
     jumpToMessage,
+    returnToPresent,
     handleAtBottomChange,
     pinnedMessages,
     isLoadingPins,

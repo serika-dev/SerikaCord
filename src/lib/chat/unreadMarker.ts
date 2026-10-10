@@ -99,6 +99,51 @@ export function readMarkerMs(marker: ReadMarker | null | undefined): number {
   return Number.isNaN(t) ? 0 : t;
 }
 
+export interface MessageStamp {
+  id: string;
+  createdAt: string;
+}
+
+/** What "Mark Unread" on one message does (see UnreadContext.markChannelUnread). */
+export interface MarkUnreadPlan {
+  /** The message marked unread: the "NEW" line goes above it. */
+  from: MessageStamp;
+  /** The message above it, which becomes the last read one (null: none loaded). */
+  previous: MessageStamp | null;
+  /** The new read marker. */
+  marker: ReadMarker;
+  /** Messages that badge again (DM messages / mentions from others). */
+  badge: MessageStamp[];
+  /** Newest loaded message, so the conversation counts as unread. */
+  newest: MessageStamp | null;
+}
+
+/**
+ * Plan "Mark Unread" from `fromId` in a loaded window (oldest → newest).
+ * `counts` decides which messages from others badge again (every message in a
+ * DM, mentions in a server channel).
+ */
+export function planMarkUnread<M extends UnreadMessageLike>(
+  messages: ReadonlyArray<M>,
+  fromId: string,
+  opts: { currentUserId?: string | null; counts: (message: M) => boolean },
+): MarkUnreadPlan | null {
+  const real = messages.filter((m) => !m.pending && !m.ephemeral && m.createdAt && UUID_RE.test(m.id));
+  const idx = real.findIndex((m) => m.id === fromId);
+  if (idx < 0) return null;
+  const stamp = (m: M): MessageStamp => ({ id: m.id, createdAt: m.createdAt as string });
+  const from = stamp(real[idx]);
+  const previous = idx > 0 ? stamp(real[idx - 1]) : null;
+  const marker: ReadMarker = previous
+    ? { lastReadMessageId: previous.id, lastReadAt: previous.createdAt }
+    : { lastReadMessageId: null, lastReadAt: new Date(ts(from.createdAt) - 1).toISOString() };
+  const badge = real
+    .slice(idx)
+    .filter((m) => !(opts.currentUserId && m.authorId === opts.currentUserId) && opts.counts(m))
+    .map(stamp);
+  return { from, previous, marker, badge, newest: stamp(real[real.length - 1]) };
+}
+
 /** Newest message that can be acknowledged as read (skips optimistic sends). */
 export function newestAckable<M extends UnreadMessageLike>(messages: ReadonlyArray<M>): M | null {
   for (let i = messages.length - 1; i >= 0; i--) {

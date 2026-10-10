@@ -43,6 +43,8 @@ export interface ChannelActivityPayload {
   /** Parent category / forum, so per-category notification settings apply. */
   parentId?: string | null;
   createdAt: string; // ISO
+  /** "@silent" message: badges and unread as usual, but no push, sound or notification. */
+  silent?: boolean;
 }
 
 const MAX_ROLE_MENTION_RECIPIENTS = 5000;
@@ -276,10 +278,12 @@ export function notifyReadState(
   channelId: string,
   lastReadAt: string,
   lastReadMessageId?: string | null,
+  /** "Mark Unread": the marker moved backwards; other devices follow it back. */
+  rewind = false,
 ): void {
   void fanoutToUsers(
     { userIds: [userId] },
-    { type: 'read_state', channelId, lastReadAt, lastReadMessageId: lastReadMessageId ?? null },
+    { type: 'read_state', channelId, lastReadAt, lastReadMessageId: lastReadMessageId ?? null, ...(rewind ? { rewind: true } : {}) },
   );
 }
 

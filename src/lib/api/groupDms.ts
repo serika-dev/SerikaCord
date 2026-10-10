@@ -433,6 +433,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
         hasAttachments: prepared.attachments.length > 0,
         createdAt: message.createdAt,
         group: await groupNotifyInfo(channel),
+        silent: prepared.silent,
       });
     })().catch(() => { /* best-effort */ });
 

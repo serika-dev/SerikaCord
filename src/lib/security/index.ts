@@ -66,6 +66,7 @@ export const rateLimiters_config = {
 
   // Message search (server / DM / channel), per user. Each query decrypts a page.
   search: { points: 40, duration: 60 },
+  reactionManage: { points: 30, duration: 60 }, // moderators removing others' reactions
   
   // Upload rate limits
   upload: { points: 10, duration: 60 }, // 10 uploads per minute

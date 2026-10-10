@@ -163,7 +163,8 @@ interface MentionSuggestion {
 }
 
 interface ReplyTarget {
-  author?: { displayName?: string; username?: string };
+  authorId?: string;
+  author?: { id?: string; displayName?: string; username?: string };
   content?: string;
 }
 
@@ -195,6 +196,9 @@ interface MessageBarProps {
   // Reply
   replyTo?: ReplyTarget | null;
   onCancelReply?: () => void;
+  /** Reply pings the replied-to author ("@ON"); toggled with the pill in the reply bar. */
+  replyMention?: boolean;
+  onToggleReplyMention?: () => void;
 
   // Mentions
   mentionSuggestions?: MentionSuggestion[];
@@ -254,6 +258,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       serverName,
       replyTo,
       onCancelReply,
+      replyMention = true,
+      onToggleReplyMention,
       mentionSuggestions = [],
       onMentionSelect,
       activeMentionIndex = 0,
@@ -860,6 +866,22 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   </p>
                 </div>
               </div>
+              {onToggleReplyMention && (replyTo.authorId ?? replyTo.author?.id) && (replyTo.authorId ?? replyTo.author?.id) !== user?.id && (
+                <button
+                  type="button"
+                  onClick={onToggleReplyMention}
+                  aria-pressed={replyMention}
+                  title={replyMention ? gt("Click to disable pinging the original author.") : gt("Click to enable pinging the original author.")}
+                  className={cn(
+                    "ml-auto shrink-0 self-center rounded px-1.5 py-0.5 text-xs font-bold transition-colors",
+                    replyMention
+                      ? "text-[var(--app-accent)] hover:bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)]"
+                      : "text-[var(--app-muted)] hover:bg-[var(--app-surface-alt)]"
+                  )}
+                >
+                  {replyMention ? gt("@ON") : gt("@OFF")}
+                </button>
+              )}
               {onCancelReply && (
                 <button
                   type="button"

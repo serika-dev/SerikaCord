@@ -26,6 +26,8 @@ import { dmSendDenyReason, type DmPolicyUser } from '@/lib/chat/dmPolicy';
 import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
+import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
+import { isMessageReportReason } from '@/lib/chat/messageReport';
 import { canStartDm } from '@/lib/chat/dmAccess';
 import { signalChannelMessage } from '@/lib/services/messageSignals';
 import {
@@ -2328,6 +2330,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         sticker: msg.sticker || undefined,
         interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
         suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
+        flags: (msg as { flags?: number | null }).flags ?? 0,
         webhookId: (authorData as { isWebhook?: boolean } | null)?.isWebhook ? msg.authorId : undefined,
         threadId: msg.threadId ?? undefined,
         thread: msg.threadId ? (threadSummaries.get(msg.threadId) ?? null) : undefined,
@@ -2525,7 +2528,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    const { content, replyTo, attachments = [], sticker } = body;
+    const { replyTo, attachments = [], sticker } = body;
+    // "@silent hello" sends "hello" without notifying anyone (Discord).
+    const silentPrefix = parseSilentPrefix(body.content);
+    const content = body.content === undefined ? undefined : silentPrefix.content;
+    const messageFlags = sendFlags(body.flags, silentPrefix.silent);
+    const silent = isSilentMessage(messageFlags);
 
     // Validate sticker if provided
     let stickerData: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string } | undefined;
@@ -2683,6 +2691,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       url: e.url,
     }));
 
+    // Replies ping the replied-to author unless the sender switched it off
+    // ("@ON / @OFF" in the reply bar): they're added to the mentioned users, so
+    // the badge, Inbox mention and notification paths all fire for them.
+    const mentionedUserIds = withReplyMention(mentionData.mentionedUserIds, {
+      repliedAuthorId: reference?.authorId ?? null,
+      senderId: user.id,
+      mentionRepliedUser: body.mentionRepliedUser,
+    });
+
     // Create message
     const message = await Message.create({
       channelId: params.channelId,
@@ -2694,9 +2711,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       attachments,
       sticker: stickerData,
       mentionEveryone: mentionData.mentionEveryone,
-      mentionedUserIds: mentionData.mentionedUserIds,
+      mentionedUserIds,
       mentionedRoleIds: mentionData.mentionedRoleIds,
       mentionedChannelIds: mentionData.mentionedChannelIds,
+      flags: messageFlags,
     });
 
     // Update channel's last message — not needed for the sender's response, so
@@ -2805,6 +2823,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       mentionedChannelIds: message.mentionedChannelIds || [],
       customEmojis: customEmojis.length > 0 ? customEmojis : undefined,
       sticker: message.sticker || undefined,
+      flags: messageFlags,
     };
 
     // Deliver to SSE connections everywhere: locally in-process AND, via the
@@ -2848,6 +2867,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             mentionNames,
             parentId: (channel as { parentId?: string | null }).parentId ?? null,
             createdAt: new Date(message.createdAt ?? Date.now()).toISOString(),
+            ...(silent ? { silent: true } : {}),
           });
         } catch { /* best-effort */ }
       })();
@@ -2879,6 +2899,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           content: typeof sanitizedContent === 'string' ? sanitizedContent : '',
           hasAttachments: Array.isArray(message.attachments) && message.attachments.length > 0,
           createdAt: message.createdAt,
+          silent,
         });
       })().catch(() => { /* best-effort */ });
     }
@@ -2901,6 +2922,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     body: t.Object({
       content: t.Optional(t.String({ maxLength: 4000 })),
       replyTo: t.Optional(t.String()),
+      // Discord's allowed_mentions.replied_user: false = reply without a ping.
+      mentionRepliedUser: t.Optional(t.Boolean()),
+      // Discord message flags; only SUPPRESS_EMBEDS / SUPPRESS_NOTIFICATIONS are honoured.
+      flags: t.Optional(t.Number()),
       attachments: t.Optional(t.Array(t.Object({
         id: t.String(),
         filename: t.String(),
@@ -3196,8 +3221,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           .then((mentions) => limitMentionsToPermissions(mentions, channel, user.id)),
         encryptForStorage(sanitizedEditContent),
       ]);
+      // An edit keeps a reply's ping on the replied-to author (it isn't in the
+      // text, so re-extracting mentions would drop it and retract their badge).
+      let repliedAuthorId: string | null = null;
+      if (message.referencedMessageId) {
+        const ref = await Message.findOne({ id: message.referencedMessageId }).catch(() => null);
+        const refAuthor = ref?.authorId ?? null;
+        if (refAuthor && ((message.mentionedUserIds || []) as string[]).some((id) => compareIds(id, refAuthor))) {
+          repliedAuthorId = refAuthor;
+        }
+      }
       updateData.mentionEveryone = mentionData.mentionEveryone;
-      updateData.mentionedUserIds = mentionData.mentionedUserIds;
+      updateData.mentionedUserIds = withReplyMention(mentionData.mentionedUserIds, { repliedAuthorId, senderId: user.id });
       updateData.mentionedRoleIds = mentionData.mentionedRoleIds;
       updateData.mentionedChannelIds = mentionData.mentionedChannelIds;
       updateData.content = encryptedEdit;
@@ -3638,6 +3673,177 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }),
     query: t.Object({
       emoji: t.String(),
+    }),
+  })
+  // Who reacted, per emoji (the "Reactions" viewer). Works for every channel
+  // kind the caller can open (servers, DMs, group DMs).
+  .get('/:channelId/messages/:messageId/reactions/users', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+    const message = await Message.findOne({ id: params.messageId, channelId: params.channelId, isDeleted: false });
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+    const reactions = ((message.reactions || []) as StoredReaction[]).filter((r) => (r.userIds || []).length > 0);
+    const PER_EMOJI = 100;
+    const ids = [...new Set(reactions.flatMap((r) => (r.userIds || []).slice(0, PER_EMOJI)))].filter((id) => isValidObjectId(id));
+    const users = ids.length ? await User.find({ id: { in: ids } }) : [];
+    const byId = new Map(users.map((u) => [normalizeId(u.id), u]));
+    // Server nicknames, like the member list.
+    const nicknames = new Map<string, string>();
+    if (channel.serverId && ids.length) {
+      const members = await ServerMember.find({ serverId: channel.serverId, userId: { in: ids } }).catch(() => []);
+      for (const m of members as Array<{ userId: string; nickname?: string | null }>) {
+        if (m.nickname) nicknames.set(normalizeId(m.userId), m.nickname);
+      }
+    }
+    return {
+      reactions: reactions.map((r) => ({
+        emoji: { name: r.emoji?.name, id: r.emoji?.id ?? null, animated: Boolean(r.emoji?.animated), url: r.emoji?.url ?? null },
+        count: r.count ?? (r.userIds || []).length,
+        users: (r.userIds || []).slice(0, PER_EMOJI).map((id) => {
+          const u = byId.get(normalizeId(id));
+          return {
+            id,
+            username: u?.username ?? null,
+            displayName: nicknames.get(normalizeId(id)) || u?.displayName || u?.username || null,
+            avatar: u?.avatar ?? null,
+          };
+        }),
+      })),
+    };
+  }, {
+    params: t.Object({ channelId: t.String(), messageId: t.String() }),
+  })
+  // Remove someone else's reaction (server channels, MANAGE_MESSAGES), from
+  // the Reactions viewer.
+  .delete('/:channelId/messages/:messageId/reactions/users/:userId', async ({ headers, cookie, params, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { hasAccess, channel, membership, error } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+    const isSelf = compareIds(params.userId, user.id);
+    if (!isSelf && !(channel.serverId && (await canManageMessagesInServer(channel.serverId, user.id, membership)))) {
+      set.status = 403;
+      return { error: 'You do not have permission to remove reactions' };
+    }
+    const rateLimit = await checkRateLimit('reactionManage', user.id);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'Rate limited' };
+    }
+    const message = await Message.findOne({ id: params.messageId, channelId: params.channelId, isDeleted: false });
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+    const decodedEmoji = typeof query.emoji === 'string' ? query.emoji : '';
+    if (!decodedEmoji) {
+      set.status = 400;
+      return { error: 'Missing emoji parameter' };
+    }
+    const emojiData = await getReactionEmoji(decodedEmoji);
+    const removeMatch = matchReactionEmoji({ name: emojiData?.name || decodedEmoji, id: emojiData?.id });
+    let changed = false;
+    await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+      const result = removeReaction(current, removeMatch, params.userId, compareIds);
+      changed = result.changed;
+      return result.changed ? result.reactions : null;
+    });
+    if (changed) {
+      const event = { type: 'reaction_remove', messageId: params.messageId, emoji: emojiData?.id || decodedEmoji, userId: params.userId };
+      if (channel.type === 'dm' || channel.type === 'group_dm') {
+        const { publishToDm } = await import('@/lib/api/dms');
+        publishToDm(params.channelId, event);
+      } else {
+        publishToChannel(params.channelId, event);
+      }
+    }
+    return { success: true };
+  }, {
+    params: t.Object({ channelId: t.String(), messageId: t.String(), userId: t.String() }),
+    query: t.Object({ emoji: t.String() }),
+  })
+  // Report a message to the SerikaCord staff (Trust & Safety). Stored in the
+  // staff reports queue (bug_reports, category "security") with the message,
+  // its author and a snippet, so staff can act from the admin panel.
+  .post('/:channelId/messages/:messageId/report', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    if (!hasAccess || !channel) {
+      set.status = 403;
+      return { error: error || 'Access denied' };
+    }
+    const rateLimit = await checkRateLimit('bugReport', `report:${user.id}`);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'You are sending reports too quickly. Please try again later.' };
+    }
+    const message = await Message.findOne({ id: params.messageId, channelId: params.channelId, isDeleted: false });
+    if (!message) {
+      set.status = 404;
+      return { error: 'Message not found' };
+    }
+    if (compareIds(message.authorId, user.id)) {
+      set.status = 400;
+      return { error: 'You cannot report your own message' };
+    }
+    const reason = isMessageReportReason(body.reason) ? body.reason : 'other';
+    const details = (body.details ?? '').trim().slice(0, 1000);
+    const content = message.content ? (await decryptFromStorage(message.content)).slice(0, 1500) : '';
+    const author = await User.findById(message.authorId).catch(() => null);
+    const { BugReport } = await import('@/lib/models');
+    await BugReport.create({
+      reporterId: user.id,
+      kind: 'bug',
+      title: `Message report: ${reason}`.slice(0, 200),
+      description: [
+        `Reason: ${reason}`,
+        details ? `Details: ${details}` : null,
+        `Message: ${message.id}`,
+        `Channel: ${channel.id}${channel.name ? ` (#${channel.name})` : ''} [${channel.type}]`,
+        channel.serverId ? `Server: ${channel.serverId}` : null,
+        `Author: ${message.authorId}${author ? ` (@${author.username})` : ''}`,
+        `Sent: ${message.createdAt ? new Date(message.createdAt).toISOString() : 'unknown'}`,
+        '',
+        'Content:',
+        content || '(no text)',
+      ].filter((l) => l !== null).join('\n').slice(0, 5000),
+      category: 'security',
+      priority: reason === 'self_harm' || reason === 'illegal' ? 'high' : 'medium',
+      status: 'open',
+      attachments: Array.isArray(message.attachments)
+        ? (message.attachments as Array<{ url?: string; contentType?: string; filename?: string }>)
+            .filter((a) => typeof a?.url === 'string')
+            .slice(0, 10)
+            .map((a) => ({ url: a.url as string, type: a.contentType || 'file', name: a.filename || 'attachment' }))
+        : [],
+    });
+    return { success: true };
+  }, {
+    params: t.Object({ channelId: t.String(), messageId: t.String() }),
+    body: t.Object({
+      reason: t.String({ maxLength: 32 }),
+      details: t.Optional(t.String({ maxLength: 1000 })),
     }),
   })
   // Typing indicator

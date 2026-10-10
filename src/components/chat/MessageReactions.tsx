@@ -23,6 +23,8 @@ interface MessageReactionsProps {
   onOpenPicker?: (messageId: string) => void;
   /** User lookup map for showing who reacted (userId -> user info with avatar). */
   reactionUsers?: Record<string, ReactionUser>;
+  /** Right-click a reaction: the full "Reactions" viewer on that emoji. */
+  onViewReactions?: (emoji: string) => void;
 }
 
 /** Reaction chips under a message, with optimistic toggle on click. */
@@ -33,6 +35,7 @@ export function MessageReactions({
   onToggle,
   onOpenPicker,
   reactionUsers,
+  onViewReactions,
 }: MessageReactionsProps) {
   const gt = useChatGt();
   if (!reactions?.length) return null;
@@ -61,6 +64,15 @@ export function MessageReactions({
             <TooltipTrigger asChild>
               <button
                 onClick={() => onToggle(messageId, emojiIdentifier, hasReacted)}
+                onContextMenu={
+                  onViewReactions
+                    ? (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onViewReactions(emojiIdentifier);
+                      }
+                    : undefined
+                }
                 className={cn(
                   "flex items-center gap-1 px-2 py-0.5 rounded-full text-sm transition-colors border",
                   hasReacted

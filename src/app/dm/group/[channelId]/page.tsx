@@ -171,7 +171,7 @@ export default function GroupDMPage() {
     return () => { cancelled = true; };
   }, [channelId, applyGroup, leaveRoute]);
 
-  const { setActiveChannel, markChannelRead, getReadMarker, isChannelMuted } = useUnread();
+  const { setActiveChannel, markChannelRead, markChannelUnread, getReadMarker, isChannelMuted } = useUnread();
   useEffect(() => {
     if (!channelId) return;
     setActiveChannel(channelId);
@@ -651,6 +651,10 @@ export default function GroupDMPage() {
           unreadMarker={openMarker.marker}
           onReadUpTo={handleReadUpTo}
           onMarkRead={handleMarkRead}
+          onMarkUnread={(plan) => {
+            if (channelId) markChannelUnread(channelId, plan);
+          }}
+          onJumpToPresent={chat.returnToPresent}
         />
 
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />
@@ -674,6 +678,8 @@ export default function GroupDMPage() {
             availableServerEmojis={availableServerEmojis}
             availableServerStickers={availableServerStickers}
             replyTo={chat.actions.replyToMessage}
+            replyMention={chat.actions.replyMention}
+            onToggleReplyMention={chat.actions.toggleReplyMention}
             onCancelReply={() => chat.actions.setReplyToMessage(null)}
             pollApiBase={channelId ? `/api/group-dms/${channelId}` : undefined}
             draftKey={channelId ? `gdm:${channelId}` : undefined}
@@ -783,6 +789,11 @@ export default function GroupDMPage() {
         onEdit={chat.actions.startEditing}
         onDelete={chat.actions.setDeleteConfirmMessage}
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
+        onMarkUnread={(message) => messageListRef.current?.markUnreadFrom(message.id)}
+        onViewReactions={(message) => chat.actions.setReactionsViewer({ message })}
+        onReport={chat.actions.setReportMessage}
+        onToggleReaction={(message, emoji, hasReacted) => chat.actions.toggleReaction(message.id, emoji, hasReacted)}
+        currentUserId={user.id}
       />
 
       <ImageLightbox

@@ -132,6 +132,8 @@ export interface ChatMessage {
   interaction?: { name: string; user: { id: string; username: string } };
   /** When true, link previews and rich embeds are hidden for this message. */
   suppressEmbeds?: boolean;
+  /** Discord message flags (lib/chat/messageFlags): SUPPRESS_NOTIFICATIONS = "@silent". */
+  flags?: number;
   /** Set when an incoming channel webhook posted this message (authorId is then the webhook's id). */
   webhookId?: string;
   /** DM call log row (type "call"): who called, when, whether it was answered. */

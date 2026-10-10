@@ -1,9 +1,10 @@
 "use client";
 
-import { memo, useMemo, useState, useEffect, useCallback } from "react";
-import { parseMarkdown, type MarkdownNode } from "@/lib/chat/markdown";
+import { Fragment, memo, useMemo, useState, useEffect, useCallback } from "react";
+import { parseMarkdown, type MarkdownNode, type ParsedMarkdown } from "@/lib/chat/markdown";
 import { cn } from "@/lib/utils";
-import { Hash } from "lucide-react";
+import { Check, Copy, Hash } from "lucide-react";
+import { useChatGt } from "./ChatGtContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
@@ -388,36 +389,135 @@ function parseAnsiToSpans(text: string): React.ReactNode[] {
 
 const AnsiCodeblock = memo(function AnsiCodeblock({ code }: { code: string }) {
   const spans = useMemo(() => parseAnsiToSpans(code), [code]);
+  return <>{spans}</>;
+});
+
+// ── Syntax highlighting (lazy) ──────────────────────────────────────────
+// The highlighter is its own chunk, loaded the first time a fenced block with
+// a language renders; afterwards it's used synchronously.
+type HighlightModule = typeof import("@/lib/chat/highlight");
+let highlightModule: HighlightModule | null = null;
+let highlightLoad: Promise<HighlightModule> | null = null;
+function loadHighlighter(): Promise<HighlightModule> {
+  if (!highlightLoad) {
+    highlightLoad = import("@/lib/chat/highlight").then((m) => {
+      highlightModule = m;
+      return m;
+    });
+  }
+  return highlightLoad;
+}
+
+const CodeBlock = memo(function CodeBlock({ code, lang }: { code: string; lang: string }) {
+  const gt = useChatGt();
+  const isAnsi = lang === "ansi";
+  const [mod, setMod] = useState<HighlightModule | null>(highlightModule);
+  const [copiedAt, setCopiedAt] = useState(0);
+  const wantsHighlight = Boolean(lang) && !isAnsi;
+  useEffect(() => {
+    if (mod || !wantsHighlight) return;
+    let alive = true;
+    void loadHighlighter()
+      .then((m) => {
+        if (alive) setMod(m);
+      })
+      .catch(() => { /* plain text it is */ });
+    return () => {
+      alive = false;
+    };
+  }, [mod, wantsHighlight]);
+  const tokens = useMemo(
+    () => (mod && wantsHighlight ? mod.highlightCode(code, lang) : null),
+    [mod, wantsHighlight, code, lang],
+  );
+  useEffect(() => {
+    if (!copiedAt) return;
+    const t = setTimeout(() => setCopiedAt(0), 1500);
+    return () => clearTimeout(t);
+  }, [copiedAt]);
+
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    void navigator.clipboard
+      ?.writeText(code)
+      .then(() => setCopiedAt(Date.now()))
+      .catch(() => {});
+  };
+  const copied = copiedAt > 0;
+
   return (
-    <pre className="p-3 overflow-x-auto">
-      <code className="text-[0.85em] font-mono text-[var(--text-primary)] whitespace-pre">{spans}</code>
-    </pre>
+    <span className="md-codeblock group/code relative my-1 block max-w-full overflow-hidden rounded-md border border-[var(--app-border)] bg-[var(--app-surface-alt)]">
+      <button
+        type="button"
+        onClick={copy}
+        className="absolute right-1.5 top-1.5 z-[1] flex items-center gap-1 rounded bg-[var(--app-surface)] px-1.5 py-1 text-[11px] text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover/code:opacity-100"
+        title={gt("Copy")}
+        aria-label={gt("Copy")}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+        {copied ? gt("Copied") : gt("Copy")}
+      </button>
+      <pre className="m-0 overflow-x-auto p-2 pr-16">
+        <code className="block whitespace-pre-wrap break-words font-mono text-[0.875em] leading-[1.125rem] text-[var(--text-primary)]">
+          {isAnsi ? (
+            <AnsiCodeblock code={code} />
+          ) : tokens ? (
+            tokens.map((t, i) =>
+              t.kind ? (
+                <span key={i} className={`hl-${t.kind}`}>
+                  {t.text}
+                </span>
+              ) : (
+                <Fragment key={i}>{t.text}</Fragment>
+              ),
+            )
+          ) : (
+            code
+          )}
+        </code>
+      </pre>
+    </span>
   );
 });
 
-function renderInlineNodes(nodes: MarkdownNode[], keyPrefix: string): React.ReactNode[] {
+/** Renders a text (or bare URL) leaf; MessageContent swaps in mentions / emoji. */
+export type MarkdownTextRenderer = (node: MarkdownNode, key: string) => React.ReactNode;
+
+function defaultRenderText(node: MarkdownNode, key: string): React.ReactNode {
+  if (node.type === "url") {
+    return (
+      <a key={key} href={node.href} target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline break-all">
+        {node.content}
+      </a>
+    );
+  }
+  return <Fragment key={key}>{node.content}</Fragment>;
+}
+
+function renderInlineNodes(nodes: MarkdownNode[], keyPrefix: string, renderText: MarkdownTextRenderer): React.ReactNode[] {
   return nodes.map((node, i) => {
     const key = `${keyPrefix}-${i}`;
+    const kids = () => (node.children ? renderInlineNodes(node.children, key, renderText) : null);
     switch (node.type) {
       case "bold":
-        return <strong key={key} className="font-bold">{node.children && renderInlineNodes(node.children, key)}</strong>;
+        return <strong key={key} className="font-bold">{kids()}</strong>;
       case "italic":
-        return <em key={key}>{node.children && renderInlineNodes(node.children, key)}</em>;
+        return <em key={key}>{kids()}</em>;
       case "underline":
-        return <u key={key}>{node.children && renderInlineNodes(node.children, key)}</u>;
+        return <u key={key}>{kids()}</u>;
       case "strikethrough":
-        return <s key={key}>{node.children && renderInlineNodes(node.children, key)}</s>;
+        return <s key={key}>{kids()}</s>;
       case "spoiler":
-        return <Spoiler key={key}>{node.children && renderInlineNodes(node.children, key)}</Spoiler>;
+        return <Spoiler key={key}>{kids()}</Spoiler>;
       case "code":
         return (
-          <code key={key} className="px-1 py-0.5 rounded bg-[var(--app-surface-alt)] text-[#e2b714] text-[0.85em] font-mono">
+          <code key={key} className="md-inline-code rounded px-1 py-0.5 font-mono text-[0.85em] bg-[var(--app-surface-alt)] border border-[var(--app-border)]">
             {node.content}
           </code>
         );
       case "link":
         return (
-          <a key={key} href={node.href} target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline break-all">
+          <a key={key} href={node.href} title={node.href} target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline break-words">
             {node.content}
           </a>
         );
@@ -428,96 +528,111 @@ function renderInlineNodes(nodes: MarkdownNode[], keyPrefix: string): React.Reac
       case "channel_mention":
         return <ChannelMention key={key} channelId={node.content} />;
       default:
-        return <span key={key}>{node.content}</span>;
+        return renderText(node, key);
     }
   });
 }
 
+function renderBlock(block: ParsedMarkdown, key: string, renderText: MarkdownTextRenderer, inline: boolean): React.ReactNode {
+  const inl = () => (block.inline ? renderInlineNodes(block.inline, key, renderText) : null);
+  if (inline) {
+    // Reply previews: one line, no block layout.
+    switch (block.type) {
+      case "codeblock":
+        return (
+          <code key={key} className="md-inline-code rounded px-1 font-mono text-[0.85em] bg-[var(--app-surface-alt)]">
+            {block.code}
+          </code>
+        );
+      case "blockquote":
+        return <Fragment key={key}>{(block.children ?? []).map((c, i) => renderBlock(c, `${key}-${i}`, renderText, true))}</Fragment>;
+      case "list":
+        return (
+          <Fragment key={key}>
+            {(block.items ?? []).map((item, i) => (
+              <Fragment key={i}>
+                {i > 0 ? " " : ""}
+                {renderInlineNodes(item.inline, `${key}-${i}`, renderText)}
+              </Fragment>
+            ))}{" "}
+          </Fragment>
+        );
+      default:
+        return <Fragment key={key}>{inl()} </Fragment>;
+    }
+  }
+  switch (block.type) {
+    case "codeblock":
+      return <CodeBlock key={key} code={block.code || ""} lang={block.lang || ""} />;
+    case "heading":
+      return (
+        <span
+          key={key}
+          className={cn(
+            "md-heading block font-bold leading-[1.375] text-[var(--text-primary)] mt-2 first:mt-0 mb-0.5",
+            block.level === 1 && "text-[1.5em]",
+            block.level === 2 && "text-[1.25em]",
+            block.level === 3 && "text-[1em]"
+          )}
+        >
+          {inl()}
+        </span>
+      );
+    case "small":
+      return (
+        <span key={key} className="md-subtext block text-[0.8125em] leading-[1.11rem] text-[var(--text-muted)]">
+          {inl()}
+        </span>
+      );
+    case "blockquote":
+      return (
+        <span key={key} className="md-quote my-0.5 flex max-w-full">
+          <span aria-hidden="true" className="w-1 shrink-0 rounded bg-[var(--app-muted-2)] opacity-70" />
+          <blockquote className="min-w-0 flex-1 pl-3 pr-2">
+            {(block.children ?? []).map((c, i) => renderBlock(c, `${key}-${i}`, renderText, false))}
+          </blockquote>
+        </span>
+      );
+    case "list": {
+      const items = (block.items ?? []).map((item, i) => (
+        <li key={i} className="md-list-item my-0.5 pl-0.5 whitespace-pre-wrap break-words">
+          {renderInlineNodes(item.inline, `${key}-${i}`, renderText)}
+          {item.children.map((c, j) => renderBlock(c, `${key}-${i}-${j}`, renderText, false))}
+        </li>
+      ));
+      return block.ordered ? (
+        <ol key={key} start={block.start} className="md-list my-1 ml-4 list-decimal pl-3 marker:text-[var(--text-muted)]">
+          {items}
+        </ol>
+      ) : (
+        <ul key={key} className="md-list my-1 ml-4 list-disc pl-3 marker:text-[var(--text-muted)] [&_ul]:list-[circle] [&_ul_ul]:list-[square]">
+          {items}
+        </ul>
+      );
+    }
+    default:
+      return <Fragment key={key}>{inl()}</Fragment>;
+  }
+}
+
+interface MarkdownDocumentProps {
+  blocks: ParsedMarkdown[];
+  /** Text / bare-URL leaves (MessageContent: mentions, emoji, link previews). */
+  renderText?: MarkdownTextRenderer;
+  /** Single-line rendering (reply previews). */
+  inline?: boolean;
+}
+
+/** Renders parsed blocks. Callers wrap it in a `whitespace-pre-wrap` container. */
+export function MarkdownDocument({ blocks, renderText = defaultRenderText, inline = false }: MarkdownDocumentProps) {
+  return <>{blocks.map((block, i) => renderBlock(block, `md-${i}`, renderText, inline))}</>;
+}
+
 export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
   const blocks = useMemo(() => parseMarkdown(content), [content]);
-
   return (
     <span className={cn("whitespace-pre-wrap break-words", className)}>
-      {blocks.map((block, i) => {
-        const key = `md-block-${i}`;
-        switch (block.type) {
-          case "codeblock": {
-            const code = block.code || "";
-            const isSingleLine = !code.includes("\n");
-            const isAnsi = block.lang === "ansi";
-            if (isSingleLine && !isAnsi) {
-              return (
-                <pre key={key} className="my-1 px-3 py-2 rounded-md bg-[var(--app-surface-alt)] border border-[var(--app-border)] overflow-x-auto inline-block w-fit max-w-full">
-                  <code className="text-[0.9em] font-mono text-[var(--text-primary)]">{code}</code>
-                </pre>
-              );
-            }
-            return (
-              <div key={key} className="my-1 rounded-md bg-[var(--app-surface-alt)] border border-[var(--app-border)] overflow-hidden">
-                {block.lang && (
-                  <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--app-surface)] border-b border-[var(--app-border)]">
-                    <span className="text-[11px] font-mono text-[var(--text-muted)] uppercase tracking-wide">{block.lang}</span>
-                    <button
-                      onClick={(e) => {
-                        const codeEl = (e.currentTarget.closest("div")?.querySelector("code")?.textContent) || "";
-                        navigator.clipboard?.writeText(codeEl);
-                      }}
-                      className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                )}
-                {isAnsi ? (
-                  <AnsiCodeblock code={code} />
-                ) : (
-                  <pre className="p-3 overflow-x-auto">
-                    <code className="text-[0.85em] font-mono text-[var(--text-primary)]">{code}</code>
-                  </pre>
-                )}
-              </div>
-            );
-          }
-          case "heading":
-            return (
-              <span
-                key={key}
-                className={cn(
-                  "font-bold block",
-                  block.level === 1 && "text-lg",
-                  block.level === 2 && "text-base",
-                  block.level === 3 && "text-sm"
-                )}
-              >
-                {block.inline && renderInlineNodes(block.inline, key)}
-              </span>
-            );
-          case "blockquote":
-            return (
-              <blockquote
-                key={key}
-                className="border-l-4 border-[var(--app-accent)] pl-3 my-1 italic text-[var(--text-muted)] block"
-              >
-                {block.inline && renderInlineNodes(block.inline, key)}
-              </blockquote>
-            );
-          case "small":
-            return (
-              <span
-                key={key}
-                className="text-[0.7em] text-[var(--text-muted)] block"
-              >
-                {block.inline && renderInlineNodes(block.inline, key)}
-              </span>
-            );
-          default:
-            return (
-              <span key={key} className="inline">
-                {block.inline && renderInlineNodes(block.inline, key)}
-              </span>
-            );
-        }
-      })}
+      <MarkdownDocument blocks={blocks} />
     </span>
   );
 });

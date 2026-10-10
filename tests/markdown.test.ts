@@ -1,5 +1,102 @@
 import { describe, expect, test } from "bun:test";
-import { parseMarkdown, type MarkdownNode } from "@/lib/chat/markdown";
+import { isSafeLinkHref, parseInlineMarkdown, parseMarkdown, splitMarkdownBlocks, type MarkdownNode } from "@/lib/chat/markdown";
+
+describe("Discord block rules", () => {
+  test("headings need a space after the hashes", () => {
+    for (const text of ["#general is down", "#1 fan", "####four", "#"]) {
+      expect(splitMarkdownBlocks(text)[0].type).toBe("paragraph");
+    }
+    expect(splitMarkdownBlocks("## Two")[0]).toEqual({ type: "heading", level: 2, text: "Two" });
+    expect(splitMarkdownBlocks("#### Four")[0].type).toBe("paragraph");
+  });
+
+  test("-# is subtext only with one hash and a space", () => {
+    expect(splitMarkdownBlocks("-# small")[0]).toEqual({ type: "small", text: "small" });
+    expect(splitMarkdownBlocks("-## no")[0].type).toBe("paragraph");
+    expect(splitMarkdownBlocks("-#no")[0].type).toBe("paragraph");
+  });
+
+  test("unordered and ordered lists, nested by indentation", () => {
+    const [list] = splitMarkdownBlocks("- a\n* b\n  - c\n    - d\n- e");
+    expect(list.type).toBe("list");
+    if (list.type !== "list") return;
+    expect(list.ordered).toBe(false);
+    expect(list.items.map((i) => i.text)).toEqual(["a", "b", "e"]);
+    const nested = list.items[1].children[0];
+    expect(nested.type).toBe("list");
+    if (nested.type !== "list") return;
+    expect(nested.items[0].text).toBe("c");
+    expect(nested.items[0].children[0]).toMatchObject({ type: "list", items: [{ text: "d" }] });
+
+    const [ol] = splitMarkdownBlocks("3. three\n4. four");
+    expect(ol).toMatchObject({ type: "list", ordered: true, start: 3 });
+  });
+
+  test("a numbered list after a bullet list is a separate list; text ends a list", () => {
+    const blocks = splitMarkdownBlocks("- a\n1. b\nafter");
+    expect(blocks.map((b) => b.type)).toEqual(["list", "list", "paragraph"]);
+  });
+
+  test("not lists: no space, no content, numbers in prose", () => {
+    for (const text of ["-1 points", "*not a list*", "1.5 is a number", "- "]) {
+      expect(splitMarkdownBlocks(text)[0].type).toBe("paragraph");
+    }
+  });
+
+  test("> quotes need a space; >>> quotes the rest of the message", () => {
+    expect(splitMarkdownBlocks(">no")[0].type).toBe("paragraph");
+    const quoted = splitMarkdownBlocks("> one\n> # two\nafter");
+    expect(quoted[0]).toMatchObject({ type: "blockquote", children: [{ type: "paragraph", text: "one" }, { type: "heading", text: "two" }] });
+    expect(quoted[1]).toEqual({ type: "paragraph", text: "after" });
+    const multi = splitMarkdownBlocks("before\n>>> all\nof\n- this");
+    expect(multi.map((b) => b.type)).toEqual(["paragraph", "blockquote"]);
+    expect(multi[1]).toMatchObject({ children: [{ type: "paragraph", text: "all\nof" }, { type: "list" }] });
+  });
+
+  test("code fences: language, one-line fences, unclosed fences stay text", () => {
+    expect(splitMarkdownBlocks("```py\nprint(1)\n```")[0]).toEqual({ type: "codeblock", code: "print(1)", lang: "py" });
+    expect(splitMarkdownBlocks("```x = 1```")[0]).toEqual({ type: "codeblock", code: "x = 1", lang: "" });
+    expect(splitMarkdownBlocks("```js\nopen")[0].type).toBe("paragraph");
+    // Markdown inside a fence is literal.
+    expect(splitMarkdownBlocks("```\n# not a heading\n- nor a list\n```")).toEqual([
+      { type: "codeblock", code: "# not a heading\n- nor a list", lang: "" },
+    ]);
+  });
+});
+
+describe("inline rules", () => {
+  test("bare URLs are kept whole (underscores in URLs are not underline)", () => {
+    const nodes = parseInlineMarkdown("see https://a.com/x__y__z.");
+    expect(nodes.find((n) => n.type === "url")?.content).toBe("https://a.com/x__y__z");
+    expect(nodes.some((n) => n.type === "underline")).toBeFalse();
+    expect(parseInlineMarkdown("<https://b.com>")[0]).toMatchObject({ type: "url", content: "https://b.com" });
+  });
+
+  test("masked links whose text is a URL are not links", () => {
+    const nodes = parseInlineMarkdown("[https://good.com](https://evil.com)");
+    expect(nodes.some((n) => n.type === "link")).toBeFalse();
+    expect(isSafeLinkHref("javascript:alert(1)")).toBeFalse();
+    expect(isSafeLinkHref("https://x.com")).toBeTrue();
+  });
+
+  test("_italic_ respects word boundaries; escapes stay literal", () => {
+    expect(parseInlineMarkdown("_hi_")[0].type).toBe("italic");
+    expect(parseInlineMarkdown("snake_case_name").every((n) => n.type === "text")).toBeTrue();
+    expect(parseInlineMarkdown("\\*not italic\\*")).toEqual([{ type: "text", content: "*not italic*" }]);
+  });
+
+  test("formatting wraps mentions so the caller can tokenize them inside", () => {
+    const [bold] = parseInlineMarkdown("**hi <@11111111-1111-4111-8111-111111111111>**");
+    expect(bold.type).toBe("bold");
+    expect(bold.children?.[0]).toEqual({ type: "text", content: "hi <@11111111-1111-4111-8111-111111111111>" });
+  });
+
+  test("list items carry inline nodes", () => {
+    const [list] = parseMarkdown("- **a**\n- b");
+    expect(list.type).toBe("list");
+    expect(list.items?.[0].inline[0].type).toBe("bold");
+  });
+});
 
 function inlineTypes(nodes: MarkdownNode[] | undefined): string[] {
   return (nodes ?? []).map((n) => n.type);

@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useMemo, memo, useState, useCallback } from "react";
+import { Fragment, useEffect, useRef, useMemo, memo, useState, useCallback } from "react";
 import twemoji from "@twemoji/api";
 import { twemojiOnError } from "@/lib/twemoji-helpers";
 import { useChatGt } from "./ChatGtContext";
 import { cn, cdnImage } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";
 import { useAnimatedMedia } from "@/hooks/useAnimatedMedia";
-import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { MarkdownDocument, type MarkdownTextRenderer } from "@/components/chat/MarkdownRenderer";
+import { parseMarkdown, type MarkdownNode, type ParsedMarkdown } from "@/lib/chat/markdown";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useUserContextMenu } from "@/components/user/UserContextMenu";
@@ -71,17 +72,14 @@ function isOnlyUrl(text: string): boolean {
 }
 
 // Check if a string contains only emoji characters (including custom emoji syntax)
-/** One piece of a rendered message; headings that hold emoji or mentions wrap their pieces. */
+/** One piece of a plain-text (or bare URL) leaf of the parsed markdown. */
 type MessagePart = {
-  type: "text" | "custom-emoji" | "image" | "link" | "mention-user" | "mention-role" | "mention-special" | "heading";
+  type: "text" | "custom-emoji" | "image" | "link" | "mention-user" | "mention-role" | "mention-special";
   content: string;
   emoji?: CustomEmoji;
   url?: string;
   mentionId?: string;
   mentionKind?: "everyone" | "here";
-  level?: number;
-  small?: boolean;
-  children?: MessagePart[];
 };
 
 function isOnlyEmoji(text: string, customEmojiCount: number): boolean {
@@ -252,198 +250,92 @@ export const MessageContent = memo(function MessageContent({
     return null;
   }, [displayContent]);
 
-  // Parse content to identify custom emojis and inline images
+  // Parse the markdown first (blocks, then inline formatting), then split each
+  // plain-text leaf into mentions / custom emoji, and each bare URL into a link
+  // or inline image. Formatting that wraps a mention or emoji ("**hi <@id>**",
+  // "# :wave: welcome", "- @everyone") keeps working because the markdown sees
+  // the whole line, and code (inline or fenced) is never tokenized.
   const parsedContent = useMemo(() => {
+    const leaves = new Map<MarkdownNode, MessagePart[]>();
     if (imageOnlyUrl) {
       // Don't parse if it's just an image URL
-      return { parts: [], customEmojiCount: 0 };
+      return { blocks: [] as ParsedMarkdown[], leaves, customEmojiCount: 0 };
     }
 
     const tokenRegex = /<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(?<!\S)@(everyone|here)\b|<(a)?:([a-zA-Z0-9_]+):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|:([a-zA-Z_][a-zA-Z0-9_]*):/gi;
-    const urlRegex = /(?<!\]\(<?)https?:\/\/[^\s]+/g;
     let customEmojiCount = 0;
 
-    // Split one run of text into links, images, mentions, emoji and plain text.
-    const tokenizeText = (source: string): MessagePart[] => {
-    const parts: MessagePart[] = [];
-
-    // First, split by URLs
-    urlRegex.lastIndex = 0;
-    let lastIndex = 0;
-    let urlMatch;
-    const segments: Array<{ type: "text" | "url"; content: string }> = [];
-    
-    while ((urlMatch = urlRegex.exec(source)) !== null) {
-      if (urlMatch.index > lastIndex) {
-        segments.push({ type: "text", content: source.slice(lastIndex, urlMatch.index) });
-      }
-      segments.push({ type: "url", content: urlMatch[0] });
-      lastIndex = urlMatch.index + urlMatch[0].length;
-    }
-    if (lastIndex < source.length) {
-      segments.push({ type: "text", content: source.slice(lastIndex) });
-    }
-
-    // Process each segment
-    for (const segment of segments) {
-      if (segment.type === "url") {
-        if (isImageLikeUrl(segment.content)) {
-          parts.push({ type: "image", content: segment.content, url: segment.content });
-        } else if (/serika\.cc/i.test(segment.content)) {
-          parts.push({ type: "text", content: segment.content });
-        } else {
-          parts.push({ type: "link", content: segment.content, url: segment.content });
-        }
-      } else {
-        // Process text for custom emojis and mentions
-        let textLastIndex = 0;
-        let tokenMatch;
-        const textContent = segment.content;
-        tokenRegex.lastIndex = 0;
-
-        while ((tokenMatch = tokenRegex.exec(textContent)) !== null) {
-          if (tokenMatch.index > textLastIndex) {
-            parts.push({ type: "text", content: textContent.slice(textLastIndex, tokenMatch.index) });
-          }
-
-          const userMentionId = tokenMatch[1];
-          const roleMentionId = tokenMatch[2];
-          const specialMention = tokenMatch[3] as "everyone" | "here" | undefined;
-          const emojiName = (tokenMatch[5] || tokenMatch[7] || "").toLowerCase();
-          const emojiId = tokenMatch[6];
-
-          if (userMentionId) {
-            parts.push({
-              type: "mention-user",
-              content: tokenMatch[0],
-              mentionId: userMentionId,
-            });
-            textLastIndex = tokenMatch.index + tokenMatch[0].length;
-            continue;
-          }
-
-          if (roleMentionId) {
-            parts.push({
-              type: "mention-role",
-              content: tokenMatch[0],
-              mentionId: roleMentionId,
-            });
-            textLastIndex = tokenMatch.index + tokenMatch[0].length;
-            continue;
-          }
-
-          if (specialMention) {
-            parts.push({
-              type: "mention-special",
-              content: `@${specialMention}`,
-              mentionKind: specialMention,
-            });
-            textLastIndex = tokenMatch.index + tokenMatch[0].length;
-            continue;
-          }
-
-          // An id-bearing token resolves by id first, so two servers' same-named
-          // emojis don't render as each other; the name is only a fallback.
-          const foundEmoji =
-            (emojiId && serverEmojis.find((e) => (e.id || e._id) === emojiId)) ||
-            serverEmojis.find((e) => (e.name?.toLowerCase?.() || "") === emojiName);
-
-          if (foundEmoji) {
-            parts.push({ type: "custom-emoji", content: tokenMatch[0], emoji: foundEmoji });
-            customEmojiCount++;
-          } else {
-            parts.push({ type: "text", content: tokenMatch[0] });
-          }
-
-          textLastIndex = tokenMatch.index + tokenMatch[0].length;
-        }
-
-        if (textLastIndex < textContent.length) {
-          parts.push({ type: "text", content: textContent.slice(textLastIndex) });
-        }
-      }
-    }
-
-    return parts;
-    };
-
-    // Inline `code` spans are cut out first so URLs, mentions and :emoji: inside them stay
-    // literal (and the URL regex can't swallow the closing backtick). Adjacent text parts
-    // are merged so the Markdown renderer still sees each run of text whole.
-    const tokenize = (source: string): MessagePart[] => {
-      const out: MessagePart[] = [];
-      const pushPart = (part: MessagePart) => {
-        const last = out[out.length - 1];
-        if (part.type === "text" && last?.type === "text") {
-          out[out.length - 1] = { ...last, content: last.content + part.content };
-        } else {
-          out.push(part);
-        }
-      };
-      const codeRegex = /`[^`\n]+`/g;
-      let last = 0;
-      let m: RegExpExecArray | null;
-      while ((m = codeRegex.exec(source)) !== null) {
-        if (m.index > last) tokenizeText(source.slice(last, m.index)).forEach(pushPart);
-        pushPart({ type: "text", content: m[0] });
-        last = m.index + m[0].length;
-      }
-      if (last < source.length) tokenizeText(source.slice(last)).forEach(pushPart);
-      return out;
-    };
-
-    // A heading line that contains an emoji, mention or link used to be cut apart at that
-    // token, so only the part before it rendered as a heading (CORD-48). Such lines are
-    // tokenized on their own and wrapped in the heading instead. Headings without tokens,
-    // and anything inside a code fence, still go through the Markdown renderer as before.
-    const hasToken = (text: string) => {
+    // Mentions and custom emoji in one run of plain text.
+    const tokenizeText = (textContent: string): MessagePart[] => {
+      const parts: MessagePart[] = [];
+      let textLastIndex = 0;
+      let tokenMatch: RegExpExecArray | null;
       tokenRegex.lastIndex = 0;
-      urlRegex.lastIndex = 0;
-      return tokenRegex.test(text) || urlRegex.test(text);
-    };
-    const parts: MessagePart[] = [];
-    let pending: string[] = [];
-    // Lines of an open ``` fence (same rule as parseMarkdown: a line starting with ```
-    // opens or closes it). The whole block is handed to the Markdown renderer untouched,
-    // so URLs, mentions and :emoji: inside it are never tokenized.
-    let fence: string[] | null = null;
-    const flush = () => {
-      if (pending.length) parts.push(...tokenize(pending.join("\n")));
-      pending = [];
-    };
-    for (const line of displayContent.split("\n")) {
-      const isFenceLine = line.trim().startsWith("```");
-      if (fence) {
-        fence.push(line);
-        if (isFenceLine) {
-          parts.push({ type: "text", content: fence.join("\n") });
-          fence = null;
+      while ((tokenMatch = tokenRegex.exec(textContent)) !== null) {
+        if (tokenMatch.index > textLastIndex) {
+          parts.push({ type: "text", content: textContent.slice(textLastIndex, tokenMatch.index) });
         }
-        continue;
-      }
-      if (isFenceLine) {
-        flush();
-        fence = [line];
-        continue;
-      }
-      const heading = line.match(/^(-?)(#{1,3})\s*(.+)$/);
-      if (heading && hasToken(heading[3])) {
-        flush();
-        parts.push({
-          type: "heading",
-          content: line,
-          level: heading[2].length,
-          small: heading[1] === "-",
-          children: tokenize(heading[3]),
-        });
-        continue;
-      }
-      pending.push(line);
-    }
-    flush();
-    if (fence) parts.push({ type: "text", content: fence.join("\n") });
+        textLastIndex = tokenMatch.index + tokenMatch[0].length;
+        const userMentionId = tokenMatch[1];
+        const roleMentionId = tokenMatch[2];
+        const specialMention = tokenMatch[3] as "everyone" | "here" | undefined;
+        const emojiName = (tokenMatch[5] || tokenMatch[7] || "").toLowerCase();
+        const emojiId = tokenMatch[6];
 
-    return { parts, customEmojiCount };
+        if (userMentionId) {
+          parts.push({ type: "mention-user", content: tokenMatch[0], mentionId: userMentionId });
+          continue;
+        }
+        if (roleMentionId) {
+          parts.push({ type: "mention-role", content: tokenMatch[0], mentionId: roleMentionId });
+          continue;
+        }
+        if (specialMention) {
+          parts.push({ type: "mention-special", content: `@${specialMention}`, mentionKind: specialMention.toLowerCase() as "everyone" | "here" });
+          continue;
+        }
+        // An id-bearing token resolves by id first, so two servers' same-named
+        // emojis don't render as each other; the name is only a fallback.
+        const foundEmoji =
+          (emojiId && serverEmojis.find((e) => (e.id || e._id) === emojiId)) ||
+          serverEmojis.find((e) => (e.name?.toLowerCase?.() || "") === emojiName);
+        if (foundEmoji) {
+          parts.push({ type: "custom-emoji", content: tokenMatch[0], emoji: foundEmoji });
+          customEmojiCount++;
+        } else {
+          parts.push({ type: "text", content: tokenMatch[0] });
+        }
+      }
+      if (textLastIndex < textContent.length) {
+        parts.push({ type: "text", content: textContent.slice(textLastIndex) });
+      }
+      return parts;
+    };
+
+    const urlPart = (url: string): MessagePart => {
+      if (isImageLikeUrl(url)) return { type: "image", content: url, url };
+      if (/serika\.cc/i.test(url)) return { type: "text", content: url };
+      return { type: "link", content: url, url };
+    };
+
+    const walkInline = (nodes: MarkdownNode[] | undefined) => {
+      for (const node of nodes ?? []) {
+        if (node.type === "text") leaves.set(node, tokenizeText(node.content));
+        else if (node.type === "url") leaves.set(node, [urlPart(node.content)]);
+        if (node.children) walkInline(node.children);
+      }
+    };
+    const walkBlock = (block: ParsedMarkdown) => {
+      walkInline(block.inline);
+      block.children?.forEach(walkBlock);
+      for (const item of block.items ?? []) {
+        walkInline(item.inline);
+        item.children.forEach(walkBlock);
+      }
+    };
+    const blocks = parseMarkdown(displayContent);
+    blocks.forEach(walkBlock);
+    return { blocks, leaves, customEmojiCount };
   }, [displayContent, serverEmojis, imageOnlyUrl]);
 
   // Determine if message is emoji-only for larger display
@@ -518,22 +410,7 @@ export const MessageContent = memo(function MessageContent({
     );
   }
 
-  const renderPart = (part: MessagePart, index: number): React.ReactNode => {
-    if (part.type === "heading" && part.children) {
-      return (
-        <span
-          key={`heading-${index}`}
-          className={cn(
-            "block",
-            part.small
-              ? "text-[0.7em] text-[var(--text-muted)]"
-              : cn("font-bold", part.level === 1 && "text-lg", part.level === 2 && "text-base", part.level === 3 && "text-sm")
-          )}
-        >
-          {part.children.map(renderPart)}
-        </span>
-      );
-    }
+  const renderPart = (part: MessagePart, index: string): React.ReactNode => {
     if (part.type === "custom-emoji" && part.emoji) {
       return (
         <img
@@ -673,9 +550,15 @@ export const MessageContent = memo(function MessageContent({
     }
     return (
       <span key={`text-${index}`} className="twemoji-text">
-        <MarkdownRenderer content={part.content} />
+        {part.content}
       </span>
     );
+  };
+
+  const renderLeaf: MarkdownTextRenderer = (node, key) => {
+    const parts = parsedContent.leaves.get(node);
+    if (!parts) return <Fragment key={key}>{node.content}</Fragment>;
+    return <Fragment key={key}>{parts.map((p, i) => renderPart(p, `${key}-${i}`))}</Fragment>;
   };
 
   return (
@@ -684,10 +567,11 @@ export const MessageContent = memo(function MessageContent({
       onContextMenu={handleSpanContextMenu}
       className={cn(
         isLargeEmoji ? "twemoji-large" : "twemoji",
+        !inline && "whitespace-pre-wrap break-words",
         className
       )}
     >
-      {parsedContent.parts.map(renderPart)}
+      <MarkdownDocument blocks={parsedContent.blocks} renderText={renderLeaf} inline={inline} />
       {userMenu}
       {typeof document !== "undefined" && emojiCtxMenu && createPortal(
         <div

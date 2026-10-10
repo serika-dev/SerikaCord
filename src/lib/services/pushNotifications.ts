@@ -298,8 +298,10 @@ export function pushDmActivity(recipientIds: string[], event: {
   hasAttachments?: boolean;
   hasSticker?: boolean;
   isCall?: boolean;
+  /** "@silent" message: badge only, no push. */
+  silent?: boolean;
 }): void {
-  if (event.isCall || !isPushConfigured()) return;
+  if (event.isCall || event.silent || !isPushConfigured()) return;
   const others = [...new Set(recipientIds)].filter((id) => id && id !== event.authorId);
   if (others.length === 0) return;
   run(async () => {
@@ -346,8 +348,10 @@ export function pushChannelActivity(event: {
   mentionedUserIds: string[];
   roleMentionUserIds?: string[];
   preview?: string;
+  /** "@silent" message: no push. */
+  silent?: boolean;
 }): void {
-  if (!isPushConfigured()) return;
+  if (event.silent || !isPushConfigured()) return;
   const direct = new Set(event.mentionedUserIds ?? []);
   const viaRole = new Set(event.roleMentionUserIds ?? []);
   const candidates = [...new Set([...direct, ...viaRole])]

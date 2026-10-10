@@ -260,6 +260,9 @@ export const messages = pgTable('messages', {
   // Forwarded message copy (StoredForward in lib/chat/forward). Added at boot
   // by ensureMessageExtrasSchema().
   messageSnapshot: jsonb('message_snapshot'),
+  // Discord message flags (lib/chat/messageFlags): 1<<12 = @silent. Added at
+  // boot by ensureMessageFlagsSchema() (drizzle/manual_message_flags.sql).
+  flags: integer('flags').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

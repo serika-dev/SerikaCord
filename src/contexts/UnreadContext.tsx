@@ -82,6 +82,7 @@ import {
 import { isReadingLive } from "@/lib/unread/attentionTracker";
 import { groupDmHref } from "@/lib/chat/groupDm";
 import { emitThreadsChanged } from "@/lib/chat/threadPanelStore";
+import type { MarkUnreadPlan } from "@/lib/chat/unreadMarker";
 
 interface ActivityEvent {
   type: "channel_activity";
@@ -101,6 +102,8 @@ interface ActivityEvent {
   mentionNames?: MentionNames;
   parentId?: string | null;
   createdAt: string;
+  /** "@silent": badge, but no sound / desktop notification / toast. */
+  silent?: boolean;
 }
 
 export interface ChannelMeta {
@@ -167,6 +170,12 @@ interface UnreadContextValue {
    * newest one the user saw); without it, everything known.
    */
   markChannelRead: (channelId: string, upTo?: { id: string; createdAt: string }) => void;
+  /**
+   * "Mark Unread": move the read marker back to just before `plan.from` (this
+   * device, the server and the user's other devices), restoring the unread
+   * state, the badge and the "NEW" line.
+   */
+  markChannelUnread: (channelId: string, plan: MarkUnreadPlan) => void;
   /** Mark every channel in a server as read (clears unread pill + mention badges). */
   markServerRead: (serverId: string) => void;
   /** Mark several conversations read (a category, the whole Inbox). */
@@ -209,6 +218,8 @@ interface DmActivityEvent {
   isCall?: boolean;
   /** A group DM system row ("X added Y"): badge only, no notification. */
   isSystem?: boolean;
+  /** "@silent": badge, but no sound / desktop notification / toast. */
+  silent?: boolean;
   /** Set for group DMs: notifications name the group and open its page. */
   group?: { channelId: string; name: string; icon?: string | null } | null;
 }
@@ -314,6 +325,9 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   // A thread open in the side panel is on screen too.
   const activePanelChannelRef = useRef<string | null>(null);
 
+  // The open conversation normally never shows as unread in the sidebar; one
+  // the user just marked unread does, until they switch away or read it.
+  const [forcedUnread, setForcedUnread] = useState<string | null>(null);
   // Last message id POSTed per channel, so repeated acks of the same message
   // (scroll jitter, focus events) cost nothing.
   const postedAckRef = useRef<Record<string, string>>({});
@@ -351,6 +365,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   const markChannelRead = useCallback(
     (channelId: string, upTo?: { id: string; createdAt: string }) => {
       if (!channelId) return;
+      setForcedUnread((cur) => (cur === channelId ? null : cur));
       if (upTo) {
         if (postedAckRef.current[channelId] === upTo.id) return;
         postedAckRef.current[channelId] = upTo.id;
@@ -364,6 +379,26 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     },
     [afterRead, postAck],
   );
+
+  const markChannelUnread = useCallback((channelId: string, plan: MarkUnreadPlan) => {
+    if (!channelId) return;
+    delete postedAckRef.current[channelId];
+    delete pendingAcksRef.current[channelId];
+    dispatchUnread({
+      type: "rewind",
+      channelId,
+      at: plan.marker.lastReadAt,
+      messageId: plan.marker.lastReadMessageId,
+      newest: plan.newest ? { id: plan.newest.id, at: plan.newest.createdAt } : null,
+      badge: plan.badge.map((m) => ({ id: m.id, at: m.createdAt })),
+    });
+    setForcedUnread(channelId);
+    void fetch("/api/users/@me/read-states", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channelId, messageId: plan.from.id, rewind: true }),
+    }).catch(() => { /* this device still shows it unread */ });
+  }, []);
 
   const needsRead = useCallback((channelId: string) => {
     const s = getUnreadState();
@@ -396,6 +431,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   }, [markChannelRead, needsRead]);
 
   const setActiveChannel = useCallback((channelId: string | null) => {
+    if (activeChannelRef.current !== channelId) setForcedUnread((cur) => (cur && cur !== channelId ? null : cur));
     activeChannelRef.current = channelId;
   }, []);
 
@@ -700,12 +736,18 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       // channel. Advance our read marker + clear its badge and notification
       // locally — no re-POST, so devices converge without loops.
       if (data.type === "read_state") {
-        const { channelId, lastReadAt, lastReadMessageId } = data as {
+        const { channelId, lastReadAt, lastReadMessageId, rewind } = data as {
           channelId?: string;
           lastReadAt?: string;
           lastReadMessageId?: string | null;
+          rewind?: boolean;
         };
         if (!channelId || !lastReadAt) return;
+        if (rewind) {
+          // "Mark Unread" on another device (or the echo of this one's).
+          dispatchUnread({ type: "rewind", channelId, at: lastReadAt, messageId: lastReadMessageId ?? null });
+          return;
+        }
         dispatchUnread({ type: "read", channelId, at: lastReadAt, messageId: lastReadMessageId ?? null });
         afterRead(channelId);
         return;
@@ -801,7 +843,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           selfId: user.id,
           isDM: true,
           mention: decision.mention,
-          notify: decision.notify && !dm.isCall && !dm.isSystem && !fromBlocked,
+          notify: decision.notify && !dm.isCall && !dm.isSystem && !fromBlocked && !dm.silent,
           active: isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
           readingLive: isReadingLive(),
         });
@@ -899,7 +941,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         selfId: user.id,
         isDM: false,
         mention: alert.mention,
-        notify: alert.notify,
+        // "@silent": still badges, never sounds or pops a notification.
+        notify: alert.notify && !event.silent,
         active: isOnScreenIn(activeChannelRef, activePanelChannelRef, event.channelId),
         readingLive: isReadingLive(),
       });
@@ -1012,11 +1055,11 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
 
   const isChannelUnread = useCallback(
     (channelId: string) => {
-      if (isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId)) return false;
+      if (isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId) && forcedUnread !== channelId) return false;
       if (mutedChannels.has(channelId)) return false;
       return hasUnread(unread, channelId);
     },
-    [unread, mutedChannels],
+    [unread, mutedChannels, forcedUnread],
   );
 
   const getMentionCount = useCallback((channelId: string) => badgeCount(unread, channelId), [unread]);
@@ -1082,6 +1125,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       totalMentionCount,
       unreadChannels,
       markChannelRead,
+      markChannelUnread,
       markServerRead,
       markChannelsRead,
       markAllRead,
@@ -1102,6 +1146,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       totalMentionCount,
       unreadChannels,
       markChannelRead,
+      markChannelUnread,
       markServerRead,
       markChannelsRead,
       markAllRead,
@@ -1130,6 +1175,7 @@ const NOOP_UNREAD: UnreadContextValue = {
   totalMentionCount: 0,
   unreadChannels: [],
   markChannelRead: () => {},
+  markChannelUnread: () => {},
   markServerRead: () => {},
   markChannelsRead: () => {},
   markAllRead: () => {},

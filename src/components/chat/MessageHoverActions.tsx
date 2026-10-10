@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { Copy, MessagesSquare, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2, CornerUpRight } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
-import { cn } from "@/lib/utils";
+import { cdnImage, cn } from "@/lib/utils";
+import { emojiToken, quickReactions } from "@/lib/chat/emojiFrecency";
+import { recordEmoji, useFrecentEmojis } from "@/lib/chat/emojiFrecencyStore";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +42,7 @@ interface MessageHoverActionsProps<M extends ChatMessage> {
   reactionPickerOpen: boolean;
   onReactionPickerChange: (open: boolean) => void;
   onAddReaction: (messageId: string, emoji: string) => void;
-  onReply: (message: M) => void;
+  onReply: (message: M, opts?: { mention?: boolean }) => void;
   onCopy: (content: string) => void;
   onPinToggle: (message: M) => void;
   /** Owner / MANAGE_MESSAGES / PIN_MESSAGES — can pin or unpin messages. */
@@ -77,6 +79,9 @@ export function MessageHoverActions<M extends ChatMessage>({
 }: MessageHoverActionsProps<M>) {
   const gt = useChatGt();
   const [shiftHeld, setShiftHeld] = useState(false);
+  // Discord's hover bar: your three most-used reactions, one click away.
+  const frecent = useFrecentEmojis();
+  const quick = message.pending || message.ephemeral ? [] : quickReactions(frecent, 3);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -122,9 +127,28 @@ export function MessageHoverActions<M extends ChatMessage>({
     style={{ transform: 'translateZ(0)', willChange: 'opacity, transform' }}
     >
       <div className="flex items-center bg-[var(--app-surface-alt)] border border-[var(--app-border)] rounded-md shadow-lg">
+        {quick.map((emoji, i) => (
+          <button
+            key={emoji.kind === "custom" ? emoji.id : emoji.emoji}
+            type="button"
+            onClick={() => {
+              recordEmoji(emoji);
+              onAddReaction(message.id, emojiToken(emoji));
+            }}
+            className={cn("hidden sm:flex h-7 w-7 items-center justify-center hover:bg-black/20 transition-colors", i === 0 && "rounded-l-md")}
+            title={emoji.kind === "custom" ? `:${emoji.name}:` : emoji.emoji}
+          >
+            {emoji.kind === "custom" ? (
+              <img src={cdnImage(emoji.url)} alt={`:${emoji.name}:`} className="h-[18px] w-[18px] object-contain" />
+            ) : (
+              <span className="text-base leading-none">{emoji.emoji}</span>
+            )}
+          </button>
+        ))}
+        {quick.length > 0 && <span className="hidden sm:block mx-0.5 h-4 w-px bg-[var(--app-border)]" aria-hidden="true" />}
         <Popover open={reactionPickerOpen} onOpenChange={onReactionPickerChange}>
           <PopoverTrigger asChild>
-            <button className="p-1.5 hover:bg-black/20 rounded-l-md transition-colors" title={gt("Add Reaction")}>
+            <button className={cn("p-1.5 hover:bg-black/20 transition-colors", quick.length === 0 && "rounded-l-md")} title={gt("Add Reaction")}>
               <Smile className="w-4 h-4 text-[var(--app-muted)]" />
             </button>
           </PopoverTrigger>
@@ -139,7 +163,7 @@ export function MessageHoverActions<M extends ChatMessage>({
           </PopoverContent>
         </Popover>
         <button
-          onClick={() => onReply(message)}
+          onClick={(e) => onReply(message, e.shiftKey ? { mention: false } : undefined)}
           className="p-1.5 hover:bg-black/20 transition-colors"
           title={gt("Reply")}
         >

@@ -728,6 +728,73 @@ html.native-app body {
   margin: 4px 6px;
   background: var(--border-subtle, #2b2d31);
 }
+
+/* ─── Messages that ping you (mention, @everyone, reply ping) ─── */
+:root {
+  --app-mention-accent: #f0b232;
+}
+.chat-mention-row {
+  background: color-mix(in srgb, var(--app-mention-accent) 9%, transparent);
+  box-shadow: inset 2px 0 0 var(--app-mention-accent);
+}
+.chat-mention-row:hover {
+  background: color-mix(in srgb, var(--app-mention-accent) 14%, transparent);
+}
+
+/* ─── Code block syntax highlighting (lib/chat/highlight.ts) ───
+   Token colours follow the theme: dark palette by default, a light one under
+   .theme-light. */
+:root {
+  --hl-keyword: #ff7ab2;
+  --hl-string: #a5d6a7;
+  --hl-comment: color-mix(in srgb, var(--app-muted, #8d97ad) 85%, transparent);
+  --hl-number: #f7c97a;
+  --hl-literal: #78c6ff;
+  --hl-function: #8cb4ff;
+  --hl-type: #63e6be;
+  --hl-builtin: #c9a8ff;
+  --hl-tag: #ff8f8f;
+  --hl-attr: #f5c27a;
+  --hl-property: #a3d4ff;
+  --hl-meta: #d4a5ff;
+  --hl-variable: #ffb38a;
+  --hl-addition-bg: color-mix(in srgb, #3fb950 18%, transparent);
+  --hl-addition: #7ee2a8;
+  --hl-deletion-bg: color-mix(in srgb, #f85149 18%, transparent);
+  --hl-deletion: #ff9b95;
+}
+.theme-light {
+  --hl-keyword: #c2185b;
+  --hl-string: #2e7d32;
+  --hl-comment: #6b7a90;
+  --hl-number: #b45309;
+  --hl-literal: #0b65c2;
+  --hl-function: #3949ab;
+  --hl-type: #00796b;
+  --hl-builtin: #7b1fa2;
+  --hl-tag: #c62828;
+  --hl-attr: #9a5b00;
+  --hl-property: #1565c0;
+  --hl-meta: #6a1b9a;
+  --hl-variable: #bf360c;
+  --hl-addition: #1b7f3b;
+  --hl-deletion: #b42318;
+}
+.hl-keyword { color: var(--hl-keyword); }
+.hl-string { color: var(--hl-string); }
+.hl-comment { color: var(--hl-comment); font-style: italic; }
+.hl-number { color: var(--hl-number); }
+.hl-literal { color: var(--hl-literal); }
+.hl-function { color: var(--hl-function); }
+.hl-type { color: var(--hl-type); }
+.hl-builtin { color: var(--hl-builtin); }
+.hl-tag { color: var(--hl-tag); }
+.hl-attr { color: var(--hl-attr); }
+.hl-property { color: var(--hl-property); }
+.hl-meta { color: var(--hl-meta); }
+.hl-variable { color: var(--hl-variable); }
+.hl-addition { color: var(--hl-addition); background: var(--hl-addition-bg); display: inline-block; min-width: 100%; }
+.hl-deletion { color: var(--hl-deletion); background: var(--hl-deletion-bg); display: inline-block; min-width: 100%; }
 @media (prefers-reduced-motion: reduce) {
   .ctx-menu {
     animation: none;

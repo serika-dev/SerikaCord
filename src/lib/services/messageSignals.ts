@@ -27,6 +27,8 @@ export async function signalChannelMessage(opts: {
   /** Message text, for the desktop notification preview. */
   content?: string | null;
   createdAt?: Date | string | null;
+  /** "@silent" (SUPPRESS_NOTIFICATIONS): badge without push / sound / notification. */
+  silent?: boolean;
 }): Promise<void> {
   if (!opts.channel.serverId) return;
   try {
@@ -49,6 +51,7 @@ export async function signalChannelMessage(opts: {
       mentionNames,
       ...(opts.channel.parentId !== undefined ? { parentId: opts.channel.parentId } : {}),
       createdAt: new Date(opts.createdAt ?? Date.now()).toISOString(),
+      ...(opts.silent ? { silent: true } : {}),
     });
   } catch {
     /* best-effort */
@@ -77,6 +80,8 @@ export async function signalDmMessage(opts: {
    * badge, notification or push — only a `message_request` signal.
    */
   requestRecipientIds?: string[];
+  /** "@silent" (SUPPRESS_NOTIFICATIONS): badge without push / sound / notification. */
+  silent?: boolean;
 }): Promise<void> {
   try {
     const createdAt = new Date(opts.createdAt ?? Date.now()).toISOString();
@@ -121,6 +126,7 @@ export async function signalDmMessage(opts: {
       ...(opts.isCall ? { isCall: true } : {}),
       ...(opts.isSystem ? { isSystem: true } : {}),
       ...(opts.group ? { group: opts.group } : {}),
+      ...(opts.silent ? { silent: true } : {}),
     });
   } catch {
     /* best-effort */

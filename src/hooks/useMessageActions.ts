@@ -7,11 +7,14 @@ import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 import { reinsertMessage } from "@/lib/chat/messageWindow";
 import { haptic } from "@/lib/native/bridge";
+import { contextTargetOf } from "@/lib/chat/imageActions";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
   message: M;
   x: number;
   y: number;
+  /** Right-clicked image / link inside the message (Copy Image, Open Link). */
+  target?: { imageUrl?: string; linkUrl?: string };
 }
 
 interface UseMessageActionsOptions<M extends ChatMessage> {
@@ -43,7 +46,19 @@ export function useMessageActions<M extends ChatMessage>({
   const [deleteConfirmMessage, setDeleteConfirmMessage] = useState<M | null>(null);
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState<M> | null>(null);
   const [reactionPickerMessage, setReactionPickerMessage] = useState<string | null>(null);
-  const [replyToMessage, setReplyToMessage] = useState<M | null>(null);
+  const [replyToMessage, setReplyTarget] = useState<M | null>(null);
+  // Reply ping ("@ON / @OFF" in the reply bar). Every new reply starts ON,
+  // like Discord; `mention: false` starts it OFF (Shift+Reply).
+  const [replyMention, setReplyMention] = useState(true);
+  const setReplyToMessage = useCallback((message: M | null, opts?: { mention?: boolean }) => {
+    setReplyTarget(message);
+    setReplyMention(opts?.mention ?? true);
+  }, []);
+  const toggleReplyMention = useCallback(() => setReplyMention((v) => !v), []);
+  // Reactions viewer dialog ("Reactions" in the message menu).
+  const [reactionsViewer, setReactionsViewer] = useState<{ message: M; emoji?: string } | null>(null);
+  // "Report Message" dialog.
+  const [reportMessage, setReportMessage] = useState<M | null>(null);
 
   // Close the context menu on any click or scroll
   useEffect(() => {
@@ -65,7 +80,7 @@ export function useMessageActions<M extends ChatMessage>({
 
   const openContextMenu = useCallback((e: React.MouseEvent, message: M) => {
     e.preventDefault();
-    setContextMenu({ message, x: e.clientX, y: e.clientY });
+    setContextMenu({ message, x: e.clientX, y: e.clientY, target: contextTargetOf(e.target) });
   }, []);
 
   const startEditing = useCallback((message: M) => {
@@ -308,6 +323,12 @@ export function useMessageActions<M extends ChatMessage>({
       setReactionPickerMessage,
       replyToMessage,
       setReplyToMessage,
+      replyMention,
+      toggleReplyMention,
+      reactionsViewer,
+      setReactionsViewer,
+      reportMessage,
+      setReportMessage,
       copyMessage,
       togglePin,
       applyReactionEvent,
@@ -335,6 +356,12 @@ export function useMessageActions<M extends ChatMessage>({
       setReactionPickerMessage,
       replyToMessage,
       setReplyToMessage,
+      replyMention,
+      toggleReplyMention,
+      reactionsViewer,
+      setReactionsViewer,
+      reportMessage,
+      setReportMessage,
       copyMessage,
       togglePin,
       applyReactionEvent,

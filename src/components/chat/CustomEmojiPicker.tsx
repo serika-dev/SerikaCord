@@ -14,6 +14,8 @@ import { GifPicker } from "@/components/chat/GifPicker";
 import { useGT } from "gt-next";
 import { useEmojiFavorites } from "@/hooks/useEmojiFavorites";
 import { toast } from "sonner";
+import { recordEmoji, useFrecentEmojis } from "@/lib/chat/emojiFrecencyStore";
+import type { FrecencyEmoji } from "@/lib/chat/emojiFrecency";
 
 interface CustomEmoji {
   id: string;
@@ -61,7 +63,7 @@ interface EmojiPickerProps {
 
 // Category icons using Lucide React icons
 const CATEGORY_ICONS: { id: string; icon: React.ElementType; label: string }[] = [
-  { id: "recent", icon: Clock, label: "Recently Used" },
+  { id: "recent", icon: Clock, label: "Frequently Used" },
   { id: "favorites", icon: Star, label: "Favorites" },
   { id: "smileys", icon: Smile, label: "Smileys & Emotion" },
   { id: "people", icon: Users, label: "People & Body" },
@@ -78,7 +80,7 @@ type GTFunc = ReturnType<typeof useGT>;
 
 function emojiCategoryLabel(id: string, gt: GTFunc): string {
   switch (id) {
-    case 'recent': return gt('Recently Used');
+    case 'recent': return gt('Frequently Used');
     case 'favorites': return gt('Favorites');
     case 'smileys': return gt('Smileys & Emotion');
     case 'people': return gt('People & Body');
@@ -213,11 +215,7 @@ const CustomEmojiButton = memo(function CustomEmojiButton({
   );
 });
 
-const RECENT_EMOJIS_KEY = "serika-recent-emojis";
-
-type RecentEmojiEntry =
-  | { kind: "unicode"; emoji: string }
-  | { kind: "custom"; id: string; name: string; url: string; animated?: boolean };
+type RecentEmojiEntry = FrecencyEmoji;
 
 // Stable default values: inline `= []` defaults create a new array identity
 // on every render, which turns any effect depending on them into an infinite
@@ -252,7 +250,8 @@ export function CustomEmojiPicker({
   const [stickerSearch, setStickerSearch] = useState("");
   const deferredStickerSearch = useDeferredValue(stickerSearch);
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
-  const [recentEntries, setRecentEntries] = useState<RecentEmojiEntry[]>([]);
+  // "Frequently Used": ranked by frecency (lib/chat/emojiFrecency).
+  const recentEntries = useFrecentEmojis();
 
   // Context menu state for right-click on emojis
   const [ctxMenu, setCtxMenu] = useState<{
@@ -321,13 +320,6 @@ export function CustomEmojiPicker({
     setCtxMenu(null);
   }, [ctxMenu, toggleEmojiFavorite]);
 
-  // Load persisted recently-used emojis once
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RECENT_EMOJIS_KEY);
-      if (raw) setRecentEntries(JSON.parse(raw) as RecentEmojiEntry[]);
-    } catch { /* corrupt/unavailable storage */ }
-  }, []);
   const [stickers, setStickers] = useState<StickerItem[]>([]);
   const [isLoadingStickers, setIsLoadingStickers] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -543,18 +535,12 @@ export function CustomEmojiPicker({
   }, [activeStickerSection]);
 
   const handleEmojiClick = useCallback((emoji: string, isCustom = false, emojiData?: CustomEmoji) => {
-    // Record in recently used (persisted locally)
-    setRecentEntries((prev) => {
-      const entry: RecentEmojiEntry = isCustom && emojiData
+    // Counts toward "Frequently Used" and the quick-reaction rows.
+    recordEmoji(
+      isCustom && emojiData
         ? { kind: "custom", id: emojiData.id, name: emojiData.name, url: emojiData.url, animated: emojiData.animated }
-        : { kind: "unicode", emoji };
-      const key = entry.kind === "custom" ? `c:${entry.id}` : `u:${entry.emoji}`;
-      const next = [entry, ...prev.filter((e) => (e.kind === "custom" ? `c:${e.id}` : `u:${e.emoji}`) !== key)].slice(0, 24);
-      try {
-        localStorage.setItem(RECENT_EMOJIS_KEY, JSON.stringify(next));
-      } catch { /* storage full or unavailable */ }
-      return next;
-    });
+        : { kind: "unicode", emoji },
+    );
     onEmojiSelect(emoji, isCustom, emojiData);
   }, [onEmojiSelect]);
 
@@ -967,12 +953,12 @@ export function CustomEmojiPicker({
               className="flex-1 h-[440px] max-h-[60dvh] overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[var(--app-border)] scrollbar-track-transparent"
             >
               <div className="p-3 space-y-4">
-                {/* Recently Used Section */}
+                {/* Frequently Used Section */}
                 {filteredRecent.length > 0 && (
                   <div ref={setSectionRef("recent")}>
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 flex items-center gap-1.5 uppercase tracking-wide sticky top-0 bg-[var(--bg-card)] py-1 z-10">
                       <Clock className="w-3.5 h-3.5" />
-                      {gt("Recently Used")}
+                      {gt("Frequently Used")}
                     </h3>
                     <div className="grid grid-cols-8 gap-0.5">
                       {filteredRecent.slice(0, 24).map((entry, idx) =>

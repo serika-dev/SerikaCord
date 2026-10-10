@@ -25,6 +25,8 @@ import { loadMessageExtras, type MessageExtras } from '@/lib/services/messageExt
 import { parsePollResult, parseStoredPoll, pollPreviewText } from '@/lib/chat/polls';
 import { isHiddenRequest, isPendingRequest } from '@/lib/chat/messageRequests';
 import { openRequestsFor, recordDmSend, resolveRequest } from '@/lib/services/messageRequests';
+import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
+import { extractUserMentionIds } from '@/lib/services/messageSignals';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -489,6 +491,8 @@ export async function loadDmMessagesPage(
       sticker: msg.sticker || undefined,
       interaction: (msg as { interaction?: unknown }).interaction ?? undefined,
       suppressEmbeds: Boolean((msg as { suppressEmbeds?: boolean }).suppressEmbeds),
+      flags: (msg as { flags?: number | null }).flags ?? 0,
+      ...(!isGroupDmEventType(msg.type) && msg.mentionedUserIds?.length ? { mentionedUserIds: msg.mentionedUserIds } : {}),
       // DM call log row ("started a call", "missed call").
       ...(msg.type === 'call' ? { type: 'call' as const, call: parseCallData(msg.call) } : {}),
       // Group DM system row ("X added Y to the group.").
@@ -516,6 +520,10 @@ export type DmSendBody = {
   sticker?: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string };
   attachments?: Array<{ id: string; url: string; filename: string; contentType: string; size?: number; spoiler?: boolean }>;
   replyTo?: string;
+  /** false = reply without pinging the replied-to author ("@OFF"). */
+  mentionRepliedUser?: boolean;
+  /** Discord message flags (SUPPRESS_NOTIFICATIONS for "@silent"). */
+  flags?: number;
 };
 
 type StickerData = { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string };
@@ -525,11 +533,19 @@ export type PreparedDmSend = {
   stickerData?: StickerData;
   attachments: NonNullable<DmSendBody['attachments']>;
   replyTo?: string;
+  mentionRepliedUser?: boolean;
+  /** Stored message flags ("@silent" sets SUPPRESS_NOTIFICATIONS). */
+  flags: number;
+  silent: boolean;
 };
 
 /** Validate and sanitize a DM send body (content, attachments, sticker, reply id). */
 export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{ error: DmReply } | { prepared: PreparedDmSend }> {
-  const { content, sticker, attachments, replyTo } = body;
+  const { sticker, attachments, replyTo } = body;
+  // "@silent hello" sends "hello" without notifying anyone (Discord).
+  const silentPrefix = parseSilentPrefix(body.content);
+  const content = silentPrefix.content;
+  const flags = sendFlags(body.flags, silentPrefix.silent);
   let sanitizedContent = content ? sanitizeMessageContent(content) : '';
 
   // Attachments must be our own uploads by this user (see attachmentPolicy).
@@ -572,7 +588,17 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
 
   // Normalize emoji format
   sanitizedContent = normalizeEmojiFormat(sanitizedContent);
-  return { prepared: { sanitizedContent, stickerData, attachments: attachments || [], replyTo } };
+  return {
+    prepared: {
+      sanitizedContent,
+      stickerData,
+      attachments: attachments || [],
+      replyTo,
+      mentionRepliedUser: body.mentionRepliedUser,
+      flags,
+      silent: isSilentMessage(flags),
+    },
+  };
 }
 
 /**
@@ -640,6 +666,14 @@ export async function persistDmMessage(
     };
   }
 
+  // Mentioned users (highlight + Inbox), plus the replied-to author unless the
+  // sender switched the reply ping off.
+  const mentionedUserIds = withReplyMention(extractUserMentionIds(sanitizedContent), {
+    repliedAuthorId: replyMsg?.authorId ?? null,
+    senderId: user.id,
+    mentionRepliedUser: prepared.mentionRepliedUser,
+  }).filter((id) => isValidObjectId(id));
+
   const message = await Message.create({
     channelId: channel.id,
     authorId: user.id,
@@ -648,6 +682,8 @@ export async function persistDmMessage(
     referencedMessageId: replyRef,
     sticker: stickerData,
     attachments,
+    mentionedUserIds,
+    flags: prepared.flags,
   });
 
   // Update channel's last message — fire-and-forget so the sender's response
@@ -681,6 +717,8 @@ export async function persistDmMessage(
     sticker: message.sticker || undefined,
     referencedMessageId: replyRef,
     referencedMessage,
+    mentionedUserIds,
+    flags: prepared.flags,
   };
   return { message, messageData };
 }
@@ -942,6 +980,8 @@ export const DM_SEND_BODY = t.Object({
     spoiler: t.Optional(t.Boolean()),
   }))),
   replyTo: t.Optional(t.String()),
+  mentionRepliedUser: t.Optional(t.Boolean()),
+  flags: t.Optional(t.Number()),
 });
 
 export const dmRoutes = new Elysia({ prefix: '/dms' })
@@ -1468,6 +1508,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             hasAttachments: Array.isArray(attachments) && attachments.length > 0,
             hasSticker: Boolean(stickerData),
             createdAt: createdAtIso,
+            ...(prepared.silent ? { silent: true } : {}),
           },
         );
       } catch { /* best-effort */ }

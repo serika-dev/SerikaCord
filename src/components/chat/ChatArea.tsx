@@ -87,6 +87,7 @@ import { useThreadInfo } from "@/hooks/useThreadInfo";
 import { ThreadHeaderActions, ThreadHeaderTitle } from "@/components/chat/ThreadHeader";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { isSilentMessage } from "@/lib/chat/messageFlags";
 
 const ImageLightbox = dynamic(() => import("@/components/ui/image-lightbox").then((m) => m.ImageLightbox), { ssr: false });
 
@@ -292,6 +293,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     setActiveChannel,
     setActivePanelChannel,
     markChannelRead,
+    markChannelUnread,
     getReadMarker,
     totalMentionCount,
     unreadChannels,
@@ -667,7 +669,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       const serverId = currentServer?.id;
       const channelUrl = serverId ? `/channels/${serverId}/${message.channelId}` : "/channels/me";
       const label = currentChannel?.name ? `#${currentChannel.name}` : gt("a channel");
-      notifyIncomingMessage({
+      // "@silent" messages never sound or pop a notification.
+      if (!isSilentMessage(message.flags)) notifyIncomingMessage({
         channelId: message.channelId,
         serverId,
         ancestorIds: [parentId, grandParentId],
@@ -1938,6 +1941,11 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         onOpenThread={hostsThreads ? handleOpenThread : undefined}
         onSeeAllThreads={hostsThreads ? handleSeeAllThreads : undefined}
         secondary={isPanel}
+        onMarkUnread={(plan) => {
+          if (openChannelId) markChannelUnread(openChannelId, plan);
+        }}
+        onJumpToPresent={chat.returnToPresent}
+        canManageReactions={canModerateMessages}
       />
 
       <TypingIndicator text={chat.typingStatusText} />
@@ -2010,6 +2018,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         availableServerEmojis={allServerEmojis}
         availableServerStickers={serverStickers}
         replyTo={chat.actions.replyToMessage}
+        replyMention={chat.actions.replyMention}
+        onToggleReplyMention={chat.actions.toggleReplyMention}
         onCancelReply={() => chat.actions.setReplyToMessage(null)}
         mentionSuggestions={mentionSuggestions}
         onMentionSelect={insertMentionFromSuggestion}
@@ -2128,6 +2138,9 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         onEdit={chat.actions.startEditing}
         onDelete={chat.actions.setDeleteConfirmMessage}
         onDeleteNow={(message) => void chat.actions.deleteMessageNow(message)}
+        onMarkUnread={(message) => messageListRef.current?.markUnreadFrom(message.id)}
+        onViewReactions={(message) => chat.actions.setReactionsViewer({ message })}
+        onReport={chat.actions.setReportMessage}
         onToggleReaction={(message, emoji, hasReacted) => chat.actions.toggleReaction(message.id, emoji, hasReacted)}
         currentUserId={user?.id}
         onCreateThread={canCreateThreads ? handleCreateThread : undefined}

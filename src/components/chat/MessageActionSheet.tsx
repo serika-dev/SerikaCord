@@ -1,24 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2, CornerUpRight } from "lucide-react";
+import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2, CornerUpRight, EyeOff, Flag, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
-import { cn } from "@/lib/utils";
+import { cdnImage, cn } from "@/lib/utils";
+import { DEFAULT_QUICK_REACTIONS, emojiKey, type FrecencyEmoji } from "@/lib/chat/emojiFrecency";
 import { canShare, haptic, shareLink } from "@/lib/native/bridge";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import type { ChatMessage } from "@/lib/chat/types";
 import { requestForward } from "@/lib/chat/forwardBus";
 
-/** Discord-style quick reactions at the top of the sheet. */
-export const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🔥"] as const;
 
 const DISMISS_DRAG_PX = 90;
 
-/** Whether `userId` already reacted to `message` with this unicode emoji. */
-export function hasReactedWith(message: ChatMessage, emoji: string, userId?: string): boolean {
+/** Whether `userId` already reacted to `message` with this emoji. */
+export function hasReactedWith(message: ChatMessage, emoji: FrecencyEmoji, userId?: string): boolean {
   if (!userId) return false;
-  const reaction = message.reactions?.find((r) => !r.emoji.id && r.emoji.name === emoji);
+  const reaction = message.reactions?.find((r) =>
+    emoji.kind === "custom" ? r.emoji.id === emoji.id : !r.emoji.id && r.emoji.name === emoji.emoji,
+  );
   return Boolean(reaction?.userIds?.includes(userId));
 }
 
@@ -35,13 +36,19 @@ interface MessageActionSheetProps<M extends ChatMessage> {
   onClose: () => void;
   onReply: (message: M) => void;
   onAddReaction?: (message: M) => void;
-  onToggleReaction?: (message: M, emoji: string, hasReacted: boolean) => void;
+  /** Quick reactions shown at the top (frecent first). */
+  quickReactions?: FrecencyEmoji[];
+  /** Toggle one of the quick reactions. */
+  onReact?: (emoji: FrecencyEmoji) => void;
   onCopy: (content: string) => void;
   onPinToggle: (message: M) => void;
   onEdit: (message: M) => void;
   onDelete: (message: M) => void;
   /** Start a thread from the message (omitted where threads aren't allowed). */
   onCreateThread?: (message: M) => void;
+  onMarkUnread?: (message: M) => void;
+  onViewReactions?: (message: M) => void;
+  onReport?: (message: M) => void;
 }
 
 /**
@@ -60,12 +67,16 @@ export function MessageActionSheet<M extends ChatMessage>({
   onClose,
   onReply,
   onAddReaction,
-  onToggleReaction,
+  quickReactions = DEFAULT_QUICK_REACTIONS,
+  onReact,
   onCopy,
   onPinToggle,
   onEdit,
   onDelete,
   onCreateThread,
+  onMarkUnread,
+  onViewReactions,
+  onReport,
 }: MessageActionSheetProps<M>) {
   const gt = useGT();
   const [dragY, setDragY] = useState(0);
@@ -135,7 +146,7 @@ export function MessageActionSheet<M extends ChatMessage>({
           <div className="h-1 w-10 rounded-full bg-[var(--app-border)]" />
         </div>
 
-        {onToggleReaction && (
+        {onReact && (
           <div
             className="flex items-center justify-between gap-1.5 px-4 pb-3"
             onTouchStart={onDragStart}
@@ -143,15 +154,15 @@ export function MessageActionSheet<M extends ChatMessage>({
             onTouchEnd={onDragEnd}
             onTouchCancel={onDragEnd}
           >
-            {QUICK_REACTIONS.map((emoji) => {
+            {quickReactions.map((emoji) => {
               const reacted = hasReactedWith(message, emoji, currentUserId);
               return (
                 <button
-                  key={emoji}
+                  key={emojiKey(emoji)}
                   type="button"
                   aria-label={gt("React")}
                   aria-pressed={reacted}
-                  onClick={run(() => onToggleReaction(message, emoji, reacted))}
+                  onClick={run(() => onReact(emoji))}
                   className={cn(
                     "flex h-11 w-11 items-center justify-center rounded-full text-[22px] transition-transform active:scale-90 touch-manipulation",
                     reacted
@@ -159,7 +170,11 @@ export function MessageActionSheet<M extends ChatMessage>({
                       : "bg-[var(--app-surface-alt)]",
                   )}
                 >
-                  {emoji}
+                  {emoji.kind === "custom" ? (
+                    <img src={cdnImage(emoji.url)} alt={`:${emoji.name}:`} className="h-6 w-6 object-contain" />
+                  ) : (
+                    emoji.emoji
+                  )}
                 </button>
               );
             })}
@@ -199,6 +214,16 @@ export function MessageActionSheet<M extends ChatMessage>({
             <button type="button" className={rowClass} onClick={run(() => onPinToggle(message))}>
               <Pin className="h-5 w-5 text-[var(--text-secondary)]" />
               {message.pinned ? gt("Unpin Message") : gt("Pin Message")}
+            </button>
+          )}
+          {onMarkUnread && (
+            <button type="button" className={rowClass} onClick={run(() => onMarkUnread(message))}>
+              <EyeOff className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Mark Unread")}
+            </button>
+          )}
+          {onViewReactions && (
+            <button type="button" className={rowClass} onClick={run(() => onViewReactions(message))}>
+              <Smile className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Reactions")}
             </button>
           )}
         </div>
@@ -248,8 +273,14 @@ export function MessageActionSheet<M extends ChatMessage>({
           </button>
         </div>
 
-        {canDelete && (
-          <div className="mx-3 overflow-hidden rounded-xl bg-[var(--app-surface-alt)]">
+        {(canDelete || onReport) && (
+          <div className="mx-3 divide-y divide-[var(--app-border)] overflow-hidden rounded-xl bg-[var(--app-surface-alt)]">
+            {onReport && (
+              <button type="button" className={cn(rowClass, "text-red-500")} onClick={run(() => onReport(message))}>
+                <Flag className="h-5 w-5" /> {gt("Report Message")}
+              </button>
+            )}
+            {canDelete && (
             <button
               type="button"
               className={cn(rowClass, "text-red-500")}
@@ -260,6 +291,7 @@ export function MessageActionSheet<M extends ChatMessage>({
             >
               <Trash2 className="h-5 w-5" /> {gt("Delete Message")}
             </button>
+            )}
           </div>
         )}
       </div>

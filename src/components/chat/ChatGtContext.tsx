@@ -56,6 +56,9 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "Unknown User": gt("Unknown User"),
       "role": gt("role"),
       "TTS": gt("TTS"),
+      // MarkdownRenderer — code blocks
+      "Copy": gt("Copy"),
+      "Copied": gt("Copied"),
       // MessageGroup
       "Reply": gt("Reply"),
       "React": gt("React"),
@@ -66,6 +69,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "(attachment)": gt("(attachment)"),
       "Sending…": gt("Sending…"),
       "Pinned message": gt("Pinned message"),
+      "Silent message: sent without notifications": gt("Silent message: sent without notifications"),
       "New": gt("New"),
       // MessageGroupHeader
       "Unknown": gt("Unknown"),

@@ -66,4 +66,27 @@ export const ChannelReadState = {
       .returning();
     return row || null;
   },
+
+  /**
+   * "Mark Unread": set the marker to exactly `messageId` / `readAt`, even when
+   * that is older than the stored one. Only for an explicit user action.
+   */
+  async rewind(userId: string, channelId: string, messageId: string | null, readAt: Date) {
+    const uid = normalizeId(userId);
+    const cid = normalizeId(channelId);
+    const values = {
+      lastReadMessageId: messageId ? normalizeId(messageId) : null,
+      lastReadAt: readAt,
+      updatedAt: new Date(),
+    };
+    const [row] = await db
+      .insert(schema.channelReadStates)
+      .values({ userId: uid, channelId: cid, ...values })
+      .onConflictDoUpdate({
+        target: [schema.channelReadStates.userId, schema.channelReadStates.channelId],
+        set: values,
+      })
+      .returning();
+    return row || null;
+  },
 };

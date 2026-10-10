@@ -9,7 +9,8 @@
  * with event sequences to pin the Discord semantics down:
  *
  *  - A conversation is unread while its newest known message is newer than
- *    the read marker. The marker only ever moves forward.
+ *    the read marker. The marker only ever moves forward, except for an
+ *    explicit "Mark Unread" (`rewind`).
  *  - Badges count individual messages (mentions in servers, every message in
  *    DMs) by id, so the same message reaching us twice (activity stream + DM
  *    list stream, a reconnect re-seed) counts once, and a read marker or a
@@ -110,6 +111,21 @@ export type UnreadEvent =
   | { type: "read"; channelId: string; at: TimeInput; messageId?: string | null; now?: number }
   /** "Mark as read" with no exact message: read everything known. */
   | { type: "read_all"; channelId: string; now?: number }
+  /**
+   * "Mark Unread" from a message: the marker moves back to just before it
+   * (`at` / `messageId` = the message above it, or a stamp just older than it).
+   * `badge` lists the messages that count again (DM messages, mentions);
+   * `newest` makes sure the conversation's newest message is known.
+   */
+  | {
+      type: "rewind";
+      channelId: string;
+      at: TimeInput;
+      messageId?: string | null;
+      newest?: { id?: string | null; at: TimeInput } | null;
+      badge?: Array<{ id: string; at: TimeInput }>;
+      now?: number;
+    }
   /** Mention ids from the mentions API (union; already filtered by settings). */
   | { type: "seed_mentions"; mentions: Array<{ id: string; channelId: string; createdAt: TimeInput }> }
   /**
@@ -276,6 +292,32 @@ export function reduceUnread(state: UnreadState, event: UnreadEvent): UnreadStat
       if (newest) next = applyRead(state, ch, newest, state.activityIds[ch] ?? null, event.now ?? Date.now());
       // Counts known only as a number go too: the user asked for "read".
       return setBadge(next, ch, null);
+    }
+
+    case "rewind": {
+      const ch = event.channelId;
+      const at = toMs(event.at);
+      if (!ch || !at) return state;
+      const now = event.now ?? Date.now();
+      let next = state;
+      if (event.newest) next = touch(next, ch, toMs(event.newest.at), event.newest.id ?? null);
+      next = {
+        ...next,
+        read: withKey(next.read, ch, at),
+        readIds: event.messageId ? withKey(next.readIds, ch, event.messageId) : withoutKey(next.readIds, ch),
+        // Not a local *read*: server counts issued from now on are right again.
+        readRx: withoutKey(next.readRx, ch),
+      };
+      const ids: Record<string, BadgeEntry> = {};
+      const prev = next.badges[ch];
+      if (prev) for (const [id, e] of Object.entries(prev.ids)) if (e.at > at) ids[id] = e;
+      for (const b of event.badge ?? []) {
+        const t = toMs(b.at);
+        if (!b.id || t <= at || b.id in ids) continue;
+        if (Object.keys(ids).length >= MAX_UNREAD_BADGE) break;
+        ids[b.id] = { at: t, rx: now };
+      }
+      return setBadge(next, ch, { ids, extra: 0 });
     }
 
     case "seed_mentions": {

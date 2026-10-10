@@ -16,6 +16,7 @@ import {
   type BotGuildStanding,
 } from '@/lib/permissions/botGuild';
 import type { IServer, IRole } from '@/lib/models';
+import { isSilentMessage, MESSAGE_FLAGS, sendFlags } from '@/lib/chat/messageFlags';
 
 // ─── Bot Auth Helper ───────────────────────────────────────
 
@@ -189,7 +190,7 @@ function formatMessage(msg: any) {
     })),
     pinned: msg.pinned ?? false,
     type: msg.type === 'poll_result' ? 46 : 0,
-    flags: 0,
+    flags: typeof msg.flags === "number" ? msg.flags : 0,
     referenced_message: null,
     ...(msg.type !== 'poll_result' && parseStoredPoll(msg.poll) ? { poll: toDiscordPoll(parseStoredPoll(msg.poll)!) } : {}),
   };
@@ -601,6 +602,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { extractUserMentionIds, signalChannelMessage, signalDmMessage } = await import('@/lib/services/messageSignals');
   const isDm = channel.type === 'dm' || channel.type === 'group_dm';
   const mentionedUserIds = extractUserMentionIds(content);
+  // SUPPRESS_EMBEDS / SUPPRESS_NOTIFICATIONS (@silent), as on Discord.
+  const msgFlags = sendFlags(flags, false);
+  const silent = isSilentMessage(msgFlags);
   const msg = await Message.create({
     channelId: params.channelId,
     serverId: channel.serverId ?? null,
@@ -614,6 +618,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     reactions: [],
     mentionedUserIds,
     ...(poll ? { poll } : {}),
+    flags: msgFlags,
+    ...((msgFlags & MESSAGE_FLAGS.SUPPRESS_EMBEDS) !== 0 ? { suppressEmbeds: true } : {}),
   });
   void Channel.updateById(params.channelId, { lastMessageId: msg.id, updatedAt: new Date() }).catch(() => {});
   if (poll) {
@@ -658,6 +664,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         mentionedUserIds,
         type: 'default',
         ...(poll ? { poll: buildPollView(poll, {}, 0, []) } : {}),
+        flags: msgFlags,
       },
     });
   } catch {}
@@ -673,6 +680,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       content: content || '',
       hasAttachments: Boolean(attachments?.length),
       createdAt: msg.createdAt,
+      silent,
     });
   } else {
     void signalChannelMessage({
@@ -684,6 +692,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       content: content || '',
       mentionedUserIds,
       createdAt: msg.createdAt,
+      silent,
     });
   }
   try {

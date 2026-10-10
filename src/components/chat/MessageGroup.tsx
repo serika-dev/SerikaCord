@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, memo, useMemo } from "react";
-import { Pin, Reply, Clock } from "lucide-react";
+import { BellOff, Pin, Reply, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
 import { MessageContent } from "@/components/chat/MessageContent";
@@ -20,6 +20,7 @@ import { UnreadDivider } from "./UnreadDivider";
 import { ThreadChip } from "./ThreadRows";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
+import { isSilentMessage } from "@/lib/chat/messageFlags";
 
 interface MentionUser {
   id: string;
@@ -64,7 +65,7 @@ export interface MessageGroupProps<M extends ChatMessage> {
   onReactionPickerChange: (messageId: string, open: boolean) => void;
 
   onContextMenu: (e: React.MouseEvent, message: M) => void;
-  onReply: (message: M) => void;
+  onReply: (message: M, opts?: { mention?: boolean }) => void;
   onCopy: (content: string) => void;
   onPinToggle: (message: M) => void;
   onEdit: (message: M) => void;
@@ -72,6 +73,8 @@ export interface MessageGroupProps<M extends ChatMessage> {
   onAddReaction: (messageId: string, emoji: string) => void;
   onToggleReaction: (messageId: string, emoji: string, hasReacted: boolean) => void;
   onOpenReactionPicker: (messageId: string) => void;
+  /** Open the "Reactions" viewer (right-click a reaction). */
+  onViewReactions?: (message: M, emoji?: string) => void;
   onMediaClick: (src: string, alt: string | undefined, messageId: string) => void;
   onSuppressEmbeds?: (messageId: string) => void;
   onJumpToMessage?: (messageId: string) => void;
@@ -121,6 +124,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onAddReaction,
   onToggleReaction,
   onOpenReactionPicker,
+  onViewReactions,
   onMediaClick,
   onSuppressEmbeds,
   onJumpToMessage,
@@ -191,6 +195,12 @@ function MessageGroupInner<M extends ChatMessage>({
         const isFirst = index === 0;
         const isEditing = editingMessageId === message.id;
         const pickerOpen = reactionPickerMessageId === message.id;
+        // Pings you (mention, @everyone/@here, or a reply to you): Discord's
+        // highlighted row.
+        const pingsMe =
+          Boolean(currentUserId) &&
+          message.authorId !== currentUserId &&
+          (Boolean(message.mentionEveryone) || Boolean(message.mentionedUserIds?.includes(currentUserId!)));
         return (
           <Fragment key={message.id}>
             {index > 0 && newSeparatorBeforeId === message.id && (
@@ -218,7 +228,12 @@ function MessageGroupInner<M extends ChatMessage>({
           >
             <div
               id={`message-${message.id}`}
-              className={cn("flex gap-4 relative group/message hover:bg-[var(--app-surface-alt)]/80 rounded transition-colors -mx-1 px-1 hover:z-50", message.pending && "opacity-60", message.ephemeral && "chat-ephemeral")}
+              className={cn(
+                "flex gap-4 relative group/message rounded transition-colors -mx-1 px-1 hover:z-50",
+                pingsMe ? "chat-mention-row" : "hover:bg-[var(--app-surface-alt)]/80",
+                message.pending && "opacity-60",
+                message.ephemeral && "chat-ephemeral"
+              )}
               onContextMenu={(e) => onContextMenu(e, message)}
             >
               <div className="w-10 flex-shrink-0">
@@ -306,6 +321,16 @@ function MessageGroupInner<M extends ChatMessage>({
                       messageId={message.id}
                     />
 
+                    {isSilentMessage(message.flags) && (
+                      <span
+                        className="inline-flex items-center ml-1 text-[var(--app-muted)] align-middle"
+                        title={gt("Silent message: sent without notifications")}
+                        aria-label={gt("Silent message: sent without notifications")}
+                      >
+                        <BellOff className="w-3 h-3" />
+                      </span>
+                    )}
+
                     {message.forward && (
                       <ForwardedMessageCard
                         messageId={message.id}
@@ -387,6 +412,7 @@ function MessageGroupInner<M extends ChatMessage>({
                       currentUserId={currentUserId}
                       onToggle={onToggleReaction}
                       onOpenPicker={onOpenReactionPicker}
+                      onViewReactions={onViewReactions ? (emoji) => onViewReactions(message, emoji) : undefined}
                       reactionUsers={reactionUsersMap}
                     />
 
@@ -512,6 +538,7 @@ function arePropsEqual<M extends ChatMessage>(
     prev.canCreateThread === next.canCreateThread &&
     prev.onCreateThread === next.onCreateThread &&
     prev.onOpenThread === next.onOpenThread &&
+    prev.onViewReactions === next.onViewReactions &&
     prev.newSeparatorBeforeId === next.newSeparatorBeforeId
   );
 }

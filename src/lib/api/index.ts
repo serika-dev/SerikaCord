@@ -1256,6 +1256,37 @@ const userRoutes = new Elysia({ prefix: '/users' })
         set.status = 400;
         return { error: 'Invalid id' };
       }
+
+      // "Mark Unread" from `messageId`: the marker moves back to the message
+      // above it (or to just before it when it's the first one), on purpose
+      // older than what's stored, and the user's other devices follow.
+      if ((body as { rewind?: boolean }).rewind) {
+        if (!messageId) {
+          set.status = 400;
+          return { error: 'messageId is required' };
+        }
+        const { checkChannelAccess } = await import('./channels');
+        const access = await checkChannelAccess(user.id, channelId).catch(() => ({ hasAccess: false }));
+        if (!access.hasAccess) {
+          set.status = 403;
+          return { error: 'Access denied' };
+        }
+        const target = await Message.findOne({ id: messageId, channelId, isDeleted: false });
+        if (!target?.createdAt) {
+          set.status = 404;
+          return { error: 'Message not found' };
+        }
+        const targetAt = target.createdAt instanceof Date ? target.createdAt : new Date(target.createdAt);
+        const [previous] = await Message.find({ channelId, isDeleted: false, createdAtBefore: targetAt, _limit: 1 });
+        const markerId = previous?.id ?? null;
+        const markerAt = previous?.createdAt ? new Date(previous.createdAt) : new Date(targetAt.getTime() - 1);
+        await ChannelReadState.rewind(user.id, channelId, markerId, markerAt);
+        const lastReadAt = markerAt.toISOString();
+        const { notifyReadState } = await import('@/lib/api/activity');
+        notifyReadState(user.id, channelId, lastReadAt, markerId, true);
+        return { ok: true, channelId, lastReadMessageId: markerId, lastReadAt, rewind: true };
+      }
+
       let readMessageId: string | null = null;
       let readAt = new Date();
       const latest = (await Message.find({ channelId, isDeleted: false, _limit: 1 }))[0]; // default order is newest-first
@@ -1306,6 +1337,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
     body: t.Object({
       channelId: t.String(),
       messageId: t.Optional(t.String()),
+      // "Mark Unread": move the marker back to just before `messageId`.
+      rewind: t.Optional(t.Boolean()),
     }),
   })
   // Per-server / per-channel notification settings (level, mute, @everyone and
@@ -4138,6 +4171,9 @@ export async function initializeAPI() {
     // Idempotent, never throws.
     const { ensureCallMessageSchema } = await import('@/lib/services/dmCallMessages');
     await ensureCallMessageSchema();
+    // messages.flags (@silent). Idempotent, never throws.
+    const { ensureMessageFlagsSchema } = await import('@/lib/services/messageFlagsSchema');
+    await ensureMessageFlagsSchema();
     // Group DMs: system message types + channels.icon. Idempotent, never throws.
     const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
     await ensureGroupDmSchema();
