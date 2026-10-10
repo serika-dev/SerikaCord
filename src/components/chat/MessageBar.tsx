@@ -71,6 +71,7 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { onHotkey } from "@/lib/keybinds";
+import { onMentionRequest } from "@/lib/social/userActions";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { useAuth } from "@/contexts/AuthContext";
@@ -363,6 +364,16 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       ];
       return () => unsubs.forEach((u) => u());
     }, [secondary]);
+
+    // "Mention" from a user's right-click menu: drop a mention pill at the caret.
+    useEffect(() => onMentionRequest(({ id, label }) => {
+      const composer = composerRef.current;
+      if (!composer) return;
+      const caret = composer.getCaret();
+      composer.replaceRangeWithMention(caret, caret, { id, label, kind: "user" });
+      composer.insertTextAtCaret(" ");
+      composer.focus();
+    }), []);
 
     useEffect(() => {
       if (secondary) return;

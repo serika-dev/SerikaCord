@@ -23,6 +23,9 @@ import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useAuth } from "@/contexts/AuthContext";
 import { useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { UserNoteField } from "@/components/user/UserNoteField";
+import { hasCustomStatus } from "@/lib/social/customStatus";
 
 interface FullProfileDialogProps {
   user: ProfileCardUser;
@@ -396,8 +399,10 @@ export function FullProfileDialog({
                 {fullUser.pronouns && (
                   <div className="text-xs text-[#9a9aad] mt-0.5">{fullUser.pronouns}</div>
                 )}
-                {fullUser.customStatus && (
-                  <div className="text-sm text-[#c8c8d8] mt-1.5 italic"><MarkdownRenderer content={fullUser.customStatus} /></div>
+                {hasCustomStatus(fullUser.customStatus, fullUser.customization) && (
+                  <div className="text-sm text-[#c8c8d8] mt-1.5 italic">
+                    <CustomStatusLine text={fullUser.customStatus} customization={fullUser.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
+                  </div>
                 )}
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[status] }} />
@@ -428,6 +433,11 @@ export function FullProfileDialog({
                   <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">{gt("About Me")}</h4>
                   <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words"><MarkdownRenderer content={fullUser.bio} /></div>
                 </div>
+              )}
+
+              {/* Private note (only visible to you) */}
+              {!isSelf && fullUser.id && !fullUser.isSystem && !fullUser.isDiscord && (
+                <UserNoteField userId={fullUser.id} className="mt-3" />
               )}
 
               {/* Roles */}

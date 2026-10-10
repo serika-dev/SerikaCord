@@ -21,6 +21,7 @@ import { toServerStatus } from "@/lib/presenceChoice";
 import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDeviceSettings";
 import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
 import { voiceService } from "@/lib/services/voiceService";
+import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -421,7 +422,7 @@ export default function MobileSettingsSectionPage() {
               label={gt("Allow friend requests")}
               checked={settings.privacy?.friendRequests !== "none"}
               onChange={(checked) =>
-                saveSettings({ privacy: { ...(settings.privacy || {}), friendRequests: checked ? "everyone" : "none" }, friendRequests: { ...(settings.friendRequests || {}), allowEveryone: checked } })
+                saveSettings({ privacy: { ...(settings.privacy || {}), friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { ...(settings.friendRequests || {}), allowEveryone: checked } })
               }
             />
             <ToggleRow
@@ -429,6 +430,16 @@ export default function MobileSettingsSectionPage() {
               checked={Boolean(settings.privacy?.showActivity)}
               onChange={(checked) => saveSettings({ privacy: { ...(settings.privacy || {}), showActivity: checked } })}
             />
+            <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
+              <MessageRequestSettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
+            </div>
+            <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
+              <FriendRequestSettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
+            </div>
+            <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)] mt-1">{gt("Activity Privacy")}</p>
+              <ActivityPrivacySettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
+            </div>
             <ToggleRow
               label={gt("Crash reports")}
               checked={Boolean(settings.dataPrivacy?.allowCrashReports)}

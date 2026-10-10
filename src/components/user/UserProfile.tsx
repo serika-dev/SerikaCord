@@ -38,6 +38,8 @@ import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgr
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { useGT } from "gt-next";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { hasCustomStatus } from "@/lib/social/customStatus";
 
 interface UserProfileProps {
   user: {
@@ -366,10 +368,10 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
           </div>
 
           {/* Custom Status */}
-          {user.customStatus && (
+          {hasCustomStatus(user.customStatus, user.customization) && (
             <div className="flex items-center gap-2 mt-3 text-sm text-[#b5bac1]">
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors[user.status || 'offline'] }} />
-              <MarkdownRenderer content={user.customStatus} />
+              <CustomStatusLine text={user.customStatus} customization={user.customization} emojiClassName="w-4 h-4" renderText={(t) => <MarkdownRenderer content={t} />} />
             </div>
           )}
 

@@ -22,6 +22,10 @@
  * via `markChannelRead(id, message)`.
  */
 
+import { getRelationships, refreshRelationships } from "@/lib/social/relationshipsStore";
+import { receiveUserNote } from "@/lib/social/notesStore";
+import { refreshMessageRequests } from "@/lib/social/messageRequestsStore";
+import { isBlockedAuthor } from "@/lib/chat/blocked";
 import { sharedGet } from "@/lib/bootFetch";
 import {
   createContext,
@@ -707,6 +711,26 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Friends / blocks changed (any device): refresh the shared lists.
+      if (data.type === "relationships_changed") {
+        void refreshRelationships();
+        return;
+      }
+
+      // A private note was edited on another tab or device.
+      if (data.type === "user_note_update") {
+        const { userId, note } = data as { userId?: string; note?: string };
+        if (userId) receiveUserNote(userId, typeof note === "string" ? note : "");
+        return;
+      }
+
+      // Message Requests changed (a new request, or one accepted/ignored on
+      // another device): no badge or sound, just refresh the list/count.
+      if (data.type === "message_request") {
+        void refreshMessageRequests();
+        return;
+      }
+
       // Notification settings changed on another device.
       if (data.type === "notification_settings") {
         applyRemoteNotificationSettings((data as { settings?: unknown }).settings);
@@ -767,6 +791,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         }
         const resolved = resolveNotification({ doc: prefsRef.current.doc, channelId, isDM: true });
         const decision = decideMessageAlert({ resolved, isDM: true, mentionedDirectly: false, mentionedRole: false, mentionedEveryone: false });
+        // Blocked people (group DMs) never notify.
+        const fromBlocked = isBlockedAuthor(String(authorId).toLowerCase(), getRelationships().blocked);
         const outcome = decideLiveMessage(getUnreadState(), {
           channelId,
           messageId: dm.messageId ?? null,
@@ -775,7 +801,7 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
           selfId: user.id,
           isDM: true,
           mention: decision.mention,
-          notify: decision.notify && !dm.isCall && !dm.isSystem,
+          notify: decision.notify && !dm.isCall && !dm.isSystem && !fromBlocked,
           active: isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
           readingLive: isReadingLive(),
         });
@@ -859,6 +885,12 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         mentionedRole,
         mentionedEveryone,
       });
+      // Messages from people you blocked never ping or notify (Discord).
+      const fromBlocked = isBlockedAuthor(String(event.authorId ?? "").toLowerCase(), getRelationships().blocked);
+      if (fromBlocked) {
+        alert.mention = false;
+        alert.notify = false;
+      }
       const outcome = decideLiveMessage(getUnreadState(), {
         channelId: event.channelId,
         messageId: event.messageId,

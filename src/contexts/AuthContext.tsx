@@ -8,6 +8,7 @@ import { unregisterPush } from "@/lib/native/push";
 import { shouldPromoteToOnline, toClientStatus, toServerStatus } from "@/lib/presenceChoice";
 import type { BuiltinBadgeId } from "@/lib/constants/badges";
 import { isDesktopShell } from "@/lib/desktop/bridge";
+import { isDeviceIdle, onIdleChange, startIdleTracker } from "@/lib/presence/idleTracker";
 
 // Built-in ids keep autocomplete; badges created in the DB are plain strings.
 export type BadgeId = BuiltinBadgeId | (string & {});
@@ -73,15 +74,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshInFlight = useRef(false);
 
   const sendPresenceHeartbeat = useCallback(async () => {
+    // Automatic idle: report whether this device saw input in the last 10
+    // minutes; the server flips online <-> idle (never DND / Invisible).
+    const idle = isDeviceIdle();
     // The desktop app keeps you online while it sits in the tray (like
-    // Discord); a hidden browser tab stops beating.
-    if (typeof document !== "undefined" && document.visibilityState !== "visible" && !isDesktopShell()) return;
+    // Discord); a hidden browser tab only beats to report going idle.
+    if (typeof document !== "undefined" && document.visibilityState !== "visible" && !isDesktopShell() && !idle) return;
 
     try {
-      await fetch("/api/users/me/presence/heartbeat", {
+      const res = await fetch("/api/users/me/presence/heartbeat", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idle }),
         keepalive: true,
       });
+      const data = res.ok ? await res.json().catch(() => null) : null;
+      const next = data?.status;
+      if (next === "online" || next === "idle") {
+        setUser((prev) => (prev && prev.status !== next ? { ...prev, status: next } : prev));
+      }
     } catch {
       // Heartbeats are best-effort.
     }
@@ -161,27 +172,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
 
-    // Handle visibility change (tab switch, minimize). The desktop app goes
-    // idle from real system inactivity instead (DesktopIntegration), so hiding
-    // its window to the tray doesn't make you idle.
-    const desktop = isDesktopShell();
+    // Coming back to the tab: beat right away. Idle is no longer tied to tab
+    // visibility (Discord goes Idle after 10 minutes without input, see
+    // lib/presence/idleTracker), so hiding a tab never overrides your status.
     const handleVisibilityChange = () => {
-      if (desktop) {
-        if (document.visibilityState === 'visible') void sendPresenceHeartbeat();
-        return;
-      }
-      if (document.visibilityState === 'hidden') {
-        // Only set idle, not offline, when tab is hidden
-        if (user.status === "online") {
-          setOnlineStatus("idle");
-        }
-      } else if (document.visibilityState === 'visible') {
-        // Set back to online when user returns
-        if (user.status === "idle") {
-          void setOnlineStatus("online");
-        }
-        void sendPresenceHeartbeat();
-      }
+      if (document.visibilityState === 'visible') void sendPresenceHeartbeat();
     };
 
     // Handle page close/navigation away
@@ -197,19 +192,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sendDisconnect();
     };
 
-    // Handle page hide (mobile background)
+    // Handle page hide (mobile background). A page going into bfcache keeps
+    // its status; one being unloaded ends its heartbeat.
     const handlePageHide = (e: PageTransitionEvent) => {
-      if (e.persisted) {
-        if (desktop) return;
-        // Page is going into bfcache: only an online user goes idle (same rule
-        // as hiding the tab). DND / Invisible / idle are left untouched.
-        if (user.status === "online") {
-          void setOnlineStatus("idle");
-        }
-      } else {
-        // Page is being unloaded
-        sendDisconnect();
-      }
+      if (!e.persisted) sendDisconnect();
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -221,7 +207,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handlePageHide);
     };
-  }, [user, setOnlineStatus, sendPresenceHeartbeat]);
+  }, [user, sendPresenceHeartbeat]);
+
+  // Automatic idle: watch input and report each idle <-> active change at once.
+  const signedIn = Boolean(user);
+  useEffect(() => {
+    if (!signedIn) return;
+    const stop = startIdleTracker();
+    const off = onIdleChange(() => void sendPresenceHeartbeat());
+    return () => {
+      off();
+      stop();
+    };
+  }, [signedIn, sendPresenceHeartbeat]);
 
   useEffect(() => {
     if (!user) return;

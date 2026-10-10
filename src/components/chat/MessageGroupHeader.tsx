@@ -23,7 +23,7 @@ interface GroupAvatarProps {
 
 /** The 40px avatar in the message gutter, wrapped in a profile popup when possible. */
 export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: GroupAvatarProps) {
-  const { openUserMenu, userMenu } = useUserContextMenu();
+  const { openUserMenu, userMenu } = useUserContextMenu(serverId);
   const initial = (author.displayName || author.username || "?").charAt(0).toUpperCase();
   const avatar = (
     <Avatar className="w-10 h-10 mt-0.5">
@@ -72,7 +72,7 @@ interface GroupHeaderProps {
 /** Author name + staff pill + timestamp row above the first message of a group. */
 export const GroupHeader = memo(function GroupHeader({ author, formattedTimestamp, serverId, roleColor }: GroupHeaderProps) {
   const gt = useChatGt();
-  const { openUserMenu, userMenu } = useUserContextMenu();
+  const { openUserMenu, userMenu } = useUserContextMenu(serverId);
   const { settings } = useTheme();
   // Server-only: surface a red clock next to timed-out members. In DMs the
   // members list is empty so this is a no-op.

@@ -1,28 +1,21 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
-import { useState, useMemo, useEffect, memo } from "react";
-import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Copy, MessageSquare, Clock, UserPlus, UserPlus2, ShieldAlert, Phone, Video } from "lucide-react";
-import { hasPermissionBit } from "@/lib/roles/bitfield";
+import { useMemo, memo } from "react";
+import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Clock } from "lucide-react";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
-import { useAuth } from "@/contexts/AuthContext";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn, cdnImage } from "@/lib/utils";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import { getNameplateBackground } from "@/lib/constants/nameplates";
 import { T, useGT } from "gt-next";
-import { toast } from "sonner";
-import { useRouter } from "next/navigation";
+import { useUserContextMenu } from "@/components/user/UserContextMenu";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { hasCustomStatus } from "@/lib/social/customStatus";
 
-const ModViewDialog = dynamic(() => import("@/components/user/ModViewDialog").then((m) => m.ModViewDialog), { ssr: false });
-
-const InviteDialog = dynamic(() => import("@/components/dialogs/InviteDialog").then((m) => m.InviteDialog), { ssr: false });
 
 interface MemberRole {
   id: string;
@@ -94,26 +87,6 @@ export function MemberSidebar() {
   const gt = useGT();
   const { currentServer } = useServer();
   const { members, isMembersLoading: isLoading } = useServerMembers();
-  const [canModerate, setCanModerate] = useState(false);
-
-  const currentServerId = currentServer?.id;
-  useEffect(() => {
-    if (!currentServerId) { setCanModerate(false); return; }
-    let active = true;
-    (async () => {
-      try {
-        const res = await fetch(`/api/servers/${currentServerId}/members/@me/permissions`);
-        if (!res.ok || !active) return;
-        const data = await res.json();
-        // owner, admin, or any of kick/ban/timeout/manage-roles.
-        const MOD_BITS = [1n << 3n, 1n << 1n, 1n << 2n, 1n << 40n, 1n << 28n];
-        setCanModerate(
-          Boolean(data.isOwner) || MOD_BITS.some((bit) => hasPermissionBit(data.permissions, bit))
-        );
-      } catch { /* ignore */ }
-    })();
-    return () => { active = false; };
-  }, [currentServerId]);
 
   const groupedOnlineMembers = useMemo(() => {
     const onlineMembers = sortMembersByName(members.filter((member) => member.status !== "offline"));
@@ -141,7 +114,7 @@ export function MemberSidebar() {
       if (b.key === "no-role") return -1;
       return b.position - a.position;
     });
-  }, [members]);
+  }, [members, gt]);
 
   // Flatten groups + members into a single sibling list rendered under ONE
   // parent. Because every MemberItem stays a keyed child of the same parent, a
@@ -206,7 +179,7 @@ export function MemberSidebar() {
                     {item.label} — {item.count}
                   </p>
                 ) : (
-                  <MemberItem key={item.key} member={item.member} serverId={currentServer.id} canModerate={canModerate} />
+                  <MemberItem key={item.key} member={item.member} serverId={currentServer.id} />
                 )
               )}
 
@@ -216,7 +189,7 @@ export function MemberSidebar() {
                     {gt("Offline")} — {offlineMembers.length}
                   </p>
                   {offlineMembers.map((member) => (
-                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} canModerate={canModerate} />
+                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} />
                   ))}
                 </>
               )}
@@ -237,43 +210,17 @@ export function MemberSidebar() {
 interface MemberItemProps {
   member: Member;
   serverId?: string;
-  canModerate?: boolean;
 }
 
 // Memoized: ServerContext reuses unchanged member objects across polls, so
 // only rows whose member actually changed re-render.
 const MemberItem = memo(MemberItemImpl);
 
-function MemberItemImpl({ member, serverId, canModerate }: MemberItemProps) {
+function MemberItemImpl({ member, serverId }: MemberItemProps) {
   const gt = useGT();
-  const router = useRouter();
-  const { user } = useAuth();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [modViewOpen, setModViewOpen] = useState(false);
-  const isSelf = user?.id === member.id;
-
-  const handleAddFriend = async () => {
-    setMenuOpen(false);
-    try {
-      const res = await fetch(`/api/friends/add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: member.username }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok) {
-        const name = member.displayName || member.username;
-        // The server auto-accepts when they had already sent us a request.
-        if (data?.accepted || data?.user) toast.success(gt("You are now friends with {name}!", { name }));
-        else toast.success(gt("Friend request sent to {name}", { name }));
-      } else {
-        toast.error(data?.error || gt("Failed to send friend request"));
-      }
-    } catch {
-      toast.error(gt("Failed to send friend request"));
-    }
-  };
+  // Discord's full user menu (profile, mention, note, friends, block,
+  // nickname, roles, timeout / kick / ban) — the same one as in chat.
+  const { openUserMenu, userMenu } = useUserContextMenu(serverId);
   const isOffline = member.status === "offline";
   const roleColor = member.highestRole?.color;
   // Only poll live activity for members who are actually around.
@@ -283,7 +230,7 @@ function MemberItemImpl({ member, serverId, canModerate }: MemberItemProps) {
   const gameActivities = userActivity?.activities ?? [];
   const gameActivity = gameActivities[0] ?? null;
   const extraGameCount = gameActivities.length > 1 ? gameActivities.length - 1 : 0;
-  const subtitle = (!isOffline && member.customStatus) || null;
+  const hasStatus = !isOffline && hasCustomStatus(member.customStatus, member.customization);
   const nameplateBg = getNameplateBackground(member.customization);
   const timeout = useTimeoutRemaining(member.communicationDisabledUntil);
 
@@ -291,7 +238,7 @@ function MemberItemImpl({ member, serverId, canModerate }: MemberItemProps) {
     <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">
       <div
         className="relative mt-1"
-        onContextMenu={(e) => { e.preventDefault(); setMenuOpen(true); }}
+        onContextMenu={(e) => openUserMenu(e, member)}
       >
       <button
         className={cn(
@@ -393,84 +340,15 @@ function MemberItemImpl({ member, serverId, canModerate }: MemberItemProps) {
               )}
             </div>
           ) : (
-            subtitle && (
-              <div className="text-xs text-[var(--text-secondary)] truncate">{subtitle}</div>
+            hasStatus && (
+              <div className="text-xs text-[var(--text-secondary)] min-w-0 flex">
+                <CustomStatusLine text={member.customStatus} customization={member.customization} emojiClassName="w-3.5 h-3.5" />
+              </div>
             )
           )}
         </div>
       </button>
-      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-        <DropdownMenuTrigger asChild>
-          <span className="absolute inset-0 pointer-events-none" aria-hidden />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side="left" align="start" className="w-52">
-          {!isSelf && (
-            <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}`); }}>
-              <MessageSquare className="w-4 h-4" />
-              {gt("Send Message")}
-            </DropdownMenuItem>
-          )}
-          {!isSelf && !member.isBot && !member.isSystem && (
-            <DropdownMenuItem onClick={handleAddFriend}>
-              <UserPlus className="w-4 h-4" />
-              {gt("Add Friend")}
-            </DropdownMenuItem>
-          )}
-          {!isSelf && !member.isBot && !member.isSystem && (
-            <>
-              <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}?call=voice`); }}>
-                <Phone className="w-4 h-4" />
-                {gt("Call")}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => { setMenuOpen(false); router.push(`/dm/${member.id}?call=video`); }}>
-                <Video className="w-4 h-4" />
-                {gt("Video Call")}
-              </DropdownMenuItem>
-            </>
-          )}
-          {serverId && !member.isSystem && (
-            <DropdownMenuItem onClick={() => { setMenuOpen(false); setInviteOpen(true); }}>
-              <UserPlus2 className="w-4 h-4" />
-              {gt("Invite to Server")}
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.username); toast.success(gt("Username copied")); }}>
-            <Copy className="w-4 h-4" />
-            {gt("Copy Username")}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.id); toast.success(gt("User ID copied")); }}>
-            <Copy className="w-4 h-4" />
-            {gt("Copy User ID")}
-          </DropdownMenuItem>
-          {serverId && user?.badges?.some((b: string) => ["admin", "serikacord_developer"].includes(b)) && (
-            <DropdownMenuItem onClick={() => { setMenuOpen(false); navigator.clipboard?.writeText(member.membershipId); toast.success(gt("Membership ID copied")); }}>
-              <Copy className="w-4 h-4" />
-              {gt("Copy Membership ID")}
-            </DropdownMenuItem>
-          )}
-          {serverId && canModerate && !isSelf && (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => { setMenuOpen(false); setModViewOpen(true); }}>
-                <ShieldAlert className="w-4 h-4" />
-                {gt("Open Mod View")}
-              </DropdownMenuItem>
-            </>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
-      {serverId && inviteOpen && (
-        <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} />
-      )}
-      {serverId && modViewOpen && (
-        <ModViewDialog
-          user={{ id: member.id, username: member.username, displayName: member.displayName, avatar: member.avatar }}
-          serverId={serverId}
-          open={modViewOpen}
-          onOpenChange={setModViewOpen}
-        />
-      )}
+      {userMenu}
       </div>
     </MemberProfilePopup>
   );

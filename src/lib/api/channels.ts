@@ -2857,9 +2857,21 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       // members never learn about the message outside the open conversation.
       void (async () => {
         const { signalDmMessage } = await import('@/lib/services/messageSignals');
+        const recipientIds = ((channel as { recipientIds?: string[] | null }).recipientIds ?? []) as string[];
+        // 1:1 DMs from non-friends go to the recipient's Message Requests.
+        let requestRecipientIds: string[] = [];
+        if (channel.type === 'dm') {
+          const otherId = recipientIds.find((r) => !compareIds(r, user.id));
+          const other = otherId ? await User.findById(otherId) : null;
+          if (other) {
+            const { recordDmSend } = await import('@/lib/services/messageRequests');
+            if (await recordDmSend(message.channelId, user, other)) requestRecipientIds = [other.id];
+          }
+        }
         await signalDmMessage({
           channelId: message.channelId,
-          recipientIds: ((channel as { recipientIds?: string[] | null }).recipientIds ?? []) as string[],
+          recipientIds,
+          requestRecipientIds,
           messageId: message.id,
           authorId: user.id,
           authorName: author?.displayName || author?.username,

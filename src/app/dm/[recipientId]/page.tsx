@@ -42,6 +42,7 @@ import { Loader } from "@/components/ui/Loader";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { SwipeNav } from "@/components/mobile/SwipeNav";
 import { toast } from "sonner";
+import { MessageRequestBar, useMessageRequestFor } from "@/components/dm/MessageRequestBar";
 import dynamic from "next/dynamic";
 import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
 import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
@@ -95,6 +96,8 @@ export default function DMConversationPage() {
   const [showPins, setShowPins] = useState(false);
   const [showAddFriends, setShowAddFriends] = useState(false);
   const messageBarRef = useRef<MessageBarHandle>(null);
+  // A DM from a non-friend waits in Message Requests until accepted.
+  const pendingRequest = useMessageRequestFor(recipientId);
   const messageListRef = useRef<MessageListHandle>(null);
 
   const [availableServerEmojis, setAvailableServerEmojis] = useState<
@@ -747,7 +750,9 @@ export default function DMConversationPage() {
 
         {/* Message input */}
         <div className="pt-0">
-          {recipient?.isSystem ? (
+          {pendingRequest ? (
+            <MessageRequestBar channelId={pendingRequest.channelId} userId={pendingRequest.user.id} name={recipientName || pendingRequest.user.username} />
+          ) : recipient?.isSystem ? (
             <div className="flex items-center gap-2 px-4 py-3 bg-[var(--bg-card)]/50 border border-[var(--border-subtle)] rounded-md text-[var(--text-secondary)] text-sm">
               <Shield className="w-4 h-4 text-blue-400 flex-shrink-0" />
               <span><T>This is an official Serika system account used to share important updates and announcements with the community.</T></span>

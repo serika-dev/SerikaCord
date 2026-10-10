@@ -25,6 +25,9 @@ import { useBadges } from "@/hooks/useBadges";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { UserNoteField } from "@/components/user/UserNoteField";
+import { hasCustomStatus } from "@/lib/social/customStatus";
 import { hasPermissionBit } from "@/lib/roles/bitfield";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle, getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
 import { useUserActivity } from "@/hooks/useMoeActivity";
@@ -462,8 +465,10 @@ export function ProfileCard({
           {user.pronouns && (
             <div className="text-xs text-[#9a9aad] mt-0.5">{user.pronouns}</div>
           )}
-          {user.customStatus && (
-            <div className="text-sm text-[#c8c8d8] mt-1.5 italic"><MarkdownRenderer content={user.customStatus} /></div>
+          {hasCustomStatus(user.customStatus, user.customization) && (
+            <div className="text-sm text-[#c8c8d8] mt-1.5 italic">
+              <CustomStatusLine text={user.customStatus} customization={user.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
+            </div>
           )}
           <div className="flex items-center gap-1.5 mt-1.5">
             <span
@@ -654,6 +659,11 @@ export function ProfileCard({
               </div>
             )}
           </div>
+        )}
+
+        {/* Private note (only visible to you) */}
+        {!isSelf && user.id && !user.isSystem && !user.isDiscord && (
+          <UserNoteField userId={user.id} className="mt-3" />
         )}
 
         {/* View Full Profile button */}

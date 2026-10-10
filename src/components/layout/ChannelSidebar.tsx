@@ -36,6 +36,7 @@ import {
   Lock,
   Clock,
   Users,
+  Inbox,
   X,
   Edit2,
   Trash2,
@@ -54,6 +55,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { UserMenuItems } from "@/components/user/UserContextMenu";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { hasCustomStatus } from "@/lib/social/customStatus";
+import { seedMessageRequestCount, useMessageRequests } from "@/lib/social/messageRequestsStore";
 import { UserProfilePopup } from "@/components/user/UserProfilePopup";
 import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceChannelMembers, isVoiceMemberDrag, readVoiceMemberDrag } from "@/components/voice/VoiceChannelMembers";
@@ -94,6 +98,7 @@ interface DMChannel {
     displayName: string;
     avatar?: string;
     status: string;
+    customStatus?: string | null;
     isPremium?: boolean;
     isSystem?: boolean;
     isBot?: boolean;
@@ -233,6 +238,7 @@ export function ChannelSidebar({
 
   // DM row context menu (separate from server channels — different item set).
   const [dmContextMenu, setDmContextMenu] = useState<{ x: number; y: number; channel: DMChannel } | null>(null);
+  const messageRequests = useMessageRequests();
   const closeDmContextMenu = () => setDmContextMenu(null);
 
   // Close context menu when clicking outside or pressing Escape
@@ -1077,6 +1083,7 @@ export function ChannelSidebar({
           return bTime - aTime;
         });
         setDmChannels(channels);
+        if (typeof data.messageRequestCount === "number") seedMessageRequestCount(data.messageRequestCount);
         // Seed the server's per-DM unread counts into the unread engine (it
         // reconciles them with anything that arrived since `issuedAt`).
         seedDmChannels(channels, issuedAt);
@@ -1280,6 +1287,19 @@ export function ChannelSidebar({
             <Users className="w-5 h-5 shrink-0" />
             <span className="font-medium truncate"><T>Friends</T></span>
           </Link>
+          {messageRequests.count > 0 && (
+            <Link
+              href="/channels/me?tab=requests"
+              onClick={() => window.dispatchEvent(new CustomEvent("openFriendsTab", { detail: { tab: "requests" } }))}
+              className="mt-0.5 flex items-center gap-2.5 px-2 py-2 rounded-md transition-colors w-full min-w-0 text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
+            >
+              <Inbox className="w-5 h-5 shrink-0" />
+              <span className="font-medium truncate flex-1">{gt("Message Requests")}</span>
+              <span className="shrink-0 min-w-[18px] h-[18px] px-1.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-[11px] font-bold text-[var(--text-on-accent)] leading-none">
+                {messageRequests.count > 99 ? "99+" : messageRequests.count}
+              </span>
+            </Link>
+          )}
         </div>
 
         {/* DM List */}
@@ -1357,7 +1377,8 @@ export function ChannelSidebar({
                         </span>
                       </div>
                       ) : (
-                      <div className="relative flex-1 min-w-0 overflow-hidden flex items-center gap-1">
+                      <div className="relative flex-1 min-w-0 overflow-hidden flex flex-col leading-tight">
+                      <div className="min-w-0 flex items-center gap-1">
                         <span className={cn("truncate text-sm", unread && "font-semibold", getDisplayNameStyleClasses(recipient.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient.customization?.displayNameStyle)}>
                           {recipient.displayName || recipient.username}
                         </span>
@@ -1371,6 +1392,15 @@ export function ChannelSidebar({
                             BOT
                           </span>
                         )}
+                      </div>
+                      {recipient.status !== "offline" && hasCustomStatus(recipient.customStatus, recipient.customization) && (
+                        <CustomStatusLine
+                          text={recipient.customStatus}
+                          customization={recipient.customization}
+                          className="text-xs text-[var(--text-muted)] font-normal"
+                          emojiClassName="w-3.5 h-3.5"
+                        />
+                      )}
                       </div>
                       )}
                       {dmMentions > 0 && (

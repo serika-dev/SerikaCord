@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { acceptsFriendRequests } from '@/lib/settings/privacy';
+import { acceptsFriendRequests, friendRequestAllowedFrom, friendRequestSources } from '@/lib/settings/privacy';
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
@@ -43,6 +43,8 @@ import { normalizeDisplayName } from '@/lib/utils/normalizeDisplayName';
 import { db, schema } from '@/lib/db/postgres';
 import { inArray } from 'drizzle-orm';
 import { getRedis } from '@/lib/db/redis';
+import { isCustomStatusExpired, sanitizeExpiry, sanitizeStatusEmoji, type CustomStatusEmoji } from '@/lib/social/customStatus';
+import { ACTIVE_DEVICE_TTL_SECONDS, AUTO_IDLE_FLAG_TTL_SECONDS, decideAutoIdle, parseHeartbeatIdle } from '@/lib/presence/autoIdle';
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -263,9 +265,151 @@ function finishFriendMutation(
   }
   if (outcome.changed) {
     emitFriendEvent([normalizeId(meId), normalizeId(targetId)], { type: 'friends:update', timestamp: Date.now() });
+    // Every open session (any instance) refreshes its friends / blocked lists,
+    // which drive the user menus, blocked-message rows and message requests.
+    void import('@/lib/api/activity')
+      .then(({ fanoutToUsers }) => fanoutToUsers({ userIds: [normalizeId(meId), normalizeId(targetId)] }, { type: 'relationships_changed' }))
+      .catch(() => {});
   }
   if (outcome.status) set.status = outcome.status;
   return outcome.body;
+}
+
+// ─── Custom status (emoji + "Clear after") ───────────────────────────────────
+// Text stays in users.custom_status; emoji + expiry live in customization (see
+// lib/social/customStatus.ts). Expiries are scheduled in a Redis sorted set and
+// swept every 30s; readers also hide an expired status on their own.
+const CUSTOM_STATUS_EXPIRY_KEY = 'customstatus:expiry';
+
+/**
+ * Fold a profile patch's custom-status fields into `updateFields`. Returns
+ * the expiry to schedule (`undefined` = untouched), or an error message.
+ */
+function applyCustomStatusPatch(
+  user: { customStatus?: string | null; customization?: unknown },
+  data: Record<string, unknown>,
+  updateFields: Record<string, unknown>,
+): { error?: string; expiresAt?: string | null } {
+  const hasEmoji = data.customStatusEmoji !== undefined;
+  const hasExpiry = data.customStatusExpiresAt !== undefined;
+  const textGiven = data.customStatus !== undefined;
+  const text = typeof data.customStatus === 'string' ? data.customStatus.trim() : '';
+  // A text-only edit (older editors) leaves the emoji and expiry alone.
+  if (!hasEmoji && !hasExpiry && !(textGiven && !text)) return {};
+  const current = (user.customization || {}) as Record<string, unknown>;
+  let emoji = (current.customStatusEmoji ?? null) as CustomStatusEmoji | null;
+  let expiresAt = (typeof current.customStatusExpiresAt === 'string' ? current.customStatusExpiresAt : null) as string | null;
+  if (hasEmoji) {
+    if (data.customStatusEmoji === null) emoji = null;
+    else {
+      emoji = sanitizeStatusEmoji(data.customStatusEmoji, config.CDN_URL);
+      if (!emoji) return { error: 'Invalid custom status emoji' };
+    }
+  } else if (textGiven && !text) {
+    // Clearing the text without sending an emoji clears the whole status.
+    emoji = null;
+  }
+  if (hasExpiry) {
+    const parsed = sanitizeExpiry(data.customStatusExpiresAt, Date.now());
+    if (!parsed.ok) return { error: 'Invalid custom status expiry' };
+    expiresAt = parsed.value;
+  }
+  const finalText = textGiven ? text : (user.customStatus || '').trim();
+  if (!finalText && !emoji) {
+    expiresAt = null;
+    updateFields.customStatus = null;
+  } else if (textGiven) {
+    updateFields.customStatus = finalText || null;
+  }
+  const base = (updateFields.customization ?? current) as Record<string, unknown>;
+  updateFields.customization = { ...base, customStatusEmoji: emoji, customStatusExpiresAt: expiresAt };
+  return { expiresAt };
+}
+
+async function scheduleCustomStatusExpiry(userId: string, expiresAt: string | null | undefined): Promise<void> {
+  if (expiresAt === undefined) return;
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    if (expiresAt) await redis.zadd(CUSTOM_STATUS_EXPIRY_KEY, new Date(expiresAt).getTime(), normalizeId(userId));
+    else await redis.zrem(CUSTOM_STATUS_EXPIRY_KEY, normalizeId(userId));
+  } catch { /* the lazy read-side check still hides it */ }
+}
+
+/** Clear one user's custom status if it has expired (and tell their friends). */
+async function clearExpiredCustomStatus(userId: string): Promise<boolean> {
+  const user = await User.findById(userId);
+  if (!user || !isCustomStatusExpired(user.customization)) return false;
+  const customization = { ...((user.customization || {}) as Record<string, unknown>), customStatusEmoji: null, customStatusExpiresAt: null };
+  const updated = (await User.updateById(user.id, { customStatus: null, customization })) || user;
+  await invalidateUserCache(user.id);
+  emitFriendEvent((updated.friends || []).map((f: string) => f), {
+    type: 'presence:update',
+    userId: updated.id,
+    status: getPublicPresenceStatus(updated),
+    customStatus: null,
+    displayName: updated.displayName || updated.username,
+    customization: updated.customization || null,
+    timestamp: Date.now(),
+  });
+  return true;
+}
+
+let customStatusSweeper: ReturnType<typeof setInterval> | null = null;
+/** Every 30s, clear statuses whose "Clear after" passed. ZREM claims each one, so instances never double-process. */
+function startCustomStatusExpirySweeper(): void {
+  if (customStatusSweeper) return;
+  customStatusSweeper = setInterval(() => {
+    void (async () => {
+      const redis = getRedis();
+      if (!redis) return;
+      try {
+        const due = await redis.zrangebyscore(CUSTOM_STATUS_EXPIRY_KEY, 0, Date.now(), 'LIMIT', 0, 100);
+        for (const id of due) {
+          if ((await redis.zrem(CUSTOM_STATUS_EXPIRY_KEY, id)) !== 1) continue;
+          await clearExpiredCustomStatus(id).catch(() => false);
+        }
+      } catch (err) {
+        console.error('Custom status sweep failed:', (err as Error)?.message ?? err);
+      }
+    })();
+  }, 30_000);
+  (customStatusSweeper as { unref?: () => void }).unref?.();
+}
+
+// ─── Automatic idle ──────────────────────────────────────────────────────────
+const autoIdleFlagKey = (userId: string) => `presence:autoidle:${normalizeId(userId)}`;
+const activeDeviceKey = (userId: string) => `presence:active:${normalizeId(userId)}`;
+
+/** A manual status choice wins over automatic idle. */
+async function clearAutoIdleFlag(userId: string): Promise<void> {
+  try { await getRedis()?.del(autoIdleFlagKey(userId)); } catch { /* best-effort */ }
+}
+
+/**
+ * Apply a heartbeat's idle report. Returns the status to store, or null when
+ * nothing changes. Never touches DND / Invisible / a manually chosen Idle.
+ */
+async function resolveAutoIdle(userId: string, status: string | null | undefined, idle: boolean): Promise<'online' | 'idle' | null> {
+  const redis = getRedis();
+  if (!redis) return null;
+  try {
+    if (!idle) await redis.set(activeDeviceKey(userId), '1', 'EX', ACTIVE_DEVICE_TTL_SECONDS);
+    const [flag, otherActive] = await Promise.all([
+      redis.get(autoIdleFlagKey(userId)),
+      idle ? redis.get(activeDeviceKey(userId)) : Promise.resolve(null),
+    ]);
+    const action = decideAutoIdle({ status, idle, otherDeviceActive: Boolean(otherActive), autoIdleFlag: Boolean(flag) });
+    if (action === 'set-idle') {
+      await redis.set(autoIdleFlagKey(userId), '1', 'EX', AUTO_IDLE_FLAG_TTL_SECONDS);
+      return 'idle';
+    }
+    if (action === 'restore-online') {
+      await redis.del(autoIdleFlagKey(userId));
+      return 'online';
+    }
+  } catch { /* best-effort */ }
+  return null;
 }
 
 // Rate limiting middleware. The hook must be `as: 'global'`: Elysia drops a
@@ -761,6 +905,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // wait for it. Return the stored badges; the recalculated set is saved for
     // the next request.
     const updatedBadges = user.badges ?? [];
+    // A "Clear after" that passed while nobody swept it (e.g. Redis was down).
+    if (isCustomStatusExpired(user.customization)) void clearExpiredCustomStatus(user.id).catch(() => false);
     void import('@/lib/services/badges')
       .then(({ recalculateUserBadges }) => recalculateUserBadges(user.id))
       .catch(() => {});
@@ -1374,7 +1520,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         return { error: 'User not found in local database' };
       }
 
-      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone } = body as Record<string, any>;
+      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone, customStatusEmoji, customStatusExpiresAt } = body as Record<string, any>;
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
@@ -1405,6 +1551,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (customization !== undefined && typeof customization === 'object') {
         updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
       }
+      const statusPatch = applyCustomStatusPatch(user, { customStatus, customStatusEmoji, customStatusExpiresAt }, updateFields);
+      if (statusPatch.error) {
+        set.status = 400;
+        return { error: statusPatch.error };
+      }
       if (gifFavorites !== undefined && Array.isArray(gifFavorites)) {
         updateFields.gifFavorites = gifFavorites.slice(0, 200).map((f: any) => ({
           url: String(f?.url || ''),
@@ -1418,9 +1569,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
       
       // Invalidate user cache so fresh data is fetched
       await invalidateUserCache(userId);
+      await scheduleCustomStatusExpiry(userId, statusPatch.expiresAt);
+      if (status !== undefined) await clearAutoIdleFlag(userId);
 
       const finalUser = updatedUser || user;
-      const changedProfile = customStatus !== undefined || displayName !== undefined || customization !== undefined || (status !== undefined && status !== prevStatus);
+      const changedProfile = customStatus !== undefined || customStatusEmoji !== undefined || customStatusExpiresAt !== undefined || displayName !== undefined || customization !== undefined || (status !== undefined && status !== prevStatus);
       if (changedProfile) {
         const friendIds = (finalUser.friends || []).map((f: string) => f);
         emitFriendEvent(friendIds, {
@@ -1471,6 +1624,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       timezone: t.Optional(t.Union([t.String(), t.Null()])),
       showTimezone: t.Optional(t.Boolean()),
       customStatus: t.Optional(t.Union([t.String({ maxLength: 128 }), t.Null()])),
+      customStatusEmoji: t.Optional(t.Union([t.Object({}, { additionalProperties: true }), t.Null()])),
+      customStatusExpiresAt: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
       status: t.Optional(t.Union([
         t.Literal('online'),
         t.Literal('idle'),
@@ -1514,7 +1669,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         }
       }
 
-      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone } = data || {};
+      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone, customStatusEmoji, customStatusExpiresAt } = data || {};
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
@@ -1543,6 +1698,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (customization !== undefined && typeof customization === 'object') {
         updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
       }
+      const statusPatch = applyCustomStatusPatch(user, { customStatus, customStatusEmoji, customStatusExpiresAt }, updateFields);
+      if (statusPatch.error) {
+        set.status = 400;
+        return { error: statusPatch.error };
+      }
       if (gifFavorites !== undefined && Array.isArray(gifFavorites)) {
         updateFields.gifFavorites = gifFavorites.slice(0, 200).map((f: any) => ({
           url: String(f?.url || ''),
@@ -1554,9 +1714,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
       const updatedUser = await User.updateById(userId, updateFields);
       await invalidateUserCache(userId);
+      await scheduleCustomStatusExpiry(userId, statusPatch.expiresAt);
+      if (status !== undefined) await clearAutoIdleFlag(userId);
 
       const finalUser = updatedUser || user;
-      const changedProfile = customStatus !== undefined || displayName !== undefined || customization !== undefined || (status !== undefined && status !== prevStatus);
+      const changedProfile = customStatus !== undefined || customStatusEmoji !== undefined || customStatusExpiresAt !== undefined || displayName !== undefined || customization !== undefined || (status !== undefined && status !== prevStatus);
       if (changedProfile) {
         const friendIds = (finalUser.friends || []).map((f: string) => f);
         emitFriendEvent(friendIds, {
@@ -1600,7 +1762,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: 'Failed to update user profile' };
     }
   })
-  .post('/me/presence/heartbeat', async ({ headers, cookie, set }) => {
+  .post('/me/presence/heartbeat', async ({ headers, cookie, body, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {
       set.status = 401;
@@ -1620,7 +1782,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
     if (user.status !== 'offline' && user.status !== 'invisible') {
       updateFields.presenceLastDisconnectAt = null;
     }
+    // Automatic idle: the client says whether this device saw input in the
+    // last 10 minutes. Only online <-> (automatic) idle ever changes here.
+    const idle = parseHeartbeatIdle(body);
+    let autoStatus: 'online' | 'idle' | null = null;
+    if (idle !== undefined) {
+      autoStatus = await resolveAutoIdle(user.id, user.status, idle);
+      if (autoStatus) updateFields.status = autoStatus;
+    }
     const updatedUser = await User.updateById(user.id, updateFields) || user;
+    if (autoStatus) await invalidateUserCache(user.id);
 
     const nextStatus = getPublicPresenceStatus(updatedUser);
     if (previousStatus !== nextStatus) {
@@ -1633,7 +1804,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       });
     }
 
-    return { success: true };
+    return { success: true, ...(autoStatus ? { status: autoStatus } : {}) };
   })
   // Sent by a closing tab (sendBeacon). Ends the heartbeat instead of writing
   // status "offline": the chosen status (online/idle/dnd) survives reloads, and
@@ -2050,6 +2221,57 @@ const userRoutes = new Elysia({ prefix: '/users' })
       visible: t.Optional(t.Boolean()),
     }),
   })
+  // Private notes about other users ("Note — only visible to you").
+  .get('/@me/notes', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { listUserNotes } = await import('@/lib/services/userNotes');
+    return { notes: await listUserNotes(user.id) };
+  })
+  .get('/@me/notes/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { getUserNote } = await import('@/lib/services/userNotes');
+    return { userId: params.userId, note: await getUserNote(user.id, params.userId) };
+  }, {
+    params: t.Object({ userId: t.String() }),
+  })
+  .put('/@me/notes/:userId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    if (compareIds(params.userId, user.id)) {
+      set.status = 400;
+      return { error: 'You cannot add a note to yourself' };
+    }
+    const rl = await checkRateLimit('userNote', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
+    const target = await User.findById(params.userId);
+    if (!target) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    const { setUserNote } = await import('@/lib/services/userNotes');
+    const note = await setUserNote(user.id, target.id, body.note);
+    // Keep the note in sync on the user's other tabs and devices.
+    const { fanoutToUsers } = await import('@/lib/api/activity');
+    void fanoutToUsers({ userIds: [user.id] }, { type: 'user_note_update', userId: target.id, note });
+    return { userId: target.id, note };
+  }, {
+    params: t.Object({ userId: t.String() }),
+    body: t.Object({ note: t.String({ maxLength: 2048 }) }),
+  })
   .get('/:userId', async ({ params, headers, cookie, set }) => {
     const targetUser = await User.findById(params.userId);
 
@@ -2061,14 +2283,24 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // Optionally check friend status if the requester is authenticated
     let isFriend = false;
     let friendRequestSent = false;
+    let friendRequestReceived = false;
+    let isBlocked = false;
     let isSelf = false;
+    let note: string | undefined;
     try {
       const { user: requester } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
       if (requester) {
         isFriend = (requester.friends || []).some((f: string) => compareIds(f, targetUser.id));
         const outgoing = ((requester.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
+        const incoming = ((requester.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
         friendRequestSent = outgoing.some((f: string) => compareIds(f, targetUser.id));
+        friendRequestReceived = incoming.some((f: string) => compareIds(f, targetUser.id));
+        isBlocked = (requester.blockedUsers || []).some((b: string) => compareIds(b, targetUser.id));
         isSelf = compareIds(requester.id, targetUser.id);
+        if (!isSelf) {
+          const { getUserNote } = await import('@/lib/services/userNotes');
+          note = await getUserNote(requester.id, targetUser.id).catch(() => undefined);
+        }
       }
     } catch {
       // Not authenticated — leave isFriend false
@@ -2109,6 +2341,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
       connections,
       isFriend,
       friendRequestSent,
+      friendRequestReceived,
+      isBlocked,
+      ...(note !== undefined ? { note } : {}),
     };
   }, {
     params: t.Object({
@@ -2456,6 +2691,7 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
         avatar: u.avatar,
         status: getPublicPresenceStatus(u),
         customStatus: u.customStatus,
+        customization: u.customization || null,
         isPremium: u.isPremium,
         badges: u.badges || [],
         createdAt: u.createdAt,
@@ -2632,6 +2868,21 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: 'You cannot send a friend request to yourself' };
     }
 
+    // "Who can send you a friend request" (Everyone / Friends of Friends /
+    // Server Members): only look up the ties when the target narrowed it.
+    const ties = { mutualFriend: false, mutualServer: false };
+    if (!friendRequestSources(foundUser.settings as Parameters<typeof friendRequestSources>[0]).everyone) {
+      ties.mutualFriend = (authUser.friends || []).some((f: string) => (foundUser!.friends || []).some((g: string) => compareIds(f, g)));
+      if (!ties.mutualFriend) {
+        const [mine, theirs] = await Promise.all([
+          ServerMember.find({ userId: authUserId }),
+          ServerMember.find({ userId: foundUser.id }),
+        ]);
+        const myServers = new Set(mine.map((m) => normalizeId(m.serverId)));
+        ties.mutualServer = theirs.some((m) => myServers.has(normalizeId(m.serverId)));
+      }
+    }
+
     // Both rows are re-read and locked inside the transaction, so every check
     // below sees the current state and concurrent requests can't clobber it.
     const outcome = await mutateFriendPair(authUserId, foundUser.id, async (user, targetUser, save) => {
@@ -2700,6 +2951,12 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
             },
           },
         };
+      }
+
+      // Privacy: the target only takes requests from friends of friends
+      // and/or people they share a server with.
+      if (!friendRequestAllowedFrom(targetUser.settings as Parameters<typeof friendRequestAllowedFrom>[0], ties)) {
+        return { status: 403, body: { error: `${targetName} is not accepting friend requests from you` } };
       }
 
       // Send friend request
@@ -3913,6 +4170,12 @@ export async function initializeAPI() {
         (timer as { unref?: () => void }).unref?.();
       });
     }
+    // Private user notes + DM message requests tables. Idempotent, never
+    // throw; not awaited (their readers wait for or skip them).
+    const { ensureUserNotesSchema } = await import('@/lib/services/userNotes');
+    void ensureUserNotesSchema();
+    const { ensureMessageRequestSchema } = await import('@/lib/services/messageRequests');
+    void ensureMessageRequestSchema();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');
@@ -3925,6 +4188,9 @@ export async function initializeAPI() {
     } catch (err) {
       console.error('Failed to auto-provision bots on startup:', err);
     }
+
+    // "Clear after" for custom statuses.
+    startCustomStatusExpirySweeper();
 
     console.log('✅ API initialized');
   })();

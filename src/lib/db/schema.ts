@@ -12,6 +12,7 @@ import {
   index,
   uniqueIndex,
   serial,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -962,6 +963,33 @@ export const messageSearchIndex = pgTable('message_search_index', {
 }, (t) => ({
   termsGinIdx: index('message_search_index_terms_gin_idx').using('gin', t.terms),
   channelIdx: index('message_search_index_channel_id_idx').on(t.channelId),
+}));
+
+// Private notes one user keeps about another ("Note — only visible to you").
+// Added at boot by ensureUserNotesSchema() (mirrors
+// drizzle/manual_user_notes_message_requests.sql).
+export const userNotes = pgTable('user_notes', {
+  ownerId: uuid('owner_id').notNull(),
+  targetId: uuid('target_id').notNull(),
+  note: text('note').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.ownerId, t.targetId] }),
+}));
+
+// DM Message Requests: one row per (1:1 DM channel, recipient) with status
+// pending | accepted | ignored. Added at boot by ensureMessageRequestSchema()
+// (mirrors drizzle/manual_user_notes_message_requests.sql).
+export const dmMessageRequests = pgTable('dm_message_requests', {
+  channelId: uuid('channel_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  requesterId: uuid('requester_id').notNull(),
+  status: text('status').notNull().default('pending'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.channelId, t.userId] }),
+  userStatusIdx: index('dm_message_requests_user_status_idx').on(t.userId, t.status),
 }));
 
 // ─── Type Exports ─────────────────────────────────────────

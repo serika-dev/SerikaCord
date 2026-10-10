@@ -41,6 +41,9 @@ import type { PickerEmoji } from "@/components/chat/MessageHoverActions";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
 import { Loader } from "@/components/ui/Loader";
+import { collapseBlockedGroups } from "@/lib/chat/blocked";
+import { useRelationships } from "@/lib/social/relationshipsStore";
+import { BlockedMessagesRow } from "./BlockedMessagesRow";
 
 export interface MessageListHandle {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
@@ -729,6 +732,114 @@ function MessageListInner<M extends ChatMessage>(
   const dividerId = divider?.firstUnreadId ?? newMessageStartId;
   const pillCount = newMessagesCount > 0 ? newMessagesCount : awayFromBottom && showUnreadBar ? divider?.count ?? 0 : 0;
 
+  // Messages from people you blocked collapse into "N blocked messages" rows
+  // (Discord); each row can be expanded on its own.
+  const { blocked: blockedIds } = useRelationships();
+  const listItems = useMemo(() => collapseBlockedGroups(groups, blockedIds), [groups, blockedIds]);
+  const [revealedBlocked, setRevealedBlocked] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleBlocked = useCallback((key: string) => {
+    setRevealedBlocked((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const renderGroup = (group: MessageGroupData<M>, idx: number) => {
+    const shouldAnimate = animateIn && idx < 12;
+    const isLastGroup = idx === groups.length - 1;
+    const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
+    const showNewSeparator = dividerId === group.messages[0]?.id;
+    // Unread run starting mid-group (same author kept talking): the
+    // group draws the divider above that row itself.
+    const midGroupSeparatorId =
+      dividerId && !showNewSeparator && group.messages.some((m) => m.id === dividerId)
+        ? dividerId
+        : undefined;
+    return (
+    <Fragment key={`group-${group.messages[0].id}`}>
+    {showNewSeparator && <UnreadDivider label={gt("New")} className="mx-4" />}
+    <div
+      className={cn(
+        "msg-group-cv",
+        shouldAnimate && "msg-fade-in",
+        shouldSlideIn && "msg-slide-in"
+      )}
+      style={shouldAnimate ? { animationDelay: `${Math.min(idx * 35, 350)}ms` } : undefined}
+    >
+    {group.messages[0].type === "call" ? (
+    <CallMessageRow
+      message={group.messages[0]}
+      currentUserId={currentUserId}
+      peer={dmPeer}
+      group={callGroup}
+      formattedTimestamp={formattedTimestamps[idx]}
+    />
+    ) : group.messages[0].type === "thread_created" ? (
+    <ThreadSystemRow
+      message={group.messages[0]}
+      formattedTimestamp={formattedTimestamps[idx]}
+      onOpenThread={onOpenThread}
+      onSeeAllThreads={onSeeAllThreads}
+    />
+    ) : group.messages[0].type === "poll_result" ? (
+    <PollResultRow
+      message={group.messages[0]}
+      currentUserId={currentUserId}
+      formattedTimestamp={formattedTimestamps[idx]}
+      onJumpToMessage={jumpToMessage}
+    />
+    ) : isGroupDmEventType(group.messages[0].type) ? (
+    <GroupSystemRow
+      message={group.messages[0]}
+      formattedTimestamp={formattedTimestamps[idx]}
+    />
+    ) : (
+    <MessageGroup
+      group={group}
+      currentUserId={currentUserId}
+      canModerate={canModerate}
+      canPin={canPin}
+      serverId={serverId}
+      serverName={serverName}
+      swipeEnabled={swipeEnabled}
+      mentionUsers={mentionUsers}
+      mentionRoles={mentionRoles}
+      userRoleColorMap={userRoleColorMap}
+      serverEmojis={serverEmojis}
+      availableServerEmojis={availableServerEmojis}
+      editingMessageId={actions.editingMessage?.id}
+      editContent={actions.editContent}
+      onEditContentChange={stable.onEditContentChange}
+      onEditKeyDown={stable.onEditKeyDown}
+      onEditCancel={stable.onEditCancel}
+      onEditSave={stable.onEditSave}
+      reactionPickerMessageId={actions.reactionPickerMessage}
+      onReactionPickerChange={stable.onReactionPickerChange}
+      onContextMenu={stable.onContextMenu}
+      onReply={stable.onReply}
+      onCopy={stable.onCopy}
+      onPinToggle={stable.onPinToggle}
+      onEdit={stable.onEdit}
+      onDelete={stable.onDelete}
+      onAddReaction={stable.onAddReaction}
+      onToggleReaction={stable.onToggleReaction}
+      onOpenReactionPicker={stable.onOpenReactionPicker}
+      onMediaClick={onMediaClick}
+      onSuppressEmbeds={onSuppressEmbeds}
+      onJumpToMessage={jumpToMessage}
+      formattedTimestamp={formattedTimestamps[idx]}
+      newSeparatorBeforeId={midGroupSeparatorId}
+      canCreateThread={canCreateThread}
+      onCreateThread={onCreateThread}
+      onOpenThread={onOpenThread}
+    />
+    )}
+    </div>
+    </Fragment>
+    );
+  };
+
   return (
     <ChatGtProvider>
     <div className={cn("relative flex-1 min-h-0", className)}>
@@ -758,98 +869,18 @@ function MessageListInner<M extends ChatMessage>(
             ) : groups.length === 0 ? (
               <div className="text-center text-[var(--text-muted)] py-8">{emptyText || gt("No messages yet. Be the first to say something!")}</div>
             ) : (
-              groups.map((group, idx) => {
-                const shouldAnimate = animateIn && idx < 12;
-                const isLastGroup = idx === groups.length - 1;
-                const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
-                const showNewSeparator = dividerId === group.messages[0]?.id;
-                // Unread run starting mid-group (same author kept talking): the
-                // group draws the divider above that row itself.
-                const midGroupSeparatorId =
-                  dividerId && !showNewSeparator && group.messages.some((m) => m.id === dividerId)
-                    ? dividerId
-                    : undefined;
+              listItems.map((item) => {
+                if (item.kind === "group") return renderGroup(item.group, item.index);
+                const open = revealedBlocked.has(item.key);
                 return (
-                <Fragment key={`group-${group.messages[0].id}`}>
-                {showNewSeparator && <UnreadDivider label={gt("New")} className="mx-4" />}
-                <div
-                  className={cn(
-                    "msg-group-cv",
-                    shouldAnimate && "msg-fade-in",
-                    shouldSlideIn && "msg-slide-in"
-                  )}
-                  style={shouldAnimate ? { animationDelay: `${Math.min(idx * 35, 350)}ms` } : undefined}
-                >
-                {group.messages[0].type === "call" ? (
-                <CallMessageRow
-                  message={group.messages[0]}
-                  currentUserId={currentUserId}
-                  peer={dmPeer}
-                  group={callGroup}
-                  formattedTimestamp={formattedTimestamps[idx]}
-                />
-                ) : group.messages[0].type === "thread_created" ? (
-                <ThreadSystemRow
-                  message={group.messages[0]}
-                  formattedTimestamp={formattedTimestamps[idx]}
-                  onOpenThread={onOpenThread}
-                  onSeeAllThreads={onSeeAllThreads}
-                />
-                ) : group.messages[0].type === "poll_result" ? (
-                <PollResultRow
-                  message={group.messages[0]}
-                  currentUserId={currentUserId}
-                  formattedTimestamp={formattedTimestamps[idx]}
-                  onJumpToMessage={jumpToMessage}
-                />
-                ) : isGroupDmEventType(group.messages[0].type) ? (
-                <GroupSystemRow
-                  message={group.messages[0]}
-                  formattedTimestamp={formattedTimestamps[idx]}
-                />
-                ) : (
-                <MessageGroup
-                  group={group}
-                  currentUserId={currentUserId}
-                  canModerate={canModerate}
-                  canPin={canPin}
-                  serverId={serverId}
-                  serverName={serverName}
-                  swipeEnabled={swipeEnabled}
-                  mentionUsers={mentionUsers}
-                  mentionRoles={mentionRoles}
-                  userRoleColorMap={userRoleColorMap}
-                  serverEmojis={serverEmojis}
-                  availableServerEmojis={availableServerEmojis}
-                  editingMessageId={actions.editingMessage?.id}
-                  editContent={actions.editContent}
-                  onEditContentChange={stable.onEditContentChange}
-                  onEditKeyDown={stable.onEditKeyDown}
-                  onEditCancel={stable.onEditCancel}
-                  onEditSave={stable.onEditSave}
-                  reactionPickerMessageId={actions.reactionPickerMessage}
-                  onReactionPickerChange={stable.onReactionPickerChange}
-                  onContextMenu={stable.onContextMenu}
-                  onReply={stable.onReply}
-                  onCopy={stable.onCopy}
-                  onPinToggle={stable.onPinToggle}
-                  onEdit={stable.onEdit}
-                  onDelete={stable.onDelete}
-                  onAddReaction={stable.onAddReaction}
-                  onToggleReaction={stable.onToggleReaction}
-                  onOpenReactionPicker={stable.onOpenReactionPicker}
-                  onMediaClick={onMediaClick}
-                  onSuppressEmbeds={onSuppressEmbeds}
-                  onJumpToMessage={jumpToMessage}
-                  formattedTimestamp={formattedTimestamps[idx]}
-                  newSeparatorBeforeId={midGroupSeparatorId}
-                  canCreateThread={canCreateThread}
-                  onCreateThread={onCreateThread}
-                  onOpenThread={onOpenThread}
-                />
-                )}
-                </div>
-                </Fragment>
+                  <Fragment key={item.key}>
+                    <BlockedMessagesRow
+                      count={item.count}
+                      open={open}
+                      onToggle={() => toggleBlocked(item.key)}
+                    />
+                    {open && item.groups.map(({ group, index }) => renderGroup(group, index))}
+                  </Fragment>
                 );
               })
             )}

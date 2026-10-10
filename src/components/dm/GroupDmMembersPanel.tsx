@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
-import { Crown, LogOut, MessageSquare, UserMinus, UserPlus } from "lucide-react";
+import { Crown, LogOut, UserMinus, UserPlus } from "lucide-react";
+import { UserMenuItems } from "@/components/user/UserContextMenu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
@@ -138,20 +139,17 @@ export function GroupDmMembersPanel({
 
       {menu && (
         <div
-          className="ctx-menu fixed z-50 min-w-[180px]"
-          style={{ left: menu.x, top: menu.y }}
+          className="ctx-menu fixed z-50 min-w-[200px] max-h-[calc(100vh-16px)] overflow-y-auto"
+          style={{ left: Math.min(menu.x, window.innerWidth - 216), top: Math.min(menu.y, window.innerHeight - 420) }}
           onClick={(e) => e.stopPropagation()}
         >
-          {menu.member.id.toLowerCase() !== currentUserId.toLowerCase() && (
-            <button
-              className="ctx-item"
-              onClick={() => { router.push(`/dm/${menu.member.id}`); setMenu(null); }}
-            >
-              <MessageSquare className="h-4 w-4" />
-              {gt("Message")}
-            </button>
-          )}
+          <UserMenuItems
+            user={{ id: menu.member.id, username: menu.member.username, displayName: menu.member.displayName, avatar: menu.member.avatar }}
+            onDone={() => setMenu(null)}
+          />
           {iOwn && menu.member.id.toLowerCase() !== currentUserId.toLowerCase() && (
+            <>
+            <div className="ctx-sep" />
             <button
               className="ctx-item text-red-400"
               onClick={() => { onRemove(menu.member); setMenu(null); }}
@@ -159,6 +157,7 @@ export function GroupDmMembersPanel({
               <UserMinus className="h-4 w-4" />
               {gt("Remove From Group")}
             </button>
+            </>
           )}
           {menu.member.id.toLowerCase() === currentUserId.toLowerCase() && (
             <button

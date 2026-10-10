@@ -69,7 +69,9 @@ import {
   Bug,
   ShieldAlert,
   MessageSquareHeart,
+  UserPlus,
 } from "lucide-react";
+import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
@@ -109,6 +111,8 @@ interface UserSettingsDialogProps {
 type SettingsTab =
   | "profiles"
   | "content-social"
+  | "friend-requests"
+  | "activity-privacy"
   | "data-privacy"
   | "authorized-apps"
   | "devices"
@@ -2042,6 +2046,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         items: [
           { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User },
           { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare },
+          { id: "friend-requests" as SettingsTab, label: gt("Friend Requests"), icon: UserPlus },
+          { id: "activity-privacy" as SettingsTab, label: gt("Activity Privacy"), icon: Activity },
           { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock },
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
           { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
@@ -3699,7 +3705,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                               <span className="text-[var(--text-primary)]">{gt("Allow friend requests")}</span>
                               <p className="text-xs text-[var(--text-muted)]">{gt("When off, nobody can send you a friend request.")}</p>
                             </div>
-                            <ToggleSwitch size="sm" checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none" }, friendRequests: { allowEveryone: checked } }, "content-social")} />
+                            <ToggleSwitch size="sm" checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { allowEveryone: checked } }, "content-social")} />
                           </label>
                           <label className="flex items-center justify-between py-2">
                             <div className="pr-4">
@@ -3708,7 +3714,16 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             </div>
                             <ToggleSwitch size="sm" checked={userSettings.privacy?.showActivity !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")} />
                           </label>
+                          <MessageRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "content-social")} />
                         </>
+                      )}
+
+                      {activeTab === "friend-requests" && (
+                        <FriendRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "friend-requests")} />
+                      )}
+
+                      {activeTab === "activity-privacy" && (
+                        <ActivityPrivacySettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "activity-privacy")} />
                       )}
 
                       {activeTab === "data-privacy" && (

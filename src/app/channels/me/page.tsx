@@ -39,8 +39,13 @@ import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import type { GameActivity, MusicActivity, MoeActivity } from "@/hooks/useMoeActivity";
+import { MessageRequestsList } from "@/components/dm/MessageRequestsList";
+import { useMessageRequests } from "@/lib/social/messageRequestsStore";
+import { useUserContextMenu } from "@/components/user/UserContextMenu";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { hasCustomStatus } from "@/lib/social/customStatus";
 
-type Tab = "online" | "all" | "pending" | "blocked" | "add";
+type Tab = "online" | "all" | "pending" | "blocked" | "requests" | "add";
 
 interface Friend {
   id: string;
@@ -49,6 +54,7 @@ interface Friend {
   avatar?: string;
   status: "online" | "idle" | "dnd" | "offline";
   customStatus?: string;
+  customization?: unknown;
   isPremium?: boolean;
   badges?: BadgeId[];
   createdAt?: string;
@@ -92,11 +98,14 @@ export default function DirectMessagesPage() {
   const { user } = useAuth();
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("online");
+  const messageRequests = useMessageRequests();
+  // Right-click on a friend: the same full user menu as everywhere else.
+  const { openUserMenu, userMenu } = useUserContextMenu();
   // `?tab=add` (e.g. from the mobile Messages "Add friend" button) opens that
   // tab directly; the param is then dropped so back/refresh don't force it.
   useEffect(() => {
     const isTab = (t: unknown): t is Tab =>
-      t === "online" || t === "all" || t === "pending" || t === "blocked" || t === "add";
+      t === "online" || t === "all" || t === "pending" || t === "blocked" || t === "requests" || t === "add";
     const t = new URLSearchParams(window.location.search).get("tab");
     if (isTab(t)) {
       setActiveTab(t);
@@ -410,6 +419,10 @@ export default function DirectMessagesPage() {
     { id: "all", label: gt("All"), count: friendsData.friends.length },
     { id: "pending", label: gt("Pending"), count: friendsData.pending.incoming.length + friendsData.pending.outgoing.length },
     { id: "blocked", label: gt("Blocked"), count: friendsData.blocked.length },
+    // Discord keeps Message Requests next to the friends list.
+    ...(messageRequests.count > 0 || activeTab === "requests"
+      ? [{ id: "requests" as Tab, label: gt("Message Requests"), count: messageRequests.count }]
+      : []),
   ];
 
   // Start DM with friend
@@ -420,6 +433,7 @@ export default function DirectMessagesPage() {
 
   return (
     <div className="flex-1 flex bg-[var(--bg-app)] overflow-hidden">
+      {userMenu}
       {/* Left column: header + content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
       {/* Header */}
@@ -689,6 +703,12 @@ export default function DirectMessagesPage() {
                 )}
               </div>
             </ScrollArea>
+          ) : activeTab === "requests" ? (
+            <ScrollArea className="flex-1">
+              <div className="p-4 sm:p-6 max-w-3xl">
+                <MessageRequestsList />
+              </div>
+            </ScrollArea>
           ) : activeTab === "blocked" ? (
             <ScrollArea className="flex-1">
               <div className="p-4 sm:p-6 max-w-3xl">
@@ -793,7 +813,7 @@ export default function DirectMessagesPage() {
                             ]}
                           >
                             {idx > 0 && <div className="mx-4 h-px bg-[var(--border-subtle)]" />}
-                            <div onContextMenu={(e) => { e.preventDefault(); setContextMenuFriendId(friend.id); }} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors rounded-lg mx-1">
+                            <div onContextMenu={(e) => openUserMenu(e, friend)} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors rounded-lg mx-1">
                               <button
                                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
                                 onClick={() => startDM(friend.id)}
@@ -820,8 +840,10 @@ export default function DirectMessagesPage() {
                                       <Crown className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />
                                     )}
                                   </div>
-                                  <p className="text-xs text-[var(--text-muted)] truncate">
-                                    {friend.status !== "offline" && friend.customStatus ? friend.customStatus : statusLabel(friend.status, gt)}
+                                  <p className="text-xs text-[var(--text-muted)] truncate flex min-w-0">
+                                    {friend.status !== "offline" && hasCustomStatus(friend.customStatus, friend.customization)
+                                      ? <CustomStatusLine text={friend.customStatus} customization={friend.customization} emojiClassName="w-3.5 h-3.5" />
+                                      : statusLabel(friend.status, gt)}
                                   </p>
                                 </div>
                               </button>

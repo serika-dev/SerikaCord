@@ -23,6 +23,8 @@ import { callPreviewText, parseCallData } from '@/lib/voice/callMessage';
 import { groupEventPreview, isGroupDmEventType, type GroupDmEventType } from '@/lib/chat/groupDm';
 import { loadMessageExtras, type MessageExtras } from '@/lib/services/messageExtras';
 import { parsePollResult, parseStoredPoll, pollPreviewText } from '@/lib/chat/polls';
+import { isHiddenRequest, isPendingRequest } from '@/lib/chat/messageRequests';
+import { openRequestsFor, recordDmSend, resolveRequest } from '@/lib/services/messageRequests';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -952,11 +954,22 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Fetch DM and group_dm channels in parallel
-    const [dmChannels, groupDmChannels] = await Promise.all([
+    // Fetch DM and group_dm channels (and the viewer's open message requests) in parallel
+    const [dmChannels, groupDmChannels, openRequests] = await Promise.all([
       Channel.find({ type: 'dm', recipientId: user.id }),
       Channel.find({ type: 'group_dm', recipientId: user.id }),
+      openRequestsFor(user.id),
     ]);
+    // Message Requests (pending) and ignored requests live outside the DM list
+    // until accepted — unless the two have become friends since.
+    const requestByChannel = new Map(openRequests.map((r) => [normalizeId(r.channelId), r]));
+    const friendSet = new Set(((user.friends || []) as string[]).map((f) => normalizeId(f)));
+    const isHiddenForViewer = (c: { id: string; recipientIds?: string[] | null }) => {
+      const req = requestByChannel.get(normalizeId(c.id));
+      if (!req) return false;
+      return isHiddenRequest(req.status, friendSet.has(normalizeId(req.requesterId)));
+    };
+    const messageRequestCount = openRequests.filter((r) => isPendingRequest(r.status, friendSet.has(normalizeId(r.requesterId)))).length;
     // Resolve duplicated 1:1 rows to the same channel the DM routes use, and
     // hide empty DMs from everyone but the user who opened them.
     const dmGroups = new Map<string, typeof dmChannels>();
@@ -971,7 +984,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return r.length === 2 ? (pickDmChannel(group, r[0], r[1]) ?? group[0]) : group[0];
     });
     const channels = [...canonicalDms, ...groupDmChannels]
-      .filter((c) => isDmListedFor(c, user.id))
+      .filter((c) => isDmListedFor(c, user.id) && !isHiddenForViewer(c))
       .sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime());
 
     const allRecipientIds = [...new Set(
@@ -1114,7 +1127,89 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const { lookupMentionNames } = await import('@/lib/services/mentionNames');
     const mentionNames = await lookupMentionNames(channelsWithRecipients.map((c) => c.lastMessage?.content ?? null));
 
-    return { channels: channelsWithRecipients, mentionNames };
+    return { channels: channelsWithRecipients, mentionNames, messageRequestCount };
+  })
+  // Message Requests: DMs from people you aren't friends with, held out of the
+  // DM list (no badge, no notification) until you accept or reply.
+  .get('/requests', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const friendSet = new Set(((user.friends || []) as string[]).map((f) => normalizeId(f)));
+    const blocked = new Set(((user.blockedUsers || []) as string[]).map((b) => normalizeId(b)));
+    const rows = (await openRequestsFor(user.id)).filter(
+      (r) => isPendingRequest(r.status, friendSet.has(normalizeId(r.requesterId))) && !blocked.has(normalizeId(r.requesterId)),
+    );
+    if (rows.length === 0) return { requests: [] };
+    const channels = await Channel.find({ id: { in: rows.map((r) => r.channelId) } });
+    const channelMap = new Map(channels.map((c) => [normalizeId(c.id), c]));
+    const requesters = await User.find({ id: { in: [...new Set(rows.map((r) => r.requesterId))] } });
+    const requesterMap = new Map(requesters.map((u) => [normalizeId(u.id), u]));
+    const lastIds = channels.map((c) => c.lastMessageId).filter(Boolean) as string[];
+    const lastMsgs = lastIds.length > 0 ? await Message.find({ id: { in: lastIds }, isDeleted: false }) : [];
+    const lastMap = new Map(lastMsgs.map((m) => [m.id, m]));
+    const requests = (await Promise.all(rows.map(async (r) => {
+      const channel = channelMap.get(normalizeId(r.channelId));
+      const u = requesterMap.get(normalizeId(r.requesterId));
+      if (!channel || !u) return null;
+      const last = channel.lastMessageId ? lastMap.get(channel.lastMessageId) : undefined;
+      let preview = '';
+      if (last) {
+        preview = (await decryptFromStorage(last.content || '')) || '';
+        if (!preview && Array.isArray(last.attachments) && (last.attachments as unknown[]).length > 0) preview = 'Sent an attachment';
+      }
+      return {
+        channelId: channel.id,
+        createdAt: r.createdAt,
+        updatedAt: channel.updatedAt ?? r.updatedAt,
+        user: {
+          id: u.id,
+          username: u.username,
+          displayName: u.displayName,
+          avatar: u.avatar,
+          status: getPublicPresenceStatus(u),
+          customization: u.customization || null,
+        },
+        lastMessage: last ? { id: last.id, content: preview.slice(0, 180), authorId: last.authorId, createdAt: last.createdAt } : null,
+      };
+    }))).filter(Boolean);
+    requests.sort((a, b) => new Date(b!.updatedAt ?? 0).getTime() - new Date(a!.updatedAt ?? 0).getTime());
+    return { requests };
+  })
+  .post('/requests/:channelId/:action', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    if (!isValidObjectId(params.channelId)) {
+      set.status = 400;
+      return { error: 'Invalid channel ID' };
+    }
+    const rl = await checkRateLimit('messageRequest', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
+    const status = params.action === 'accept' ? 'accepted' : 'ignored';
+    const ok = await resolveRequest(user.id, params.channelId, status);
+    if (!ok) {
+      set.status = 404;
+      return { error: 'Message request not found' };
+    }
+    // Every open session refreshes its requests count; accepting also makes
+    // the DM appear in the list.
+    const { fanoutToUsers } = await import('@/lib/api/activity');
+    void fanoutToUsers({ userIds: [user.id] }, { type: 'message_request', channelId: params.channelId, resolved: status });
+    if (status === 'accepted') emitDmListUpdate([user.id], { type: 'dm:list:update', channelId: params.channelId });
+    return { success: true, status };
+  }, {
+    params: t.Object({
+      channelId: t.String(),
+      action: t.Union([t.Literal('accept'), t.Literal('ignore')]),
+    }),
   })
   // SSE stream for DM list updates
   .get('/stream', async ({ headers, cookie }) => {
@@ -1310,10 +1405,16 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       }
     }
 
-    const { message, messageData } = await persistDmMessage(user, channel, prepared, encryptedContent, userServerIds);
+    // Message Requests: decided alongside the write (it doesn't depend on it).
+    const [{ message, messageData }, isMessageRequest] = await Promise.all([
+      persistDmMessage(user, channel, prepared, encryptedContent, userServerIds),
+      recordDmSend(channel.id, user, recipient),
+    ]);
 
+    // A message request doesn't bump the recipient's DM list (it lives in
+    // Message Requests until accepted).
     emitDmListUpdate(
-      [user.id, params.recipientId],
+      isMessageRequest ? [user.id] : [user.id, params.recipientId],
       {
         type: 'dm:list:update',
         channelId: channel.id,
@@ -1338,6 +1439,18 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         const createdAtIso = message.createdAt instanceof Date ? message.createdAt.toISOString() : new Date(message.createdAt ?? Date.now()).toISOString();
         // Sending reads the DM up to your message, on all your devices.
         ackOwnMessage(user.id, channel.id, message.id, createdAtIso);
+        if (isMessageRequest) {
+          // No badge, sound or push for a request: just refresh the
+          // recipient's Message Requests count.
+          fanoutToUsers({ userIds: [params.recipientId] }, {
+            type: 'message_request',
+            channelId: channel.id,
+            authorId: user.id,
+            authorName: user.displayName || user.username,
+            createdAt: createdAtIso,
+          });
+          return;
+        }
         const { lookupMentionNames } = await import('@/lib/services/mentionNames');
         const mentionNames = await lookupMentionNames([sanitizedContent.slice(0, 120)]);
         fanoutToUsers(

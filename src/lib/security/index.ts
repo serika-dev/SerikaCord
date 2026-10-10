@@ -95,6 +95,12 @@ export const rateLimiters_config = {
 
   // Voice moderation (server mute/deafen, move, disconnect), per moderator
   voiceModeration: { points: 60, duration: 60 },
+  // Private user notes (autosaved while typing), per user
+  userNote: { points: 60, duration: 60 },
+  // Message request accept / ignore, per user
+  messageRequest: { points: 60, duration: 60 },
+  // Changing another member's nickname, per user
+  memberNickname: { points: 30, duration: 60 },
 } as const;
 
 export async function checkRateLimit(

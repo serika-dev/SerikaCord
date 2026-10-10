@@ -4,7 +4,8 @@ import { sharedGet } from "@/lib/bootFetch";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft, MessageSquarePlus } from "lucide-react";
+import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft, MessageSquarePlus, Inbox } from "lucide-react";
+import { seedMessageRequestCount, useMessageRequests } from "@/lib/social/messageRequestsStore";
 import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 
@@ -41,6 +42,7 @@ interface MobileMessagesViewProps {
 }
 
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
+  const messageRequests = useMessageRequests();
   const router = useRouter();
   const gt = useGT();
   const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels } = useUnread();
@@ -77,6 +79,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       const response = await sharedGet("/api/dms");
       if (response.ok) {
         const data = await response.json();
+        if (typeof data.messageRequestCount === "number") seedMessageRequestCount(data.messageRequestCount);
         // 1:1 DMs are de-duplicated by the other person; groups are their own rows.
         const seenRecipients = new Map<string, Message>();
         const groups: Message[] = [];
@@ -297,6 +300,20 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
           )}
         </div>
       </div>
+
+      {/* Message Requests (DMs from people you aren't friends with) */}
+      {messageRequests.count > 0 && (
+        <button
+          onClick={() => router.push("/channels/me?tab=requests")}
+          className="mx-5 mt-3 flex items-center gap-3 px-4 py-3 rounded-2xl bg-[var(--bg-card)] text-left active:scale-[0.99] transition-transform"
+        >
+          <Inbox className="w-5 h-5 text-[var(--text-secondary)] shrink-0" />
+          <span className="flex-1 min-w-0 truncate font-medium text-[var(--text-primary)]">{gt("Message Requests")}</span>
+          <span className="shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-xs font-bold text-[var(--text-on-accent)]">
+            {messageRequests.count > 99 ? "99+" : messageRequests.count}
+          </span>
+        </button>
+      )}
 
       {/* Pinned/Favorites Section */}
       {pinnedMessages.length > 0 && (

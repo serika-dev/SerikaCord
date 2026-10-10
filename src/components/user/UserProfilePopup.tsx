@@ -27,6 +27,8 @@ import {
   Users,
   Check,
   Clock,
+  Smile,
+  X,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
@@ -35,6 +37,12 @@ import { getProfileBannerStyle, getProfileBackgroundStyle } from "@/lib/userDisp
 import { useGT } from "gt-next";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 import { toServerStatus } from "@/lib/presenceChoice";
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { hasCustomStatus } from "@/lib/social/customStatus";
+
+const CustomStatusDialog = dynamic(() => import("@/components/user/CustomStatusDialog").then((m) => m.CustomStatusDialog), { ssr: false });
 
 interface UserProfilePopupProps {
   children: React.ReactNode;
@@ -57,8 +65,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
   const [open, setOpen] = useState(false);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [editingStatus, setEditingStatus] = useState(false);
-  const [statusText, setStatusText] = useState("");
+  const [customStatusOpen, setCustomStatusOpen] = useState(false);
   const [showSwitchAccounts, setShowSwitchAccounts] = useState(false);
   const [showFullBio, setShowFullBio] = useState(false);
 
@@ -103,30 +110,21 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
     window.dispatchEvent(new CustomEvent('openUserSettings', { detail: { tab: 'profiles' } }));
   };
 
-  const handleSaveStatus = async () => {
-    const trimmed = statusText.trim();
-    updateUser({ customStatus: trimmed || undefined });
-    setEditingStatus(false);
+  const clearCustomStatus = async () => {
+    updateUser({ customStatus: undefined, customization: { ...(user?.customization || {}), customStatusEmoji: null, customStatusExpiresAt: null } });
     try {
       const response = await fetch("/api/users/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customStatus: trimmed || null }),
+        body: JSON.stringify({ customStatus: null, customStatusEmoji: null, customStatusExpiresAt: null }),
       });
-      if (!response.ok) {
-        await refresh();
-      }
-      // On success, don't refresh - we already updated local state
-    } catch (error) {
-      console.error("Failed to update custom status:", error);
+      if (!response.ok) await refresh();
+    } catch {
       await refresh();
     }
   };
 
-  const startEditingStatus = () => {
-    setStatusText(user?.customStatus || "");
-    setEditingStatus(true);
-  };
+  const hasStatus = hasCustomStatus(user?.customStatus, user?.customization);
 
   const currentStatusOption = statusOptions.find(s => s.value === currentStatus) || statusOptions[0];
   const isMobile = useIsMobile();
@@ -202,9 +200,14 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
             )}
 
             {/* Custom status */}
-            {user.customStatus && (
+            {hasStatus && (
               <div className="text-sm text-[var(--text-primary)] mb-2">
-                <MarkdownRenderer content={user.customStatus} />
+                <CustomStatusLine
+                  text={user.customStatus}
+                  customization={user.customization}
+                  emojiClassName="w-4 h-4"
+                  renderText={(t) => <MarkdownRenderer content={t} />}
+                />
               </div>
             )}
 
@@ -315,72 +318,32 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
               </PopoverContent>
             </Popover>
 
-            {/* Custom Status Editor */}
-            {editingStatus ? (
-              <div className="px-3 py-2 space-y-2">
-                <input
-                  type="text"
-                  value={statusText}
-                  onChange={(e) => setStatusText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSaveStatus();
-                    if (e.key === "Escape") setEditingStatus(false);
-                  }}
-                  placeholder={gt("What's on your mind?")}
-                  autoFocus
-                  maxLength={200}
-                  className="w-full px-2 py-1.5 rounded bg-[var(--app-surface-alt)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] border border-[var(--border-strong)] focus:outline-none focus:border-[var(--accent-color)]"
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleSaveStatus}
-                    className="px-3 py-1 rounded bg-[var(--accent-color)] text-white text-xs hover:brightness-110 transition"
-                  >
-                    {gt("Save")}
-                  </button>
-                  <button
-                    onClick={() => setEditingStatus(false)}
-                    className="px-3 py-1 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)] text-xs hover:bg-[var(--bg-hover)] transition"
-                  >
-                    {gt("Cancel")}
-                  </button>
-                  {user?.customStatus && (
-                    <button
-                      onClick={async () => {
-                        setStatusText("");
-                        setEditingStatus(false);
-                        updateUser({ customStatus: undefined });
-                        try {
-                          const response = await fetch("/api/users/me", {
-                            method: "PUT",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ customStatus: null }),
-                          });
-                          if (!response.ok) {
-                            await refresh();
-                          }
-                        } catch {
-                          await refresh();
-                        }
-                      }}
-                      className="px-3 py-1 rounded text-[var(--text-secondary)] text-xs hover:text-red-400 transition ml-auto"
-                    >
-                      {gt("Clear")}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ) : (
+            {/* Custom Status: Discord's "Set a custom status" modal */}
+            <div className="group/cs flex items-center rounded hover:bg-[var(--bg-hover)] transition-colors">
               <button
-                onClick={startEditingStatus}
-                className="w-full flex items-center gap-3 px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors text-left"
+                onClick={() => { setOpen(false); setCustomStatusOpen(true); }}
+                className="flex-1 min-w-0 flex items-center gap-3 px-3 py-2 text-left"
               >
-                <Pencil className="w-4 h-4 text-[var(--text-secondary)]" />
-                <span className="text-sm text-[var(--text-primary)]">
-                  {user?.customStatus ? gt("Edit Custom Status") : gt("Set Custom Status")}
-                </span>
+                {hasStatus ? (
+                  <CustomStatusLine text={user?.customStatus} customization={user?.customization} className="text-sm text-[var(--text-primary)]" emojiClassName="w-4 h-4" />
+                ) : (
+                  <>
+                    <Smile className="w-4 h-4 text-[var(--text-secondary)]" />
+                    <span className="text-sm text-[var(--text-primary)]">{gt("Set Custom Status")}</span>
+                  </>
+                )}
               </button>
-            )}
+              {hasStatus && (
+                <button
+                  onClick={() => void clearCustomStatus()}
+                  className="shrink-0 p-1.5 mr-1 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] opacity-70 group-hover/cs:opacity-100"
+                  aria-label={gt("Clear Custom Status")}
+                  title={gt("Clear Custom Status")}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
             <div className="h-px bg-[var(--app-surface-alt)] my-1" />
 
@@ -454,6 +417,9 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
         </Popover>
       )}
       <SwitchAccountsDialog open={showSwitchAccounts} onOpenChange={setShowSwitchAccounts} />
+      <MountWhenOpened open={customStatusOpen}>
+        <CustomStatusDialog open={customStatusOpen} onOpenChange={setCustomStatusOpen} />
+      </MountWhenOpened>
     </>
   );
 }

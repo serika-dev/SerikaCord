@@ -10,6 +10,7 @@ import { useAnimatedMedia } from "@/hooks/useAnimatedMedia";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
+import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { Copy, Star, StarOff } from "lucide-react";
 import { toast } from "sonner";
@@ -120,6 +121,8 @@ export const MessageContent = memo(function MessageContent({
   const gt = useChatGt();
   const animateMedia = useAnimatedMedia();
   const textRef = useRef<HTMLSpanElement>(null);
+  // Right-clicking a @mention opens the same user menu as a name or avatar.
+  const { openUserMenu, userMenu } = useUserContextMenu(serverId);
   const { isFavorite, toggleFavorite } = useEmojiFavorites();
   const [emojiCtxMenu, setEmojiCtxMenu] = useState<{
     x: number;
@@ -630,6 +633,7 @@ export const MessageContent = memo(function MessageContent({
               type="button"
               className="inline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded"
               onClick={(e) => e.stopPropagation()}
+              onContextMenu={(e) => openUserMenu(e, { id: mentionUser.id, username: mentionUser.username || "unknown", displayName: mentionUser.displayName })}
             >
               {mentionSpan}
             </button>
@@ -684,6 +688,7 @@ export const MessageContent = memo(function MessageContent({
       )}
     >
       {parsedContent.parts.map(renderPart)}
+      {userMenu}
       {typeof document !== "undefined" && emojiCtxMenu && createPortal(
         <div
           className="ctx-menu fixed z-[9999] min-w-[188px]"

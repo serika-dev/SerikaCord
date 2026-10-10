@@ -72,13 +72,29 @@ export async function signalDmMessage(opts: {
   isSystem?: boolean;
   /** Set for group DMs, so notifications name the group and open its page. */
   group?: { channelId: string; name: string; icon: string | null; memberCount?: number } | null;
+  /**
+   * Recipients for whom this 1:1 DM is a Message Request: no DM-list bump,
+   * badge, notification or push — only a `message_request` signal.
+   */
+  requestRecipientIds?: string[];
 }): Promise<void> {
   try {
     const createdAt = new Date(opts.createdAt ?? Date.now()).toISOString();
     const text = opts.content ?? '';
-    const others = opts.recipientIds.filter((id) => id !== opts.authorId);
+    const requestIds = new Set(opts.requestRecipientIds ?? []);
+    const others = opts.recipientIds.filter((id) => id !== opts.authorId && !requestIds.has(id));
     const { emitDmListUpdate } = await import('@/lib/api/dms');
-    const everyone = [...new Set([...opts.recipientIds, opts.authorId])];
+    const { fanoutToUsers } = await import('@/lib/api/activity');
+    if (requestIds.size > 0) {
+      await fanoutToUsers({ userIds: [...requestIds] }, {
+        type: 'message_request',
+        channelId: opts.channelId,
+        authorId: opts.authorId,
+        authorName: opts.authorName ?? undefined,
+        createdAt,
+      });
+    }
+    const everyone = [...new Set([...opts.recipientIds, opts.authorId])].filter((id) => !requestIds.has(id));
     for (const userId of everyone) {
       const counterpart = userId === opts.authorId ? others[0] : opts.authorId;
       emitDmListUpdate([userId], {
@@ -89,7 +105,6 @@ export async function signalDmMessage(opts: {
       });
     }
     if (others.length === 0) return;
-    const { fanoutToUsers } = await import('@/lib/api/activity');
     const { lookupMentionNames } = await import('@/lib/services/mentionNames');
     const mentionNames = text ? await lookupMentionNames([text.slice(0, 120)]) : undefined;
     await fanoutToUsers({ userIds: others }, {

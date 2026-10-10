@@ -7,7 +7,7 @@
  * sets Idle, and the update banner appears when a new version is downloaded.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { getEffectiveBinding } from "@/lib/keybinds";
 import { voiceService } from "@/lib/services/voiceService";
@@ -20,19 +20,16 @@ import {
   runDesktopNotificationClick,
 } from "@/lib/desktop/bridge";
 import { resolveGlobalShortcuts, sanitizeAppPath, trayStatusFor } from "@/lib/desktop/protocol";
+import { setExternalIdle } from "@/lib/presence/idleTracker";
 import { DesktopUpdateBanner } from "./DesktopUpdateBanner";
 
 type Status = "online" | "idle" | "dnd" | "offline";
 
 export default function DesktopIntegration() {
   const { user, setOnlineStatus } = useAuth();
-  const statusRef = useRef<string | null>(null);
-  // We set Idle because the computer was idle (not the user's own choice).
-  const autoIdleRef = useRef(false);
 
   const status = user ? trayStatusFor(user.status) : "";
   useEffect(() => {
-    statusRef.current = status || null;
     void getDesktopBridge().then((b) => b?.setUserStatus(status));
   }, [status]);
 
@@ -54,7 +51,6 @@ export default function DesktopIntegration() {
         if (action === "toggle-mute") toggleMute();
         else if (action === "toggle-deafen") toggleDeafen();
         else if (action === "set-status" && ["online", "idle", "dnd", "offline"].includes(value)) {
-          autoIdleRef.current = false;
           void setOnlineStatus(value as Status);
         } else if (action === "open-settings") {
           window.dispatchEvent(new CustomEvent("openUserSettings", { detail: { tab: value || "desktop" } }));
@@ -66,18 +62,14 @@ export default function DesktopIntegration() {
         else if (action === "toggle-mute") toggleMute();
         else if (action === "toggle-deafen") toggleDeafen();
       }),
-      onDesktopSignal("idleChanged", (idle) => {
-        if (idle) {
-          if (statusRef.current === "online") {
-            autoIdleRef.current = true;
-            void setOnlineStatus("idle");
-          }
-        } else if (autoIdleRef.current) {
-          autoIdleRef.current = false;
-          if (statusRef.current === "idle") void setOnlineStatus("online");
-        }
-      }),
+      // System-wide idle replaces in-app input tracking; the presence
+      // heartbeat reports it and the server flips online <-> idle (never DND
+      // / Invisible / a manual Idle).
+      onDesktopSignal("idleChanged", (idle) => setExternalIdle(Boolean(idle))),
     ];
+    // The shell tracks system idle: the window sitting in the tray without
+    // in-app input must not count as idle by itself.
+    setExternalIdle(false);
     // Signals are connected in the same promise chain, so the shell only
     // starts routing deep links here once they're listened to.
     void getDesktopBridge().then((b) => b?.webReady());

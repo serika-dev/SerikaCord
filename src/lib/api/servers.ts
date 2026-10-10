@@ -1652,6 +1652,57 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       roleIds: t.Array(t.String()),
     }),
   })
+  // Change another member's server nickname (MANAGE_NICKNAMES, below you in
+  // the role hierarchy). Your own goes through PATCH /members/@me.
+  .patch('/:serverId/members/:memberUserId/nickname', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.memberUserId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+    const rl = await checkRateLimit('memberNickname', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+    const isSelf = normalizeId(params.memberUserId) === normalizeId(user.id);
+    if (!isSelf) {
+      if (!(await hasServerPermission(server, user.id, PERMISSION_BITS.MANAGE_NICKNAMES))) {
+        set.status = 403;
+        return { error: 'You need Manage Nicknames permission to change nicknames' };
+      }
+      const hierarchyError = await checkCanModerateMember(server, user.id, params.memberUserId);
+      if (hierarchyError) {
+        set.status = 403;
+        return { error: hierarchyError };
+      }
+    }
+    const member = await ServerMember.findOne({ serverId: params.serverId, userId: params.memberUserId });
+    if (!member) {
+      set.status = 404;
+      return { error: 'Member not found' };
+    }
+    const n = body.nickname ? sanitizeInput(body.nickname).trim() : '';
+    const row = await ServerMember.updateById(member.id, { nickname: n || null });
+    return { success: true, nickname: row ? row.nickname ?? null : n || null };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      memberUserId: t.String(),
+    }),
+    body: t.Object({
+      nickname: t.Union([t.String({ maxLength: 32 }), t.Null()]),
+    }),
+  })
   // Get single server member profile
   .get('/:serverId/members/:memberUserId', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
