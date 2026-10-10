@@ -188,7 +188,7 @@ export default async function ChangelogPage() {
           <Link href="/">
             <Logo size="sm" />
           </Link>
-          <Link href="/channels/@me" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
+          <Link href="/channels/me" className="text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             {gt("Open SerikaCord")} →
           </Link>
         </div>

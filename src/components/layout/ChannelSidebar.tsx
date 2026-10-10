@@ -1253,7 +1253,7 @@ export function ChannelSidebar({
   // at a real server, show a channel-sidebar skeleton instead of that flash.
   if (!currentServer) {
     const serverMatch = pathname?.match(/^\/channels\/([^/]+)/);
-    const specialRoutes = ["explore", "settings", "me", "notifications", "profile", "messages"];
+    const specialRoutes = ["explore", "settings", "me", "@me", "notifications", "profile", "messages"];
     const expectingServer = Boolean(serverMatch && !specialRoutes.includes(serverMatch[1]));
     if (expectingServer) {
       return <ChannelSidebarSkeleton />;
