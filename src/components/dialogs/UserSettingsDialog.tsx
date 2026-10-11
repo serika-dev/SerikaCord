@@ -4698,13 +4698,13 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                     <div className="bg-[var(--bg-app)] rounded-lg p-4">
                       <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("File Type Whitelist")}</h3>
                       <p className="text-sm text-[var(--text-muted)] mb-3">
-                        {gt("Only whitelisted MIME types can be uploaded. Tag each as safe or bad — bad types are allowed but users get a warning.")}
+                        {gt("Only whitelisted file types can be uploaded. Add a MIME type (application/zip), a family (video/*), a file ending (.7z.001 or .001, for files without a type) or * for everything. Tag each as safe or bad — bad types are allowed but users get a warning.")}
                       </p>
                       <div className="flex gap-2 mb-3">
                         <Input
                           value={fileTypeInput}
                           onChange={(e) => setFileTypeInput(e.target.value)}
-                          placeholder="application/zip"
+                          placeholder="application/zip, video/*, .7z.001"
                           className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && fileTypeInput.trim()) {

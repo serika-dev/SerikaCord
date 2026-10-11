@@ -1,10 +1,12 @@
 import { Elysia, t } from 'elysia';
-import { isRiskyAttachment, storedAttachmentType } from '@/lib/chat/uploadPolicy';
+import { checkAttachmentWhitelist, storedAttachmentType } from '@/lib/chat/uploadPolicy';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { storage, keyFromUrl } from '@/lib/services/storage';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { config } from '@/lib/config';
+import { getRedis } from '@/lib/db/redis';
+import { nanoid } from 'nanoid';
 import { Server, ServerMember, User } from '@/lib/models';
 import { accountsSyncProfile } from '@/lib/services/accountsClient';
 import { getPlatformSettings, type IAllowedFileType } from '@/lib/models/PlatformSettings';
@@ -37,6 +39,58 @@ function cleanupOldMedia(oldUrl: string | null | undefined, newUrl: string, owne
 // Type guard for file validation
 function isValidImageType(type: string): type is "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
   return config.ALLOWED_IMAGE_TYPES.includes(type as typeof config.ALLOWED_IMAGE_TYPES[number]);
+}
+
+/** Whitelist check for an attachment, with the user-facing error. */
+async function attachmentCheck(name: string, type: string): Promise<{ allowed: boolean; error?: string; warning?: string }> {
+  const platformSettings = await getPlatformSettings();
+  const whitelist = (platformSettings.allowedFileTypes as IAllowedFileType[] | undefined) ?? [];
+  const result = checkAttachmentWhitelist(name, type, whitelist, config.ALLOWED_FILE_TYPES);
+  if (!result.allowed) {
+    const what = type ? `"${type}" files` : `"${name}"`;
+    return {
+      allowed: false,
+      error: platformSettings.warnOnUnknownFileTypes !== false
+        ? `${what} can't be uploaded here. This file type isn't on the allowed list.`
+        : 'File type not allowed',
+    };
+  }
+  return { allowed: true, warning: result.warn ? 'Warning: This file type is flagged as potentially unsafe.' : undefined };
+}
+
+// ─── Chunked attachment uploads ──────────────────────────────────────────────
+// Cloudflare (free plan) rejects request bodies over 100 MB with a bare 413,
+// so bigger files go up in parts of CHUNK_PART_SIZE: start → PUT each part →
+// complete. Sessions live in Redis for a day.
+export const CHUNK_PART_SIZE = 50 * 1024 * 1024;
+const CHUNK_TTL_SECONDS = 24 * 60 * 60;
+
+interface ChunkSession {
+  userId: string;
+  key: string;
+  uploadId: string;
+  filename: string;
+  size: number;
+  storedType: string;
+  partCount: number;
+  spoiler: boolean;
+  warning?: string;
+}
+
+const chunkKey = (token: string) => `upload:chunk:${token}`;
+const chunkPartsKey = (token: string) => `upload:chunk:${token}:parts`;
+
+async function loadChunkSession(token: string, userId: string): Promise<ChunkSession | null> {
+  if (!/^[A-Za-z0-9_-]{16,40}$/.test(token)) return null;
+  const raw = await getRedis()?.get(chunkKey(token)).catch(() => null);
+  if (!raw) return null;
+  const session = JSON.parse(raw) as ChunkSession;
+  return session.userId === userId ? session : null;
+}
+
+function tooLargeError(maxSize: number, premium: boolean): string {
+  const maxMB = Math.round(maxSize / 1024 / 1024);
+  return `File too large. The maximum size is ${maxMB >= 1024 ? `${maxMB / 1024}GB` : `${maxMB}MB`}${premium ? ' (Serika+)' : ', or more with Serika+'}.`;
 }
 
 export const uploadRoutes = new Elysia({ prefix: '/upload' })
@@ -483,23 +537,22 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Any file can be attached, like Discord (split archives, source, binaries).
-    // The platform whitelist no longer blocks: it only marks types as unsafe,
-    // and unknown or page-like types are stored as plain downloads.
-    const platformSettings = await getPlatformSettings();
-    const customWhitelist = (platformSettings.allowedFileTypes as IAllowedFileType[] | undefined) ?? [];
-    const flaggedTypes = customWhitelist.filter((f) => !f.safe).map((f) => f.type.toLowerCase());
+    // The platform whitelist (admin settings) decides what can be attached:
+    // MIME types, file endings like ".7z.001", or "*". Page-like and unknown
+    // types are stored as plain downloads either way.
+    const check = await attachmentCheck(file.name, file.type);
+    if (!check.allowed) {
+      set.status = 400;
+      return { error: check.error };
+    }
     const storedType = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
-    const warning = isRiskyAttachment(file.name, flaggedTypes, file.type)
-      ? 'Warning: This file type is flagged as potentially unsafe.'
-      : undefined;
+    const warning = check.warning;
 
     // Validate file size — premium users get higher limit
     const maxSize = user.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
     if (file.size > maxSize) {
-      set.status = 400;
-      const maxMB = maxSize / 1024 / 1024;
-      return { error: `File too large. Maximum size is ${maxMB}MB${user.isPremium ? ' (Serika+)' : ''}.` };
+      set.status = 413;
+      return { error: tooLargeError(maxSize, Boolean(user.isPremium)), maxSize };
     }
 
     try {
@@ -533,6 +586,159 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       channelId: t.Optional(t.String()),
       spoiler: t.Optional(t.String()),
     }),
+  })
+  // Start a chunked attachment upload (files over ~90 MB).
+  .post('/attachment/chunked', async ({ headers, cookie, body, request, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const rateLimit = await checkRateLimit('upload', `${user.id}:${getClientIP(request)}`);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter };
+    }
+    const redis = getRedis();
+    if (!redis) {
+      set.status = 503;
+      return { error: 'Large uploads are unavailable right now' };
+    }
+    const { filename, size, type, channelId, spoiler } = body;
+    const check = await attachmentCheck(filename, type ?? '');
+    if (!check.allowed) {
+      set.status = 400;
+      return { error: check.error };
+    }
+    const maxSize = user.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
+    if (size > maxSize) {
+      set.status = 413;
+      return { error: tooLargeError(maxSize, Boolean(user.isPremium)), maxSize };
+    }
+    const storedType = storedAttachmentType(type, config.ALLOWED_FILE_TYPES);
+    try {
+      const { key, uploadId } = await storage.startMultipart({
+        category: 'attachments',
+        filename,
+        contentType: storedType,
+        userId: user.id,
+        channelId,
+      });
+      const token = nanoid(24);
+      const session: ChunkSession = {
+        userId: user.id,
+        key,
+        uploadId,
+        filename,
+        size,
+        storedType,
+        partCount: Math.max(1, Math.ceil(size / CHUNK_PART_SIZE)),
+        spoiler: Boolean(spoiler),
+        warning: check.warning,
+      };
+      await redis.set(chunkKey(token), JSON.stringify(session), 'EX', CHUNK_TTL_SECONDS);
+      return { token, partSize: CHUNK_PART_SIZE, partCount: session.partCount };
+    } catch (error) {
+      console.error('Chunked upload start error:', error);
+      set.status = 500;
+      return { error: 'Could not start the upload' };
+    }
+  }, {
+    body: t.Object({
+      filename: t.String({ minLength: 1, maxLength: 255 }),
+      size: t.Number({ minimum: 1 }),
+      type: t.Optional(t.String({ maxLength: 255 })),
+      channelId: t.Optional(t.String({ maxLength: 64 })),
+      spoiler: t.Optional(t.Boolean()),
+    }),
+  })
+  // One part of a chunked upload (raw bytes, 1-based part number).
+  .put('/attachment/chunked/:token/:part', async ({ headers, cookie, params, request, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const session = await loadChunkSession(params.token, user.id);
+    if (!session) {
+      set.status = 404;
+      return { error: 'Upload not found or expired' };
+    }
+    const part = Number(params.part);
+    if (!Number.isInteger(part) || part < 1 || part > session.partCount) {
+      set.status = 400;
+      return { error: 'Invalid part number' };
+    }
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    const expected = part < session.partCount ? CHUNK_PART_SIZE : session.size - CHUNK_PART_SIZE * (session.partCount - 1);
+    if (bytes.byteLength !== expected) {
+      set.status = 400;
+      return { error: 'Part size mismatch' };
+    }
+    try {
+      const etag = await storage.uploadPart(session.key, session.uploadId, part, bytes);
+      const redis = getRedis();
+      await redis?.hset(chunkPartsKey(params.token), String(part), etag);
+      await redis?.expire(chunkPartsKey(params.token), CHUNK_TTL_SECONDS);
+      return { ok: true };
+    } catch (error) {
+      console.error('Chunked upload part error:', error);
+      set.status = 502;
+      return { error: 'Part upload failed, please retry' };
+    }
+  }, { parse: 'none' })
+  // Finish a chunked upload: returns the attachment like POST /attachment.
+  .post('/attachment/chunked/:token/complete', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const session = await loadChunkSession(params.token, user.id);
+    const redis = getRedis();
+    if (!session || !redis) {
+      set.status = 404;
+      return { error: 'Upload not found or expired' };
+    }
+    const etags = await redis.hgetall(chunkPartsKey(params.token));
+    const parts = Array.from({ length: session.partCount }, (_, i) => ({ partNumber: i + 1, etag: etags[String(i + 1)] }));
+    if (parts.some((p) => !p.etag)) {
+      set.status = 400;
+      return { error: 'Some parts are missing' };
+    }
+    try {
+      const url = await storage.completeMultipart(session.key, session.uploadId, parts);
+      await redis.del(chunkKey(params.token), chunkPartsKey(params.token));
+      return {
+        success: true,
+        warning: session.warning,
+        attachment: {
+          id: nanoid(16),
+          filename: session.filename,
+          contentType: session.storedType,
+          size: session.size,
+          url,
+          spoiler: session.spoiler,
+        },
+      };
+    } catch (error) {
+      console.error('Chunked upload complete error:', error);
+      set.status = 500;
+      return { error: 'Could not finish the upload' };
+    }
+  })
+  // Cancel a chunked upload.
+  .delete('/attachment/chunked/:token', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const session = await loadChunkSession(params.token, user.id);
+    if (!session) return { ok: true };
+    await storage.abortMultipart(session.key, session.uploadId).catch(() => null);
+    await getRedis()?.del(chunkKey(params.token), chunkPartsKey(params.token));
+    return { ok: true };
   })
   // Upload sticker
   .post('/sticker/:serverId', async ({ headers, cookie, params, body, request, set }) => {

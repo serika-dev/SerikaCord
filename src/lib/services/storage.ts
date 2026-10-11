@@ -1,4 +1,14 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  HeadObjectCommand,
+  GetObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+} from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { config } from '../config';
 import { nanoid } from 'nanoid';
@@ -245,6 +255,53 @@ export class StorageService {
       contentType,
       hash,
     };
+  }
+
+  // ─── Chunked uploads ──────────────────────────────────────────────────────
+  // Big attachments are sent in parts (each well under Cloudflare's 100 MB
+  // request limit) and assembled by B2 as an S3 multipart upload, so the
+  // server never holds the whole file in memory.
+
+  /** Start a multipart upload; returns its object key and B2 upload id. */
+  async startMultipart(options: { category: UploadCategory; filename: string; contentType: string; userId?: string; channelId?: string; serverId?: string }): Promise<{ key: string; uploadId: string }> {
+    const key = generateKey({ ...options, data: new Uint8Array(), size: 0 }, generateSecureFilename(options.filename, options.category));
+    const res = await s3Client.send(new CreateMultipartUploadCommand({
+      Bucket: config.B2_BUCKET_NAME,
+      Key: key,
+      ContentType: options.contentType,
+      CacheControl: 'public, max-age=31536000',
+      Metadata: { 'original-filename': encodeURIComponent(options.filename || 'unknown') },
+    }));
+    if (!res.UploadId) throw new Error('Could not start the upload');
+    return { key, uploadId: res.UploadId };
+  }
+
+  /** Upload one part (1-based). Returns its ETag. */
+  async uploadPart(key: string, uploadId: string, partNumber: number, body: Uint8Array): Promise<string> {
+    const res = await s3Client.send(new UploadPartCommand({
+      Bucket: config.B2_BUCKET_NAME,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+      Body: body,
+      ContentLength: body.byteLength,
+    }));
+    if (!res.ETag) throw new Error('Part upload failed');
+    return res.ETag;
+  }
+
+  async completeMultipart(key: string, uploadId: string, parts: { partNumber: number; etag: string }[]): Promise<string> {
+    await s3Client.send(new CompleteMultipartUploadCommand({
+      Bucket: config.B2_BUCKET_NAME,
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: parts.map((p) => ({ PartNumber: p.partNumber, ETag: p.etag })) },
+    }));
+    return `${config.CDN_URL}/${key}`;
+  }
+
+  async abortMultipart(key: string, uploadId: string): Promise<void> {
+    await s3Client.send(new AbortMultipartUploadCommand({ Bucket: config.B2_BUCKET_NAME, Key: key, UploadId: uploadId }));
   }
 
   // Delete a file

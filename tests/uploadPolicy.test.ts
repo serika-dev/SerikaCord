@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { checkAttachmentWhitelist } from "@/lib/chat/uploadPolicy";
 import { DOWNLOAD_CONTENT_TYPE, fileExtension, isRiskyAttachment, storedAttachmentType } from "@/lib/chat/uploadPolicy";
 
 const KNOWN = ["image/png", "text/plain", "application/zip", "video/mp4"];
@@ -27,5 +28,29 @@ describe("isRiskyAttachment", () => {
   test("fileExtension", () => {
     expect(fileExtension("archive.7z.001")).toBe("001");
     expect(fileExtension(".bashrc")).toBe("");
+  });
+});
+
+describe("checkAttachmentWhitelist", () => {
+  const BUILT_IN = ["image/png", "text/plain"];
+  test("the DB whitelist decides; exe is blocked unless listed", () => {
+    const list = [{ type: "image/png", safe: true }];
+    expect(checkAttachmentWhitelist("s.exe", "application/x-msdownload", list, BUILT_IN).allowed).toBe(false);
+    expect(checkAttachmentWhitelist("a.png", "image/png", list, BUILT_IN)).toEqual({ allowed: true, warn: false });
+  });
+  test("file endings match files browsers send without a type", () => {
+    const list = [{ type: ".7z.001", safe: true }, { type: ".zip", safe: true }];
+    expect(checkAttachmentWhitelist("backup.7z.001", "", list, BUILT_IN).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("backup.7z.002", "", list, BUILT_IN).allowed).toBe(false);
+    expect(checkAttachmentWhitelist("A.ZIP", "", list, BUILT_IN).allowed).toBe(true);
+  });
+  test("families, * and unsafe flags", () => {
+    expect(checkAttachmentWhitelist("v.mp4", "video/mp4", [{ type: "video/*", safe: true }], BUILT_IN).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("x.bin", "", [{ type: "*", safe: true }], BUILT_IN).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("s.exe", "application/x-msdownload", [{ type: ".exe", safe: false }], BUILT_IN)).toEqual({ allowed: true, warn: true });
+  });
+  test("empty whitelist falls back to the built-in types", () => {
+    expect(checkAttachmentWhitelist("a.txt", "text/plain", [], BUILT_IN).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("a.7z", "", [], BUILT_IN).allowed).toBe(false);
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { CHUNKED_UPLOAD_THRESHOLD, uploadChunked } from "@/lib/chat/chunkedUpload";
 import {
   forwardRef,
   useCallback,
@@ -627,6 +628,20 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const uploadSingleFile = useCallback(
       (file: File, index: number): Promise<MessageBarAttachment | null> =>
         new Promise((resolve) => {
+          // Big files go up in parts (Cloudflare caps a request at 100 MB).
+          if (file.size > CHUNKED_UPLOAD_THRESHOLD && uploadEndpoint === "/api/upload/attachment") {
+            uploadChunked(file, {
+              channelId: channelId || undefined,
+              spoiler: spoilerFlagsRef.current.has(index),
+              onProgress: (percent) => setUploadProgress((prev) => ({ ...prev, [index]: percent })),
+            })
+              .then(({ attachment }) => resolve(attachment as MessageBarAttachment))
+              .catch((err: unknown) => {
+                toast.error(err instanceof Error && err.message ? err.message : `${gt("Failed to upload")} ${file.name}`, { description: file.name });
+                resolve(null);
+              });
+            return;
+          }
           const formData = new FormData();
           formData.append("file", file);
           if (channelId) {
@@ -653,12 +668,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 // fall through to error toast
               }
             }
-            let errorMsg = `${gt("Failed to upload")} ${file.name}`;
+            let errorMsg = xhr.status === 413 ? gt("File too large") : `${gt("Failed to upload")} ${file.name}`;
             try {
               const data = JSON.parse(xhr.responseText);
               if (data?.error) errorMsg = data.error;
             } catch {
-              // keep default message
+              // keep default message (e.g. Cloudflare's HTML 413 page)
             }
             toast.error(errorMsg, { description: file.name });
             resolve(null);
