@@ -1,10 +1,24 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { X, ZoomIn, ZoomOut, Download, ExternalLink, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { useBackHandler } from "@/hooks/useBackHandler";
+import {
+  DOUBLE_TAP_MS,
+  classifySwipe,
+  dismissProgressOpacity,
+  doubleTapScale,
+  pinchScale,
+  touchDistance,
+} from "@/lib/ui/lightboxGestures";
+
+type TouchGesture =
+  | { mode: "none" }
+  | { mode: "swipe"; x: number; y: number; t: number }
+  | { mode: "pan"; dx: number; dy: number }
+  | { mode: "pinch"; distance: number; scale: number };
 
 interface ImageLightboxItem {
   src: string;
@@ -37,6 +51,10 @@ export function ImageLightbox({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isTauri, setIsTauri] = useState(false);
+  // Phone gestures: live drag offset while swiping (navigate / pull to close).
+  const [swipeOffset, setSwipeOffset] = useState({ x: 0, y: 0 });
+  const gestureRef = useRef<TouchGesture>({ mode: "none" });
+  const lastTapRef = useRef(0);
 
   useEffect(() => {
     setIsTauri(typeof window !== "undefined" && Boolean(window.__TAURI__));
@@ -139,6 +157,69 @@ export function ImageLightbox({
     setIsDragging(false);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    e.stopPropagation();
+    if (e.touches.length >= 2) {
+      gestureRef.current = {
+        mode: "pinch",
+        distance: touchDistance(e.touches[0], e.touches[1]),
+        scale,
+      };
+      setSwipeOffset({ x: 0, y: 0 });
+      return;
+    }
+    const t = e.touches[0];
+    const now = Date.now();
+    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+      lastTapRef.current = 0;
+      gestureRef.current = { mode: "none" };
+      setScale(doubleTapScale(scale));
+      setPosition({ x: 0, y: 0 });
+      return;
+    }
+    lastTapRef.current = now;
+    gestureRef.current = scale > 1
+      ? { mode: "pan", dx: t.clientX - position.x, dy: t.clientY - position.y }
+      : { mode: "swipe", x: t.clientX, y: t.clientY, t: now };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const g = gestureRef.current;
+    if (g.mode === "pinch" && e.touches.length >= 2) {
+      setScale(pinchScale(g.scale, g.distance, touchDistance(e.touches[0], e.touches[1])));
+      return;
+    }
+    const t = e.touches[0];
+    if (!t) return;
+    if (g.mode === "pan") {
+      setPosition({ x: t.clientX - g.dx, y: t.clientY - g.dy });
+    } else if (g.mode === "swipe") {
+      const dx = t.clientX - g.x;
+      const dy = t.clientY - g.y;
+      // Lock to the dominant axis so a sideways swipe never drags vertically.
+      setSwipeOffset(Math.abs(dx) > Math.abs(dy) ? { x: canNavigate ? dx : 0, y: 0 } : { x: 0, y: Math.max(0, dy) });
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) lastTapRef.current = 0;
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const g = gestureRef.current;
+    if (g.mode === "pinch") {
+      if (e.touches.length > 0) return;
+      if (scale <= 1) resetView();
+    } else if (g.mode === "swipe") {
+      const t = e.changedTouches[0];
+      const action = t ? classifySwipe(t.clientX - g.x, t.clientY - g.y, Date.now() - g.t, canNavigate) : null;
+      if (action === "next") navigate(1);
+      else if (action === "prev") navigate(-1);
+      else if (action === "dismiss") onClose();
+    }
+    gestureRef.current = { mode: "none" };
+    setSwipeOffset({ x: 0, y: 0 });
+  };
+
+  const swiping = swipeOffset.x !== 0 || swipeOffset.y !== 0;
+
   const handleDownload = () => {
     if (!currentItem?.src) return;
     const link = document.createElement("a");
@@ -158,8 +239,13 @@ export function ImageLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 animate-in fade-in duration-200 max-sm:bg-black touch-none"
+      style={swipeOffset.y > 0 ? { backgroundColor: `rgba(0,0,0,${dismissProgressOpacity(swipeOffset.y)})` } : undefined}
       onClick={onClose}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchEnd}
       data-no-swipe=""
     >
       {canNavigate && (
@@ -169,7 +255,7 @@ export function ImageLightbox({
               e.stopPropagation();
               navigate(-1);
             }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 z-20 p-2.5 bg-[#111111]/80 hover:bg-[#222222] rounded-full text-white transition-colors"
+            className="max-sm:hidden absolute left-4 top-1/2 -translate-y-1/2 z-20 p-2.5 bg-[#111111]/80 hover:bg-[#222222] rounded-full text-white transition-colors"
             aria-label={gt("Previous image")}
           >
             <ChevronLeft className="w-6 h-6" />
@@ -179,7 +265,7 @@ export function ImageLightbox({
               e.stopPropagation();
               navigate(1);
             }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 z-20 p-2.5 bg-[#111111]/80 hover:bg-[#222222] rounded-full text-white transition-colors"
+            className="max-sm:hidden absolute right-4 top-1/2 -translate-y-1/2 z-20 p-2.5 bg-[#111111]/80 hover:bg-[#222222] rounded-full text-white transition-colors"
             aria-label={gt("Next image")}
           >
             <ChevronRight className="w-6 h-6" />
@@ -187,22 +273,31 @@ export function ImageLightbox({
         </>
       )}
 
-      <div className="absolute top-4 right-4 flex items-center gap-2 z-20">
+      <div
+        className={cn(
+          "absolute top-4 right-4 flex items-center gap-2 z-20 transition-opacity",
+          // Phone: a full-width top bar under the status bar, pinch replaces the zoom buttons.
+          "max-sm:top-0 max-sm:inset-x-0 max-sm:justify-end max-sm:gap-1 max-sm:px-2 max-sm:pt-[calc(var(--safe-area-top)+0.25rem)] max-sm:pb-2 max-sm:bg-gradient-to-b max-sm:from-black/70 max-sm:to-transparent",
+          "max-sm:[&>button]:size-11 max-sm:[&>button]:flex max-sm:[&>button]:items-center max-sm:[&>button]:justify-center max-sm:[&>button]:rounded-full max-sm:[&>button]:bg-transparent",
+          swiping && "opacity-0",
+        )}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
         <button
           onClick={(e) => {
             e.stopPropagation();
             handleZoomOut();
           }}
-          className="p-2 bg-[#111111]/80 hover:bg-[#222222] rounded-lg text-white transition-colors"
+          className="max-sm:!hidden p-2 bg-[#111111]/80 hover:bg-[#222222] rounded-lg text-white transition-colors"
           title={gt("Zoom out")}
         >
           <ZoomOut className="w-5 h-5" />
         </button>
-        <span className="px-2 text-white text-sm font-medium">
+        <span className="max-sm:hidden px-2 text-white text-sm font-medium">
           {Math.round(scale * 100)}%
         </span>
         {galleryItems.length > 1 && (
-          <span className="px-2 text-white/80 text-xs font-medium">
+          <span className="px-2 text-white/80 text-xs font-medium max-sm:mr-auto max-sm:pl-3 max-sm:text-sm">
             {resolvedIndex + 1}/{galleryItems.length}
           </span>
         )}
@@ -211,7 +306,7 @@ export function ImageLightbox({
             e.stopPropagation();
             handleZoomIn();
           }}
-          className="p-2 bg-[#111111]/80 hover:bg-[#222222] rounded-lg text-white transition-colors"
+          className="max-sm:!hidden p-2 bg-[#111111]/80 hover:bg-[#222222] rounded-lg text-white transition-colors"
           title={gt("Zoom in")}
         >
           <ZoomIn className="w-5 h-5" />
@@ -252,7 +347,8 @@ export function ImageLightbox({
 
       <div
         className={cn(
-          "relative max-w-[90vw] max-h-[90vh]",
+          "relative max-w-[90vw] max-h-[90vh] max-sm:max-w-full max-sm:max-h-[100dvh]",
+          !swiping && "transition-transform duration-200",
           scale > 1 && "cursor-grab",
           isDragging && "cursor-grabbing"
         )}
@@ -262,11 +358,12 @@ export function ImageLightbox({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        style={swiping ? { transform: `translate(${swipeOffset.x}px, ${swipeOffset.y}px)` } : undefined}
       >
         <img
           src={currentItem.src}
           alt={currentItem.alt || gt("Image")}
-          className="max-w-full max-h-[90vh] object-contain select-none transition-transform duration-100"
+          className="max-w-full max-h-[90vh] max-sm:max-h-[calc(100dvh-var(--safe-area-top)-var(--safe-area-bottom)-7rem)] object-contain select-none transition-transform duration-100"
           style={{
             transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
           }}
@@ -275,7 +372,10 @@ export function ImageLightbox({
       </div>
 
       {galleryItems.length > 1 && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 max-w-[92vw] px-3 py-2 bg-[#111111]/80 rounded-lg overflow-x-auto">
+        <div
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 max-w-[92vw] px-3 py-2 bg-[#111111]/80 rounded-lg overflow-x-auto max-sm:bottom-[calc(var(--safe-area-bottom)+0.5rem)] touch-pan-x"
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center gap-2">
             {galleryItems.map((item, index) => (
               <button
@@ -304,7 +404,10 @@ export function ImageLightbox({
       )}
 
       {currentItem.alt && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-[#111111]/80 rounded-lg">
+        <div className={cn(
+          "absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-[#111111]/80 rounded-lg max-w-[92vw]",
+          galleryItems.length > 1 ? "max-sm:hidden" : "max-sm:bottom-[calc(var(--safe-area-bottom)+0.75rem)]",
+        )}>
           <p className="text-white text-sm">{currentItem.alt}</p>
         </div>
       )}

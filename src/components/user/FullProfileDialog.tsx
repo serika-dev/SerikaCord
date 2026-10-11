@@ -280,7 +280,7 @@ export function FullProfileDialog({
           "p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden",
           // Mobile: bottom sheet that slides up ("pops in from under")
           "!w-screen !max-w-none !left-1/2 !-translate-x-1/2 !top-auto !bottom-0 !translate-y-0",
-          "h-[92dvh] !max-h-[92dvh] rounded-t-3xl rounded-b-none border-b-0 border-x-0",
+          "h-[92dvh] !max-h-[92dvh] rounded-t-3xl rounded-b-none border-b-0 border-x-0 pb-[var(--safe-area-bottom)] sm:pb-0",
           "data-[state=open]:slide-in-from-bottom-[100%] data-[state=closed]:slide-out-to-bottom-[100%] data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
           // Desktop: centered card
           "sm:!top-1/2 sm:!bottom-auto sm:!-translate-y-1/2 sm:!w-[min(1000px,95vw)] sm:!max-w-[1000px] sm:h-[85vh] sm:!max-h-[720px] sm:rounded-2xl sm:border"
@@ -314,7 +314,7 @@ export function FullProfileDialog({
                   onClick={onOpenModView}
                   aria-label={gt("Open in Mod View")}
                   title={gt("Open in Mod View")}
-                  className="absolute top-3.5 right-3.5 z-20 p-2 rounded-lg bg-black/40 hover:bg-black/60 active:scale-[0.95] text-white backdrop-blur-md border border-white/[0.06] transition-all"
+                  className="absolute top-3.5 right-3.5 max-md:right-14 max-md:top-2 max-md:size-11 max-md:flex max-md:items-center max-md:justify-center z-20 p-2 rounded-lg bg-black/40 hover:bg-black/60 active:scale-[0.95] text-white backdrop-blur-md border border-white/[0.06] transition-all"
                 >
                   <ShieldAlert className="w-4 h-4" />
                 </button>
@@ -345,7 +345,7 @@ export function FullProfileDialog({
                   <>
                     <button
                       onClick={handleSendMessage}
-                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] active:scale-[0.97] text-white text-sm font-medium transition-all"
+                      className="flex items-center gap-1.5 px-3.5 py-2 max-sm:min-h-11 max-sm:px-4 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] active:scale-[0.97] text-white text-sm font-medium transition-all"
                     >
                       <MessageSquare className="w-4 h-4" />
                       {gt("Message")}
@@ -354,7 +354,7 @@ export function FullProfileDialog({
                       friendRequestSent ? (
                         <button
                           disabled
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white/[0.06] text-[#9a9aad] text-sm font-medium cursor-not-allowed"
+                          className="flex items-center gap-1.5 px-3 py-2 max-sm:min-h-11 rounded-lg bg-white/[0.06] text-[#9a9aad] text-sm font-medium cursor-not-allowed"
                         >
                           <Clock className="w-4 h-4" />
                           {gt("Pending")}
@@ -364,7 +364,7 @@ export function FullProfileDialog({
                           onClick={handleAddFriend}
                           aria-label={gt("Add friend")}
                           title={gt("Add Friend")}
-                          className="p-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-white transition-all"
+                          className="p-2 max-sm:size-11 max-sm:flex max-sm:items-center max-sm:justify-center rounded-lg bg-white/[0.06] hover:bg-white/[0.12] active:scale-[0.97] text-white transition-all"
                         >
                           <UserPlus className="w-4 h-4" />
                         </button>
@@ -490,13 +490,13 @@ export function FullProfileDialog({
             {/* Tab bar */}
             {/* pr-12 reserves room for the dialog's absolute top-right close
                 button so the last tab never collides with it. */}
-            <div className="flex items-center gap-1 pl-4 pr-12 pt-4 pb-0 border-b border-white/[0.06] shrink-0 overflow-x-auto scrollbar-hide">
+            <div className="flex items-center gap-1 pl-4 pr-12 max-md:pr-4 pt-4 pb-0 border-b border-white/[0.06] shrink-0 overflow-x-auto scrollbar-hide">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
-                    "px-4 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap shrink-0",
+                    "px-4 py-2.5 max-sm:py-3 text-sm font-medium transition-colors relative whitespace-nowrap shrink-0",
                     activeTab === tab.id
                       ? "text-white"
                       : "text-[#9a9aad] hover:text-[#c8c8d8]"

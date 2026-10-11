@@ -960,7 +960,7 @@ export function CustomEmojiPicker({
                       <Clock className="w-3.5 h-3.5" />
                       {gt("Frequently Used")}
                     </h3>
-                    <div className="grid grid-cols-8 gap-0.5">
+                    <div className="grid grid-cols-8 max-sm:grid-cols-7 gap-0.5">
                       {filteredRecent.slice(0, 24).map((entry, idx) =>
                         entry.kind === "custom" ? (
                           <CustomEmojiButton
@@ -996,7 +996,7 @@ export function CustomEmojiPicker({
                       <Star className="w-3.5 h-3.5" />
                       {gt("Favorites")}
                     </h3>
-                    <div className="grid grid-cols-8 gap-0.5">
+                    <div className="grid grid-cols-8 max-sm:grid-cols-7 gap-0.5">
                       {filteredFavorites.map((entry, idx) => {
                         if (entry.customEmojiId) {
                           const emojiData = {
@@ -1049,7 +1049,7 @@ export function CustomEmojiPicker({
                         group.server
                       )}
                     </h3>
-                    <div className="grid grid-cols-8 gap-0.5">
+                    <div className="grid grid-cols-8 max-sm:grid-cols-7 gap-0.5">
                       {group.emojis.map((emoji) => (
                         <CustomEmojiButton
                           key={emoji.id}
@@ -1076,7 +1076,7 @@ export function CustomEmojiPicker({
                     <h3 className="text-xs font-semibold text-[var(--text-muted)] mb-2 uppercase tracking-wide sticky top-0 bg-[var(--bg-card)] py-1 z-10">
                       {category.name}
                     </h3>
-                    <div className="grid grid-cols-8 gap-0.5">
+                    <div className="grid grid-cols-8 max-sm:grid-cols-7 gap-0.5">
                       {category.emojis.map((emoji, idx) => (
                         <EmojiButton
                           key={`${category.id}-${idx}`}

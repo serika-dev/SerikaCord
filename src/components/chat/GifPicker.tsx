@@ -123,6 +123,11 @@ const COLLECTION_PAGE_SIZE = 20;
 const TAG_PAGE_SIZE = 10;
 const MAX_PAGES = 50; // Safety cap to prevent infinite loading
 
+/** True on touch-first devices (phones/tablets), where autofocus pops the keyboard. */
+function prefersCoarsePointer(): boolean {
+  return typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+}
+
 type ViewMode = "home" | "trending" | "category" | "search";
 type HomeTab = "trending" | "tags" | "collections" | "favorites";
 
@@ -639,7 +644,8 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
         <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
           <button
             onClick={goHome}
-            className="p-1.5 hover:bg-[var(--bg-hover)] rounded-md transition-colors"
+            aria-label={gt("Back")}
+            className="p-1.5 hover:bg-[var(--bg-hover)] rounded-md transition-colors max-sm:size-10 max-sm:flex max-sm:items-center max-sm:justify-center"
           >
             <ChevronLeft className="w-4 h-4 text-[var(--text-secondary)]" />
           </button>
@@ -656,7 +662,7 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
               key={tab.id}
               onClick={() => setHomeTab(tab.id)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-t-md transition-all border-b-2 -mb-px",
+                "flex items-center gap-1.5 px-3 py-2 max-sm:py-3 max-sm:flex-1 max-sm:justify-center text-xs font-semibold rounded-t-md transition-all border-b-2 -mb-px",
                 homeTab === tab.id
                   ? "text-[var(--text-primary)] border-[var(--app-accent)] bg-[var(--bg-active)]"
                   : "text-[var(--text-muted)] border-transparent hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
@@ -677,8 +683,9 @@ export function GifPicker({ onGifSelect, className }: GifPickerProps) {
             value={search}
             onChange={(e) => handleSearchChange(e.target.value)}
             placeholder={gt("Search GIFs…")}
-            className="pl-9 pr-8 bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-9 text-sm rounded-lg focus:ring-1 focus:ring-[var(--app-accent)] focus:border-[var(--app-accent)]"
-            autoFocus
+            className="pl-9 pr-8 bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] h-9 max-sm:h-10 text-sm rounded-lg focus:ring-1 focus:ring-[var(--app-accent)] focus:border-[var(--app-accent)]"
+            // Touch screens: opening the keyboard would cover the GIF grid.
+            autoFocus={!prefersCoarsePointer()}
           />
           {search && (
             <button

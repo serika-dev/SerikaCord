@@ -16,7 +16,7 @@ export default function InboxDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[80vh] max-w-lg flex-col border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)]">
+      <DialogContent className="flex max-h-[80vh] max-w-lg flex-col max-sm:h-[85dvh] border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-primary)]">
         <DialogHeader>
           <DialogTitle><T>Inbox</T></DialogTitle>
           <DialogDescription className="text-[var(--text-secondary)]">

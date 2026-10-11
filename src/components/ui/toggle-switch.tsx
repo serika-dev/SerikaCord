@@ -34,6 +34,8 @@ export function ToggleSwitch({
       onClick={() => onCheckedChange(!checked)}
       className={cn(
         "relative shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)] disabled:opacity-50 disabled:cursor-not-allowed",
+        // Phones: an invisible ~44px hit area around the small track.
+        "max-sm:before:absolute max-sm:before:-inset-x-2 max-sm:before:-inset-y-2.5 max-sm:before:content-['']",
         isSmall ? "w-9 h-5" : "w-12 h-6",
         checked ? "bg-[var(--app-accent)]" : "bg-[var(--border-strong)]",
         className

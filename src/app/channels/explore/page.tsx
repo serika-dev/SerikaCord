@@ -318,7 +318,7 @@ function ServerCard({
                 onJoin();
               }}
               disabled={joining}
-              className="w-full px-4 py-2.5 rounded-lg text-white text-sm font-semibold transition-all hover:brightness-110 hover:shadow-md active:scale-95 disabled:opacity-60"
+              className="w-full px-4 py-2.5 max-sm:min-h-11 rounded-lg text-white text-sm font-semibold transition-all hover:brightness-110 hover:shadow-md active:scale-95 disabled:opacity-60"
               style={{ backgroundColor: ACCENT }}
             >
               {joining ? <Loader size={16} className="mx-auto" /> : server.joinMode === "apply_to_join" ? gt("Apply to Join") : gt("Join Server")}
@@ -628,7 +628,7 @@ export default function ExplorePage() {
             </div>
 
             {/* Sort tabs — accent underline segmented control */}
-            <div className="flex items-center gap-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-1 shadow-sm">
+            <div className="flex items-center gap-1 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-xl p-1 shadow-sm max-sm:w-full">
               {sortOptions.map((option) => {
                 const Icon = option.icon;
                 const isActive = sortMode === option.id;
@@ -637,7 +637,7 @@ export default function ExplorePage() {
                     key={option.id}
                     onClick={() => setSortMode(option.id)}
                     className={cn(
-                      "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150",
+                      "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150 max-sm:flex-1 max-sm:justify-center max-sm:px-2 max-sm:min-h-10",
                       isActive ? "text-white shadow-sm" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]/40"
                     )}
                     style={isActive ? { backgroundColor: ACCENT } : undefined}

@@ -136,7 +136,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
       <DialogContent className="bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-md p-0 gap-0">
         {mode === "select" && (
           <>
-            <DialogHeader className="p-4 text-center">
+            <DialogHeader className="p-4 text-center max-sm:px-12 max-sm:pt-6">
               <DialogTitle className="text-2xl font-bold"><T>Create a server</T></DialogTitle>
               <DialogDescription className="text-[var(--text-secondary)]">
                 <T>Your server is where you and your friends hang out. Make yours and start talking.</T>
@@ -145,7 +145,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
             <div className="p-4 space-y-2">
               <button
                 onClick={() => setMode("create")}
-                className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group"
+                className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group active:scale-[0.98]"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-[#8B5CF6] flex items-center justify-center">
@@ -175,7 +175,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 </div>
                 <button
                   onClick={() => setMode("join")}
-                  className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group"
+                  className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group active:scale-[0.98]"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-full bg-[#7C3AED] flex items-center justify-center">
@@ -212,7 +212,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
         {mode === "create" && (
           <>
-            <DialogHeader className="p-4 text-center">
+            <DialogHeader className="p-4 text-center max-sm:px-12 max-sm:pt-6">
               <DialogTitle className="text-2xl font-bold"><T>Customize your server</T></DialogTitle>
               <DialogDescription className="text-[var(--text-secondary)]">
                 <T>Give your new server a personality with a name and an icon. You can always change it later.</T>
@@ -265,7 +265,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 <a href="/guidelines" target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline"><T>Community Guidelines</T></a>.
               </p>
             </div>
-            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between">
+            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between max-sm:gap-3 max-sm:[&>[data-slot=button]]:h-11 max-sm:[&>[data-slot=button]]:flex-1 max-sm:[&>[data-slot=button]]:text-base">
               <Button
                 variant="ghost"
                 onClick={() => setMode("select")}
@@ -286,7 +286,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
         {mode === "join" && (
           <>
-            <DialogHeader className="p-4 text-center">
+            <DialogHeader className="p-4 text-center max-sm:px-12 max-sm:pt-6">
               <DialogTitle className="text-2xl font-bold"><T>Join a Server</T></DialogTitle>
               <DialogDescription className="text-[var(--text-secondary)]">
                 <T>Enter an invite below to join an existing server</T>
@@ -322,7 +322,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 </div>
               </div>
             </div>
-            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between">
+            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between max-sm:gap-3 max-sm:[&>[data-slot=button]]:h-11 max-sm:[&>[data-slot=button]]:flex-1 max-sm:[&>[data-slot=button]]:text-base">
               <Button
                 variant="ghost"
                 onClick={() => setMode("select")}
@@ -343,7 +343,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
 
         {mode === "onboard" && (
           <>
-            <DialogHeader className="p-4 text-center">
+            <DialogHeader className="p-4 text-center max-sm:px-12 max-sm:pt-6">
               <div className="flex justify-center mb-3">
                 <div className="w-14 h-14 rounded-full bg-[#8B5CF6]/20 flex items-center justify-center">
                   <Rocket className="w-7 h-7 text-[#8B5CF6]" />
@@ -405,7 +405,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 </div>
               )}
             </div>
-            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between">
+            <div className="p-4 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] flex justify-between max-sm:gap-3 max-sm:[&>[data-slot=button]]:h-11 max-sm:[&>[data-slot=button]]:flex-1 max-sm:[&>[data-slot=button]]:text-base">
               <Button
                 variant="ghost"
                 onClick={() => {
