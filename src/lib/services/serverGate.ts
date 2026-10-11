@@ -14,6 +14,8 @@ import {
   type VerificationGateResult,
   type VerificationLevel,
 } from '@/lib/servers/verification';
+import { isScreeningBlocked, SCREENING_ERROR } from '@/lib/servers/community';
+import { getScreeningConfig } from '@/lib/services/serverCommunity';
 
 export interface ServerGate {
   ownerId: string | null;
@@ -55,7 +57,7 @@ export async function invalidateServerGate(serverId: string): Promise<void> {
   await cache.del(gateKey(serverId)).catch(() => {});
 }
 
-type GateMember = { roles?: string[] | null; joinedAt?: Date | string | null } | null | undefined;
+type GateMember = { roles?: string[] | null; joinedAt?: Date | string | null; pending?: boolean | null } | null | undefined;
 type GateUser = { id: string; isVerified?: boolean | null; createdAt?: Date | string | null; isBot?: boolean | null; isSystem?: boolean | null };
 
 function realRoleCount(member: GateMember, everyoneRoleId: string | null): number {
@@ -96,7 +98,7 @@ export async function verificationDenial(
   member: GateMember,
 ): Promise<{ status: number; body: Record<string, unknown> } | null> {
   const state = await memberVerificationState(serverId, userOrId, member).catch(() => null);
-  if (!state || !state.blocked || !state.reason) return null;
+  if (!state || !state.blocked || !state.reason) return screeningDenial(serverId, userOrId, member);
   return {
     status: 403,
     body: {
@@ -106,6 +108,48 @@ export async function verificationDenial(
       verificationUntil: state.until,
     },
   };
+}
+
+/**
+ * Rules screening state of a member: blocked while the server has screening on
+ * and they joined during it without accepting the rules yet. The owner, bots,
+ * system users and members a moderator gave a role are never blocked.
+ */
+export async function memberScreeningBlocked(
+  serverId: string,
+  userOrId: GateUser | string,
+  member: GateMember,
+): Promise<boolean> {
+  if (!member?.pending) return false;
+  const config = await getScreeningConfig(serverId).catch(() => null);
+  if (!config?.enabled) return false;
+  const gate = await getServerGate(serverId).catch(() => null);
+  const userId = typeof userOrId === 'string' ? userOrId : userOrId.id;
+  const isOwner = Boolean(gate?.ownerId && sameId(gate.ownerId, userId));
+  let exempt = isOwner;
+  if (!exempt) {
+    const user: GateUser | null = typeof userOrId === 'string' || userOrId.isBot === undefined
+      ? ((await User.findById(userId).catch(() => null)) as GateUser | null)
+      : userOrId;
+    exempt = Boolean(user?.isBot || user?.isSystem);
+  }
+  return isScreeningBlocked({
+    enabled: true,
+    pending: true,
+    exempt,
+    roleCount: realRoleCount(member, gate?.everyoneRoleId ?? null),
+  });
+}
+
+/** 403 body when rules screening stops this member from talking, else null. */
+export async function screeningDenial(
+  serverId: string,
+  userOrId: GateUser | string,
+  member: GateMember,
+): Promise<{ status: number; body: Record<string, unknown> } | null> {
+  const blocked = await memberScreeningBlocked(serverId, userOrId, member).catch(() => false);
+  if (!blocked) return null;
+  return { status: 403, body: { error: SCREENING_ERROR, code: 'rules_screening' } };
 }
 
 /** Whether this author's image/video attachments get flagged sensitive in this channel. */

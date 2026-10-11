@@ -89,6 +89,10 @@ const AutoModPanel = dynamic(
   () => import("@/components/dialogs/ServerAutoModPanel").then((m) => m.ServerAutoModPanel),
   { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
 );
+// Community tabs (welcome screen, rules screening, server template) load on first open.
+const ServerWelcomeScreenPanel = dynamic(() => import("@/components/server/community/ServerWelcomeScreenPanel"), { ssr: false });
+const ServerScreeningPanel = dynamic(() => import("@/components/server/community/ServerScreeningPanel"), { ssr: false });
+const ServerTemplatePanel = dynamic(() => import("@/components/server/community/ServerTemplatePanel"), { ssr: false });
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -152,7 +156,10 @@ type SettingsTab =
   | "channels"
   | "access"
   | "applications"
-  | "app_discovery";
+  | "app_discovery"
+  | "welcome"
+  | "screening"
+  | "template";
 
 /** Tabs whose content is a multi-column / table layout and needs full width. */
 const WIDE_SETTINGS_TABS = new Set<SettingsTab>([
@@ -1745,6 +1752,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       title: gt("Access"),
       items: [
         { id: "access" as SettingsTab, label: gt("Access"), icon: Lock },
+      ],
+    },
+    {
+      title: gt("Community"),
+      items: [
+        { id: "welcome" as SettingsTab, label: gt("Welcome Screen"), icon: Smile },
+        { id: "screening" as SettingsTab, label: gt("Rules Screening"), icon: ClipboardList },
+        { id: "template" as SettingsTab, label: gt("Server Template"), icon: Folder },
       ],
     },
   ];
@@ -3909,6 +3924,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         return renderIntegrations();
       case "access":
         return renderAccess();
+      case "welcome":
+        return <ServerWelcomeScreenPanel serverId={currentServer.id} />;
+      case "screening":
+        return <ServerScreeningPanel serverId={currentServer.id} />;
+      case "template":
+        return <ServerTemplatePanel serverId={currentServer.id} serverName={currentServer.name} />;
       case "applications":
         return renderApplications();
       case "app_discovery":

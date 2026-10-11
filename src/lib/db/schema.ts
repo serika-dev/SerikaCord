@@ -334,6 +334,35 @@ export const serverMembers = pgTable('server_members', {
   serverJoinedIdx: index('server_members_server_id_joined_at_idx').on(t.serverId, t.joinedAt),
 }));
 
+// Rules Screening (Discord "Membership Screening"): one row per server. While
+// enabled, members who join get server_members.pending = true and can't talk
+// until they accept the rules. Added at boot by ensureCommunitySchema()
+// (src/lib/services/serverCommunity.ts, drizzle/manual_server_community.sql).
+export const serverScreening = pgTable('server_screening', {
+  serverId: uuid('server_id').primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+  description: text('description'),
+  rules: jsonb('rules').notNull().default([]),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Server templates (one per server, Discord-style). `serialized` is a
+// ServerSnapshot (src/lib/servers/community.ts). Added at boot by
+// ensureCommunitySchema().
+export const serverTemplates = pgTable('server_templates', {
+  code: text('code').primaryKey(),
+  serverId: uuid('server_id').notNull(),
+  creatorId: uuid('creator_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  usageCount: integer('usage_count').notNull().default(0),
+  serialized: jsonb('serialized').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  serverUnique: uniqueIndex('server_templates_server_id_unique').on(t.serverId),
+}));
+
 export const invites = pgTable('invites', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   code: text('code').notNull().unique(),

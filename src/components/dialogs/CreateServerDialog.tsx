@@ -14,9 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, Users, ArrowRight, Hash, ImagePlus, Lock, Globe, Mail, Check, Rocket } from "lucide-react";
+import { Upload, Users, ArrowRight, Hash, ImagePlus, Lock, Globe, Mail, Check, Rocket, LayoutTemplate } from "lucide-react";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
+import dynamic from "next/dynamic";
+
+const CreateFromTemplate = dynamic(() => import("@/components/server/community/CreateFromTemplate"), { ssr: false });
 
 interface CreateServerDialogProps {
   open: boolean;
@@ -25,9 +28,9 @@ interface CreateServerDialogProps {
 
 export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogProps) {
   const router = useRouter();
-  const { createServer, joinServer } = useServer();
+  const { createServer, joinServer, fetchServers } = useServer();
   const gt = useGT();
-  const [mode, setMode] = useState<"select" | "create" | "join" | "onboard">("select");
+  const [mode, setMode] = useState<"select" | "create" | "join" | "onboard" | "template">("select");
   const [serverName, setServerName] = useState("My Server");
   const [inviteCode, setInviteCode] = useState("");
   const [serverIcon, setServerIcon] = useState<File | null>(null);
@@ -153,6 +156,19 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 <ArrowRight className="w-5 h-5 text-[var(--text-muted)] group-hover:text-white transition-colors" />
               </button>
 
+              <button
+                onClick={() => setMode("template")}
+                className="w-full p-3 rounded-lg bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] transition-colors flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-[var(--app-accent)] flex items-center justify-center">
+                    <LayoutTemplate className="w-6 h-6 text-white" />
+                  </div>
+                  <span className="font-medium"><T>Start From a Template</T></span>
+                </div>
+                <ArrowRight className="w-5 h-5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] transition-colors" />
+              </button>
+
               <div className="py-3">
                 <div className="text-center text-xs font-semibold uppercase text-[var(--text-muted)] mb-3">
                   <T>Have an invite already?</T>
@@ -171,6 +187,26 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                 </button>
               </div>
             </div>
+          </>
+        )}
+
+        {mode === "template" && (
+          <>
+            <DialogHeader className="p-4 pb-0 text-center">
+              <DialogTitle className="text-2xl font-bold"><T>Start from a template</T></DialogTitle>
+              <DialogDescription className="text-[var(--text-secondary)]">
+                <T>Paste a server template link to copy its channels, roles and settings.</T>
+              </DialogDescription>
+            </DialogHeader>
+            <CreateFromTemplate
+              onBack={() => setMode("select")}
+              onCreated={async (id) => {
+                await fetchServers().catch(() => {});
+                onOpenChange(false);
+                resetForm();
+                router.push(`/channels/${id}`);
+              }}
+            />
           </>
         )}
 

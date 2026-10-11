@@ -49,6 +49,8 @@ import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/noti
 import { useChatSession } from "@/hooks/useChatSession";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useServerOnboarding } from "@/hooks/useServerOnboarding";
+import { ServerOnboardingGate } from "@/components/server/community/ServerOnboardingGate";
 import { playTts } from "@/lib/chat/tts";
 import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
@@ -618,6 +620,10 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       : verification?.reason === "account_age"
         ? gt("This server requires your account to be older than 5 minutes. You can talk in {time}.", { time: verificationWait.label })
         : gt("This server requires you to be a member for 10 minutes. You can talk in {time}.", { time: verificationWait.label });
+  // Rules screening (Discord): new members accept the rules before talking.
+  // The banner + rules modal live in ServerOnboardingGate.
+  const screening = useServerOnboarding(currentServer?.id);
+  const screeningBlocked = Boolean(currentServer && screening.blocked && !verificationBlocked);
 
   const emojiLookup = useMemo(
     () => [...serverEmojis, ...allServerEmojis],
@@ -2018,15 +2024,19 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         </div>
       )}
 
+      {currentServer && !isPanel && <ServerOnboardingGate serverId={currentServer.id} />}
+
       <MessageBar
         ref={messageBarRef}
-        disabled={selfTimeout.active || !canSendInCurrentChannel || lockedOut || verificationBlocked}
+        disabled={selfTimeout.active || !canSendInCurrentChannel || lockedOut || verificationBlocked || screeningBlocked}
         secondary={isPanel}
         placeholder={
           selfTimeout.active
             ? gt("You're timed out â {time} remaining", { time: selfTimeout.label })
             : verificationBlocked
             ? verificationMessage
+            : screeningBlocked
+            ? gt("Accept the server rules to start talking.")
             : lockedOut
             ? gt("This thread is locked.")
             : !canSendInCurrentChannel
@@ -2040,6 +2050,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
             : verificationBlocked
             ? verificationMessage
+            : screeningBlocked
+            ? gt("Accept the server rules to start talking.")
             : lockedOut
             ? gt("This thread is locked.")
             : !canSendInCurrentChannel

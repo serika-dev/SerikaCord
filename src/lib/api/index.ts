@@ -18,6 +18,7 @@ import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
 import { automodRoutes } from './automod';
+import { communityRoutes } from './community';
 import { searchRoutes } from './search';
 import { adminRoutes } from './admin';
 import { badgeRoutes } from './badges';
@@ -4183,6 +4184,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(groupDmRoutes)
   .use(messageExtrasRoutes)
   .use(automodRoutes)
+  .use(communityRoutes)
   .use(voiceRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
@@ -4243,6 +4245,10 @@ export async function initializeAPI() {
     // (every push path awaits it itself) so it can never delay startup.
     const { ensurePushSchema } = await import('@/lib/services/pushNotifications');
     void ensurePushSchema();
+    // Rules screening + server templates tables. Idempotent, never throws;
+    // not awaited (screening reads fall back to "off" until it exists).
+    const { ensureCommunitySchema } = await import('@/lib/services/serverCommunity');
+    void ensureCommunitySchema();
     // Message search blind index table, then (a minute after boot, so it
     // never competes with startup) the gentle leader-locked history backfill.
     // Idempotent, never throws, not awaited.

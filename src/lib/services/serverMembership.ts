@@ -11,6 +11,7 @@ import { normalizeId } from '@/lib/db/normalizeId';
 import { ServerBan, ServerMember, type IServerMember } from '@/lib/models';
 import { invalidateServerMemberCache } from '@/lib/api/activity';
 import { requestUserChannelStreamRecheck } from '@/lib/realtime/channelStreams';
+import { joinsAsPending } from '@/lib/services/serverCommunity';
 
 /** Atomically add `delta` to a server's memberCount (never below 0). */
 export async function adjustServerMemberCount(serverId: string, delta: number): Promise<void> {
@@ -36,9 +37,12 @@ export async function insertServerMember(
   userId: string,
   values: Omit<typeof schema.serverMembers.$inferInsert, 'serverId' | 'userId'> = {},
 ): Promise<{ membership: IServerMember | null; created: boolean }> {
+  // Rules screening: people who join while it is on must accept the rules
+  // before they can talk (serverGate.ts screeningDenial).
+  const pending = values.pending ?? (await joinsAsPending(serverId).catch(() => false));
   const [row] = await db
     .insert(schema.serverMembers)
-    .values({ ...values, serverId: normalizeId(serverId), userId: normalizeId(userId) })
+    .values({ ...values, pending, serverId: normalizeId(serverId), userId: normalizeId(userId) })
     .onConflictDoNothing()
     .returning();
   if (!row) {
