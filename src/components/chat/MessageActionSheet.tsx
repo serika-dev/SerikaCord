@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2, CornerUpRight, EyeOff, Flag, Smile } from "lucide-react";
+import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2, CornerUpRight, EyeOff, Flag, Smile, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cdnImage, cn } from "@/lib/utils";
@@ -46,6 +46,8 @@ interface MessageActionSheetProps<M extends ChatMessage> {
   onDelete: (message: M) => void;
   /** Start a thread from the message (omitted where threads aren't allowed). */
   onCreateThread?: (message: M) => void;
+  /** Announcement channels: publish to following channels. */
+  onPublish?: (message: M) => void;
   onMarkUnread?: (message: M) => void;
   onViewReactions?: (message: M) => void;
   onReport?: (message: M) => void;
@@ -74,6 +76,7 @@ export function MessageActionSheet<M extends ChatMessage>({
   onEdit,
   onDelete,
   onCreateThread,
+  onPublish,
   onMarkUnread,
   onViewReactions,
   onReport,
@@ -198,6 +201,11 @@ export function MessageActionSheet<M extends ChatMessage>({
           {onCreateThread && (
             <button type="button" className={rowClass} onClick={run(() => onCreateThread(message))}>
               <MessagesSquare className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Create Thread")}
+            </button>
+          )}
+          {onPublish && (
+            <button type="button" className={rowClass} onClick={run(() => onPublish(message))}>
+              <Megaphone className="h-5 w-5 text-[var(--text-secondary)]" /> {gt("Publish")}
             </button>
           )}
           {forwardable && (

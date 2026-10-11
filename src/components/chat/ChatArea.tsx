@@ -5,6 +5,7 @@ import { getUnreadState } from "@/lib/unread/store";
 import { getJsonCached } from "@/lib/swrJson";
 import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { FollowChannelButton, publishAnnouncement } from "@/components/announcements/FollowChannelButton";
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -755,6 +756,16 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const [showThreads, setShowThreads] = useState(false);
   const [threadsVersion, setThreadsVersion] = useState(0);
   const currentChannelId = currentChannel?.id ?? null;
+  // Announcement channels: "Publish" sends the message to following channels.
+  const handlePublish = useCallback(
+    async (message: Message) => {
+      if (!currentChannelId) return;
+      const res = await publishAnnouncement(currentChannelId, message.id);
+      if (res.ok) toast.success(gt("Message published"));
+      else toast.error(res.error || gt("Could not publish the message"));
+    },
+    [currentChannelId, gt]
+  );
   const handleCreateThread = useCallback(
     (message: Message) => {
       if (!currentChannelId) return;
@@ -1877,6 +1888,9 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           >
             {channelMuted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />}
           </button>
+          {currentChannel?.type === "announcement" && (
+            <FollowChannelButton channelId={currentChannel.id} channelName={currentChannel.name} />
+          )}
           <button
             className="p-2 -m-1 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => {
@@ -2201,6 +2215,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         currentUserId={user?.id}
         onCreateThread={canCreateThreads ? handleCreateThread : undefined}
         onOpenThread={hostsThreads ? handleOpenThread : undefined}
+        onPublish={currentChannel?.type === "announcement" ? handlePublish : undefined}
       />
 
       <MountWhenOpened open={bridgeConsentOpen}>

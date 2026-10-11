@@ -1,7 +1,8 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, useEffect } from "react";
-import { Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash, CornerUpRight, Download, ExternalLink, EyeOff, Flag, Image as ImageIcon, SmilePlus, Volume2 } from "lucide-react";
+import { Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash, CornerUpRight, Download, ExternalLink, EyeOff, Flag, Image as ImageIcon, SmilePlus, Volume2, Megaphone } from "lucide-react";
+import { isCrossposted, isCrosspostCopy } from "@/lib/chat/announcements";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
@@ -46,6 +47,8 @@ interface MessageContextMenuProps<M extends ChatMessage> {
   onCreateThread?: (message: M) => void;
   /** Open the thread a message started. */
   onOpenThread?: (threadId: string) => void;
+  /** Announcement channels: "Publish" the message to following channels. */
+  onPublish?: (message: M) => void;
 }
 
 const itemClass = "ctx-item";
@@ -80,6 +83,7 @@ export function MessageContextMenu<M extends ChatMessage>({
   currentUserId,
   onCreateThread,
   onOpenThread,
+  onPublish,
 }: MessageContextMenuProps<M>) {
   const gt = useGT();
   const isMobile = useIsMobile();
@@ -154,6 +158,7 @@ export function MessageContextMenu<M extends ChatMessage>({
   const copyText = message.forward?.content || message.content;
   const isSaved = !message.pending && !message.ephemeral && !message.id.startsWith("temp-");
   const hasReactions = (message.reactions?.length ?? 0) > 0;
+  const publish = onPublish && isSaved && (own || canModerate) && !isCrossposted(message.flags) && !isCrosspostCopy(message.flags) ? onPublish : undefined;
   const run = (action: () => void) => () => {
     action();
     onClose();
@@ -199,6 +204,7 @@ export function MessageContextMenu<M extends ChatMessage>({
         onEdit={onEdit}
         onDelete={onDelete}
         onCreateThread={startThread}
+        onPublish={publish}
         onMarkUnread={isSaved ? onMarkUnread : undefined}
         onViewReactions={hasReactions ? onViewReactions : undefined}
         onReport={!own && isSaved ? onReport : undefined}
@@ -278,6 +284,11 @@ export function MessageContextMenu<M extends ChatMessage>({
       {threadId && onOpenThread && message.thread !== null && (
         <button onClick={run(() => onOpenThread(threadId))} className={itemClass}>
           <MessagesSquare className="w-4 h-4" /> {gt("Open Thread")}
+        </button>
+      )}
+      {publish && (
+        <button onClick={run(() => publish(message))} className={itemClass}>
+          <Megaphone className="w-4 h-4" /> {gt("Publish")}
         </button>
       )}
       {canPin && (

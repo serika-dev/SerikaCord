@@ -731,6 +731,15 @@ export function useChatSession<M extends ChatMessage>({
         return;
       }
 
+      if (data.type === "message_flags") {
+        // e.g. an announcement was published (CROSSPOSTED).
+        if (typeof data.flags === "number") {
+          const flags = data.flags;
+          setMessages((prev) => prev.map((m) => (m.id === data.messageId ? { ...m, flags } : m)));
+        }
+        return;
+      }
+
       if (data.type === "suppress_embeds") {
         setMessages((prev) =>
           prev.map((m) =>

@@ -30,6 +30,7 @@ import { VoiceChannelMembers } from "@/components/voice/VoiceChannelMembers";
 import { filterMobileChannelGroups, groupMobileChannels } from "@/lib/mobile/channelGroups";
 import { useLongPress } from "./useLongPress";
 import { Bone } from "./Bone";
+import { ServerEventsEntry } from "@/components/events/ServerEventsEntry";
 
 const MobileServerSheet = dynamic(() => import("./MobileServerSheet").then((m) => m.MobileServerSheet), { ssr: false });
 const MobileChannelSheet = dynamic(() => import("./MobileChannelSheet").then((m) => m.MobileChannelSheet), { ssr: false });
@@ -251,6 +252,8 @@ export function MobileServerView() {
           </button>
         </div>
       </div>
+
+      <ServerEventsEntry key={currentServer.id} serverId={currentServer.id} variant="mobile" />
 
       {/* Channel List */}
       <div

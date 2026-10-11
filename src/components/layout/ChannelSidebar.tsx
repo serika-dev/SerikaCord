@@ -82,6 +82,7 @@ import { T, useGT } from "gt-next";
 import { useIsClient } from "@/hooks/useIsClient";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { ServerEventsEntry } from "@/components/events/ServerEventsEntry";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
@@ -1711,6 +1712,8 @@ export function ChannelSidebar({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ServerEventsEntry key={currentServer.id} serverId={currentServer.id} />
 
       {/* Channel List */}
       <ScrollArea className="flex-1 min-h-0">

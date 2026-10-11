@@ -83,6 +83,8 @@ import {
 import { isReadingLive } from "@/lib/unread/attentionTracker";
 import { groupDmHref } from "@/lib/chat/groupDm";
 import { emitThreadsChanged } from "@/lib/chat/threadPanelStore";
+import { emitScheduledEventChange, type ScheduledEventSignal } from "@/lib/chat/scheduledEventsBus";
+import { alertEventStarted } from "@/lib/notifications/eventStart";
 import type { MarkUnreadPlan } from "@/lib/chat/unreadMarker";
 
 interface ActivityEvent {
@@ -783,6 +785,20 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       // another device): no badge or sound, just refresh the list/count.
       if (data.type === "message_request") {
         void refreshMessageRequests();
+        return;
+      }
+
+      // Server scheduled events changed / one you're interested in started.
+      if (data.type === "scheduled_event_update" || data.type === "scheduled_event_start") {
+        const ev = data as unknown as ScheduledEventSignal;
+        emitScheduledEventChange(ev);
+        if (data.type === "scheduled_event_start") {
+          alertEventStarted(
+            ev,
+            ev.serverName ? gt("Event starting now in {server}", { server: ev.serverName }) : gt("Event starting now"),
+            gt("View"),
+          );
+        }
         return;
       }
 
