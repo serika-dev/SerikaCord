@@ -54,3 +54,17 @@ describe("checkAttachmentWhitelist", () => {
     expect(checkAttachmentWhitelist("a.7z", "", [], BUILT_IN).allowed).toBe(false);
   });
 });
+
+describe("split archives", () => {
+  test("a typeless part counts as application/octet-stream", () => {
+    const list = [{ type: "application/octet-stream", safe: false }];
+    expect(checkAttachmentWhitelist("backup.7z.001", "", list, [])).toEqual({ allowed: true, warn: true });
+    expect(checkAttachmentWhitelist("setup.exe", "application/x-msdownload", list, []).allowed).toBe(false);
+  });
+  test(".7z.* covers every part", () => {
+    const list = [{ type: ".7z.*", safe: true }];
+    expect(checkAttachmentWhitelist("backup.7z.001", "", list, []).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("BACKUP.7Z.012", "", list, []).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("backup.zip", "", list, []).allowed).toBe(false);
+  });
+});

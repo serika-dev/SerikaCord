@@ -3,8 +3,9 @@
  *
  * Which files may be attached comes from the platform whitelist (admin
  * settings). An entry is a MIME type ("application/zip"), a MIME family
- * ("video/*"), a file ending (".7z", ".001", ".7z.001", for files browsers
- * send without a type) or "*" for everything; `safe: false` still allows the
+ * ("video/*"), a file ending (".7z", ".001") or pattern (".7z.*" for every
+ * split-archive part) or "*" for everything; files browsers send without a
+ * type count as application/octet-stream; `safe: false` still allows the
  * file but warns. With no whitelist, the built-in media/document types apply.
  *
  * The stored content type is restricted separately: types that render as
@@ -53,8 +54,15 @@ function entryMatches(entry: string, name: string, type: string): boolean {
   const e = entry.trim().toLowerCase();
   if (!e) return false;
   if (e === "*" || e === "*/*") return true;
-  if (e.startsWith(".")) return name.toLowerCase().endsWith(e);
-  if (e.startsWith("*.")) return name.toLowerCase().endsWith(e.slice(1));
+  if (e.startsWith(".") || e.startsWith("*.")) {
+    const ending = e.startsWith("*") ? e.slice(1) : e;
+    // ".7z.*" covers every part of a split archive (.7z.001, .7z.002, ...).
+    if (ending.includes("*")) {
+      const re = new RegExp(`${ending.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[^/\\\\]*")}$`, "i");
+      return re.test(name);
+    }
+    return name.toLowerCase().endsWith(ending);
+  }
   if (!type) return false;
   if (e.endsWith("/*")) return type.startsWith(e.slice(0, -1));
   return type === e;
@@ -67,7 +75,9 @@ export function checkAttachmentWhitelist(
   whitelist: readonly WhitelistEntry[] | null | undefined,
   builtIn: readonly string[],
 ): { allowed: boolean; warn: boolean } {
-  const t = (type ?? "").trim().toLowerCase().split(";")[0].trim();
+  // Browsers send no type for files they don't recognise (split archive parts
+  // like .7z.001): that is application/octet-stream.
+  const t = (type ?? "").trim().toLowerCase().split(";")[0].trim() || "application/octet-stream";
   const list = whitelist && whitelist.length > 0 ? whitelist : builtIn.map((b) => ({ type: b, safe: true }));
   const hits = list.filter((entry) => entryMatches(entry.type, name, t));
   if (hits.length === 0) return { allowed: false, warn: false };
