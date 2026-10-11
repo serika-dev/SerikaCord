@@ -5,7 +5,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { SwitchAccountsDialog } from "@/components/dialogs/SwitchAccountsDialog";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +41,8 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
 import { hasCustomStatus } from "@/lib/social/customStatus";
 
+// Only opened from the "Switch Accounts" row; keep it out of the sidebar bundle.
+const SwitchAccountsDialog = dynamic(() => import("@/components/dialogs/SwitchAccountsDialog").then((m) => m.SwitchAccountsDialog), { ssr: false });
 const CustomStatusDialog = dynamic(() => import("@/components/user/CustomStatusDialog").then((m) => m.CustomStatusDialog), { ssr: false });
 
 interface UserProfilePopupProps {
@@ -416,7 +417,9 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
           </PopoverContent>
         </Popover>
       )}
-      <SwitchAccountsDialog open={showSwitchAccounts} onOpenChange={setShowSwitchAccounts} />
+      <MountWhenOpened open={showSwitchAccounts}>
+        <SwitchAccountsDialog open={showSwitchAccounts} onOpenChange={setShowSwitchAccounts} />
+      </MountWhenOpened>
       <MountWhenOpened open={customStatusOpen}>
         <CustomStatusDialog open={customStatusOpen} onOpenChange={setCustomStatusOpen} />
       </MountWhenOpened>

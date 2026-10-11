@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { sharedGet } from "@/lib/bootFetch";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
-import { voiceService } from "@/lib/services/voiceService";
+import { withVoiceService } from "@/lib/services/voiceServiceLazy";
 import { resolveSupportedLocale } from "@/hooks/useLocale";
 
 /**
@@ -45,8 +45,9 @@ export function SettingsHydrator() {
         if (!active || !settings) return;
         applyUserSettingsPatch(settings);
         setUserNotificationSettings(settings.notifications);
-        if (typeof settings.voiceVideo?.soundboardVolume === "number") {
-          voiceService.setSoundboardVolume(settings.voiceVideo.soundboardVolume);
+        const soundboardVolume = settings.voiceVideo?.soundboardVolume;
+        if (typeof soundboardVolume === "number") {
+          withVoiceService((v) => v.setSoundboardVolume(soundboardVolume));
         }
 
         // New device: restore the account's language unless this device

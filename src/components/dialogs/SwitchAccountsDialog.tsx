@@ -11,7 +11,7 @@ import {
   fetchSavedAccounts,
   removeSavedAccount,
 } from "@/lib/services/savedAccountsCookie";
-import { clearMessageCache } from "@/hooks/useChatSession";
+import { clearMessageCache } from "@/lib/chat/messageCache";
 
 // Only accounts with a saved token (switchable), one per username.
 function switchableAccounts(list: SavedAccountSummary[]): SavedAccountSummary[] {

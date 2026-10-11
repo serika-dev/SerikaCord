@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
-import { voiceService } from "@/lib/services/voiceService";
+import { withVoiceService } from "@/lib/services/voiceServiceLazy";
 
 export interface ThemeSettings {
   theme: "dark" | "midnight" | "light";
@@ -68,7 +68,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     // Every settings load/save path funnels through here, so this keeps the
     // live voice call (mic processing, push-to-talk, volumes) in step.
-    if (patch?.voiceVideo) voiceService.applyVoiceSettings(patch.voiceVideo);
+    if (patch?.voiceVideo) {
+      const voiceVideoPatch = patch.voiceVideo;
+      withVoiceService((v) => v.applyVoiceSettings(voiceVideoPatch));
+    }
 
     setSettings((prev) => ({
       ...prev,

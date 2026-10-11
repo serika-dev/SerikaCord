@@ -20,10 +20,14 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
+// Not preloaded: only Arabic-script text uses it (the @font-face unicode-range
+// keeps everyone else from downloading it), so a <link rel=preload> made every
+// visitor fetch it on startup.
 const notoKufi = Noto_Kufi_Arabic({
   variable: "--font-arabic",
   subsets: ["arabic"],
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = buildRootMetadata();

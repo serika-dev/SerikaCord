@@ -10,9 +10,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
+import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
+
+// The card (with its activity/game presets) is only shown on click; it used to
+// sit in the startup bundle of every chat page. Its chunk starts loading when
+// the trigger is armed (hover/focus/press), well before the popover opens.
+const loadProfileCard = () => import("@/components/user/ProfileCard").then((m) => m.ProfileCard);
+const ProfileCard = dynamic(loadProfileCard, { ssr: false });
 
 const ModViewDialog = dynamic(() => import("@/components/user/ModViewDialog").then((m) => m.ModViewDialog), { ssr: false });
 
@@ -56,6 +62,7 @@ export function MemberProfilePopup({
   if (!armed) {
     const arm = (autoOpen: boolean) => {
       if (autoOpen) autoOpenRef.current = true;
+      void loadProfileCard().catch(() => {});
       setArmed(true);
     };
     // `display:contents` keeps the wrapper from generating a box, so the trigger

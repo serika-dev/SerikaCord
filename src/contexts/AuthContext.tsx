@@ -3,7 +3,7 @@
 import { sharedGet } from "@/lib/bootFetch";
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useMemo } from "react";
 import { upsertSavedAccount } from "@/lib/services/savedAccounts";
-import { clearMessageCache } from "@/hooks/useChatSession";
+import { clearMessageCache } from "@/lib/chat/messageCache";
 import { unregisterPush } from "@/lib/native/push";
 import { shouldPromoteToOnline, toClientStatus, toServerStatus } from "@/lib/presenceChoice";
 import type { BuiltinBadgeId } from "@/lib/constants/badges";
