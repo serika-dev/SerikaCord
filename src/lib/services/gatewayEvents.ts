@@ -21,6 +21,8 @@ export const Intents = {
   GUILD_MESSAGES: 1 << 9,
   DIRECT_MESSAGES: 1 << 12,
   MESSAGE_CONTENT: 1 << 15,
+  AUTO_MODERATION_CONFIGURATION: 1 << 20,
+  AUTO_MODERATION_EXECUTION: 1 << 21,
   GUILD_MESSAGE_POLLS: 1 << 24,
   DIRECT_MESSAGE_POLLS: 1 << 25,
 } as const;
@@ -282,6 +284,25 @@ export function emitInteractionCreate(opts: {
     intent: 0,
     targetBotId: opts.botId,
     d: opts.interaction,
+  });
+}
+
+/** AUTO_MODERATION_RULE_CREATE / _UPDATE / _DELETE (d is the Discord rule object). */
+export function emitAutoModRuleEvent(
+  t: 'AUTO_MODERATION_RULE_CREATE' | 'AUTO_MODERATION_RULE_UPDATE' | 'AUTO_MODERATION_RULE_DELETE',
+  guildId: string,
+  rule: unknown,
+) {
+  return publish({ t, guildId, intent: Intents.AUTO_MODERATION_CONFIGURATION, d: rule });
+}
+
+/** AUTO_MODERATION_ACTION_EXECUTION: one per action AutoMod took. */
+export function emitAutoModActionExecution(guildId: string, d: Record<string, unknown>) {
+  return publish({
+    t: 'AUTO_MODERATION_ACTION_EXECUTION',
+    guildId,
+    intent: Intents.AUTO_MODERATION_EXECUTION,
+    d: { guild_id: guildId, ...d },
   });
 }
 

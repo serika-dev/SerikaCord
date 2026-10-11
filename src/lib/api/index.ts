@@ -17,6 +17,7 @@ import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
+import { automodRoutes } from './automod';
 import { searchRoutes } from './search';
 import { adminRoutes } from './admin';
 import { badgeRoutes } from './badges';
@@ -4181,6 +4182,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(dmRoutes)
   .use(groupDmRoutes)
   .use(messageExtrasRoutes)
+  .use(automodRoutes)
   .use(voiceRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
@@ -4263,6 +4265,10 @@ export async function initializeAPI() {
     // audit read/write awaits it itself).
     const { ensureAuditLogSchema } = await import('@/lib/services/auditLog');
     void ensureAuditLogSchema();
+    // AutoMod rules table. Idempotent, never throws; not awaited (rule reads
+    // await it themselves).
+    const { ensureAutoModSchema } = await import('@/lib/services/automod');
+    void ensureAutoModSchema();
     await ensureSerikaBroadcastUser();
     // Ensure system users exist
     const { ensureSystemUsers } = await import('@/lib/services/systemUsers');

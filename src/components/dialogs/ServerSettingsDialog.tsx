@@ -84,6 +84,12 @@ const ServerAuditLogPanel = dynamic(
   { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
 );
 
+// AutoMod rules (keyword / spam / mention / link filters) load on first open.
+const AutoModPanel = dynamic(
+  () => import("@/components/dialogs/ServerAutoModPanel").then((m) => m.ServerAutoModPanel),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
+);
+
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
   return new Promise((resolve) => {
@@ -138,6 +144,7 @@ type SettingsTab =
   | "invites"
   | "bans"
   | "audit-log"
+  | "automod"
   | "integrations"
   | "moderation"
   | "safety"
@@ -1719,6 +1726,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       items: [
         { id: "safety" as SettingsTab, label: gt("Safety Setup"), icon: Shield },
         { id: "moderation" as SettingsTab, label: gt("Moderation"), icon: AlertTriangle },
+        { id: "automod" as SettingsTab, label: gt("AutoMod"), icon: Shield },
         { id: "audit-log" as SettingsTab, label: gt("Audit Log"), icon: FileText },
         { id: "bans" as SettingsTab, label: gt("Bans"), icon: Ban },
       ],
@@ -3890,6 +3898,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         return renderWidget();
       case "audit-log":
         return renderAuditLog();
+      case "automod":
+        return currentServer ? <AutoModPanel serverId={currentServer.id} roles={roles} /> : null;
       case "soundboard":
         return renderSoundboard();
       case "moderation":

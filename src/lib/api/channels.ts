@@ -1348,6 +1348,11 @@ async function createChannelThread(
     const validation = validateMessageContent(content);
     if (!validation.valid) return { status: 400, body: { error: validation.error } };
   }
+  if (parent.serverId) {
+    const { enforceAutoMod } = await import('@/lib/services/automod');
+    const blocked = await enforceAutoMod({ serverId: parent.serverId, channel: parent, user, membership, content, title: body.name, source: 'thread' });
+    if (blocked) return blocked;
+  }
 
   let starter: IMessage | null = null;
   if (body.messageId) {
@@ -2189,6 +2194,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: validation.error };
     }
 
+    if (forum.serverId) {
+      const { enforceAutoMod } = await import('@/lib/services/automod');
+      const blocked = await enforceAutoMod({ serverId: forum.serverId, channel: forum, user, membership, content, title: name, source: 'forum' });
+      if (blocked) {
+        set.status = blocked.status;
+        return blocked.body;
+      }
+    }
+
     const isTicket = forum.forumMode === 'tickets';
 
     // Validate applied tags against the forum's available tags
@@ -2823,6 +2837,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
+    // AutoMod (server rules: keywords, mention spam, spam, links).
+    if (channel.serverId && content) {
+      const { enforceAutoMod } = await import('@/lib/services/automod');
+      const blocked = await enforceAutoMod({ serverId: channel.serverId, channel, user, membership, content, source: 'send' });
+      if (blocked) {
+        set.status = blocked.status;
+        return blocked.body;
+      }
+    }
+
     // Sanitize content while preserving mention/channel/custom-emoji tokens.
     let sanitizedContent = content ? sanitizeMessageContent(content) : '';
     if (sanitizedContent) {
@@ -3399,7 +3423,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(
+    const { hasAccess, channel, membership: editMembership, error } = await checkChannelAccess(
       user.id,
       params.channelId
     );
@@ -3444,6 +3468,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       if (!validation.valid) {
         set.status = 400;
         return { error: validation.error };
+      }
+
+      if (channel.serverId) {
+        const { enforceAutoMod } = await import('@/lib/services/automod');
+        const blocked = await enforceAutoMod({ serverId: channel.serverId, channel, user, membership: editMembership, content, source: 'edit' });
+        if (blocked) {
+          set.status = blocked.status;
+          return blocked.body;
+        }
       }
 
       sanitizedEditContent = sanitizeMessageContent(content);

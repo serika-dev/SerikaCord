@@ -46,6 +46,12 @@ export const AuditLogEvent = {
   SOUNDBOARD_SOUND_CREATE: 130,
   SOUNDBOARD_SOUND_UPDATE: 131,
   SOUNDBOARD_SOUND_DELETE: 132,
+  AUTO_MODERATION_RULE_CREATE: 140,
+  AUTO_MODERATION_RULE_UPDATE: 141,
+  AUTO_MODERATION_RULE_DELETE: 142,
+  AUTO_MODERATION_BLOCK_MESSAGE: 143,
+  AUTO_MODERATION_FLAG_TO_CHANNEL: 144,
+  AUTO_MODERATION_USER_COMMUNICATION_DISABLED: 145,
 } as const;
 
 export type AuditLogEventName = keyof typeof AuditLogEvent;
@@ -60,7 +66,7 @@ export function isAuditLogEventType(value: unknown): value is AuditLogEventType 
 /** What kind of object an event's `targetId` refers to. */
 export type AuditTargetKind =
   | 'guild' | 'channel' | 'user' | 'role' | 'invite' | 'webhook'
-  | 'emoji' | 'sticker' | 'thread' | 'soundboard';
+  | 'emoji' | 'sticker' | 'thread' | 'soundboard' | 'automod_rule';
 
 export function auditTargetKind(action: number): AuditTargetKind {
   if (action < 10) return 'guild';
@@ -74,6 +80,8 @@ export function auditTargetKind(action: number): AuditTargetKind {
   if (action >= 90 && action < 100) return 'sticker';
   if (action >= 110 && action < 120) return 'thread';
   if (action >= 130 && action < 140) return 'soundboard';
+  if (action >= 140 && action < 143) return 'automod_rule';
+  if (action >= 143 && action < 150) return 'user'; // AutoMod actions target the author
   return 'guild';
 }
 
@@ -92,6 +100,7 @@ export function auditVerb(action: number): 'create' | 'update' | 'delete' {
     case AuditLogEvent.MESSAGE_PIN:
     case AuditLogEvent.BOT_ADD:
     case AuditLogEvent.MEMBER_BAN_REMOVE:
+    case AuditLogEvent.AUTO_MODERATION_RULE_CREATE:
       return 'create';
     case AuditLogEvent.CHANNEL_DELETE:
     case AuditLogEvent.CHANNEL_OVERWRITE_DELETE:
@@ -109,6 +118,8 @@ export function auditVerb(action: number): 'create' | 'update' | 'delete' {
     case AuditLogEvent.MESSAGE_DELETE:
     case AuditLogEvent.MESSAGE_BULK_DELETE:
     case AuditLogEvent.MESSAGE_UNPIN:
+    case AuditLogEvent.AUTO_MODERATION_RULE_DELETE:
+    case AuditLogEvent.AUTO_MODERATION_BLOCK_MESSAGE:
       return 'delete';
     default:
       return 'update';

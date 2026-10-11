@@ -1015,6 +1015,26 @@ export const serverAuditLogs = pgTable('server_audit_logs', {
   serverUserIdx: index('server_audit_logs_server_user_idx').on(t.serverId, t.userId, t.createdAt),
 }));
 
+// AutoMod rules (Discord-style). trigger_type: keyword | spam | mention_spam |
+// links; trigger_metadata / actions hold the shapes in src/lib/automod/rules.ts.
+// Added at boot by ensureAutoModSchema() (mirrors drizzle/manual_automod_rules.sql).
+export const automodRules = pgTable('automod_rules', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  serverId: uuid('server_id').notNull(),
+  name: text('name').notNull(),
+  creatorId: uuid('creator_id'),
+  enabled: boolean('enabled').notNull().default(true),
+  triggerType: text('trigger_type').notNull(),
+  triggerMetadata: jsonb('trigger_metadata').default({}),
+  actions: jsonb('actions').default([]),
+  exemptRoles: jsonb('exempt_roles').default([]),
+  exemptChannels: jsonb('exempt_channels').default([]),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  serverIdx: index('automod_rules_server_idx').on(t.serverId, t.createdAt),
+}));
+
 // ─── Type Exports ─────────────────────────────────────────
 
 export type ChannelReadStateRow = typeof channelReadStates.$inferSelect;
