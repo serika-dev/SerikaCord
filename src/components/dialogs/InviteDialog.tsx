@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { T, useGT } from "gt-next";
 import { canShare, shareLink } from "@/lib/native/bridge";
 import { Loader } from "@/components/ui/Loader";
+import { useBackHandler } from "@/hooks/useBackHandler";
 
 interface InviteDialogProps {
   open: boolean;
@@ -194,6 +195,8 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open, onOpenChange]);
+  // Android back closes the sheet instead of navigating underneath it.
+  useBackHandler(open, () => onOpenChange(false));
 
   // Focus management: move focus into the dialog on open, restore on close
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -217,7 +220,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
   const textChannels = channels.filter(c => c.type === "text");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center max-sm:items-end">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/70"
@@ -228,28 +231,30 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
       <div
         ref={dialogRef}
         role="dialog"
+        data-state="open"
         aria-modal="true"
-        aria-label={`Invite friends to ${activeServer.name}`}
+        aria-label={gt("Invite friends to {name}", { name: activeServer.name })}
         tabIndex={-1}
-        className="relative w-full max-w-md mx-4 bg-[var(--bg-card)] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none"
+        className="relative w-full max-w-md mx-4 bg-[var(--bg-card)] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none max-sm:mx-0 max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:max-h-[calc(100dvh-var(--safe-area-top)-0.75rem)] max-sm:overflow-y-auto max-sm:overscroll-contain max-sm:zoom-in-100 max-sm:slide-in-from-bottom"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-2 p-4 border-b border-[var(--border-subtle)] max-sm:pt-5 max-sm:pr-2">
+          <div className="flex items-center gap-3 min-w-0">
             <Avatar className="w-10 h-10">
               <AvatarImage src={(activeServer as { icon?: string }).icon} />
               <AvatarFallback className="bg-[#8B5CF6] text-white">
                 {activeServer.name.charAt(0)}
               </AvatarFallback>
             </Avatar>
-            <div>
-              <h2 className="text-[var(--text-primary)] font-semibold">{gt("Invite friends to")} {activeServer.name}</h2>
+            <div className="min-w-0">
+              <h2 className="text-[var(--text-primary)] font-semibold max-sm:line-clamp-2 break-words">{gt("Invite friends to")} {activeServer.name}</h2>
               <p className="text-xs text-[var(--text-secondary)]"><T>Share this link to invite others</T></p>
             </div>
           </div>
           <button
             onClick={() => onOpenChange(false)}
-            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            aria-label={gt("Close")}
+            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 max-sm:size-11 max-sm:flex max-sm:items-center max-sm:justify-center"
           >
             <X className="w-5 h-5" />
           </button>
@@ -267,7 +272,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
               <select
                 value={selectedChannel}
                 onChange={(e) => setSelectedChannel(e.target.value)}
-                className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] appearance-none cursor-pointer"
+                className="w-full h-10 max-sm:h-11 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)] appearance-none cursor-pointer"
               >
                 {textChannels.map((channel) => (
                   <option key={channel.id} value={channel.id}>
@@ -290,7 +295,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
                 <Input
                   value={isLoading ? gt("Generating...") : effectiveCode ? inviteUrl : gt("Could not create invite")}
                   readOnly
-                  className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] pr-10 font-mono text-sm"
+                  className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] pr-10 font-mono text-sm max-sm:h-11"
                 />
                 {isLoading && (
                   <Loader size={16} className="absolute right-3 top-1/2 -translate-y-1/2" />
@@ -300,7 +305,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
                 onClick={handleCopy}
                 disabled={isLoading || !effectiveCode}
                 className={cn(
-                  "px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2",
+                  "px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-2 shrink-0 max-sm:min-h-11",
                   copied
                     ? "bg-[#23A559] text-white"
                     : "bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
@@ -325,7 +330,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           {canShare() && (
             <button
               onClick={handleShare}
-              className="w-full py-2.5 rounded-md bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium transition-colors flex items-center justify-center gap-2"
+              className="w-full py-2.5 max-sm:min-h-11 rounded-md bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] font-medium transition-colors flex items-center justify-center gap-2"
             >
               <Share2 className="w-4 h-4" />
               {gt("Share Invite Link")}
@@ -336,7 +341,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           {!isLockedToVanity && (
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            className="flex items-center gap-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors max-sm:min-h-11"
           >
             <Settings className="w-4 h-4" />
             {gt("Edit invite link")}
@@ -359,7 +364,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
                 <select
                   value={maxAge}
                   onChange={(e) => setMaxAge(Number(e.target.value))}
-                  className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
+                  className="w-full h-10 max-sm:h-11 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                 >
                   {EXPIRE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -378,7 +383,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
                 <select
                   value={maxUses}
                   onChange={(e) => setMaxUses(Number(e.target.value))}
-                  className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
+                  className="w-full h-10 max-sm:h-11 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
                 >
                   {MAX_USES_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -392,7 +397,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
               <button
                 onClick={generateInvite}
                 disabled={isLoading}
-                className="w-full py-2 rounded-md bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-2 max-sm:min-h-11 rounded-md bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
                 {gt("Generate New Link")}
@@ -402,7 +407,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] rounded-b-lg">
+        <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-app)] rounded-b-lg max-sm:rounded-b-none max-sm:pb-[calc(1rem+var(--safe-area-bottom))]">
           {isLockedToVanity ? (
             <p className="text-xs text-[var(--text-muted)] text-center">
               <T>This server only allows invites through its custom invite link.</T>

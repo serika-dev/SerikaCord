@@ -87,6 +87,9 @@ import { isDesktopShell } from "@/lib/desktop/bridge";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
 import { BugReportPanel } from "@/components/settings/BugReportPanel";
+import { MobileSettingsHeader, MobileSettingsHome } from "@/components/settings/MobileSettingsHome";
+import { readSettingsBackAction } from "@/components/settings/mobileSettingsNav";
+import { useBackHandler } from "@/hooks/useBackHandler";
 import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
 import { AdminBadgesPanel } from "@/components/settings/AdminBadgesPanel";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
@@ -797,10 +800,19 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   // Jump to the requested tab each time the dialog opens (state adjusted
   // during render rather than in an effect).
   const [prevOpen, setPrevOpen] = useState(open);
+  // Phone width: the settings open on a Discord-style list ("root") and each
+  // tab is pushed on top with a back header. A deep link (initialTab) opens
+  // straight on that page. Ignored at md+ where the sidebar is always shown.
+  const [mobileOnRoot, setMobileOnRoot] = useState(!initialTab);
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open && initialTab) setActiveTab(initialTab as SettingsTab);
+    if (open) setMobileOnRoot(!initialTab);
   }
+  const openMobileTab = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    setMobileOnRoot(false);
+  };
   const [displayName, setDisplayName] = useState("");
   const [profileTab, setProfileTab] = useState<"main" | "server">("main");
   const [selectedServerId, setSelectedServerId] = useState<string>("");
@@ -1189,7 +1201,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   useEffect(() => {
     const onOpenRequest = (event: Event) => {
       const tab = (event as CustomEvent<{ tab?: SettingsTab } | undefined>).detail?.tab;
-      if (tab) setActiveTab(tab);
+      if (tab) {
+        setActiveTab(tab);
+        setMobileOnRoot(false);
+      }
     };
     window.addEventListener('openUserSettings', onOpenRequest);
     return () => window.removeEventListener('openUserSettings', onOpenRequest);
@@ -1204,6 +1219,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       const settingsTab = params.get("settings") || params.get("openSettings");
       if (settingsTab === "connections") {
         setActiveTab("connections");
+        setMobileOnRoot(false);
       }
     }
   }, [open]);
@@ -1298,20 +1314,30 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   // Handle escape key. Capture phase so it fires even if a child stops
   // propagation, but yield to any nested dialog/menu/popover so Escape closes
   // that first (e.g. an open picker inside settings) before closing settings.
+  // On phones a pushed page pops back to the settings list first (Discord
+  // mobile), both for Escape and the Android back button.
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      const nested = document.querySelector(
-        '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]'
-      );
-      if (nested) return; // let the nested overlay handle Escape first
+      const action = readSettingsBackAction(mobileOnRoot);
+      if (action === "pass") return; // let the nested overlay handle Escape first
       e.preventDefault();
-      onOpenChange(false);
+      if (action === "root") setMobileOnRoot(true);
+      else onOpenChange(false);
     };
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
-  }, [open, onOpenChange]);
+  }, [open, onOpenChange, mobileOnRoot]);
+
+  // Android back: without this the press fell through to route navigation and
+  // changed the page under the still-open settings overlay.
+  useBackHandler(open, () => {
+    const action = readSettingsBackAction(mobileOnRoot);
+    if (action === "pass") return false;
+    if (action === "root") setMobileOnRoot(true);
+    else onOpenChange(false);
+  });
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -2125,19 +2151,57 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
   if (!open) return null;
 
+  // Desktop-only pages are left out of the phone list (no physical keyboard /
+  // desktop shell there).
+  const mobileSections = filteredSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => item.id !== "keybinds" && item.id !== "desktop"),
+    }))
+    .filter((section) => section.items.length > 0);
+  const activeTabLabel =
+    menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label ?? gt("Settings");
+
   return (
     <div className="fixed inset-0 z-50 bg-[var(--bg-app)] text-[var(--text-primary)]">
       <div className="h-full flex flex-col md:flex-row">
-        {/* Mobile Header */}
-        <div className="md:hidden flex items-center justify-between p-4 border-b border-[var(--border-subtle)]">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">{gt("Settings")}</h2>
-          <button
-            onClick={() => onOpenChange(false)}
-            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)]"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        {/* Phone: grouped settings list (root page) */}
+        {mobileOnRoot && (
+          <MobileSettingsHome
+            user={user}
+            sections={mobileSections}
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onSelect={openMobileTab}
+            onEditProfile={() => openMobileTab("profiles")}
+            onLogout={handleLogout}
+            onClose={() => onOpenChange(false)}
+            footer={
+              <div className="space-y-1 select-text text-xs text-[var(--text-muted)]">
+                <p className="font-medium text-[var(--text-secondary)]">SerikaCord {VERSION_LABEL}</p>
+                <a href="/changelog" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[var(--app-accent)]">
+                  {gt("What's new")}
+                </a>
+                {buildInfo.lines.map((line, i) => (
+                  <p key={i}>{line.label} {line.value}</p>
+                ))}
+                <div className="flex gap-4">
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">
+                    {gt("Terms of Service")}
+                  </a>
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-2">
+                    {gt("Privacy Policy")}
+                  </a>
+                </div>
+              </div>
+            }
+          />
+        )}
+
+        {/* Phone: pushed page header with back button */}
+        {!mobileOnRoot && (
+          <MobileSettingsHeader title={activeTabLabel} onBack={() => setMobileOnRoot(true)} />
+        )}
 
         {/* Sidebar */}
         <div className="hidden md:flex w-56 lg:w-64 bg-[var(--bg-sidebar)] flex-col border-r border-[var(--border-subtle)] h-full overflow-hidden">
@@ -2270,29 +2334,14 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           </ScrollArea>
         </div>
 
-        {/* Mobile Tab Navigation */}
-        <div className="md:hidden overflow-x-auto border-b border-[var(--border-subtle)]">
-          <div className="flex px-4 py-2 gap-2">
-            {menuSections.flatMap(s => s.items).slice(0, 6).map((item) => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm whitespace-nowrap transition-colors",
-                  activeTab === item.id
-                    ? "bg-[#8B5CF6] text-white"
-                    : "bg-[var(--bg-card)] text-[var(--text-secondary)]"
-                )}
-              >
-                <item.icon className="w-4 h-4" />
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 bg-[var(--bg-card)] relative flex flex-col overflow-hidden">
+        {/* Content (on phones: the pushed page, hidden while the list shows) */}
+        <div
+          className={cn(
+            "flex-1 min-h-0 bg-[var(--bg-card)] relative flex flex-col overflow-hidden",
+            "max-md:animate-in max-md:fade-in-0 max-md:slide-in-from-right-8 max-md:duration-200",
+            mobileOnRoot && "max-md:hidden",
+          )}
+        >
           {/* Desktop Close Button */}
           <button
             onClick={() => onOpenChange(false)}
@@ -2302,7 +2351,13 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           </button>
 
           <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
-            <div className={cn("py-6 px-4 md:py-10 md:px-10 mx-auto pb-24", (activeTab.startsWith("admin-") || activeTab === "profiles") ? "max-w-[1100px]" : "max-w-[740px]")}>
+            <div className={cn(
+              "py-6 px-4 md:py-10 md:px-10 mx-auto pb-24",
+              // Phone: the back header already names the page, so the tab's own
+              // big title is hidden; keep wide rows from scrolling the page sideways.
+              "max-md:pt-4 max-md:pb-[calc(7rem+var(--safe-area-bottom))] max-md:overflow-x-hidden max-md:[&>div>h2.text-xl:first-child]:hidden",
+              (activeTab.startsWith("admin-") || activeTab === "profiles") ? "max-w-[1100px]" : "max-w-[740px]",
+            )}>
               {/* Admin Logs Tab — rendered in the admin section below */}
 
 
@@ -3502,7 +3557,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
                         <div className="space-y-2">
                           <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Sound type")}</label>
-                          <div className="grid grid-cols-5 gap-2">
+                          <div className="grid grid-cols-5 max-sm:grid-cols-3 gap-2">
                             {([
                               { value: 'chime', label: gt("Chime") },
                               { value: 'ding', label: gt("Ding") },
@@ -4013,9 +4068,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
                   {/* Two-column layout: user list + detail panel */}
                   {adminUsers.length > 0 && (
-                    <div className="flex gap-4 h-[600px]">
+                    <div className="flex gap-4 h-[600px] max-md:flex-col max-md:h-auto">
                       {/* Left: User list */}
-                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col max-md:w-full max-md:h-[320px]">
                         <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
                           <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Results ({count})", { count: adminUsers.length })}</p>
                         </div>
@@ -4269,9 +4324,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
                   {/* Two-column layout: server list + detail panel */}
                   {adminServers.length > 0 && (
-                    <div className="flex gap-4 h-[600px]">
+                    <div className="flex gap-4 h-[600px] max-md:flex-col max-md:h-auto">
                       {/* Left: Server list */}
-                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col max-md:w-full max-md:h-[320px]">
                         <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
                           <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Results ({count})", { count: adminServers.length })}</p>
                         </div>
@@ -5115,20 +5170,20 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           {/* Close Button */}
           <button
             onClick={() => onOpenChange(false)}
-            className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[#3f4147] rounded-full transition-colors"
+            className="max-md:hidden absolute top-4 right-4 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[#3f4147] rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
 
           {/* ESC hint */}
-          <div className="absolute top-5 right-16 text-xs text-[var(--text-muted)]">
+          <div className="max-md:hidden absolute top-5 right-16 text-xs text-[var(--text-muted)]">
             ESC
           </div>
 
           {/* Save bar */}
           {hasChanges && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom">
-              <span className="text-[var(--text-primary)] text-sm font-medium">{gt("Careful — you have unsaved changes!")}</span>
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom max-md:flex-col max-md:items-stretch max-md:gap-2 max-md:px-4 max-md:pb-[calc(0.75rem+var(--safe-area-bottom))] max-md:shadow-[0_-8px_24px_rgba(0,0,0,0.25)] max-md:[&_button]:min-h-11 max-md:[&_button]:flex-1 max-md:[&_button]:justify-center">
+              <span className="text-[var(--text-primary)] text-sm font-medium max-md:text-center">{gt("Careful — you have unsaved changes!")}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => {
