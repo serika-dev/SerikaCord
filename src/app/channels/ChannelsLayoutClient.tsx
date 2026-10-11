@@ -47,6 +47,21 @@ const ServerSettingsDialog = dynamic(
   () => import("@/components/dialogs/ServerSettingsDialog").then((m) => m.ServerSettingsDialog),
   { loading: dialogFallback }
 );
+const ChannelSettingsDialog = dynamic(
+  () => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog),
+  { loading: dialogFallback }
+);
+
+// Phone layout breakpoint, read synchronously (no desktop-first render that
+// mounts both sidebars and then swaps to the phone shell).
+const MOBILE_QUERY = "(max-width: 767px)";
+function subscribeMobile(onChange: () => void) {
+  const mql = window.matchMedia(MOBILE_QUERY);
+  mql.addEventListener("change", onChange);
+  return () => mql.removeEventListener("change", onChange);
+}
+const getMobileSnapshot = () => window.matchMedia(MOBILE_QUERY).matches;
+const getMobileServerSnapshot = () => false;
 
 const MobileServerList = dynamic(
   () => import("@/components/mobile/MobileServerList").then((m) => m.MobileServerList),
@@ -150,9 +165,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteServerId, setInviteServerId] = useState<string | null>(null);
   const [showServerSettings, setShowServerSettings] = useState(false);
+  const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const pathname = usePathname();
   const router = useRouter();
-  const { currentServer, currentChannel, channels, setCurrentServer, setCurrentChannel } = useServer();
+  const { currentServer, currentChannel, channels } = useServer();
 
   // Live voice room id (null when not connected) so the mobile VoiceBar can
   // show the channel's name instead of the raw "channel-<id>" room id.
@@ -201,28 +217,36 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       setSettingsInitialTab((e as CustomEvent<{ tab?: string } | undefined>).detail?.tab ?? null);
       setShowUserSettings(true);
     };
-    const handleOpenInvite = () => { setInviteServerId(null); setShowInvite(true); };
+    const handleOpenInvite = (e: Event) => {
+      setInviteServerId((e as CustomEvent<{ serverId?: string } | undefined>).detail?.serverId ?? null);
+      setShowInvite(true);
+    };
     const handleOpenServerSettings = () => setShowServerSettings(true);
+    // Phone sheets (server / channel long-press menus) ask for these dialogs.
+    const handleOpenCreateChannel = (e: Event) => {
+      const detail = (e as CustomEvent<{ type?: "text" | "voice" | "category"; parentId?: string } | undefined>).detail;
+      setCreateChannelOptions({ open: true, defaultType: detail?.type, defaultParentId: detail?.parentId });
+    };
+    const handleOpenChannelSettings = (e: Event) => {
+      const id = (e as CustomEvent<{ channelId?: string } | undefined>).detail?.channelId;
+      if (id) setChannelSettingsId(id);
+    };
     window.addEventListener('openUserSettings', handleOpenSettings);
     window.addEventListener('openInviteDialog', handleOpenInvite);
     window.addEventListener('openServerSettings', handleOpenServerSettings);
+    window.addEventListener('openCreateChannel', handleOpenCreateChannel);
+    window.addEventListener('openChannelSettings', handleOpenChannelSettings);
     return () => {
       window.removeEventListener('openUserSettings', handleOpenSettings);
       window.removeEventListener('openInviteDialog', handleOpenInvite);
       window.removeEventListener('openServerSettings', handleOpenServerSettings);
+      window.removeEventListener('openCreateChannel', handleOpenCreateChannel);
+      window.removeEventListener('openChannelSettings', handleOpenChannelSettings);
     };
   }, []);
 
   // Track if we're on mobile
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    const query = window.matchMedia('(max-width: 767px)');
-    const update = () => setIsMobile(query.matches);
-    update();
-    query.addEventListener('change', update);
-    return () => query.removeEventListener('change', update);
-  }, []);
+  const isMobile = useSyncExternalStore(subscribeMobile, getMobileSnapshot, getMobileServerSnapshot);
 
   const mobileView: "servers" | "messages" | "notifications" | "profile" = pathname?.includes("/messages")
     ? "messages"
@@ -268,72 +292,53 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
         {/* Mobile Content Area */}
         <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+          {/* Screens enter with a short CSS slide (compositor-only) and never
+              wait for the previous screen to animate out, so taps feel
+              instant. Channel switches inside one server keep the same key. */}
           {isSettingsRoute ? (
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.main
-                key={contentKey}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
-              >
-                {children}
-              </motion.main>
-            </AnimatePresence>
+            <main
+              key={contentKey}
+              className="mobile-screen-enter flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
+            >
+              {children}
+            </main>
           ) : isInChannel ? (
             // When in a specific channel, render the chat full-height —
             // the bottom nav hides itself inside conversations.
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.main
-                key={contentKey}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className={cn(
-                  "flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe",
-                  !showInFlowVoiceBar && "pb-safe"
-                )}
-              >
-                {children}
-              </motion.main>
-            </AnimatePresence>
+            <main
+              key={contentKey}
+              className={cn(
+                "mobile-screen-push flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe",
+                !showInFlowVoiceBar && "pb-safe"
+              )}
+            >
+              {children}
+            </main>
           ) : mobileView === "servers" && currentServer ? (
-            <MobileServerView
-              onBack={() => {
-                setCurrentChannel(null);
-                setCurrentServer(null);
-                // Leave /channels/<serverId>, otherwise the server page
-                // remounts and selects the server again.
-                router.push("/channels/me");
-              }}
-            />
+            <MobileServerView key={currentServer.id} />
           ) : mobileView === "messages" ? (
-            <MobileMessagesView onAddFriend={() => {
-                  router.push("/channels/me?tab=add");
-                  window.dispatchEvent(new CustomEvent("openFriendsTab", { detail: { tab: "add" } }));
-                }} />
+            <div className="mobile-screen-enter flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+              <MobileMessagesView onAddFriend={() => {
+                    router.push("/channels/me?tab=add");
+                    window.dispatchEvent(new CustomEvent("openFriendsTab", { detail: { tab: "add" } }));
+                  }} />
+            </div>
           ) : mobileView === "notifications" ? (
-            <MobileNotificationsView />
+            <div className="mobile-screen-enter flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+              <MobileNotificationsView />
+            </div>
           ) : mobileView === "profile" ? (
-            <div className="flex-1 flex min-w-0 min-h-0 overflow-hidden">
+            <div className="mobile-screen-enter flex-1 flex min-w-0 min-h-0 overflow-hidden">
               <MobileProfileView />
             </div>
           ) : (
             // Show channel content or DMs when in servers view without a selected server
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.main
-                key={contentKey}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                className="flex-1 flex min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
-              >
-                {children}
-              </motion.main>
-            </AnimatePresence>
+            <main
+              key={contentKey}
+              className="mobile-screen-enter flex-1 flex min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
+            >
+              {children}
+            </main>
           )}
 
           {/* Inside a conversation the bottom nav is hidden: keep the voice bar
@@ -395,6 +400,15 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
             open={showServerSettings}
             onOpenChange={setShowServerSettings}
           />
+        </MountWhenOpened>
+        <MountWhenOpened open={!!channelSettingsId}>
+          {channelSettingsId && (
+            <ChannelSettingsDialog
+              open
+              onOpenChange={(open) => { if (!open) setChannelSettingsId(null); }}
+              channelId={channelSettingsId}
+            />
+          )}
         </MountWhenOpened>
       </div>
     );

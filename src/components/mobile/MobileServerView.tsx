@@ -1,352 +1,368 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnread } from "@/contexts/UnreadContext";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { 
-  Hash, 
-  Volume2, 
-  ChevronDown, 
-  Search, 
+import {
+  Hash,
+  Volume2,
+  ChevronDown,
+  ChevronRight,
+  Search,
   UserPlus,
-  Settings,
   Megaphone,
-  Users,
-  ChevronLeft,
+  MessagesSquare,
+  Radio,
+  AlertTriangle,
+  X,
   MoreHorizontal,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { voiceService } from "@/lib/services/voiceService";
-import { usePermissions } from "@/hooks/usePermissions";
+import { cn, cdnImage } from "@/lib/utils";
+import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { useGT } from "gt-next";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
+import { usePolling } from "@/hooks/usePolling";
 import { PullIndicator } from "@/components/mobile/PullIndicator";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { VoiceChannelMembers } from "@/components/voice/VoiceChannelMembers";
+import { filterMobileChannelGroups, groupMobileChannels } from "@/lib/mobile/channelGroups";
+import { useLongPress } from "./useLongPress";
+import { Bone } from "./Bone";
 
-interface MobileServerViewProps {
-  onBack?: () => void;
+const MobileServerSheet = dynamic(() => import("./MobileServerSheet").then((m) => m.MobileServerSheet), { ssr: false });
+const MobileChannelSheet = dynamic(() => import("./MobileChannelSheet").then((m) => m.MobileChannelSheet), { ssr: false });
+
+type ServerChannel = ReturnType<typeof useServer>["channels"][number];
+
+/** Placeholder rows while a server's channel list loads (no spinner). */
+function ChannelListSkeleton() {
+  return (
+    <div className="space-y-5 px-3 pt-3" aria-hidden="true">
+      {[5, 3, 4].map((rows, i) => (
+        <div key={i} className="space-y-2">
+          <Bone className="ml-1 h-3 w-24" />
+          {Array.from({ length: rows }).map((_, j) => (
+            <div key={j} className="flex items-center gap-3 px-2 py-1.5">
+              <Bone className="h-5 w-5 rounded" />
+              <Bone className="h-4" style={{ width: `${45 + ((i * 7 + j * 13) % 40)}%` }} />
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
 }
 
-// Extended types for mobile-specific properties
-interface ExtendedServer {
-  banner?: string;
-  memberCount?: number;
-  onlineCount?: number;
+function ChannelIcon({ type, nsfw }: { type: string; nsfw?: boolean }) {
+  const cls = "h-5 w-5 text-[var(--text-muted)]";
+  const icon =
+    type === "voice" ? <Volume2 className={cls} /> :
+    type === "stage" ? <Radio className={cls} /> :
+    type === "announcement" ? <Megaphone className={cls} /> :
+    type === "forum" ? <MessagesSquare className={cls} /> :
+    <Hash className={cls} />;
+  return (
+    <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+      {icon}
+      {nsfw && <AlertTriangle className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 text-red-400" />}
+    </span>
+  );
 }
 
-interface ExtendedChannel {
-  parentId?: string | null;
-  unreadCount?: number;
-}
-
-export function MobileServerView({ onBack }: MobileServerViewProps) {
+/**
+ * Phone channel list for the selected server (shown beside the server rail),
+ * Discord-mobile style: the server name opens the server sheet, channel rows
+ * are dense with unread/mention state, voice channels list who's in them, and
+ * a long-press opens the channel menu.
+ */
+export function MobileServerView() {
   const router = useRouter();
   const gt = useGT();
-  const { currentServer, channels, setCurrentChannel, fetchChannels, fetchServers } = useServer();
+  const { currentServer, channels, channelsServerId, setCurrentChannel, fetchChannels, fetchServers } = useServer();
   // Re-render on voice connect/leave so the active voice channel highlight is live.
   const voiceRoomId = useSyncExternalStore(
     (onChange) => voiceService.subscribe(() => onChange()),
     () => (voiceService.connected ? voiceService.currentRoomId : null),
     () => null,
   );
-  const { isChannelUnread, getMentionCount } = useUnread();
-  const { can, isAdmin } = usePermissions(currentServer?.id);
-  const canManageServer = can("MANAGE_SERVER") || isAdmin;
-  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const { isChannelUnread, getMentionCount, isChannelMuted } = useUnread();
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(() => new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showServerSheet, setShowServerSheet] = useState(false);
+  const [sheetChannel, setSheetChannel] = useState<ServerChannel | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const channelPress = useLongPress<ServerChannel>(setSheetChannel);
 
-  // Group channels by parent (category)
-  const groupedChannels = useMemo(() => {
-    const categories: Array<{ id: string | null; name: string; channels: typeof channels }> = [];
-    const channelsByParent: Record<string, typeof channels> = {};
-    const byPosition = (a: { position?: number | null }, b: { position?: number | null }) =>
-      (a.position ?? 0) - (b.position ?? 0);
-    const categoryChannels = channels.filter(c => c.type === 'category').sort(byPosition);
-    const categoryIds = new Set(categoryChannels.map(c => c.id));
-    // Threads live under their parent channel/forum, not in the list.
-    const nonCategoryChannels = channels
-      .filter(c => c.type !== 'category' && c.type !== 'public_thread' && c.type !== 'private_thread')
-      .sort(byPosition);
+  const serverId = currentServer?.id ?? null;
+  const channelsReady = !!serverId && channelsServerId === serverId;
 
-    // Group non-category channels by parentId. A channel whose category was
-    // deleted is shown as uncategorized instead of vanishing (as on desktop).
-    nonCategoryChannels.forEach(channel => {
-      const extChannel = channel as typeof channel & ExtendedChannel;
-      const parentId = extChannel.parentId && categoryIds.has(extChannel.parentId) ? extChannel.parentId : 'uncategorized';
-      if (!channelsByParent[parentId]) {
-        channelsByParent[parentId] = [];
-      }
-      channelsByParent[parentId].push(channel);
-    });
+  const groups = useMemo(() => groupMobileChannels(channelsReady ? channels : []), [channels, channelsReady]);
+  const filteredGroups = useMemo(() => filterMobileChannelGroups(groups, searchQuery), [groups, searchQuery]);
 
-    // Create category groups
-    categoryChannels.forEach(category => {
-      categories.push({
-        id: category.id,
-        name: category.name,
-        channels: channelsByParent[category.id] || [],
-      });
-    });
-
-    // Add uncategorized channels
-    if (channelsByParent['uncategorized']?.length > 0) {
-      categories.unshift({
-        id: null,
-        name: 'CHANNELS',
-        channels: channelsByParent['uncategorized'],
-      });
+  // ── Who's in each voice channel ──────────────────────────────────────────
+  const voiceChannelIds = useMemo(
+    () => (channelsReady ? channels.filter((c) => c.type === "voice").map((c) => c.id) : []),
+    [channels, channelsReady],
+  );
+  const [externalVoice, setExternalVoice] = useState<Map<string, VoiceParticipant[]>>(() => new Map());
+  const [ownVoice, setOwnVoice] = useState<VoiceParticipant[]>(() => voiceService.currentParticipants);
+  useEffect(
+    () =>
+      voiceService.subscribe(() => {
+        setOwnVoice(voiceService.connected ? voiceService.currentParticipants : []);
+      }),
+    [],
+  );
+  const fetchVoiceStates = useCallback(async () => {
+    const rooms = voiceChannelIds.map((id) => `channel-${id}`).filter((r) => r !== voiceService.currentRoomId);
+    if (rooms.length === 0) {
+      setExternalVoice(new Map());
+      return;
     }
-
-    return categories;
-  }, [channels]);
-
-  // Filter channels by search query
-  const filteredCategories = useMemo(() => {
-    if (!searchQuery.trim()) return groupedChannels;
-    
-    const query = searchQuery.toLowerCase();
-    return groupedChannels.map(category => ({
-      ...category,
-      channels: category.channels.filter(c => 
-        c.name.toLowerCase().includes(query)
-      ),
-    })).filter(category => category.channels.length > 0);
-  }, [groupedChannels, searchQuery]);
+    try {
+      const res = await fetch(`/api/voice/states?rooms=${encodeURIComponent(rooms.join(","))}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as { states?: Record<string, VoiceParticipant[]> };
+      const next = new Map<string, VoiceParticipant[]>();
+      for (const [roomId, list] of Object.entries(data.states ?? {})) {
+        if (list?.length) next.set(roomId.replace(/^channel-/, ""), list);
+      }
+      setExternalVoice(next);
+    } catch {
+      /* best effort */
+    }
+  }, [voiceChannelIds]);
+  usePolling(() => void fetchVoiceStates(), 8000, voiceChannelIds.length > 0, voiceChannelIds.join(","));
 
   const handleRefresh = useCallback(async () => {
-    if (isRefreshing || !currentServer) return;
+    if (isRefreshing || !serverId) return;
     setIsRefreshing(true);
     try {
-      await Promise.all([fetchChannels(currentServer.id), fetchServers()]);
+      await Promise.all([fetchChannels(serverId), fetchServers(), fetchVoiceStates()]);
     } finally {
       setIsRefreshing(false);
     }
-  }, [isRefreshing, currentServer, fetchChannels, fetchServers]);
+  }, [isRefreshing, serverId, fetchChannels, fetchServers, fetchVoiceStates]);
   const { pullDistance, pullHandlers } = usePullToRefresh(scrollContainerRef, handleRefresh);
 
   if (!currentServer) return null;
 
-  // Cast to extended type for optional properties
-  const server = currentServer as typeof currentServer & ExtendedServer;
-
   const toggleCategory = (categoryId: string) => {
-    setCollapsedCategories(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(categoryId)) {
-        newSet.delete(categoryId);
-      } else {
-        newSet.add(categoryId);
-      }
-      return newSet;
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
     });
   };
 
-  const getChannelIcon = (type: string) => {
-    switch (type) {
-      case "voice":
-        return <Volume2 className="w-5 h-5 text-neutral-500" />;
-      case "announcement":
-        return <Megaphone className="w-5 h-5 text-neutral-500" />;
-      default:
-        return <Hash className="w-5 h-5 text-neutral-500" />;
-    }
-  };
-
-  const handleChannelClick = (channel: typeof channels[0]) => {
-    // Voice channels behave like text channels on mobile: tapping opens the
-    // channel's call view (participants + a Join button), rather than silently
-    // joining/leaving from the sidebar. Joining happens from the call screen.
+  const handleChannelClick = (channel: ServerChannel) => {
+    if (channelPress.wasLongPress()) return;
+    // Voice channels open their call view (participants + Join), like text
+    // channels; joining happens from that screen.
     setCurrentChannel(channel);
     router.push(`/channels/${currentServer.id}/${channel.id}`);
   };
 
-  return (
-    <div className="flex flex-col h-full bg-[var(--bg-app)]">
-      {/* Server Header */}
-      <div className="relative flex-shrink-0">
-        {server.banner ? (
-          <div 
-            className="h-32 bg-cover bg-center"
-            style={{ backgroundImage: `url(${server.banner})` }}
-          />
-        ) : (
-          <div className="h-32 bg-gradient-to-br from-[var(--app-accent)] via-[var(--app-accent)] to-[var(--app-accent)] opacity-80" />
-        )}
-        
-        {/* Gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-app)] via-black/60 to-transparent" />
-        
-        {/* Back button (for navigation) */}
-        <button
-          onClick={onBack}
-          aria-label={gt("Back")}
-          style={{ top: "calc(1rem + var(--safe-area-top))" }}
-          className="absolute left-4 p-2 rounded-full bg-black/40 backdrop-blur-sm text-white active:scale-95 transition-transform"
-        >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        
-        {/* Server Info Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 px-5 pb-4">
-          <div className="flex items-end justify-between gap-4">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold text-white truncate drop-shadow-lg">
-                {currentServer.name}
-              </h1>
-              <div className="flex items-center gap-3 mt-1">
-                <span className="flex items-center gap-1.5 text-sm text-neutral-300">
-                  <Users className="w-4 h-4" />
-                  {server.memberCount || 0} {gt("members")}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {canManageServer && (
-                <button
-                  onClick={() => window.dispatchEvent(new CustomEvent("openServerSettings"))}
-                  aria-label={gt("Server settings")}
-                  className="p-2.5 rounded-xl bg-white/10 backdrop-blur-sm hover:bg-white/20 transition-colors active:scale-95"
-                >
-                  <Settings className="w-5 h-5 text-white" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+  const banner = currentServer.banner ? cdnImage(currentServer.banner) : null;
 
-      {/* Search & Actions Bar */}
-      <div className="flex items-center gap-2 px-4 py-3 flex-shrink-0 border-b border-[var(--border-subtle)]">
-        {showSearch ? (
-          <div className="flex-1 flex items-center gap-2">
-            <input
-              type="text"
-              placeholder={gt("Search channels...")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              autoFocus
-              className="flex-1 h-10 px-4 rounded-xl bg-[var(--bg-card)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] text-sm focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)]/50"
-            />
-            <button 
-              onClick={() => {
-                setShowSearch(false);
-                setSearchQuery("");
-              }}
-              className="p-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] transition-colors active:scale-95"
-            >
-              <ChevronLeft className="w-5 h-5 text-[var(--text-muted)]" />
-            </button>
+  return (
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-[var(--bg-app)]">
+      {/* Server header: optional banner, then the name (opens the server sheet) */}
+      <div className="relative flex-shrink-0">
+        {banner ? (
+          <div className="relative h-28 bg-cover bg-center" style={{ backgroundImage: `url(${banner})` }}>
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 to-transparent" />
           </div>
         ) : (
-          <>
-            <button 
-              onClick={() => setShowSearch(true)}
-              className="flex-1 flex items-center gap-2 h-10 px-4 rounded-xl bg-[var(--bg-card)] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] transition-colors"
-            >
-              <Search className="w-4 h-4" />
-              <span className="text-sm">{gt("Search channels")}</span>
-            </button>
-            <button
-              onClick={() => window.dispatchEvent(new CustomEvent("openInviteDialog"))}
-              aria-label={gt("Invite people")}
-              className="p-2.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] transition-colors active:scale-95"
-            >
-              <UserPlus className="w-5 h-5 text-[var(--text-muted)]" />
-            </button>
-          </>
+          <div className="pt-safe" />
         )}
+        <div className={cn("flex items-center gap-1 px-3", banner ? "pt-2" : "pt-3")}>
+          <button
+            type="button"
+            onClick={() => setShowServerSheet(true)}
+            className="flex min-w-0 flex-1 touch-manipulation items-center gap-1 rounded-lg py-1.5 pl-1 text-left active:opacity-70"
+          >
+            <h1 className="truncate text-[19px] font-bold leading-tight text-[var(--text-primary)]">{currentServer.name}</h1>
+            <ChevronRight className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowServerSheet(true)}
+            aria-label={gt("Server menu")}
+            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-full text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </button>
+        </div>
+        {typeof currentServer.memberCount === "number" && (
+          <p className="px-4 pb-1 text-xs text-[var(--text-muted)]">
+            {gt("{count} Members", { count: currentServer.memberCount })}
+          </p>
+        )}
+
+        {/* Search + invite */}
+        <div className="flex items-center gap-2 px-3 pb-2.5 pt-1.5">
+          {showSearch ? (
+            <div className="flex h-9 flex-1 items-center gap-2 rounded-full bg-[var(--bg-card)] px-3">
+              <Search className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+              <input
+                type="text"
+                placeholder={gt("Search channels...")}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                autoFocus
+                enterKeyHint="search"
+                className="min-w-0 flex-1 bg-transparent text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSearch(false);
+                  setSearchQuery("");
+                }}
+                aria-label={gt("Close search")}
+                className="-mr-1 flex h-7 w-7 items-center justify-center rounded-full text-[var(--text-muted)] active:bg-[var(--bg-hover)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowSearch(true)}
+              className="flex h-9 flex-1 touch-manipulation items-center gap-2 rounded-full bg-[var(--bg-card)] px-3 text-[var(--text-muted)] active:bg-[var(--bg-hover)]"
+            >
+              <Search className="h-4 w-4" />
+              <span className="text-sm">{gt("Search")}</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("openInviteDialog", { detail: { serverId: currentServer.id } }))}
+            aria-label={gt("Invite people")}
+            className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
+          >
+            <UserPlus className="h-[18px] w-[18px]" />
+          </button>
+        </div>
       </div>
 
       {/* Channel List */}
-      <div 
+      <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto overscroll-contain"
+        className="flex-1 overflow-y-auto overscroll-contain border-t border-[var(--border-subtle)]"
         {...pullHandlers}
       >
         <PullIndicator distance={pullDistance} refreshing={isRefreshing} />
-        <div className="px-2 py-2 pb-28">
-          {filteredCategories.length === 0 && searchQuery ? (
-            <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-[var(--bg-card)] flex items-center justify-center mb-4">
-                <Search className="w-8 h-8 text-[var(--text-muted)]" />
+        <div className="px-2 pt-1" style={{ paddingBottom: "calc(var(--mobile-content-pb) + 4.5rem)" }}>
+          {!channelsReady ? (
+            <ChannelListSkeleton />
+          ) : filteredGroups.length === 0 ? (
+            <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--bg-card)]">
+                <Search className="h-7 w-7 text-[var(--text-muted)]" />
               </div>
-              <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{gt("No channels found")}</h3>
-              <p className="text-[var(--text-muted)] text-sm">
-                {gt("Try a different search term")}
-              </p>
+              <h3 className="mb-1 font-semibold text-[var(--text-primary)]">
+                {searchQuery ? gt("No channels found") : gt("No channels yet")}
+              </h3>
+              {searchQuery && <p className="text-sm text-[var(--text-muted)]">{gt("Try a different search term")}</p>}
             </div>
           ) : (
-            filteredCategories.map((category) => (
-              <div key={category.id || 'uncategorized'} className="mb-3">
-                {/* Category Header */}
-                <button
-                  onClick={() => toggleCategory(category.id || 'uncategorized')}
-                  className="w-full flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase text-[var(--text-muted)] hover:text-[var(--text-secondary)] transition-colors active:scale-[0.98]"
-                >
-                  <ChevronDown 
-                    className={cn(
-                      "w-3 h-3 transition-transform duration-200",
-                      collapsedCategories.has(category.id || 'uncategorized') && "-rotate-90"
-                    )} 
-                  />
-                  <span className="tracking-wider">{category.name}</span>
-                  <span className="ml-auto text-[10px] text-[var(--text-muted)] font-medium">
-                    {category.channels.length}
-                  </span>
-                </button>
+            filteredGroups.map((group) => {
+              const key = group.id ?? "uncategorized";
+              const collapsed = !searchQuery && collapsedCategories.has(key);
+              return (
+                <div key={key} className="mb-1">
+                  {group.id !== null && (
+                    <button
+                      type="button"
+                      onClick={() => toggleCategory(key)}
+                      className="flex w-full touch-manipulation items-center gap-1 px-1.5 pb-1 pt-4 text-left text-xs font-bold uppercase tracking-wide text-[var(--text-muted)] active:text-[var(--text-secondary)]"
+                    >
+                      <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform duration-150", collapsed && "-rotate-90")} />
+                      <span className="truncate">{group.name}</span>
+                    </button>
+                  )}
 
-                {/* Channels */}
-                {!collapsedCategories.has(category.id || 'uncategorized') && (
-                  <div className="space-y-0.5 mt-1">
-                    {category.channels.map((channel) => {
-                      const isVoice = channel.type === "voice";
-                      const unread = !isVoice && isChannelUnread(channel.id);
-                      const mentions = isVoice ? 0 : getMentionCount(channel.id);
-                      return (
+                  {group.channels.map((channel) => {
+                    const isVoice = channel.type === "voice" || channel.type === "stage";
+                    const inThisVoice = isVoice && voiceRoomId === `channel-${channel.id}`;
+                    const unread = !isVoice && isChannelUnread(channel.id);
+                    const mentions = isVoice ? 0 : getMentionCount(channel.id);
+                    const muted = !isVoice && isChannelMuted(channel.id);
+                    const participants = isVoice
+                      ? inThisVoice
+                        ? ownVoice
+                        : externalVoice.get(channel.id) ?? []
+                      : [];
+                    // A collapsed category still shows unread channels and voice channels in use.
+                    if (collapsed && !unread && !mentions && participants.length === 0) return null;
+                    return (
+                      <div key={channel.id}>
                         <button
-                          key={channel.id}
+                          type="button"
+                          {...channelPress.bind(channel)}
                           onClick={() => handleChannelClick(channel)}
                           className={cn(
-                            "w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-150",
-                            "hover:bg-[var(--bg-hover)]/80 active:bg-[var(--bg-hover)] active:scale-[0.98]",
-                            isVoice && voiceRoomId === `channel-${channel.id}`
-                              ? "bg-green-500/10 text-green-400"
-                              : unread
-                                ? "text-[var(--text-primary)] font-semibold"
-                                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                            "relative flex h-10 w-full touch-manipulation select-none items-center gap-2.5 rounded-md px-2 text-left transition-colors duration-100",
+                            "active:bg-[var(--bg-hover)]",
+                            inThisVoice
+                              ? "bg-green-500/10 text-green-500"
+                              : unread || mentions
+                                ? "text-[var(--text-primary)]"
+                                : muted
+                                  ? "text-[var(--text-muted)] opacity-60"
+                                  : "text-[var(--text-secondary)]",
                           )}
                         >
-                          {getChannelIcon(channel.type)}
-                          <span className={cn(
-                            "flex-1 text-left truncate text-[15px]",
-                            unread ? "font-semibold" : "font-medium"
-                          )}>
+                          {unread && !muted && (
+                            <span className="absolute -left-2 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r-full bg-[var(--text-primary)]" />
+                          )}
+                          <ChannelIcon type={channel.type} nsfw={channel.isNsfw} />
+                          <span className={cn("min-w-0 flex-1 truncate text-[16px]", unread || mentions ? "font-semibold" : "font-medium")}>
                             {channel.name}
                           </span>
-                          {isVoice && voiceRoomId === `channel-${channel.id}` && (
-                            <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                          )}
-                          {mentions > 0 ? (
-                            <span className="min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-[#ED4245] text-white text-xs font-bold rounded-full shadow-lg">
+                          {mentions > 0 && (
+                            <span className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-bold text-white">
                               {mentions > 99 ? "99+" : mentions}
                             </span>
-                          ) : unread ? (
-                            <span className="w-2.5 h-2.5 flex-shrink-0 rounded-full bg-[var(--text-primary)]" />
-                          ) : null}
+                          )}
+                          {isVoice && participants.length > 0 && (
+                            <span className="shrink-0 text-xs font-medium text-[var(--text-muted)]">{participants.length}</span>
+                          )}
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))
+                        {isVoice && participants.length > 0 && (
+                          <VoiceChannelMembers
+                            participants={participants}
+                            active={inThisVoice}
+                            serverId={currentServer.id}
+                            channelId={channel.id}
+                            canMove={false}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })
           )}
         </div>
       </div>
+
+      <MountWhenOpened open={showServerSheet}>
+        {showServerSheet && <MobileServerSheet server={currentServer} onClose={() => setShowServerSheet(false)} />}
+      </MountWhenOpened>
+      <MountWhenOpened open={!!sheetChannel}>
+        {sheetChannel && (
+          <MobileChannelSheet channel={sheetChannel} serverId={currentServer.id} onClose={() => setSheetChannel(null)} />
+        )}
+      </MountWhenOpened>
     </div>
   );
 }

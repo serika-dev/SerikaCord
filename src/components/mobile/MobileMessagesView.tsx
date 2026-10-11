@@ -18,6 +18,10 @@ import { groupDmHref } from "@/lib/chat/groupDm";
 import { groupDisplayName } from "@/lib/chat/dmCall";
 import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { PullIndicator } from "@/components/mobile/PullIndicator";
+import { useLongPress } from "@/components/mobile/useLongPress";
+import { Bone } from "@/components/mobile/Bone";
+
+const MobileDmSheet = dynamic(() => import("@/components/mobile/MobileDmSheet").then((m) => m.MobileDmSheet), { ssr: false });
 
 interface Message {
   id: string;
@@ -52,6 +56,8 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
   const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [sheetMessage, setSheetMessage] = useState<Message | null>(null);
+  const rowPress = useLongPress<Message>(setSheetMessage);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -222,6 +228,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   };
 
   const handleMessageClick = (message: Message) => {
+    if (rowPress.wasLongPress()) return;
     router.push(message.href);
   };
 
@@ -273,7 +280,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             </div>
           ) : (
             <>
-              <h1 className="text-3xl font-bold text-[var(--text-primary)] tracking-tight">{gt("Messages")}</h1>
+              <h1 className="text-2xl font-bold text-[var(--text-primary)] tracking-tight">{gt("Messages")}</h1>
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => setShowSearch(true)}
@@ -379,15 +386,15 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         {...pullHandlers}
       >
         <PullIndicator distance={pullDistance} refreshing={isRefreshing} />
-        <div className="px-3 pb-28 pt-2">
+        <div className="px-2 pt-1" style={{ paddingBottom: "calc(var(--mobile-content-pb) + 4.5rem)" }}>
           {isLoading ? (
-            <div className="space-y-3 p-2">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="flex items-center gap-3 p-2">
-                  <div className="w-12 h-12 rounded-full bg-[var(--bg-card)] animate-pulse" />
+            <div className="space-y-1 px-1 pt-1">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-2 py-2">
+                  <Bone className="h-10 w-10 shrink-0 rounded-full" />
                   <div className="flex-1 space-y-2">
-                    <div className="h-4 w-28 rounded bg-[var(--bg-card)] animate-pulse" />
-                    <div className="h-3 w-48 rounded bg-[var(--bg-card)] animate-pulse" />
+                    <Bone className="h-3.5" style={{ width: `${30 + ((i * 17) % 35)}%` }} />
+                    <Bone className="h-3" style={{ width: `${50 + ((i * 11) % 40)}%` }} />
                   </div>
                 </div>
               ))}
@@ -425,31 +432,33 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                 return (
                 <button
                   key={`${message.recipientId}-${index}`}
+                  type="button"
+                  {...rowPress.bind(message)}
                   onClick={() => handleMessageClick(message)}
                   className={cn(
-                    "w-full flex items-center gap-4 px-3 py-3.5 rounded-2xl transition-all duration-150",
-                    "hover:bg-[var(--bg-hover)]/60 active:bg-[var(--bg-hover)] active:scale-[0.98]"
+                    "w-full flex items-center gap-3 px-2 py-2 rounded-lg select-none touch-manipulation transition-colors duration-100",
+                    "active:bg-[var(--bg-hover)]"
                   )}
                 >
                   {/* Avatar with status */}
                   <div className="relative flex-shrink-0">
                     {message.type === "group" && message.avatars ? (
-                      <div className="w-12 h-12 rounded-full bg-[var(--bg-card)] relative">
-                        <Avatar className="w-7 h-7 absolute top-0 left-0 ring-2 ring-[var(--bg-app)]">
+                      <div className="w-10 h-10 rounded-full bg-[var(--bg-card)] relative">
+                        <Avatar className="w-6 h-6 absolute top-0 left-0 ring-2 ring-[var(--bg-app)]">
                           <AvatarImage src={cdnImage(message.avatars[0])} />
                           <AvatarFallback className="bg-[var(--app-accent)] text-[10px]">
                             {message.name.charAt(0)}
                           </AvatarFallback>
                         </Avatar>
                         {message.avatars[1] && (
-                          <Avatar className="w-7 h-7 absolute bottom-0 right-0 ring-2 ring-[var(--bg-app)]">
+                          <Avatar className="w-6 h-6 absolute bottom-0 right-0 ring-2 ring-[var(--bg-app)]">
                             <AvatarImage src={cdnImage(message.avatars[1])} />
                             <AvatarFallback className="bg-[#6366F1] text-[10px]">+</AvatarFallback>
                           </Avatar>
                         )}
                       </div>
                     ) : (
-                      <Avatar className="w-12 h-12">
+                      <Avatar className="w-10 h-10">
                         <AvatarImage src={cdnImage(message.avatar)} />
                         <AvatarFallback className="bg-gradient-to-br from-[var(--app-accent)] to-[var(--app-accent)] text-white text-base font-semibold">
                           {message.name.charAt(0).toUpperCase()}
@@ -459,7 +468,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     {/* Status indicator */}
                     {message.type !== "group" && (
                     <div
-                      className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full ring-[3px] ring-[var(--bg-app)]"
+                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ring-[3px] ring-[var(--bg-app)]"
                       style={{ backgroundColor: statusColors[message.status || "offline"] }}
                     />
                     )}
@@ -468,7 +477,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                   <div className="flex-1 min-w-0 text-left">
                     <div className="flex items-center justify-between gap-2">
                       <span className={cn(
-                        "text-[17px] truncate leading-tight text-[var(--text-primary)]",
+                        "text-[16px] truncate leading-tight text-[var(--text-primary)]",
                         unread ? "font-bold" : "font-semibold"
                       )}>
                         {message.name}
@@ -481,7 +490,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                       </span>
                     </div>
                     <p className={cn(
-                      "text-[15px] line-clamp-2 break-words leading-snug mt-0.5",
+                      "text-[14px] truncate leading-snug mt-0.5",
                       unread ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]"
                     )}>
                       {message.lastMessage}
@@ -509,6 +518,14 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
           )}
         </div>
       </div>
+      <MountWhenOpened open={!!sheetMessage}>
+        {sheetMessage && (
+          <MobileDmSheet
+            conversation={sheetMessage}
+            onClose={() => setSheetMessage(null)}
+          />
+        )}
+      </MountWhenOpened>
       <MountWhenOpened open={showGroupPicker}>
         <GroupDmPickerDialog open={showGroupPicker} onOpenChange={setShowGroupPicker} mode="create" />
       </MountWhenOpened>

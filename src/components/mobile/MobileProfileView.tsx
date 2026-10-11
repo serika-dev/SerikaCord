@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { CustomStatusLine } from "@/components/user/CustomStatus";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -34,6 +38,9 @@ import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { VERSION_LABEL } from "@/lib/version";
 import { statusLabelInvisible } from "@/lib/statusLabels";
+
+const MobileStatusSheet = dynamic(() => import("./MobileStatusSheet").then((m) => m.MobileStatusSheet), { ssr: false });
+const CustomStatusDialog = dynamic(() => import("@/components/user/CustomStatusDialog").then((m) => m.CustomStatusDialog), { ssr: false });
 
 const STATUS_COLORS: Record<string, string> = {
   online: "#23A559",
@@ -70,6 +77,8 @@ export function MobileProfileView() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const gt = useGT();
+  const [showStatusSheet, setShowStatusSheet] = useState(false);
+  const [showCustomStatus, setShowCustomStatus] = useState(false);
 
   const status = user?.status ?? "offline";
   const displayName = user?.displayName || user?.username || "";
@@ -123,7 +132,7 @@ export function MobileProfileView() {
       title: gt("Support"),
       items: [
         { icon: HelpCircle, label: gt("Help & Support"), onClick: () => openExternal("https://serika.cc/serika") },
-        { icon: MessageSquare, label: gt("Feedback & Bug Reports"), onClick: () => openExternal("https://serika.cc/serika") },
+        { icon: MessageSquare, label: gt("Feedback & Bug Reports"), href: "/channels/settings/bug-report" },
       ],
     },
   ];
@@ -134,7 +143,7 @@ export function MobileProfileView() {
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg-app)]/70 to-[var(--bg-app)]" />
 
       <ScrollArea className="profile-scroll-area relative flex-1 w-full overflow-x-hidden">
-        <div className="w-full max-w-full pb-24 overflow-x-hidden">
+        <div className="w-full max-w-full overflow-x-hidden" style={{ paddingBottom: "calc(var(--mobile-content-pb) + 1rem)" }}>
           {/* ── Fullscreen profile hero ── */}
           <div className="relative">
             {/* Banner */}
@@ -144,7 +153,7 @@ export function MobileProfileView() {
               ) : hasBannerStyle ? (
                 <div className="absolute inset-0" style={getProfileBannerStyle(customization)} />
               ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] via-[#7C3AED] to-[#4F46E5]" />
+                <div className="absolute inset-0 bg-[var(--app-accent)]" />
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg-app)] via-[var(--bg-app)]/20 to-transparent" />
             </div>
@@ -154,7 +163,7 @@ export function MobileProfileView() {
               <div className="relative inline-block">
                 <Avatar className="w-28 h-28 border-4 border-[var(--bg-app)] shadow-2xl">
                   <AvatarImage src={cdnImage(user?.avatar)} />
-                  <AvatarFallback className="bg-[#8B5CF6] text-white text-4xl font-bold">
+                  <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-4xl font-bold">
                     {displayName.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
@@ -179,11 +188,24 @@ export function MobileProfileView() {
                 <p className="text-sm text-[var(--text-muted)] mt-0.5">{user.pronouns}</p>
               )}
 
-              {/* Online status pill */}
-              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)]">
+              {user?.customStatus ? (
+                <CustomStatusLine
+                  text={user.customStatus}
+                  customization={customization}
+                  className="mt-2 text-sm text-[var(--text-secondary)]"
+                />
+              ) : null}
+
+              {/* Online status pill (tap to change, like Discord's You tab) */}
+              <button
+                type="button"
+                onClick={() => setShowStatusSheet(true)}
+                className="mt-3 inline-flex touch-manipulation items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)] active:scale-[0.98]"
+              >
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
                 <span className="text-sm font-semibold text-[var(--text-primary)]">{statusLabelInvisible(status, gt)}</span>
-              </div>
+                <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+              </button>
 
               {/* Badges */}
               {badges.length > 0 && (
@@ -198,13 +220,13 @@ export function MobileProfileView() {
           <div className="px-6 mt-6 mb-8 grid grid-cols-2 gap-3">
             <button
               onClick={() => router.push("/channels/settings/profiles")}
-              className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--app-accent)] text-white text-sm font-semibold shadow-lg shadow-[var(--app-accent)]/20 active:scale-[0.98] transition-transform"
+              className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm font-semibold shadow-lg shadow-[var(--app-accent)]/20 active:scale-[0.98] transition-transform"
             >
               <Palette className="w-4 h-4" />
               {gt("Customize Profile")}
             </button>
             <button
-              onClick={() => router.push("/channels/settings/status")}
+              onClick={() => setShowStatusSheet(true)}
               className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm font-semibold active:scale-[0.98] transition-transform"
             >
               <User className="w-4 h-4" />
@@ -283,7 +305,7 @@ export function MobileProfileView() {
               <p className="text-xs font-medium text-[var(--text-muted)]">SerikaCord {VERSION_LABEL}</p>
               <Link
                 href="/changelog"
-                className="mt-1 inline-block text-xs text-[var(--accent-color)] hover:underline underline-offset-2"
+                className="mt-1 inline-block text-xs text-[var(--app-accent)] hover:underline underline-offset-2"
               >
                 {gt("What's new")}
               </Link>
@@ -291,6 +313,15 @@ export function MobileProfileView() {
           </div>
         </div>
       </ScrollArea>
+
+      <MountWhenOpened open={showStatusSheet}>
+        {showStatusSheet && (
+          <MobileStatusSheet onClose={() => setShowStatusSheet(false)} onCustomStatus={() => setShowCustomStatus(true)} />
+        )}
+      </MountWhenOpened>
+      <MountWhenOpened open={showCustomStatus}>
+        <CustomStatusDialog open={showCustomStatus} onOpenChange={setShowCustomStatus} />
+      </MountWhenOpened>
     </div>
   );
 }

@@ -28,7 +28,7 @@ export function MobileNotificationsView() {
           </button>
         </div>
       </header>
-      <InboxPanel className="min-h-0 flex-1 px-3 pb-24" />
+      <InboxPanel className="min-h-0 flex-1 px-3 pb-[calc(var(--mobile-content-pb)+4.5rem)]" />
     </div>
   );
 }
