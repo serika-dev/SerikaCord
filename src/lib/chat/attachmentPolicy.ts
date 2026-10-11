@@ -17,6 +17,9 @@ export interface IncomingAttachment {
   width?: number;
   height?: number;
   spoiler?: boolean;
+  /** Voice messages only (see lib/chat/voiceMessage). */
+  durationSecs?: number;
+  waveform?: string;
 }
 
 // Generous: the composer allows 10 (Serika+ tiers up to 25).

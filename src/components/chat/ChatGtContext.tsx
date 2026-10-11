@@ -84,6 +84,11 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "Click to reveal": gt("Click to reveal"),
       "Sensitive content": gt("Sensitive content"),
       "This media may contain explicit content.": gt("This media may contain explicit content."),
+      // VoiceMessagePlayer
+      "Voice message": gt("Voice message"),
+      "Play voice message": gt("Play voice message"),
+      "Pause voice message": gt("Pause voice message"),
+      "Playback speed": gt("Playback speed"),
       // LinkEmbed
       "Remove embed": gt("Remove embed"),
       "View GIF on Tenor": gt("View GIF on Tenor"),

@@ -17,6 +17,7 @@ import {
 } from '@/lib/permissions/botGuild';
 import type { IServer, IRole } from '@/lib/models';
 import { isSilentMessage, MESSAGE_FLAGS, sendFlags } from '@/lib/chat/messageFlags';
+import { fromDiscordVoiceAttachment, normalizeVoiceMessage, toDiscordVoiceFields } from '@/lib/chat/voiceMessage';
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, auditReason } from '@/lib/audit/auditLog';
 
@@ -195,6 +196,7 @@ function formatMessage(msg: any) {
       proxy_url: a.proxyUrl ?? a.url,
       width: a.width,
       height: a.height,
+      ...toDiscordVoiceFields(a),
     })),
     embeds: msg.embeds ?? [],
     reactions: (msg.reactions ?? []).map((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => ({
@@ -617,7 +619,18 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const isDm = channel.type === 'dm' || channel.type === 'group_dm';
   const mentionedUserIds = extractUserMentionIds(content);
   // SUPPRESS_EMBEDS / SUPPRESS_NOTIFICATIONS (@silent), as on Discord.
-  const msgFlags = sendFlags(flags, false);
+  // IS_VOICE_MESSAGE: one audio attachment with duration_secs (+ waveform), no text.
+  const voice = normalizeVoiceMessage({
+    requestedFlags: flags,
+    content,
+    hasSticker: Boolean(sticker_ids?.length),
+    attachments: ((attachments ?? []) as Array<Record<string, unknown>>).map((a) => {
+      const att = fromDiscordVoiceAttachment(a ?? {});
+      return { ...att, contentType: typeof att.contentType === 'string' ? att.contentType : '' };
+    }),
+  });
+  if ('error' in voice) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${voice.error}` }; }
+  const msgFlags = sendFlags(flags, false) | voice.flag;
   const silent = isSilentMessage(msgFlags);
   const msg = await Message.create({
     channelId: params.channelId,
@@ -625,7 +638,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     authorId: auth.botUser.id,
     content: content || '',
     embeds: embeds ?? [],
-    attachments: attachments ?? [],
+    attachments: voice.flag ? voice.attachments : (attachments ?? []),
     type: 'default',
     pinned: false,
     edited: false,

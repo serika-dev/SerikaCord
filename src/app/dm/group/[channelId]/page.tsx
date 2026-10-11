@@ -681,6 +681,7 @@ export default function GroupDMPage() {
             onCancelReply={() => chat.actions.setReplyToMessage(null)}
             pollApiBase={channelId ? `/api/group-dms/${channelId}` : undefined}
             draftKey={channelId ? `gdm:${channelId}` : undefined}
+            onSendVoice={chat.handleVoiceSend}
           />
           <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
         </div>

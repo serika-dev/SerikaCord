@@ -27,6 +27,7 @@ import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
+import { canSendVoiceMessages, isVoiceFlagRequested, normalizeVoiceMessage } from '@/lib/chat/voiceMessage';
 import { isMessageReportReason } from '@/lib/chat/messageReport';
 import { canStartDm } from '@/lib/chat/dmAccess';
 import { signalChannelMessage } from '@/lib/services/messageSignals';
@@ -259,7 +260,7 @@ async function canViewChannel(
   return hasPermissionBit(perms, PERM_VIEW_CHANNEL);
 }
 
-type SpeakAction = 'send' | 'attach' | 'react';
+type SpeakAction = 'send' | 'attach' | 'react' | 'voice';
 type SpeakDenial = { status: number; body: Record<string, unknown> };
 
 /**
@@ -303,6 +304,16 @@ export async function checkCanSpeak(
   }
   if (actions.includes('attach') && !hasPermissionBit(perms, PERM_ATTACH_FILES)) {
     return { status: 403, body: { error: 'You do not have permission to attach files in this channel' } };
+  }
+  if (actions.includes('voice') && !hasPermissionBit(perms, PERMISSION_BITS.SEND_VOICE_MESSAGES)) {
+    const everyoneRoleId = await getEveryoneRoleId(channel.serverId);
+    const allowed = canSendVoiceMessages(perms, (source.permissionOverwrites || []) as ChannelOverwrite[], {
+      serverId: channel.serverId,
+      everyoneRoleId,
+      memberRoleIds: (membership?.roles || []) as string[],
+      userId,
+    });
+    if (!allowed) return { status: 403, body: { error: 'You do not have permission to send voice messages in this channel' } };
   }
   if (actions.includes('react') && !hasPermissionBit(perms, PERM_ADD_REACTIONS)) {
     return { status: 403, body: { error: 'You do not have permission to add reactions in this channel' } };
@@ -2648,7 +2659,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       channel,
       membership,
       user.id,
-      (body.attachments?.length ?? 0) > 0 ? ['send', 'attach'] : ['send'],
+      (body.attachments?.length ?? 0) > 0
+        ? (isVoiceFlagRequested(body.flags) ? ['send', 'attach', 'voice'] : ['send', 'attach'])
+        : ['send'],
     );
     if (speakDenial) {
       set.status = speakDenial.status;
@@ -2752,11 +2765,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    const { replyTo, attachments = [], sticker } = body;
+    const { replyTo, sticker } = body;
+    let attachments = body.attachments ?? [];
     // "@silent hello" sends "hello" without notifying anyone (Discord).
     const silentPrefix = parseSilentPrefix(body.content);
     const content = body.content === undefined ? undefined : silentPrefix.content;
-    const messageFlags = sendFlags(body.flags, silentPrefix.silent);
+    let messageFlags = sendFlags(body.flags, silentPrefix.silent);
     const silent = isSilentMessage(messageFlags);
 
     // Validate sticker if provided
@@ -2796,6 +2810,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 400;
       return { error: attachmentError };
     }
+    // Voice messages (IS_VOICE_MESSAGE): one audio file with duration + waveform.
+    const voice = normalizeVoiceMessage({ requestedFlags: body.flags, content, hasSticker: !!stickerData, attachments });
+    if ('error' in voice) {
+      set.status = 400;
+      return { error: voice.error };
+    }
+    attachments = voice.attachments;
+    messageFlags |= voice.flag;
 
     // The reply target must be a live message in this same channel; otherwise
     // its content would be echoed back (and to every viewer) from anywhere.
@@ -3175,6 +3197,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         width: t.Optional(t.Number()),
         height: t.Optional(t.Number()),
         spoiler: t.Optional(t.Boolean()),
+        // Voice messages (flags & IS_VOICE_MESSAGE): length + base64 waveform.
+        durationSecs: t.Optional(t.Number()),
+        waveform: t.Optional(t.String({ maxLength: 400 })),
       }))),
       sticker: t.Optional(t.Object({
         id: t.String(),

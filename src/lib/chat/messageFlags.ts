@@ -8,6 +8,8 @@ export const MESSAGE_FLAGS = {
   SUPPRESS_EMBEDS: 1 << 2,
   /** "@silent": no push / desktop notification / sound for recipients. */
   SUPPRESS_NOTIFICATIONS: 1 << 12,
+  /** Voice message (one audio attachment with duration + waveform); see lib/chat/voiceMessage. */
+  IS_VOICE_MESSAGE: 1 << 13,
 } as const;
 
 /** Flags a client or bot may set when sending. */

@@ -2,6 +2,7 @@ import { getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
 import { toDiscordPoll, type PollResultData, type StoredPoll } from '@/lib/chat/polls';
 import type { ForwardView } from '@/lib/chat/forward';
+import { toDiscordVoiceFields, type VoiceAttachmentMeta } from '@/lib/chat/voiceMessage';
 
 /**
  * Central bus that feeds the standalone bot Gateway (scripts/gateway.ts).
@@ -72,6 +73,8 @@ interface InternalMessage {
     isSystem?: boolean;
   } | null;
   attachments?: Array<Record<string, unknown>>;
+  /** Discord message flags (SUPPRESS_NOTIFICATIONS, IS_VOICE_MESSAGE, ...). */
+  flags?: number | null;
   reactions?: unknown[];
   mentionEveryone?: boolean;
   mentionedUserIds?: string[];
@@ -132,12 +135,13 @@ export function toDiscordMessage(m: InternalMessage) {
       content_type: a.contentType,
       width: a.width,
       height: a.height,
+      ...toDiscordVoiceFields(a as VoiceAttachmentMeta),
     })),
     embeds: [],
     reactions: m.reactions ?? [],
     pinned: m.pinned ?? false,
     type: typeof m.type === 'number' ? m.type : (MESSAGE_TYPE_NUMBERS[String(m.type)] ?? 0),
-    flags: 0,
+    flags: typeof m.flags === 'number' ? m.flags : 0,
     ...(m.poll ? { poll: toDiscordPoll(m.poll) } : {}),
     ...(m.pollResult ? {
       embeds: [{

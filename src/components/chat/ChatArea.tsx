@@ -595,6 +595,12 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       },
     );
   }, [permissionChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, everyoneRole, user?.id]);
+  // Voice messages are attachments: the mic shows only with ATTACH_FILES (the
+  // server also enforces SEND_VOICE_MESSAGES overwrites).
+  const canAttachInCurrentChannel = useMemo(
+    () => hasChannelPermission(permissionChannel, PERMISSION_BITS.ATTACH_FILES, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, permOpts),
+    [permissionChannel, currentUserRoleIds, currentUserRolePerms, perms.isOwner, perms.isAdmin, permOpts],
+  );
 
   // Server-only: if the signed-in user is timed out, block the composer.
   const selfTimeoutUntil = useMemo(() => {
@@ -2097,6 +2103,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         channelId={currentChannel?.id}
         pollApiBase={currentChannel ? `/api/channels/${currentChannel.id}` : undefined}
         draftKey={currentChannel ? `channel:${currentChannel.id}` : undefined}
+        onSendVoice={canAttachInCurrentChannel ? chat.handleVoiceSend : undefined}
       />
       </div>
 

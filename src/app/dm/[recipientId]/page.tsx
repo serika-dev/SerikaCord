@@ -783,6 +783,7 @@ export default function DMConversationPage() {
               onCancelReply={() => chat.actions.setReplyToMessage(null)}
               pollApiBase={apiBase ?? undefined}
               draftKey={recipientId ? `dm:${recipientId}` : undefined}
+              onSendVoice={chat.handleVoiceSend}
             />
           )}
 

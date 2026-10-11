@@ -26,6 +26,7 @@ import { parsePollResult, parseStoredPoll, pollPreviewText } from '@/lib/chat/po
 import { isHiddenRequest, isPendingRequest } from '@/lib/chat/messageRequests';
 import { openRequestsFor, recordDmSend, resolveRequest } from '@/lib/services/messageRequests';
 import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
+import { normalizeVoiceMessage } from '@/lib/chat/voiceMessage';
 import { extractUserMentionIds } from '@/lib/services/messageSignals';
 
 function compareIds(id1: string, id2: string): boolean {
@@ -518,7 +519,7 @@ export function groupEventPayload(
 export type DmSendBody = {
   content?: string;
   sticker?: { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string };
-  attachments?: Array<{ id: string; url: string; filename: string; contentType: string; size?: number; spoiler?: boolean }>;
+  attachments?: Array<{ id: string; url: string; filename: string; contentType: string; size?: number; spoiler?: boolean; durationSecs?: number; waveform?: string }>;
   replyTo?: string;
   /** false = reply without pinging the replied-to author ("@OFF"). */
   mentionRepliedUser?: boolean;
@@ -585,6 +586,9 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
   if (!validation.valid && !stickerData && (!attachments || attachments.length === 0)) {
     return { error: fail(400, validation.error || 'Invalid message') };
   }
+  // Voice messages (IS_VOICE_MESSAGE): one audio file with duration + waveform.
+  const voice = normalizeVoiceMessage({ requestedFlags: body.flags, content, hasSticker: !!stickerData, attachments: attachments || [] });
+  if ('error' in voice) return { error: fail(400, voice.error) };
 
   // Normalize emoji format
   sanitizedContent = normalizeEmojiFormat(sanitizedContent);
@@ -592,10 +596,10 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
     prepared: {
       sanitizedContent,
       stickerData,
-      attachments: attachments || [],
+      attachments: voice.attachments,
       replyTo,
       mentionRepliedUser: body.mentionRepliedUser,
-      flags,
+      flags: flags | voice.flag,
       silent: isSilentMessage(flags),
     },
   };
@@ -978,6 +982,9 @@ export const DM_SEND_BODY = t.Object({
     contentType: t.String(),
     size: t.Optional(t.Number()),
     spoiler: t.Optional(t.Boolean()),
+    // Voice messages (flags & IS_VOICE_MESSAGE): length + base64 waveform.
+    durationSecs: t.Optional(t.Number()),
+    waveform: t.Optional(t.String({ maxLength: 400 })),
   }))),
   replyTo: t.Optional(t.String()),
   mentionRepliedUser: t.Optional(t.Boolean()),

@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { FileText, Eye, ShieldAlert } from "lucide-react";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
+import { VoiceMessagePlayer } from "@/components/chat/VoiceMessagePlayer";
+import { isVoiceAttachment } from "@/lib/chat/voiceMessage";
 import { formatFileSize } from "@/lib/chat/messages";
 import { useChatGt } from "./ChatGtContext";
 import type { MessageAttachment } from "@/lib/chat/types";
@@ -178,7 +180,13 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
       {/* Other attachments (audio, files) */}
       {otherAttachments.map((attachment) => (
         <div key={attachment.id} className="mt-2">
-          {attachment.contentType.startsWith("audio/") ? (
+          {isVoiceAttachment(attachment) ? (
+            <VoiceMessagePlayer
+              src={attachment.url}
+              durationSecs={attachment.durationSecs ?? 0}
+              waveform={attachment.waveform}
+            />
+          ) : attachment.contentType.startsWith("audio/") ? (
             <AudioMediaPlayer
               src={attachment.url}
               filename={attachment.filename}

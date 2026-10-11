@@ -42,6 +42,9 @@ export interface MessageAttachment {
   spoiler?: boolean;
   /** Flagged by the server's explicit media content filter: blurred until clicked. */
   sensitive?: boolean;
+  /** Voice messages (flags & IS_VOICE_MESSAGE): length and base64 waveform. */
+  durationSecs?: number;
+  waveform?: string;
 }
 
 export interface MessageReaction {

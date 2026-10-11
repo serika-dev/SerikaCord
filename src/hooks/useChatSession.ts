@@ -32,6 +32,7 @@ import {
 } from "@/lib/chat/messageCache";
 
 export { clearMessageCache, hasCachedMessages };
+import type { VoiceMessageAttachment } from "@/lib/chat/voiceMessage";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -111,6 +112,8 @@ export interface SendMessageInput {
   /** Overrides the composer content (e.g. GIF url). Composer is untouched. */
   contentOverride?: string;
   sticker?: MessageSticker;
+  /** An uploaded recording sent as a voice message (IS_VOICE_MESSAGE, no text). */
+  voice?: VoiceMessageAttachment;
 }
 
 interface UseChatSessionOptions<M extends ChatMessage> {
@@ -838,12 +841,13 @@ export function useChatSession<M extends ChatMessage>({
    * overrides, and pending attachments (uploaded via the MessageBar).
    */
   const sendMessage = useCallback(
-    async ({ contentOverride, sticker }: SendMessageInput = {}) => {
+    async ({ contentOverride, sticker, voice }: SendMessageInput = {}) => {
       if (!apiBase || !contextId || !user) return;
 
-      const isOverrideSend = typeof contentOverride === "string";
+      // A voice message leaves the composer (text and pending files) untouched.
+      const isOverrideSend = typeof contentOverride === "string" || !!voice;
       const composer = messageBarRef.current?.getComposer();
-      const rawContent = isOverrideSend ? contentOverride : (composer?.getText() ?? "");
+      const rawContent = isOverrideSend ? (contentOverride ?? "") : (composer?.getText() ?? "");
       const messageContent = latestRef.current.normalizeContent
         ? latestRef.current.normalizeContent(rawContent)
         : rawContent;
@@ -852,7 +856,7 @@ export function useChatSession<M extends ChatMessage>({
       // strips the prefix too; this keeps the optimistic bubble right).
       const silentParse = parseSilentPrefix(messageContent);
 
-      if (!silentParse.content.trim() && pendingAttachments.length === 0 && !sticker) {
+      if (!silentParse.content.trim() && pendingAttachments.length === 0 && !sticker && !voice) {
         return;
       }
 
@@ -906,7 +910,7 @@ export function useChatSession<M extends ChatMessage>({
       const buildOptimistic = (attachments: unknown[]) => ({
           id: tempId,
           content: silentParse.content,
-          flags: silentParse.silent ? MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS : 0,
+          flags: (silentParse.silent ? MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS : 0) | (voice ? MESSAGE_FLAGS.IS_VOICE_MESSAGE : 0),
           type: replyReference ? "reply" : "default",
           authorId: user.id,
           author: {
@@ -940,7 +944,7 @@ export function useChatSession<M extends ChatMessage>({
       // Every send shows its bubble right away, in queue order (= POST order =
       // server createdAt order). A send with files fills in its attachments once
       // the upload finishes.
-      setMessages((prev) => appendCapped(prev, buildOptimistic([]), true));
+      setMessages((prev) => appendCapped(prev, buildOptimistic(voice ? [voice] : []), true));
       latestRef.current.onShouldScrollToBottom?.();
 
       const run = async () => {
@@ -965,6 +969,10 @@ export function useChatSession<M extends ChatMessage>({
           if (messageContent) body.content = messageContent;
           if (sticker) body.sticker = sticker;
           if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
+          if (voice) {
+            body.attachments = [voice];
+            body.flags = MESSAGE_FLAGS.IS_VOICE_MESSAGE;
+          }
           if (replyReference) body.replyTo = replyReference.id;
           if (replyReference && !replyMention) body.mentionRepliedUser = false;
 
@@ -1041,6 +1049,11 @@ export function useChatSession<M extends ChatMessage>({
     [sendMessage]
   );
 
+  const handleVoiceSend = useCallback(
+    (voice: VoiceMessageAttachment) => void sendMessage({ voice }),
+    [sendMessage]
+  );
+
   /** Inserts a picked emoji (unicode or custom) into the composer. */
   const handleEmojiSelect = useCallback(
     (emoji: string, isCustom?: boolean, emojiData?: { id: string; name: string; animated?: boolean; url?: string }) => {
@@ -1093,6 +1106,7 @@ export function useChatSession<M extends ChatMessage>({
     addEphemeralMessage,
     handleGifSelect,
     handleStickerSelect,
+    handleVoiceSend,
     handleEmojiSelect,
     groupedMessages,
     mediaGallery,

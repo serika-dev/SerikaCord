@@ -42,6 +42,7 @@ import {
   EyeOff,
   BarChart3,
   Upload,
+  Mic,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
@@ -76,6 +77,8 @@ import { onMentionRequest } from "@/lib/social/userActions";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { useAuth } from "@/contexts/AuthContext";
+import VoiceMessageRecorder, { type VoiceHoldStart } from "@/components/chat/VoiceMessageRecorder";
+import type { VoiceMessageAttachment } from "@/lib/chat/voiceMessage";
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   clear: <Eraser className="w-3.5 h-3.5" />,
@@ -225,6 +228,9 @@ interface MessageBarProps {
    * stay with the main channel composer.
    */
   secondary?: boolean;
+  /** Sends a recorded voice message. Set only where the user may attach files;
+   *  shows the mic button while the composer is empty. */
+  onSendVoice?: (voice: VoiceMessageAttachment) => void;
 }
 
 const DRAFT_PREFIX = "serika:draft:";
@@ -269,6 +275,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       pollApiBase,
       draftKey,
       secondary = false,
+      onSendVoice,
     },
     ref
   ) {
@@ -336,19 +343,9 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     useEffect(() => { showEmojiPickerRef.current = showEmojiPicker; }, [showEmojiPicker]);
     useEffect(() => { pickerTabRef.current = pickerTab; }, [pickerTab]);
     const [hasText, setHasText] = useState(false);
-    const [acceptFileTypes, setAcceptFileTypes] = useState<string>("*/*");
-
-    useEffect(() => {
-      fetch("/api/platform/file-types-accept")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => {
-          const accept = data?.accept as string | undefined;
-          if (accept && accept.length > 0) {
-            setAcceptFileTypes(accept);
-          }
-        })
-        .catch(() => {});
-    }, []);
+    // No `accept` filter on the file picker: OS pickers cannot express split
+    // archive parts (.7z.001) or unknown types, and hid them. The upload
+    // endpoint validates the type and reports anything it rejects.
 
     // Broadcast keyboard-shortcut actions owned by the composer.
     useEffect(() => {
@@ -756,6 +753,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     }, [onStickerSelect]);
 
     const canSend = (hasText || attachments.length > 0) && !isUploading;
+    // Voice message recorder: open (hold = press-and-hold on the mic) or closed.
+    const [voiceSession, setVoiceSession] = useState<{ hold: VoiceHoldStart | null } | null>(null);
+    const closeVoice = useCallback(() => setVoiceSession(null), []);
+    const showMic = !!onSendVoice && !disabled && !canSend && !isSending && !isUploading;
 
     return (
       <>
@@ -765,7 +766,6 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           ref={fileInputRef}
           onChange={handleFileSelect}
           multiple
-          accept={acceptFileTypes}
           style={{ display: "none" }}
           tabIndex={-1}
           aria-hidden="true"
@@ -1438,6 +1438,28 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               </Popover>
               )}
 
+              {/* Voice message: hold to record (release sends), or tap to record hands-free */}
+              {showMic && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => {
+                    if (e.button !== 0 || voiceSession) return;
+                    e.preventDefault();
+                    setVoiceSession({ hold: { pointerId: e.pointerId, x: e.clientX } });
+                  }}
+                  onClick={(e) => {
+                    // Keyboard activation (Enter/Space) has no pointer: record hands-free.
+                    if (e.detail === 0 && !voiceSession) setVoiceSession({ hold: null });
+                  }}
+                  onContextMenu={(e) => e.preventDefault()}
+                  className="hover:text-[var(--text-primary)] transition-colors touch-none select-none"
+                  title={gt("Hold to record a voice message")}
+                  aria-label={gt("Record voice message")}
+                >
+                  <Mic className="w-5 sm:w-6 h-5 sm:h-6" />
+                </button>
+              )}
+
               {/* Send button (shows spinner while sending/uploading, but stays clickable) */}
               {(canSend || isSending || isUploading) && (
                 <button
@@ -1455,6 +1477,15 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 </button>
               )}
             </div>
+              {voiceSession && onSendVoice && (
+                <VoiceMessageRecorder
+                  hold={voiceSession.hold}
+                  channelId={channelId}
+                  uploadEndpoint={uploadEndpoint}
+                  onSend={onSendVoice}
+                  onClose={closeVoice}
+                />
+              )}
             </div>
           </div>
         </div>
