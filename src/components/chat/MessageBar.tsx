@@ -1,5 +1,6 @@
 "use client";
 
+import { isInlineVideo } from "@/lib/chat/uploadPolicy";
 import { CHUNKED_UPLOAD_THRESHOLD, uploadChunked } from "@/lib/chat/chunkedUpload";
 import {
   forwardRef,
@@ -465,7 +466,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       // Previews are index-aligned with attachments, so use object URLs
       // synchronously (FileReader callbacks could land out of order).
       const newPreviews = newFiles.map((file) =>
-        file.type.startsWith("image/") || file.type.startsWith("video/")
+        file.type.startsWith("image/") || isInlineVideo(file.type, file.name)
           ? URL.createObjectURL(file)
           : ""
       );
@@ -793,12 +794,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
             <div className="flex flex-wrap gap-2 p-2 bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)]">
               {attachments.map((file, index) => {
                 const isSpoiler = spoilerFlags.has(index);
-                const isMedia = file.type.startsWith("image/") || file.type.startsWith("video/");
+                const isMedia = file.type.startsWith("image/") || isInlineVideo(file.type, file.name);
                 return (
                 <div key={index} className="relative group">
                   {file.type.startsWith("image/") && attachmentPreviews[index] ? (
                     <img src={attachmentPreviews[index]} alt={file.name} className={cn("w-20 h-20 object-cover rounded-md", isSpoiler && "blur-[6px]")} />
-                  ) : file.type.startsWith("video/") && attachmentPreviews[index] ? (
+                  ) : isInlineVideo(file.type, file.name) && attachmentPreviews[index] ? (
                     <div className="relative w-20 h-20 rounded-md overflow-hidden bg-black">
                       <video src={attachmentPreviews[index]} className={cn("w-full h-full object-cover", isSpoiler && "blur-[6px]")} preload="metadata" muted />
                       <div className="absolute inset-0 flex items-center justify-center">

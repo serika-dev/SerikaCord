@@ -1,5 +1,6 @@
 "use client";
 
+import { isInlineVideo } from "@/lib/chat/uploadPolicy";
 import { useState } from "react";
 import { FileText, Eye, ShieldAlert } from "lucide-react";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
@@ -29,9 +30,9 @@ export function MessageAttachments({ attachments, messageId, onMediaClick }: Mes
   if (!attachments?.length) return null;
 
   const imageAttachments = attachments.filter((a) => a.contentType.startsWith("image/"));
-  const videoAttachments = attachments.filter((a) => a.contentType.startsWith("video/"));
+  const videoAttachments = attachments.filter((a) => isInlineVideo(a.contentType, a.filename));
   const otherAttachments = attachments.filter(
-    (a) => !a.contentType.startsWith("image/") && !a.contentType.startsWith("video/")
+    (a) => !a.contentType.startsWith("image/") && !isInlineVideo(a.contentType, a.filename)
   );
 
   const toggleReveal = (id: string) => {

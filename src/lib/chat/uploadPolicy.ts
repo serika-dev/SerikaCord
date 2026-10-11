@@ -113,3 +113,15 @@ export function checkAttachmentWhitelist(
   if (hits.length === 0) return { allowed: false, warn: false };
   return { allowed: true, warn: hits.every((h) => !h.safe) || RISKY_EXTENSIONS.has(fileExtension(name)) };
 }
+
+/**
+ * Whether an attachment should get the inline video player. Matroska (.mkv)
+ * is shown as a file card instead: browsers only play some MKVs (codec
+ * dependent), and a broken player is worse than a download button.
+ */
+export function isInlineVideo(contentType: string | null | undefined, filename?: string | null): boolean {
+  const c = canonicalMime(contentType);
+  if (!c.startsWith("video/")) return false;
+  if (c === "video/x-matroska") return false;
+  return !/\.(mkv|mka|mk3d)$/i.test(filename ?? "");
+}

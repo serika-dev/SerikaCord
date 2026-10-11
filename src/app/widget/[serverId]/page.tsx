@@ -1,5 +1,6 @@
 "use client";
 
+import { isInlineVideo } from "@/lib/chat/uploadPolicy";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -208,7 +209,7 @@ function WidgetMessageBody({
 function WidgetAttachments({ attachments }: { attachments?: WidgetAttachment[] }) {
   if (!attachments?.length) return null;
   const images = attachments.filter((a) => a.contentType.startsWith("image/") || isImageLikeUrl(a.url));
-  const videos = attachments.filter((a) => a.contentType.startsWith("video/"));
+  const videos = attachments.filter((a) => isInlineVideo(a.contentType, a.filename));
   const audios = attachments.filter((a) => a.contentType.startsWith("audio/"));
   const files = attachments.filter((a) => !images.includes(a) && !videos.includes(a) && !audios.includes(a));
   return (

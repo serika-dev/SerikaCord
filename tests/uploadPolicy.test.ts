@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkAttachmentWhitelist } from "@/lib/chat/uploadPolicy";
+import { checkAttachmentWhitelist, isInlineVideo } from "@/lib/chat/uploadPolicy";
 import { DOWNLOAD_CONTENT_TYPE, fileExtension, isRiskyAttachment, storedAttachmentType } from "@/lib/chat/uploadPolicy";
 
 const KNOWN = ["image/png", "text/plain", "application/zip", "video/mp4"];
@@ -78,5 +78,17 @@ describe("MIME aliases", () => {
   test("aliases work in both directions", () => {
     expect(checkAttachmentWhitelist("a.wav", "audio/x-wav", [{ type: "audio/wav", safe: true }], []).allowed).toBe(true);
     expect(checkAttachmentWhitelist("a.zip", "application/x-zip-compressed", [{ type: "application/zip", safe: true }], []).allowed).toBe(true);
+  });
+});
+
+
+describe("isInlineVideo", () => {
+  test("mkv is a file card, other video plays inline", () => {
+    expect(isInlineVideo("video/mp4", "a.mp4")).toBe(true);
+    expect(isInlineVideo("video/webm", "a.webm")).toBe(true);
+    expect(isInlineVideo("video/x-matroska", "a.mkv")).toBe(false);
+    expect(isInlineVideo("video/matroska", "clip")).toBe(false);
+    expect(isInlineVideo("video/webm", "rec.mkv")).toBe(false);
+    expect(isInlineVideo("application/pdf", "a.pdf")).toBe(false);
   });
 });
