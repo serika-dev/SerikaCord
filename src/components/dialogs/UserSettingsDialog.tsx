@@ -83,6 +83,8 @@ import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/namep
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
 import { DesktopSettingsPanel } from "@/components/settings/DesktopSettingsPanel";
+import { StreamerModeSettings } from "@/components/settings/StreamerModeSettings";
+import { useStreamerHides } from "@/hooks/useStreamerMode";
 import { isDesktopShell } from "@/lib/desktop/bridge";
 import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/AdminTtsPanel";
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
@@ -129,6 +131,7 @@ type SettingsTab =
   | "desktop"
   | "language"
   | "advanced"
+  | "streamer-mode"
   | "premium"
   | "admin-users"
   | "admin-servers"
@@ -792,6 +795,7 @@ function VoiceVideoTab({
 export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
+  const streamerHidesPersonal = useStreamerHides("personal");
   const confirmDialog = useConfirm();
   const { list: badgeDefinitions, resolve: resolveBadges } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
@@ -2099,6 +2103,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           { id: "language" as SettingsTab, label: gt("Language"), icon: Languages },
           // Only inside the desktop app (tray, start on login, global keys...).
           ...(isDesktopShell() ? [{ id: "desktop" as SettingsTab, label: gt("Desktop"), icon: Monitor }] : []),
+          { id: "streamer-mode" as SettingsTab, label: gt("Streamer Mode"), icon: MonitorSmartphone },
           { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings },
         ],
       },
@@ -3640,7 +3645,12 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Connections tab */}
-              {activeTab === "connections" && (
+              {activeTab === "connections" && streamerHidesPersonal && (
+                <p className="text-sm text-[var(--text-muted)] bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-4">
+                  {gt("Your connections are hidden while Streamer Mode is on.")}
+                </p>
+              )}
+              {activeTab === "connections" && !streamerHidesPersonal && (
                 <ConnectionsTabContent
                   userConnections={userConnections}
                   setUserConnections={setUserConnections}
@@ -3946,6 +3956,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                           </div>
                         </>
                       )}
+
+                      {activeTab === "streamer-mode" && <StreamerModeSettings />}
 
                       {activeTab === "advanced" && (
                         <>

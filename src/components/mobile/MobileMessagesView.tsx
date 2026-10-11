@@ -12,6 +12,7 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { useStreamerHides } from "@/hooks/useStreamerMode";
 import { useUnread, type DmSeed } from "@/contexts/UnreadContext";
 import { notificationPreview } from "@/lib/notifications/notify";
 import { groupDmHref } from "@/lib/chat/groupDm";
@@ -49,6 +50,8 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const messageRequests = useMessageRequests();
   const router = useRouter();
   const gt = useGT();
+  // Streamer Mode hides what people wrote.
+  const hidePreviews = useStreamerHides("notifications");
   const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels } = useUnread();
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -493,7 +496,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                       "text-[14px] truncate leading-snug mt-0.5",
                       unread ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]"
                     )}>
-                      {message.lastMessage}
+                      {hidePreviews ? "" : message.lastMessage}
                     </p>
                   </div>
 

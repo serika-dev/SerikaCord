@@ -19,6 +19,8 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
+import { useStreamerHides } from "@/hooks/useStreamerMode";
+import { maskInviteLink } from "@/lib/streamer/streamerMode";
 import { canShare, shareLink } from "@/lib/native/bridge";
 import { Loader } from "@/components/ui/Loader";
 import { useBackHandler } from "@/hooks/useBackHandler";
@@ -58,6 +60,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
     ? servers.find((s) => s.id === serverId) || currentServer
     : currentServer;
   const gt = useGT();
+  const hideInvites = useStreamerHides("invites");
   const [inviteCode, setInviteCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -293,7 +296,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
             <div className="flex gap-2">
               <div className="flex-1 relative">
                 <Input
-                  value={isLoading ? gt("Generating...") : effectiveCode ? inviteUrl : gt("Could not create invite")}
+                  value={isLoading ? gt("Generating...") : effectiveCode ? (hideInvites ? maskInviteLink(inviteUrl) : inviteUrl) : gt("Could not create invite")}
                   readOnly
                   className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] pr-10 font-mono text-sm max-sm:h-11"
                 />

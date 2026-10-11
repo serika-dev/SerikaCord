@@ -165,6 +165,8 @@ static const char *PRESENCE_REPORTER_JS = R"(
 
   window.__serikaSetActivities = function (activities) {
     current = activities || [];
+    // The web app's Streamer Mode auto-enables while OBS etc. run.
+    try { window.dispatchEvent(new CustomEvent('serika:desktop-activities', { detail: current })); } catch (e) {}
     resolveAndReport(current);
   };
 

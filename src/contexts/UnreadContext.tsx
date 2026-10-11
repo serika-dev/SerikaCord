@@ -22,6 +22,7 @@
  * via `markChannelRead(id, message)`.
  */
 
+import { streamerHidesNow } from "@/hooks/useStreamerMode";
 import { getRelationships, refreshRelationships } from "@/lib/social/relationshipsStore";
 import { receiveUserNote } from "@/lib/social/notesStore";
 import { refreshMessageRequests } from "@/lib/social/messageRequestsStore";
@@ -735,7 +736,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         return;
       }
       const s = stringsRef.current;
-      const showPreview = user.settings?.notifications?.showPreview !== false;
+      // Streamer Mode can hide message text in notifications.
+      const showPreview = user.settings?.notifications?.showPreview !== false && !streamerHidesNow("notifications");
 
       // Cross-device read receipt: another of this user's sessions read a
       // channel. Advance our read marker + clear its badge and notification

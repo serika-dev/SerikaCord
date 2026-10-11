@@ -22,6 +22,9 @@ import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDevic
 import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
 import { voiceService } from "@/lib/services/voiceService";
 import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
+import { StreamerModeSettings } from "@/components/settings/StreamerModeSettings";
+import { useStreamerHides } from "@/hooks/useStreamerMode";
+import { maskEmail } from "@/lib/streamer/streamerMode";
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -49,6 +52,7 @@ function getSectionTitle(section: string, gt: (s: string) => string): string {
     accessibility: gt("Accessibility"),
     voice: gt("Voice & Video"),
     language: gt("Language"),
+    "streamer-mode": gt("Streamer Mode"),
     premium: gt("SerikaCord Premium"),
     help: gt("Help & Support"),
     "bug-report": gt("Report a Bug"),
@@ -131,6 +135,7 @@ export default function MobileSettingsSectionPage() {
   const router = useRouter();
   const { user, updateUser } = useAuth();
   const gt = useGT();
+  const hidePersonal = useStreamerHides("personal");
   const { applyUserSettingsPatch } = useTheme();
   const section = (params.section as string) || "privacy";
 
@@ -542,6 +547,8 @@ export default function MobileSettingsSectionPage() {
           </div>
         )}
 
+        {section === "streamer-mode" && <StreamerModeSettings />}
+
         {section === "language" && settings && (
           <div className="space-y-4">
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
@@ -627,7 +634,7 @@ export default function MobileSettingsSectionPage() {
               </div>
               <div>
                 <label className="text-xs text-[var(--text-muted)] uppercase tracking-wide">{gt("Email")}</label>
-                <p className="text-sm text-[var(--text-primary)] mt-0.5">{user?.email || gt("Not set")}</p>
+                <p className="text-sm text-[var(--text-primary)] mt-0.5">{user?.email ? (hidePersonal ? maskEmail(user.email) : user.email) : gt("Not set")}</p>
               </div>
               {user?.isPremium && (
                 <div>
@@ -1519,7 +1526,13 @@ export default function MobileSettingsSectionPage() {
           </div>
         )}
 
-        {section === "connections" && (
+        {section === "connections" && hidePersonal && (
+          <p className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 text-sm text-[var(--text-muted)]">
+            {gt("Your connections are hidden while Streamer Mode is on.")}
+          </p>
+        )}
+
+        {section === "connections" && !hidePersonal && (
           <div className="space-y-6">
             {!connectionsEnabled && (
               <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-3">

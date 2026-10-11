@@ -7,11 +7,14 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useGT } from "gt-next";
+import { useStreamerHides } from "@/hooks/useStreamerMode";
+import { maskEmail } from "@/lib/streamer/streamerMode";
 
 export default function AccountSettingsPage() {
     const router = useRouter();
     const { user } = useAuth();
     const gt = useGT();
+    const hidePersonal = useStreamerHides("personal");
 
     return (
         <div className="flex flex-col h-full bg-[var(--bg-app)] text-[var(--text-primary)]">
@@ -69,7 +72,7 @@ export default function AccountSettingsPage() {
                         <div className="space-y-1">
                             <label className="text-xs font-bold text-[var(--text-muted)] uppercase">{gt("Email")}</label>
                             <div className="p-4 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]">
-                                <span>{user?.email || gt("No email linked")}</span>
+                                <span>{user?.email ? (hidePersonal ? maskEmail(user.email) : user.email) : gt("No email linked")}</span>
                             </div>
                         </div>
 

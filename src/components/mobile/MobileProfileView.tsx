@@ -33,6 +33,7 @@ import {
   MessageSquare,
   Crown,
   Link as LinkIcon,
+  MonitorSmartphone,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -115,6 +116,7 @@ export function MobileProfileView() {
         { icon: Accessibility, label: gt("Accessibility"), href: "/channels/settings/accessibility" },
         { icon: Volume2, label: gt("Voice & Video"), href: "/channels/settings/voice" },
         { icon: Languages, label: gt("Language"), href: "/channels/settings/language" },
+        { icon: MonitorSmartphone, label: gt("Streamer Mode"), href: "/channels/settings/streamer-mode" },
       ],
     },
     {

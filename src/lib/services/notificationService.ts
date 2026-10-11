@@ -11,6 +11,7 @@ import { addNativeListener, callNative, hasNativePlugin } from '@/lib/native/bri
 import { nativeAppState } from '@/lib/native/push';
 
 import { closeDesktopNotification, isDesktopShell, showDesktopNotification } from '@/lib/desktop/bridge';
+import { streamerHidesNow } from '@/hooks/useStreamerMode';
 
 // Check platform
 export const isElectron = (): boolean => {
@@ -174,6 +175,8 @@ export async function showNotification(
         onClick?: () => void;
     } = {}
 ): Promise<void> {
+    // Streamer Mode: no message text in OS notifications.
+    if (streamerHidesNow('notifications')) body = '';
     // SerikaCord desktop app: native OS notification (avatar, click to jump,
     // closed once the conversation is read).
     if (isDesktopShell()) {
