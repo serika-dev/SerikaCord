@@ -1,5 +1,6 @@
 "use client";
 
+import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -321,14 +322,11 @@ export default function GroupDMPage() {
 
   // Cross-server emojis/stickers for the pickers (best-effort)
   useEffect(() => {
-    fetch("/api/users/@me/emojis")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setAvailableServerEmojis(data.emojis || []))
-      .catch(() => {});
-    fetch("/api/users/@me/stickers")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => data && setAvailableServerStickers(data.stickers || []))
-      .catch(() => {});
+    // Shared 60s cache with ChatArea: DM/channel switches remount this page.
+    void getJsonCached<{ emojis?: Parameters<typeof setAvailableServerEmojis>[0] }>("/api/users/@me/emojis", 60_000)
+      .then((data) => data && setAvailableServerEmojis(data.emojis || []));
+    void getJsonCached<{ stickers?: Parameters<typeof setAvailableServerStickers>[0] }>("/api/users/@me/stickers", 60_000)
+      .then((data) => data && setAvailableServerStickers(data.stickers || []));
   }, []);
 
   // Redirect if not authenticated (with one recheck to prevent loops)

@@ -5,6 +5,7 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback,
 import { usePathname } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
 import { reuseUnchanged } from "@/lib/state/reuseUnchanged";
+import { BoundedMap } from "@/lib/utils/boundedMap";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
 import { onThreadsChanged } from "@/lib/chat/threadPanelStore";
@@ -330,6 +331,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   // One in-flight members request per server: the switch, the poll and
   // SSE-triggered refreshes share it instead of each pulling 1000 members.
   const membersInflightRef = useRef<Map<string, Promise<void>>>(new Map());
+  // Last member list per recently visited server (bounded: lists can be 1000 long).
+  const membersCacheRef = useRef(new BoundedMap<string, typeof members>(8));
   const fetchMembers = useCallback((serverId: string): Promise<void> => {
     if (!serverId) return Promise.resolve();
     const pending = membersInflightRef.current.get(serverId);
@@ -345,32 +348,44 @@ export function ServerProvider({ children }: { children: ReactNode }) {
 
   const fetchMembersNow = async (serverId: string) => {
     const isSwitch = lastMembersServerIdRef.current !== serverId;
+    // Switching back to a server seen this session paints its last member
+    // list at once (revalidated below) instead of an empty sidebar + spinner
+    // while up to 1000 members download again.
+    const cachedMembers = isSwitch ? membersCacheRef.current.get(serverId) : undefined;
     if (isSwitch) {
-      setIsMembersLoading(true);
-      setMembers([]);
+      setIsMembersLoading(!cachedMembers);
+      setMembers(cachedMembers ?? []);
       lastMembersServerIdRef.current = serverId;
     }
+    const fromScratch = isSwitch && !cachedMembers;
 
     try {
       const response = await fetch(`/api/servers/${serverId}/members?limit=1000`);
       if (response.ok) {
         const data = await response.json();
         const rawMembers = Array.isArray(data) ? data : data?.members || [];
-        // The user switched servers while this was in flight: drop it.
-        if (lastMembersServerIdRef.current !== serverId) return;
+        // The user switched servers while this was in flight: drop it, but
+        // keep it for the next visit.
+        if (lastMembersServerIdRef.current !== serverId) {
+          membersCacheRef.current.set(serverId, rawMembers);
+          return;
+        }
         // Only update state if the data actually changed to avoid unnecessary re-renders
         setMembers(prev => {
-          if (isSwitch) return rawMembers;
-          // Reuse unchanged member objects so memoized rows skip re-rendering;
-          // keep `prev` outright when nothing changed at all.
-          return reuseUnchanged<{ id?: string; membershipId?: string }>(prev, rawMembers, (m) => m.id || m.membershipId);
+          const next = fromScratch
+            ? rawMembers
+            : // Reuse unchanged member objects so memoized rows skip re-rendering;
+              // keep `prev` outright when nothing changed at all.
+              reuseUnchanged<{ id?: string; membershipId?: string }>(prev, rawMembers, (m) => m.id || m.membershipId);
+          membersCacheRef.current.set(serverId, next);
+          return next;
         });
-      } else if (isSwitch) {
+      } else if (fromScratch) {
         setMembers([]);
       }
     } catch (error) {
       console.error("Failed to fetch members:", error);
-      if (isSwitch) {
+      if (fromScratch) {
         setMembers([]);
       }
     } finally {

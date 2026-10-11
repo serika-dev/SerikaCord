@@ -2,8 +2,9 @@
 
 import { sharedGet } from "@/lib/bootFetch";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { PERMISSIONS, bitfieldHas, type PermissionKey } from "@/lib/roles/permissions";
+import { PermissionsStore, type PermissionsSnapshot } from "@/lib/roles/permissionsStore";
 
 /** The server's verification-level gate for the current member (Discord). */
 export interface VerificationState {
@@ -14,11 +15,33 @@ export interface VerificationState {
   until: string | null;
 }
 
-interface PermissionsState {
-  isOwner: boolean;
-  bitfield: bigint;
-  loading: boolean;
-  verification: VerificationState | null;
+/**
+ * One snapshot per server shared by every mounted consumer (sidebar, chat,
+ * voice menus...). Each of them used to fetch on its own and start from
+ * "no permissions, loading" on every mount, so every channel switch re-asked
+ * the server and briefly hid owner/moderator controls. Now a revisit paints
+ * the last answer at once and refetches only once it is a few seconds old.
+ */
+const store = new PermissionsStore<VerificationState>();
+
+const NO_SERVER: PermissionsSnapshot<VerificationState> = { isOwner: false, bitfield: 0n, verification: null };
+
+async function loadPermissions(serverId: string): Promise<void> {
+  try {
+    const res = await sharedGet(`/api/servers/${serverId}/members/@me/permissions`);
+    const data = res.ok ? await res.json() : null;
+    if (data && typeof data.permissions === "string") {
+      store.set(serverId, {
+        isOwner: Boolean(data.isOwner),
+        bitfield: BigInt(data.permissions || "0"),
+        verification: data.verification && typeof data.verification === "object" ? (data.verification as VerificationState) : null,
+      });
+    } else {
+      store.set(serverId, NO_SERVER);
+    }
+  } catch {
+    store.set(serverId, NO_SERVER);
+  }
 }
 
 /**
@@ -30,41 +53,20 @@ interface PermissionsState {
  * user who forges a request still can't perform an action they lack.
  */
 export function usePermissions(serverId: string | null | undefined) {
-  const [state, setState] = useState<PermissionsState>({
-    isOwner: false,
-    bitfield: 0n,
-    loading: true,
-    verification: null,
-  });
+  const snapshot = useSyncExternalStore(
+    store.subscribe,
+    () => (serverId ? store.get(serverId) : NO_SERVER),
+    () => (serverId ? undefined : NO_SERVER),
+  );
 
   useEffect(() => {
-    if (!serverId) {
-      setState({ isOwner: false, bitfield: 0n, loading: false, verification: null });
-      return;
-    }
-    let active = true;
-    setState((prev) => ({ ...prev, loading: true }));
-    sharedGet(`/api/servers/${serverId}/members/@me/permissions`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!active) return;
-        if (data && typeof data.permissions === "string") {
-          setState({
-            isOwner: Boolean(data.isOwner),
-            bitfield: BigInt(data.permissions || "0"),
-            loading: false,
-            verification: data.verification && typeof data.verification === "object" ? (data.verification as VerificationState) : null,
-          });
-        } else {
-          setState({ isOwner: false, bitfield: 0n, loading: false, verification: null });
-        }
-      })
-      .catch(() => active && setState({ isOwner: false, bitfield: 0n, loading: false, verification: null }));
-    return () => {
-      active = false;
-    };
+    if (!serverId) return;
+    const pending = store.claimRefresh(serverId);
+    if (pending) void loadPermissions(serverId).finally(pending);
   }, [serverId]);
 
+  const state = snapshot ?? NO_SERVER;
+  const loading = snapshot === undefined;
   const can = useCallback(
     (key: PermissionKey) => state.isOwner || bitfieldHas(state.bitfield, PERMISSIONS[key]),
     [state.isOwner, state.bitfield]
@@ -74,7 +76,7 @@ export function usePermissions(serverId: string | null | undefined) {
     can,
     isOwner: state.isOwner,
     isAdmin: state.isOwner || bitfieldHas(state.bitfield, PERMISSIONS.ADMINISTRATOR),
-    loading: state.loading,
+    loading,
     verification: state.verification,
   };
 }

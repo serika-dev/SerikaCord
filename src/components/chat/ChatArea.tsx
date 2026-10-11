@@ -2,6 +2,7 @@
 
 import { isMessageRead } from "@/lib/unread/engine";
 import { getUnreadState } from "@/lib/unread/store";
+import { getJsonCached } from "@/lib/swrJson";
 import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 
@@ -375,10 +376,12 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/channels/${channelId}/application-commands`);
-        if (!res.ok || cancelled) return;
-        const data = await res.json();
-        if (!cancelled) setAppLeaves(flattenAppCommands(data.groups || []));
+        const data = await getJsonCached<{ groups?: Parameters<typeof flattenAppCommands>[0] }>(
+          `/api/channels/${channelId}/application-commands`,
+          60_000,
+        );
+        if (!data || cancelled) return;
+        setAppLeaves(flattenAppCommands(data.groups || []));
       } catch {
         /* commands are optional; ignore fetch failures */
       }
@@ -425,9 +428,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   useEffect(() => {
     const fetchAllEmojis = async () => {
       try {
-        const response = await fetch('/api/users/@me/emojis');
-        if (response.ok) {
-          const data = await response.json();
+        const data = await getJsonCached<{ emojis?: Array<{ id?: string; _id?: string; name?: string; url?: string; imageUrl?: string; serverId?: string; serverName?: string; serverIcon?: string; animated?: boolean }> }>('/api/users/@me/emojis', 60_000);
+        if (data) {
           const mapped = (data.emojis || []).map((emoji: { id?: string; _id?: string; name?: string; url?: string; imageUrl?: string; serverId?: string; serverName?: string; serverIcon?: string; animated?: boolean }) => ({
             id: emoji.id || emoji._id,
             name: emoji.name,
@@ -436,7 +438,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             serverName: emoji.serverName,
             serverIcon: emoji.serverIcon,
             animated: emoji.animated,
-          }));
+          })) as typeof allServerEmojis;
           setAllServerEmojis(mapped);
         }
       } catch (error) {
@@ -451,16 +453,15 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   useEffect(() => {
     const fetchAllStickers = async () => {
       try {
-        const response = await fetch('/api/users/@me/stickers');
-        if (response.ok) {
-          const data = await response.json();
+        const data = await getJsonCached<{ stickers?: Array<{ id?: string; _id?: string; name?: string; imageUrl?: string; url?: string; serverId?: string; serverName?: string }> }>('/api/users/@me/stickers', 60_000);
+        if (data) {
           const mapped = (data.stickers || []).map((sticker: { id?: string; _id?: string; name?: string; imageUrl?: string; url?: string; serverId?: string; serverName?: string }) => ({
             id: sticker.id || sticker._id,
             name: sticker.name,
             imageUrl: sticker.imageUrl || sticker.url,
             serverId: sticker.serverId || '',
             serverName: sticker.serverName || 'Server',
-          }));
+          })) as typeof serverStickers;
           setServerStickers(mapped);
         }
       } catch (error) {
