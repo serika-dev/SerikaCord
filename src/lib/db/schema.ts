@@ -1176,3 +1176,7 @@ export type ChannelWebhookRow = typeof channelWebhooks.$inferSelect;
 export type ChannelWebhookInsert = typeof channelWebhooks.$inferInsert;
 export type BugReportRow = typeof bugReports.$inferSelect;
 export type BugReportInsert = typeof bugReports.$inferInsert;
+
+export { staffRoles, staffRoleAssignments } from './staffSchema';
+
+export { changelogAnnouncements, changelogReceipts } from './changelogSchema';

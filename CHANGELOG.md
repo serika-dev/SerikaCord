@@ -8,6 +8,9 @@
 
 ### Features
 
+- **Changelog popups** — staff can draft, preview, publish, and withdraw release notes from settings. New releases open in a What’s new popup, remember dismissal across devices, and stay available from settings.
+- **Staff roles and permissions** — create named roles with individual permissions, use support and release-team presets, assign multiple roles, and review each member’s combined access. Admin tools enforce permissions and protect against granting access beyond your own.
+
 ### Changes
 
 ### Bug Fixes

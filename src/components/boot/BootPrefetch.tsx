@@ -13,6 +13,7 @@ const BOOT_URLS = [
   "/api/users/@me/mentions?unread=1",
   "/api/users/@me/read-states",
   "/api/users/@me/channel-activity",
+  "/api/changelogs",
 ];
 
 // The page's own data: the open channel (its channel list, permissions and

@@ -1,6 +1,10 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, type Dispatch, type SetStateAction } from "react";
+import dynamic from "next/dynamic";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { useStaffAccess } from "@/hooks/useStaffAccess";
+import type { StaffPermission } from "@/lib/staff/permissions";
 import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useAuth } from "@/contexts/AuthContext";
@@ -106,6 +110,26 @@ import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDevic
 import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
 import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
 
+const AdminStaffPanel = dynamic(() => import("@/components/settings/AdminStaffPanel"));
+const AdminChangelogsPanel = dynamic(() => import("@/components/settings/AdminChangelogsPanel").then((module) => module.AdminChangelogsPanel));
+
+const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
+  "admin-users": ["users.view"],
+  "admin-staff": ["staff.manage"],
+  "admin-changelogs": ["changelog.manage", "changelog.publish"],
+  "admin-servers": ["servers.view"],
+  "admin-badges": ["badges.manage"],
+  "admin-announcements": ["settings.manage", "broadcast.send"],
+  "admin-settings": ["settings.manage"],
+  "admin-logs": ["logs.view"],
+  "admin-experiments": ["experiments.manage"],
+  "admin-tts-sounds": ["tts.manage"],
+  "admin-tts-voices": ["tts.manage"],
+  "admin-translations": ["translations.manage"],
+  "admin-stats": ["stats.view"],
+  "admin-bug-reports": ["reports.manage"],
+};
+
 interface UserSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -134,6 +158,8 @@ type SettingsTab =
   | "streamer-mode"
   | "premium"
   | "admin-users"
+  | "admin-staff"
+  | "admin-changelogs"
   | "admin-servers"
   | "admin-badges"
   | "admin-announcements"
@@ -1863,18 +1889,24 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       .replace(/^\n+|\n+$/g, "");
     if (!cleanedAnnouncement) return;
     try {
-      // Save announcement to platform settings
-      const settingsResponse = await fetch("/api/admin/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ globalAnnouncement: cleanedAnnouncement }),
-      });
-      if (!settingsResponse.ok) {
-        toast.error(gt("Failed to publish announcement"));
+      // Banner and direct-message broadcasts are independently delegated.
+      if (can("settings.manage")) {
+        const settingsResponse = await fetch("/api/admin/settings", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ globalAnnouncement: cleanedAnnouncement }),
+        });
+        if (!settingsResponse.ok) {
+          toast.error(gt("Failed to publish announcement"));
+          return;
+        }
+        const settingsData = await settingsResponse.json().catch(() => null);
+        if (settingsData) setPlatformSettings(settingsData);
+      }
+      if (!can("broadcast.send")) {
+        toast.success(gt("Announcement published"));
         return;
       }
-      const settingsData = await settingsResponse.json().catch(() => null);
-      if (settingsData) setPlatformSettings(settingsData);
 
       // Also broadcast as DMs from Serika system user
       const broadcastResponse = await fetch("/api/admin/broadcast", {
@@ -1891,7 +1923,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           toast.success(dmCount > 0 ? gt("Announcement published ({count} DMs sent)", { count: dmCount }) : gt("Announcement published"));
         }
       } else {
-        toast.error(gt("Announcement saved but broadcast failed"));
+        toast.error(can("settings.manage") ? gt("Announcement saved but broadcast failed") : gt("Broadcast failed"));
       }
     } catch (error) {
       toast.error(gt("Failed to publish announcement"));
@@ -2009,23 +2041,28 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     }
   };
 
-  // Admin section visibility: only admins and developers (NOT moderator/staff)
-  const isStaff = user?.badges?.some((badge: string) =>
-    ['admin', 'serikacord_developer'].includes(badge)
-  );
+  const staffAccess = useStaffAccess(open);
+  const { can } = staffAccess;
+  const isStaff = staffAccess.permissions.length > 0;
+  const canOpenAdminTab = useCallback((tab: string) =>
+    (ADMIN_TAB_PERMISSIONS[tab] || []).some(can), [can]);
+  const openChangelog = () => {
+    onOpenChange(false);
+    window.dispatchEvent(new Event("serika:open-changelog"));
+  };
 
-  // Load admin data when tabs are activated (only for admins/developers)
+  // Load only the staff resources granted to the current account.
   useEffect(() => {
     // Admin-only tab data fetches
     if (isStaff) {
-      if (activeTab === "admin-settings" && !platformSettings) {
+      if (activeTab === "admin-settings" && can("settings.manage") && !platformSettings) {
         fetchPlatformSettings();
-        fetchAdminStats();
-      } else if ((activeTab === "admin-experiments" || activeTab === "admin-announcements") && !platformSettings) {
+        if (can("stats.view")) fetchAdminStats();
+      } else if (activeTab === "admin-announcements" && can("settings.manage") && !platformSettings) {
         fetchPlatformSettings();
-      } else if (activeTab === "admin-logs" && adminLogs.length === 0) {
+      } else if (activeTab === "admin-logs" && can("logs.view") && adminLogs.length === 0) {
         fetchAdminLogs();
-      } else if (activeTab === "admin-stats") {
+      } else if (activeTab === "admin-stats" && can("stats.view")) {
         fetchAdminStats();
       }
     }
@@ -2039,7 +2076,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         })
         .catch(() => {});
     }
-  }, [activeTab, isStaff]);
+  }, [activeTab, isStaff, can]);
 
   const renderBadges = () => {
     if (!user?.badges || user.badges.length === 0) return null;
@@ -2114,6 +2151,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         title: gt("Admin — Users"),
         items: [
           { id: "admin-users" as SettingsTab, label: gt("User Management"), icon: Users },
+          { id: "admin-staff" as SettingsTab, label: gt("Staff Roles"), icon: ShieldCheck },
           { id: "admin-badges" as SettingsTab, label: gt("Badge Management"), icon: Award },
         ],
       });
@@ -2123,6 +2161,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           { id: "admin-stats" as SettingsTab, label: gt("Statistics"), icon: BarChart3 },
           { id: "admin-servers" as SettingsTab, label: gt("Server Management"), icon: Database },
           { id: "admin-announcements" as SettingsTab, label: gt("Announcements"), icon: Megaphone },
+          { id: "admin-changelogs" as SettingsTab, label: gt("Changelog Popups"), icon: FileText },
           { id: "admin-settings" as SettingsTab, label: gt("Platform Settings"), icon: Settings },
         ],
       });
@@ -2138,8 +2177,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         ],
       });
     }
-    return sections;
-  }, [gt, isStaff]);
+    return sections.map((section) => ({ ...section,
+      items: section.items.filter((item) => !item.id.startsWith("admin-") || canOpenAdminTab(item.id)),
+    })).filter((section) => section.items.length > 0);
+  }, [gt, isStaff, canOpenAdminTab]);
 
   // Filter menu items based on search — only recompute when the query or the
   // (memoized) menu actually changes.
@@ -2184,9 +2225,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
             footer={
               <div className="space-y-1 select-text text-xs text-[var(--text-muted)]">
                 <p className="font-medium text-[var(--text-secondary)]">SerikaCord {VERSION_LABEL}</p>
-                <a href="/changelog" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center text-[var(--app-accent)]">
+                <button type="button" onClick={openChangelog} className="inline-flex min-h-11 items-center text-[var(--app-accent)]">
                   {gt("What's new")}
-                </a>
+                </button>
                 {buildInfo.lines.map((line, i) => (
                   <p key={i}>{line.label} {line.value}</p>
                 ))}
@@ -2303,14 +2344,13 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                     <>SerikaCord {VERSION_LABEL}</>
                   )}
                 </p>
-                <a
-                  href="/changelog"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-block text-[11px] text-[var(--accent-color)] hover:underline underline-offset-2 pb-0.5"
+                <button
+                  type="button"
+                  onClick={openChangelog}
+                  className="inline-block text-[11px] text-[var(--app-accent)] hover:underline underline-offset-2 pb-0.5"
                 >
                   {gt("What's new")}
-                </a>
+                </button>
                 {buildInfo.lines.map((line, i) => (
                   <p key={i} className="text-[11px] text-[var(--text-muted)] leading-tight">
                     {line.label} {line.value}
@@ -3664,7 +3704,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-staff", "admin-changelogs", "admin-stats", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">
                     {/* The sidebar label, not the tab id: "text-images" read as "Text Images" (CORD-40). */}
@@ -4049,8 +4089,18 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                 </div>
               )}
 
+              <MountWhenOpened open={activeTab === "admin-staff" && can("staff.manage")}>
+                {activeTab === "admin-staff" && can("staff.manage") && <AdminStaffPanel key={user?.id} access={staffAccess} />}
+              </MountWhenOpened>
+              <MountWhenOpened open={activeTab === "admin-changelogs" && canOpenAdminTab(activeTab)}>
+                {activeTab === "admin-changelogs" && canOpenAdminTab(activeTab) && <AdminChangelogsPanel key={user?.id} canManage={can("changelog.manage")} canPublish={can("changelog.publish")} />}
+              </MountWhenOpened>
+              {activeTab.startsWith("admin-") && !canOpenAdminTab(activeTab) && (
+                <p className="text-sm text-[var(--app-muted)]">{gt("You do not have access to this staff tool.")}</p>
+              )}
+
               {/* Admin Panel - User Management */}
-              {activeTab === "admin-users" && isStaff && (
+              {activeTab === "admin-users" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <ShieldCheck className="w-6 h-6 text-[#8B5CF6]" />
@@ -4202,6 +4252,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     <ToggleSwitch
                                       size="sm"
                                       checked={selectedUser.isBanned}
+                                      disabled={!can("users.moderate") || selectedUser.isStaff}
                                       onCheckedChange={() => {
                                         if (selectedUser.isBanned) {
                                           void handleUnbanUser(selectedUser.id);
@@ -4224,6 +4275,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     return (
                                       <button
                                         key={badge.id}
+                                        disabled={!can("badges.manage") || (!staffAccess.isSuperAdmin && ["staff", "admin", "moderator", "serikacord_developer"].includes(badge.id))}
                                         onClick={() => void handleToggleBadge(badge.id)}
                                         className={cn(
                                           "flex items-center gap-2.5 p-2.5 rounded-lg border transition-all text-left",
@@ -4262,6 +4314,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                 <div className="grid grid-cols-2 gap-2">
                                   <button
                                     onClick={() => {
+                                      if (!can("logs.view")) return;
                                       setActiveTab("admin-logs");
                                       setAdminLogFilter("reports");
                                       void fetchAdminLogs("reports");
@@ -4306,7 +4359,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Server Management */}
-              {activeTab === "admin-servers" && isStaff && (
+              {activeTab === "admin-servers" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <Database className="w-6 h-6 text-[#8B5CF6]" />
@@ -4433,6 +4486,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     <ToggleSwitch
                                       size="sm"
                                       checked={selectedServer.isPartnered}
+                                      disabled={!can("servers.manage")}
                                       onCheckedChange={() => void handleTogglePartner(selectedServer.id)}
                                     />
                                   </div>
@@ -4444,6 +4498,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     <ToggleSwitch
                                       size="sm"
                                       checked={selectedServer.isDiscoverable}
+                                      disabled={!can("servers.manage")}
                                       onCheckedChange={() => void handleToggleDiscovery(selectedServer.id)}
                                     />
                                   </div>
@@ -4455,6 +4510,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                 <p className="text-xs text-red-400 uppercase font-semibold mb-2">{gt("Danger Zone")}</p>
                                 <div className="space-y-2">
                                   <button
+                                    disabled={!can("servers.manage")}
                                     onClick={handleTransferOwnership}
                                     className="w-full flex items-center justify-between p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors text-left"
                                   >
@@ -4465,6 +4521,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     <ExternalLink className="w-4 h-4 text-[var(--text-muted)]" />
                                   </button>
                                   <button
+                                    disabled={!can("servers.manage")}
                                     onClick={() => void handleDeleteServer(selectedServer.id)}
                                     className="w-full flex items-center justify-between p-3 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors text-left"
                                   >
@@ -4500,7 +4557,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Statistics */}
-              {activeTab === "admin-stats" && isStaff && (
+              {activeTab === "admin-stats" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <BarChart3 className="w-6 h-6 text-[#8B5CF6]" />
@@ -4603,7 +4660,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Platform Settings */}
-              {activeTab === "admin-settings" && isStaff && (
+              {activeTab === "admin-settings" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <Settings className="w-6 h-6 text-[#8B5CF6]" />
@@ -4868,7 +4925,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                   </div>
                 </div>
               )}
-              {activeTab === "admin-logs" && isStaff && (
+              {activeTab === "admin-logs" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
                     <Activity className="w-6 h-6 text-[#8B5CF6]" />
@@ -5087,7 +5144,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Badge Management (create/define badges) */}
-              {activeTab === "admin-badges" && isStaff && (
+              {activeTab === "admin-badges" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("Badge Management")}</h2>
                   <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Create, edit, and manage the platform's badge definitions. To assign badges to a user, use the User Management tab.")}</p>
@@ -5096,12 +5153,12 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Announcements */}
-              {activeTab === "admin-announcements" && isStaff && (
+              {activeTab === "admin-announcements" && canOpenAdminTab(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("Announcements")}</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Publish a global banner announcement visible to all users. Blank lines are preserved.")}</p>
+                  <p className="text-sm text-[var(--text-muted)] mb-6">{can("settings.manage") && can("broadcast.send") ? gt("Publish a global banner and send it to users by direct message. Blank lines are preserved.") : can("settings.manage") ? gt("Publish a global banner announcement visible to all users. Blank lines are preserved.") : gt("Send a platform announcement to users by direct message.")}</p>
                   <div className="bg-[var(--bg-app)] rounded-xl p-5 space-y-4">
-                    {platformSettings?.globalAnnouncement && (
+                    {can("settings.manage") && platformSettings?.globalAnnouncement && (
                       <div className="p-3 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-sm text-[var(--text-primary)]">
                         <p className="text-[10px] uppercase font-semibold text-[var(--text-muted)] mb-1.5">{gt("Current Live Announcement")}</p>
                         {platformSettings.globalAnnouncement.split("\n").map((line: string, i: number, arr: string[]) => (
@@ -5128,7 +5185,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                         <Megaphone className="w-4 h-4" />
                         {gt("Publish")}
                       </button>
-                      {platformSettings?.globalAnnouncement && (
+                      {can("settings.manage") && platformSettings?.globalAnnouncement && (
                         <button
                           onClick={async () => {
                             setAnnouncementText("");
@@ -5148,22 +5205,22 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Experiments */}
-              {activeTab === "admin-experiments" && isStaff && (
+              {activeTab === "admin-experiments" && canOpenAdminTab(activeTab) && (
                 <AdminExperimentsPanel />
               )}
 
               {/* Admin Panel - TTS Sounds */}
-              {activeTab === "admin-tts-sounds" && isStaff && (
+              {activeTab === "admin-tts-sounds" && canOpenAdminTab(activeTab) && (
                 <AdminTtsSoundsPanel />
               )}
 
               {/* Admin Panel - TTS Voices */}
-              {activeTab === "admin-tts-voices" && isStaff && (
+              {activeTab === "admin-tts-voices" && canOpenAdminTab(activeTab) && (
                 <AdminTtsVoicesPanel />
               )}
 
               {/* Admin Panel - Translations */}
-              {activeTab === "admin-translations" && isStaff && (
+              {activeTab === "admin-translations" && canOpenAdminTab(activeTab) && (
                 <AdminTranslationsPanel />
               )}
 
@@ -5173,7 +5230,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Admin Panel - Bug Reports */}
-              {activeTab === "admin-bug-reports" && isStaff && (
+              {activeTab === "admin-bug-reports" && canOpenAdminTab(activeTab) && (
                 <AdminBugReportsPanel />
               )}
             </div>

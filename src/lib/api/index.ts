@@ -23,6 +23,8 @@ import { scheduledEventRoutes } from './scheduledEvents';
 import { announcementRoutes } from './announcements';
 import { searchRoutes } from './search';
 import { adminRoutes } from './admin';
+import { staffRoutes } from './staff';
+import { changelogRoutes, adminChangelogRoutes } from './changelogs';
 import { badgeRoutes } from './badges';
 import { oembedRoutes } from './oembed';
 import { experimentRoutes, instanceRoutes } from './experiments';
@@ -4192,6 +4194,9 @@ export const api = new Elysia({ prefix: '/api' })
   .use(voiceRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
+  .use(staffRoutes)
+  .use(changelogRoutes)
+  .use(adminChangelogRoutes)
   .use(adminRoutes)
   .use(badgeRoutes)
   .use(oembedRoutes)

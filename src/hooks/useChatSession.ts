@@ -1000,6 +1000,11 @@ export function useChatSession<M extends ChatMessage>({
                   }
                   return prev.map((m) => (m.id === tempId ? { ...m, ...confirmed, pending: false } : m));
                 });
+              } else {
+                // Accepted but no message came back (e.g. AutoMod held it):
+                // never leave the bubble on "Sending…".
+                setMessages((prev) => prev.filter((m) => m.id !== tempId));
+                if (payload?.error) toast.error(String(payload.error));
               }
             }
           } else {

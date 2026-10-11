@@ -124,7 +124,10 @@ export async function recalculateUserBadges(userId: string): Promise<BadgeId[] |
     Array.from(currentSet).some((b) => !newSet.has(b));
 
   if (changed) {
-    await User.updateById(userId, { badges: newBadges });
+    const updated = await User.updateBadgesIfUnchanged(userId, user, newBadges);
+    // Another badge/authority update won the race. Keep its result and let a
+    // subsequent recalculation recompute from the latest identity.
+    if (!updated) return (await User.findById(userId))?.badges ?? null;
   }
 
   return newBadges;

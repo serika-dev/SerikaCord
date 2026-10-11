@@ -1,4 +1,4 @@
-import { eq, sql, and, type SQL } from 'drizzle-orm';
+import { eq, isNull, sql, and, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 import type { BuiltinBadgeId } from '../constants/badges';
@@ -243,6 +243,21 @@ export const User = {
 
   async updateById(id: string, data: Partial<typeof schema.users.$inferInsert>) {
     const [row] = await db.update(schema.users).set({ ...data, updatedAt: new Date() }).where(eq(schema.users.id, normalizeId(id))).returning();
+    return row || null;
+  },
+
+  /** Automatic badge recalculation must never restore authority from an old read. */
+  async updateBadgesIfUnchanged(
+    id: string,
+    expected: { badges: string[] | null; isStaff: boolean | null; staffRole: string | null },
+    badges: string[],
+  ) {
+    const [row] = await db.update(schema.users).set({ badges, updatedAt: new Date() }).where(and(
+      eq(schema.users.id, normalizeId(id)),
+      expected.badges === null ? isNull(schema.users.badges) : eq(schema.users.badges, expected.badges),
+      expected.isStaff === null ? isNull(schema.users.isStaff) : eq(schema.users.isStaff, expected.isStaff),
+      expected.staffRole === null ? isNull(schema.users.staffRole) : eq(schema.users.staffRole, expected.staffRole),
+    )).returning();
     return row || null;
   },
 

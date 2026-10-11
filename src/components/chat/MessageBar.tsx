@@ -105,6 +105,9 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   fun: <Dice5 className="w-3 h-3" />,
 };
 
+
+// Give up on an attachment upload when no bytes moved for this long.
+const UPLOAD_STALL_MS = 60_000;
 export interface MessageBarAttachment {
   id: string;
   url: string;
@@ -648,7 +651,22 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
 
           const xhr = new XMLHttpRequest();
           xhr.open("POST", uploadEndpoint);
+          // Settle no matter what: a send waits on this, and later sends queue
+          // behind it. Give up when no bytes moved for UPLOAD_STALL_MS.
+          let settled = false;
+          let lastProgressAt = Date.now();
+          const stallTimer = window.setInterval(() => {
+            if (Date.now() - lastProgressAt > UPLOAD_STALL_MS) xhr.abort();
+          }, 5000);
+          const finish = (value: MessageBarAttachment | null, error?: string) => {
+            if (settled) return;
+            settled = true;
+            window.clearInterval(stallTimer);
+            if (error) toast.error(error, { description: file.name });
+            resolve(value);
+          };
           xhr.upload.onprogress = (event) => {
+            lastProgressAt = Date.now();
             if (event.lengthComputable) {
               const percent = Math.round((event.loaded / event.total) * 100);
               setUploadProgress((prev) => ({ ...prev, [index]: percent }));
@@ -659,7 +677,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               try {
                 const data = JSON.parse(xhr.responseText);
                 setUploadProgress((prev) => ({ ...prev, [index]: 100 }));
-                resolve(data.attachment ?? null);
+                finish(data.attachment ?? null, data.attachment ? undefined : `${gt("Failed to upload")} ${file.name}`);
                 return;
               } catch {
                 // fall through to error toast
@@ -672,13 +690,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
             } catch {
               // keep default message (e.g. Cloudflare's HTML 413 page)
             }
-            toast.error(errorMsg, { description: file.name });
-            resolve(null);
+            finish(null, errorMsg);
           };
-          xhr.onerror = () => {
-            toast.error(`${gt("Failed to upload")} ${file.name}`, { description: gt("Network error — check your connection.") });
-            resolve(null);
-          };
+          xhr.onerror = () => finish(null, `${gt("Failed to upload")} ${file.name}: ${gt("Network error — check your connection.")}`);
+          xhr.onabort = () => finish(null, `${gt("Failed to upload")} ${file.name}: ${gt("The upload stalled. Try again.")}`);
+          xhr.ontimeout = xhr.onabort;
           xhr.send(formData);
         }),
       [channelId, uploadEndpoint]

@@ -23,7 +23,8 @@ when Next runs alone.
 | `/api/upload` | `uploads.ts` | uploads to B2 (type allowlist from platform settings) |
 | `/api/gifs` | `gifs.ts` | GIF search proxy |
 | `/api/oembed` | `oembed.ts` | link previews (YouTube, niconico, bilibili, fxtwitter, OpenGraph scrape) |
-| `/api/admin` | `admin.ts` | staff panel (users, servers, bans, badges, bug reports, broadcast) |
+| `/api/admin` | `admin.ts`, `staff.ts` | staff panel and delegated role management; `/access` returns the current account's effective capabilities |
+| `/api/changelogs`, `/api/admin/changelogs` | `changelogs.ts` | authenticated release history/read receipts and staff draft/publish controls |
 | `/api/experiments`, `/api/instance` | `experiments.ts` | feature flags, instance info |
 | `/api/developers`, `/api/oauth2` | `developers.ts` | developer portal (apps, bots, commands), OAuth2 for third-party apps |
 | `/api/v10/*` | `botApi.ts` | Discord-v10-compatible bot REST API |
@@ -47,9 +48,11 @@ when Next runs alone.
   const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
   if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
   ```
-- **Staff**: `getAdminAuth` in `admin.ts` requires `isStaff && staffRole ===
-  'admin'` or an admin/developer badge, re-reads the user from the DB, and
-  applies the `admin` rate limit.
+- **Staff**: `getStaffAuth` in `services/staffAuth.ts` re-reads the user and
+  assigned roles, applies the `admin` rate limit, and checks an explicit
+  capability on every protected endpoint. Existing administrators/developer
+  badges retain full access. Custom roles combine allow-only capabilities;
+  badges do not grant custom roles. See [Staff and changelogs](staff-and-changelogs.md).
 - **Bots**: `authenticateBot` in `botApi.ts` accepts `Authorization: Bot
   <token>` (or the bare token) and resolves the application and its bot user.
 - **Service calls**: `/api/internal/*` compares `x-service-key` with

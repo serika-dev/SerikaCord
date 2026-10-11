@@ -27,7 +27,15 @@ function putPart(url: string, body: Blob, onProgress: (loaded: number) => void, 
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress(e.loaded); };
+    let lastProgressAt = Date.now();
+    const stallTimer = window.setInterval(() => {
+      if (Date.now() - lastProgressAt > 60_000) xhr.abort();
+    }, 5000);
+    xhr.onloadend = () => window.clearInterval(stallTimer);
+    xhr.upload.onprogress = (e) => {
+      lastProgressAt = Date.now();
+      if (e.lengthComputable) onProgress(e.loaded);
+    };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
       let msg = "Upload failed";
@@ -35,6 +43,8 @@ function putPart(url: string, body: Blob, onProgress: (loaded: number) => void, 
       reject(new UploadError(msg));
     };
     xhr.onerror = () => reject(new UploadError("Network error"));
+    xhr.onabort = () => reject(new UploadError("The upload stalled. Try again."));
+    xhr.ontimeout = xhr.onabort;
     signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     xhr.send(body);
   });

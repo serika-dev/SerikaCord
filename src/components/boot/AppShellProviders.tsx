@@ -8,6 +8,7 @@ import { NotificationHosts } from "@/components/notifications/NotificationHosts"
 import { NativeAppBridge } from "@/components/native/NativeAppBridge";
 import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
 import { UserActionsHost } from "@/components/user/UserActionsHost";
+import { ChangelogHost } from "@/components/changelog/ChangelogHost";
 
 // Heavy dialogs are code-split so they don't slow the first paint, but the
 // first click must not wait on a download: warm their chunks once the browser
@@ -63,6 +64,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
           <ForwardDialogHost />
           <NativeAppBridge />
           <UserActionsHost />
+          <ChangelogHost />
         </ConfirmProvider>
       </UnreadProvider>
     </ServerProvider>

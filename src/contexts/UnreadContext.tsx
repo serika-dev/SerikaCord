@@ -769,6 +769,11 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       }
 
       // Friends / blocks changed (any device): refresh the shared lists.
+      if (data.type === "staff_access_changed") {
+        window.dispatchEvent(new Event("serika:staff-access-changed"));
+        return;
+      }
+
       if (data.type === "relationships_changed") {
         void refreshRelationships();
         return;
