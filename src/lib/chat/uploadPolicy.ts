@@ -24,6 +24,35 @@ const ACTIVE_TYPES = /^(text\/html|application\/xhtml\+xml|application\/xml|text
 
 export const DOWNLOAD_CONTENT_TYPE = "application/octet-stream";
 
+// Browsers disagree on some names (Chrome now sends video/matroska for .mkv;
+// whitelists usually list video/x-matroska). Compare on one canonical name.
+const MIME_ALIASES: Record<string, string> = {
+  "video/matroska": "video/x-matroska",
+  "audio/matroska": "audio/x-matroska",
+  "audio/x-wav": "audio/wav",
+  "audio/wave": "audio/wav",
+  "audio/vnd.wave": "audio/wav",
+  "audio/mp3": "audio/mpeg",
+  "audio/x-mpeg": "audio/mpeg",
+  "audio/x-flac": "audio/flac",
+  "audio/x-m4a": "audio/mp4",
+  "audio/m4a": "audio/mp4",
+  "image/jpg": "image/jpeg",
+  "image/pjpeg": "image/jpeg",
+  "application/x-zip-compressed": "application/zip",
+  "application/x-zip": "application/zip",
+  "application/x-gzip": "application/gzip",
+  "application/x-7z": "application/x-7z-compressed",
+  "text/x-markdown": "text/markdown",
+  "application/x-pdf": "application/pdf",
+};
+
+/** Lowercase, drop parameters (";codecs=opus") and fold known aliases. */
+export function canonicalMime(type: string | null | undefined): string {
+  const t = (type ?? "").trim().toLowerCase().split(";")[0].trim();
+  return MIME_ALIASES[t] ?? t;
+}
+
 export function fileExtension(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "";
   const dot = base.lastIndexOf(".");
@@ -37,7 +66,8 @@ export function fileExtension(name: string): string {
 export function storedAttachmentType(type: string | null | undefined, knownTypes: readonly string[]): string {
   const t = (type ?? "").trim().toLowerCase().split(";")[0].trim();
   if (!t || ACTIVE_TYPES.test(t)) return DOWNLOAD_CONTENT_TYPE;
-  return knownTypes.includes(t) ? t : DOWNLOAD_CONTENT_TYPE;
+  const c = canonicalMime(t);
+  return knownTypes.some((k) => canonicalMime(k) === c) ? t : DOWNLOAD_CONTENT_TYPE;
 }
 
 /** Whether to show a "this file could be harmful" warning. */
@@ -65,7 +95,7 @@ function entryMatches(entry: string, name: string, type: string): boolean {
   }
   if (!type) return false;
   if (e.endsWith("/*")) return type.startsWith(e.slice(0, -1));
-  return type === e;
+  return type === canonicalMime(e);
 }
 
 /** Whether the whitelist allows this file, and whether to warn about it. */
@@ -77,7 +107,7 @@ export function checkAttachmentWhitelist(
 ): { allowed: boolean; warn: boolean } {
   // Browsers send no type for files they don't recognise (split archive parts
   // like .7z.001): that is application/octet-stream.
-  const t = (type ?? "").trim().toLowerCase().split(";")[0].trim() || "application/octet-stream";
+  const t = canonicalMime(type) || "application/octet-stream";
   const list = whitelist && whitelist.length > 0 ? whitelist : builtIn.map((b) => ({ type: b, safe: true }));
   const hits = list.filter((entry) => entryMatches(entry.type, name, t));
   if (hits.length === 0) return { allowed: false, warn: false };

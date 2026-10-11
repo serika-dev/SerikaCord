@@ -68,3 +68,15 @@ describe("split archives", () => {
     expect(checkAttachmentWhitelist("backup.zip", "", list, []).allowed).toBe(false);
   });
 });
+
+describe("MIME aliases", () => {
+  test("video/matroska matches a video/x-matroska entry", () => {
+    const list = [{ type: "video/x-matroska", safe: true }];
+    expect(checkAttachmentWhitelist("a.mkv", "video/matroska", list, []).allowed).toBe(true);
+    expect(storedAttachmentType("video/matroska", ["video/x-matroska"])).toBe("video/matroska");
+  });
+  test("aliases work in both directions", () => {
+    expect(checkAttachmentWhitelist("a.wav", "audio/x-wav", [{ type: "audio/wav", safe: true }], []).allowed).toBe(true);
+    expect(checkAttachmentWhitelist("a.zip", "application/x-zip-compressed", [{ type: "application/zip", safe: true }], []).allowed).toBe(true);
+  });
+});
