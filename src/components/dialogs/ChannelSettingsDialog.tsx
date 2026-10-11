@@ -26,6 +26,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn, cdnImage } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { normalizeOverwrites } from "@/lib/permissions/overwriteEditor";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackHandler } from "@/hooks/useBackHandler";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import {
+  MobileSaveAction,
+  MobileSettingsList,
+  MobileSettingsScreen,
+  type MobileSettingsGroup,
+} from "@/components/settings/MobileSettingsShell";
+import { mobileSettingsBack, openMobileSection, type MobileSettingsNav } from "@/lib/settings/mobileSettingsNav";
+
+type ChannelSettingsTab = "overview" | "permissions" | "integrations" | "invites" | "delete";
 
 // The Permissions tab (overwrite editor, member/role picker) loads on first open.
 const ChannelPermissionsPanel = dynamic(
@@ -122,7 +134,23 @@ export function ChannelSettingsDialog({
     [channels]
   );
 
-  const [activeTab, setActiveTab] = useState<"overview" | "permissions" | "integrations" | "invites" | "delete">("overview");
+  const [activeTab, setActiveTab] = useState<ChannelSettingsTab>("overview");
+  const confirmDialog = useConfirm();
+  // Phone layout: section list → pushed section page.
+  const isMobile = useIsMobile();
+  const [mobileNav, setMobileNav] = useState<MobileSettingsNav<ChannelSettingsTab>>({ section: "overview", page: false, detail: null });
+  const [lastOpenKey, setLastOpenKey] = useState(open ? channelId : null);
+  const openKey = open ? channelId : null;
+  if (openKey !== lastOpenKey) {
+    setLastOpenKey(openKey);
+    if (openKey) setMobileNav({ section: "overview", page: false, detail: null });
+  }
+  useBackHandler(open && isMobile, () => {
+    const next = mobileSettingsBack(mobileNav);
+    if (next) setMobileNav(next);
+    else onOpenChange(false);
+    return true;
+  });
   const [name, setName] = useState("");
   const [topic, setTopic] = useState("");
   const [nsfw, setNsfw] = useState(false);
@@ -293,6 +321,7 @@ export function ChannelSettingsDialog({
 
   const handleDeleteInvite = async (code: string) => {
     if (!currentServer) return;
+    if (!(await confirmDialog({ title: gt("Revoke this invite?"), confirmLabel: gt("Revoke") }))) return;
     try {
       const res = await fetch(`/api/servers/${currentServer.id}/invites/${code}`, {
         method: "DELETE",
@@ -351,6 +380,11 @@ export function ChannelSettingsDialog({
 
   const handleDeleteWebhook = async (webhookId: string) => {
     if (!channel) return;
+    if (!(await confirmDialog({
+      title: gt("Delete this webhook?"),
+      description: gt("Anything posting with its URL will stop working."),
+      confirmLabel: gt("Delete"),
+    }))) return;
     try {
       const res = await fetch(`/api/channels/${channel.id}/webhooks/${webhookId}`, {
         method: "DELETE",
@@ -500,6 +534,689 @@ export function ChannelSettingsDialog({
   ];
 
 
+  const tabContent = (
+    <>
+    {activeTab === "overview" && (
+      <div className="max-w-[680px] space-y-6">
+        <div className="mb-6 max-md:hidden">
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Channel Overview")}</h2>
+          <p className="text-sm text-[var(--text-muted)] flex items-center gap-1.5">
+            {channel.type === "announcement" ? <Megaphone className="w-3.5 h-3.5 text-blue-400" /> : isVoice ? <Volume2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : isCategory ? <Folder className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <Hash className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
+            {channel.name}
+            {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">{gt("ANNOUNCEMENTS")}</span>}
+          </p>
+        </div>
+        {/* General section */}
+        <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-4 sm:p-6 space-y-6">
+          {/* Channel Name */}
+          <div className="space-y-2">
+            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
+              {isCategory ? gt("Category Name") : gt("Channel Name")}
+            </Label>
+            <div className="relative flex items-center">
+              <span className="absolute left-3 text-[var(--text-muted)]">
+                {isVoice ? <Volume2 className="w-4 h-4" /> : isCategory ? <Folder className="w-4 h-4" /> : channel.type === "announcement" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}
+              </span>
+              <Input
+                value={name}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!isVoice && !isCategory) {
+                    setName(val.toLowerCase().replace(/\s+/g, "-"));
+                  } else {
+                    setName(val);
+                  }
+                }}
+                maxLength={100}
+                className="pl-9 bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--app-accent)] h-10"
+              />
+            </div>
+          </div>
+
+          {/* Category info note */}
+          {isCategory && (
+            <div className="flex gap-3 p-3.5 rounded-xl bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed">
+              <Folder className="w-4 h-4 shrink-0 text-[var(--text-muted)] mt-0.5" />
+              <div>
+                <span className="font-semibold text-[var(--text-primary)] block mb-0.5">{gt("Category")}</span>
+                {gt("Categories group channels together. Use the")} <strong>{gt("Permissions")}</strong> {gt("tab to set default access rules that all channels in this category inherit.")}
+              </div>
+            </div>
+          )}
+
+          {/* Channel Topic (not for voice or category) */}
+          {!isVoice && !isCategory && (
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
+                {gt("Channel Topic")}
+              </Label>
+              <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)]">
+                {/* Formatting Toolbar */}
+                <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)]">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("**")}
+                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
+                      title={gt("Bold")}
+                    >
+                      <Bold className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("*")}
+                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
+                      title={gt("Italic")}
+                    >
+                      <Italic className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("__")}
+                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
+                      title={gt("Underline")}
+                    >
+                      <Underline className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting("~~")}
+                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
+                      title={gt("Strikethrough")}
+                    >
+                      <Strikethrough className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="h-4 w-[1px] bg-[var(--border-subtle)] mx-1" />
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewTopic(!isPreviewTopic)}
+                      className={`p-1 max-md:p-2 rounded transition-all ${
+                        isPreviewTopic
+                          ? "bg-[var(--app-accent)] text-white"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)]"
+                      }`}
+                      title={gt("Toggle Preview")}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Editor / Preview text content */}
+                {isPreviewTopic ? (
+                  <div className="p-3 min-h-[80px] text-sm text-[var(--text-secondary)] bg-[var(--bg-sidebar-elevated)] prose prose-invert max-w-none">
+                    {topic ? (
+                      <p className="whitespace-pre-wrap leading-relaxed">{topic}</p>
+                    ) : (
+                      <span className="italic text-[var(--text-muted)]">{gt("Nothing to preview. Write some topic description.")}</span>
+                    )}
+                  </div>
+                ) : (
+                  <Textarea
+                    ref={topicRef}
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    maxLength={1024}
+                    placeholder={gt("Set a topic to let everyone know what this channel is about")}
+                    className="border-none bg-transparent text-[var(--text-primary)] focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[80px] resize-none rounded-none p-3 h-auto"
+                  />
+                )}
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] text-right font-medium">
+                {topic.length}/1024
+              </p>
+            </div>
+          )}
+
+          {/* Category */}
+          {!isCategory && (
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
+                {gt("Category")}
+              </Label>
+              <Select value={parentId || "__none__"} onValueChange={(v) => setParentId(v === "__none__" ? null : v)}>
+                <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
+                  <SelectItem value="__none__" className="text-[var(--text-secondary)]">
+                    {gt("No Category")}
+                  </SelectItem>
+                  {categories.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id} className="text-[var(--text-secondary)]">
+                      {cat.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+
+        {/* Slowmode (text only) */}
+        {!isVoice && !isCategory && (
+          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-4 sm:p-6 space-y-4 mt-6">
+            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+              {gt("Slowmode")}
+            </Label>
+            <div className="flex items-center gap-4">
+              <input
+                type="range"
+                min={0}
+                max={slowmodeOptions.length - 1}
+                value={slowmodeOptions.findIndex((o) => o.value === slowmode)}
+                onChange={(e) => setSlowmode(slowmodeOptions[parseInt(e.target.value)].value)}
+                className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--bg-sidebar-elevated)] rounded-lg appearance-none cursor-pointer"
+              />
+              <span className="text-xs text-[var(--text-primary)] font-semibold bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] rounded px-2.5 py-1 min-w-[50px] text-center">
+                {slowmodeOptions.find((o) => o.value === slowmode)?.label || gt("Off")}
+              </span>
+            </div>
+            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+              {gt("Members will be restricted to sending one message per slowmode interval unless they have Manage Messages or Manage Channel overrides.")}
+            </p>
+          </div>
+        )}
+
+        {/* Additional Toggles */}
+        {!isCategory && (
+          <div className="space-y-4 mt-6">
+            {/* NSFW Toggle */}
+            <div className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+              <div className="space-y-1">
+                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                  {gt("Age-Restricted Channel")}
+                </span>
+                <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
+                  {gt("Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.")}
+                </p>
+              </div>
+              <ToggleSwitch
+                checked={nsfw}
+                onCheckedChange={setNsfw}
+                aria-label={gt("Toggle NSFW")}
+              />
+            </div>
+
+            {/* Announcement toggle — only meaningful for text channels */}
+            {(channel.type === "text" || channel.type === "announcement") && (
+            <div className="p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    {gt("Announcement Channel")}
+                  </span>
+                  <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
+                    {gt("Publish updates from this channel directly to other servers so members can stay up to date.")}
+                  </p>
+                </div>
+                <ToggleSwitch
+                  checked={announcement}
+                  onCheckedChange={setAnnouncement}
+                  aria-label={gt("Toggle Announcement")}
+                />
+              </div>
+              {announcement && (
+                <div className="flex gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 leading-relaxed">
+                  <Info className="w-4 h-4 shrink-0 text-blue-400" />
+                  <div>
+                    <span className="font-semibold text-blue-300 block mb-0.5">{gt("Announcement Channel")}</span>
+                    {gt("By creating an announcement channel, your server profile will be visible, and people can follow updates from this channel directly to their own servers.")}
+                  </div>
+                </div>
+              )}
+            </div>
+            )}
+
+            {/* Forum settings */}
+            {channel.type === "forum" && (
+              <div className="p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-5">
+                <div className="space-y-1">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">{gt("Forum Type")}</span>
+                  <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                    {gt("Posts are public discussions. Tickets are private — each is only visible to its creator and the support roles you choose.")}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["posts", "tickets"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => { setForumMode(mode); setForumChanges(true); }}
+                      className={`p-3 rounded-lg border text-sm font-medium capitalize transition-colors ${
+                        forumMode === mode
+                          ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
+                          : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
+                      }`}
+                    >
+                      {mode === "tickets" ? gt("Tickets") : gt("Posts")}
+                    </button>
+                  ))}
+                </div>
+
+                {forumMode === "tickets" && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Support Roles")}</Label>
+                    <p className="text-xs text-[var(--text-muted)]">{gt("Members with these roles can see and respond to every ticket.")}</p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {roles.filter((r) => !r.isDefault).map((r) => {
+                        const on = ticketRoleIds.includes(r.id);
+                        return (
+                          <button
+                            key={r.id}
+                            onClick={() => {
+                              setTicketRoleIds((prev) => on ? prev.filter((x) => x !== r.id) : [...prev, r.id]);
+                              setForumChanges(true);
+                            }}
+                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                              on ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]" : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
+                            }`}
+                            style={on && r.color ? { color: r.color, borderColor: r.color } : undefined}
+                          >
+                            {r.name}
+                          </button>
+                        );
+                      })}
+                      {roles.filter((r) => !r.isDefault).length === 0 && (
+                        <span className="text-xs text-[var(--text-muted)]">{gt("No roles yet — create roles in Server Settings.")}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Tags")}</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {forumTags.map((tag, i) => (
+                      <span key={tag.id || i} className="text-xs px-2.5 py-1 rounded-full bg-[var(--app-accent)]/15 text-[var(--app-accent)] flex items-center gap-1.5">
+                        {tag.name}
+                        <button
+                          onClick={() => { setForumTags((prev) => prev.filter((_, idx) => idx !== i)); setForumChanges(true); }}
+                          className="hover:text-red-400"
+                        >×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value.slice(0, 40))}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newTagName.trim()) {
+                          setForumTags((prev) => [...prev, { name: newTagName.trim() }]);
+                          setNewTagName("");
+                          setForumChanges(true);
+                        }
+                      }}
+                      placeholder={gt("Add a tag and press Enter")}
+                      className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] h-9 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={saveForumConfig}
+                  disabled={!forumChanges || isSaving}
+                  className="w-full py-2.5 rounded-lg bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
+                >
+                  {gt("Save Forum Settings")}
+                </button>
+              </div>
+            )}
+
+            {/* Hide After Inactivity */}
+            <div className="space-y-3 p-4 sm:p-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl">
+              <div className="space-y-1">
+                <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
+                  {gt("Hide After Inactivity")}
+                </Label>
+                <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
+                  {gt("New threads in this channel will be hidden from the channel list after this period of inactivity.")}
+                </p>
+              </div>
+              <Select value={hideAfterInactivity} onValueChange={setHideAfterInactivity}>
+                <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
+                  <SelectItem value="3600" className="text-[var(--text-secondary)]">{gt("1 Hour")}</SelectItem>
+                  <SelectItem value="86400" className="text-[var(--text-secondary)]">{gt("24 Hours")}</SelectItem>
+                  <SelectItem value="259200" className="text-[var(--text-secondary)]">{gt("3 Days")}</SelectItem>
+                  <SelectItem value="604800" className="text-[var(--text-secondary)]">{gt("1 Week")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+
+    {activeTab === "permissions" && currentServer && (
+      <ChannelPermissionsPanel
+        channel={{ id: channel.id, name: channel.name, type: channel.type }}
+        parent={parentChannel ? { id: parentChannel.id, name: parentChannel.name, permissionOverwrites: normalizeOverwrites(parentChannel.permissionOverwrites) } : null}
+        serverId={currentServer.id}
+        roles={roles}
+        overwrites={overwrites}
+        onChange={setOverwrites}
+        onSyncNow={() => void handleSyncNow()}
+        syncing={isSaving}
+      />
+    )}
+
+    {activeTab === "integrations" && (
+      <div className="max-w-[720px] space-y-6">
+        <div className="mb-6 max-md:mb-0">
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Integrations")}</h2>
+          <p className="text-sm text-[var(--text-muted)]">{gt("Manage webhooks and applications integrated with this channel.")}</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+          <div className="space-y-1">
+            <span className="text-sm font-semibold text-[var(--text-primary)]">
+              {gt("Webhooks Manager")}
+            </span>
+            <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
+              {gt("Webhooks are an easy way to get data posted into this channel. Send alerts, build bots, or trigger hooks.")}
+            </p>
+          </div>
+          <Button
+            onClick={() => setShowWebhookForm(!showWebhookForm)}
+            className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            {gt("New Webhook")}
+          </Button>
+        </div>
+
+        {showWebhookForm && (
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+            <Input
+              value={newWebhookName}
+              onChange={(e) => setNewWebhookName(e.target.value)}
+              placeholder={gt("Webhook name")}
+              className="flex-1"
+              onKeyDown={(e) => { if (e.key === "Enter" && newWebhookName.trim()) handleCreateWebhook(); }}
+            />
+            <Button
+              onClick={handleCreateWebhook}
+              disabled={!newWebhookName.trim() || creatingWebhook}
+              className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
+            >
+              {creatingWebhook ? <Loader size={16} className="size-4" /> : gt("Create")}
+            </Button>
+            <Button
+              onClick={() => { setShowWebhookForm(false); setNewWebhookName(""); }}
+              variant="ghost"
+              className="text-sm px-3 h-9"
+            >
+              {gt("Cancel")}
+            </Button>
+          </div>
+        )}
+
+        {isLoadingWebhooks ? (
+          <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading webhooks...")}</div>
+        ) : webhooksForbidden ? (
+          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm">
+            {gt("You need the Manage Webhooks permission to view this channel's webhooks.")}
+          </div>
+        ) : webhooks.length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
+            <Radio className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
+            <span>{gt("No webhooks created for this channel yet")}</span>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {webhooks.map((w) => (
+              <div
+                key={w.id}
+                className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-[var(--bg-sidebar)] flex items-center justify-center border border-[var(--border-subtle)] shrink-0">
+                      {w.avatar ? (
+                        <img src={cdnImage(w.avatar)} alt={w.name} className="w-full h-full rounded-full object-cover" />
+                      ) : (
+                        <Radio className="w-5 h-5 text-[var(--text-secondary)]" />
+                      )}
+                    </div>
+                    <span className="font-semibold text-sm text-[var(--text-primary)] block truncate">
+                      {w.name}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={() => handleDeleteWebhook(w.id)}
+                    className="p-2 max-md:p-3 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
+                    title={gt("Delete Webhook")}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {w.url && (
+                  <WebhookUrlField url={w.url} label={gt("Webhook URL copied")} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )}
+
+    {activeTab === "invites" && (
+      <div className="max-w-[720px] space-y-6">
+        <div className="mb-6 max-md:mb-0">
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Invites")}</h2>
+          <p className="text-sm text-[var(--text-muted)]">{gt("Manage active invite links for this channel.")}</p>
+        </div>
+        <div className="p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+          <span className="text-sm font-semibold text-[var(--text-primary)] block mb-1">
+            {gt("Channel-Specific Invites")}
+          </span>
+          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+            {gt("A list of active invite links pointing directly to this channel. Revoking invite links deletes them immediately.")}
+          </p>
+        </div>
+
+        {isLoadingInvites ? (
+          <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading invites...")}</div>
+        ) : invites.length === 0 ? (
+          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
+            <Link className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
+            <span>{gt("No active invites for this channel")}</span>
+          </div>
+        ) : (
+          <div className="border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] text-[var(--text-muted)] uppercase tracking-wider font-bold">
+                  <th className="p-3 pl-4">{gt("Code")}</th>
+                  <th className="p-3">{gt("Uses")}</th>
+                  <th className="p-3">{gt("Expires")}</th>
+                  <th className="p-3 pr-4 text-right">{gt("Action")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invites.map((inv) => (
+                  <tr key={inv.code} className="border-b border-[var(--border-subtle)]/50 last:border-none text-[var(--text-secondary)] font-medium">
+                    <td className="p-3 pl-4 font-mono text-[var(--text-primary)]">{inv.code}</td>
+                    <td className="p-3">{inv.uses} {inv.maxUses > 0 ? `/ ${inv.maxUses}` : ""}</td>
+                    <td className="p-3">
+                      {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : gt("Never")}
+                    </td>
+                    <td className="p-3 pr-4 text-right">
+                      <button
+                        onClick={() => handleDeleteInvite(inv.code)}
+                        className="px-2.5 py-1 max-md:py-2 rounded bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white text-xs font-semibold transition-all"
+                      >
+                        {gt("Revoke")}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )}
+
+    {activeTab === "delete" && (
+      <div className="max-w-[520px] space-y-6">
+        <div className="mb-6 max-md:mb-0">
+          <h2 className="text-xl font-bold text-red-500 mb-1">{isCategory ? gt("Delete Category") : gt("Delete Channel")}</h2>
+          <p className="text-sm text-[var(--text-muted)]">
+            {isCategory
+              ? gt("Remove this category. Its channels stay and move out of the category.")
+              : gt("Permanently remove this channel and all its content.")}
+          </p>
+        </div>
+        <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/20">
+          <h3 className="text-base font-semibold text-red-400 mb-2">
+            {isCategory ? gt("Delete {name}", { name: channel.name }) : gt("Delete #{name}", { name: channel.name })}
+          </h3>
+          <p className="text-sm text-[var(--text-muted)] leading-relaxed">
+            {gt("Are you sure you want to delete")}
+            <span className="font-semibold text-[var(--text-primary)]">{isCategory ? channel.name : `#${channel.name}`}</span>?
+            {isCategory
+              ? gt("This can't be undone. The channels in it are kept.")
+              : gt("This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.")}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
+            {gt("Type {name} to confirm", { name: channel.name })}
+          </Label>
+          <Input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder={channel.name}
+            className="bg-[var(--bg-sidebar)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-red-500 h-10"
+          />
+        </div>
+
+        <Button
+          onClick={handleDelete}
+          disabled={deleteConfirmText !== channel.name}
+          className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-medium w-full h-10"
+        >
+          {isCategory ? gt("Delete Category") : gt("Delete Channel")}
+        </Button>
+      </div>
+    )}
+    </>
+  );
+
+  const resetOverview = () => {
+    if (!channel) return;
+    setName(channel.name);
+    setTopic(channel.topic || "");
+    setNsfw(channel.isNsfw || false);
+    setAnnouncement(channel.type === "announcement");
+    setParentId(channel.parentId || null);
+    setSlowmode(channel.rateLimitPerUser || 0);
+  };
+  const resetPermissions = () => {
+    if (!channel) return;
+    setOverwrites((channel.permissionOverwrites || []).map(o => ({
+      id: o.id,
+      type: o.type,
+      allow: o.allow || "0",
+      deny: o.deny || "0",
+    })));
+  };
+  const saveBar = (message: string, onReset: () => void, onSave: () => void, saveDisabled: boolean) => (
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <span className="text-[var(--text-primary)] text-sm font-medium min-w-0">{message}</span>
+      <div className="flex gap-2 max-md:w-full max-md:justify-end">
+        <button
+          onClick={onReset}
+          className="px-4 py-1.5 max-md:py-2.5 text-sm text-[var(--text-primary)] hover:underline transition-all"
+        >
+          {gt("Reset")}
+        </button>
+        <button
+          onClick={onSave}
+          disabled={saveDisabled}
+          className="px-4 py-1.5 max-md:py-2.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
+        >
+          {isSaving && <Loader size={16} />}
+          {gt("Save Changes")}
+        </button>
+      </div>
+    </div>
+  );
+  const overviewBar = saveBar(gt("Careful — you have unsaved changes!"), resetOverview, () => void handleSave(), isSaving || !name.trim());
+  const permBar = saveBar(gt("Careful — you have unsaved permission changes!"), resetPermissions, () => void handleSavePermissions(), isSaving);
+
+  if (isMobile) {
+    const channelLabel = isCategory ? channel.name : `#${channel.name}`;
+    const groups: MobileSettingsGroup<ChannelSettingsTab>[] = [
+      { title: gt("Settings"), items: tabs },
+      { items: [{ id: "delete", label: isCategory ? gt("Delete Category") : gt("Delete Channel"), icon: Trash2, destructive: true }] },
+    ];
+    const pageTitle = mobileNav.section === "delete"
+      ? (isCategory ? gt("Delete Category") : gt("Delete Channel"))
+      : tabs.find((t) => t.id === mobileNav.section)?.label ?? "";
+    const mobileFooter = activeTab === "overview" && hasChanges
+      ? overviewBar
+      : activeTab === "permissions" && hasPermChanges
+        ? permBar
+        : null;
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent
+          showCloseButton={false}
+          aria-describedby={undefined}
+          className="!max-w-none !w-screen !h-dvh !rounded-none p-0 gap-0 bg-[var(--bg-app)] border-none overflow-hidden !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed flex"
+        >
+          {!mobileNav.page ? (
+            <MobileSettingsScreen
+              embedded
+              animate={false}
+              leading="close"
+              onLeading={() => onOpenChange(false)}
+              title={channelLabel}
+              subtitle={isCategory ? gt("Category Settings") : gt("Channel Settings")}
+            >
+              <MobileSettingsList
+                groups={groups}
+                onSelect={(id) => {
+                  setActiveTab(id);
+                  setMobileNav((nav) => openMobileSection(nav, id));
+                }}
+              />
+            </MobileSettingsScreen>
+          ) : (
+            <MobileSettingsScreen
+              key={mobileNav.section}
+              embedded
+              leading="back"
+              onLeading={() => setMobileNav((nav) => mobileSettingsBack(nav) ?? nav)}
+              title={pageTitle}
+              subtitle={channelLabel}
+              action={
+                mobileNav.section === "overview" ? (
+                  <MobileSaveAction onSave={() => void handleSave()} disabled={!hasChanges || !name.trim()} saving={isSaving} />
+                ) : mobileNav.section === "permissions" ? (
+                  <MobileSaveAction onSave={() => void handleSavePermissions()} disabled={!hasPermChanges} saving={isSaving} />
+                ) : null
+              }
+              footer={mobileFooter ? (
+                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 shadow-2xl">{mobileFooter}</div>
+              ) : undefined}
+            >
+              <div className="px-4 pt-4 pb-10 space-y-6">{tabContent}</div>
+            </MobileSettingsScreen>
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -560,654 +1277,29 @@ export function ChannelSettingsDialog({
           {/* Close Button */}
           <button
             onClick={() => onOpenChange(false)}
-            className="absolute top-10 right-10 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[#3f4147] rounded-full transition-colors z-50 bg-[var(--bg-card)]"
+            className="absolute top-10 right-10 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] rounded-full transition-colors z-50 bg-[var(--bg-card)]"
           >
             <X className="w-5 h-5" />
           </button>
 
           {/* ESC hint */}
-          <div className="absolute top-[44px] right-24 text-xs text-[#72767d] z-50 pointer-events-none">
+          <div className="absolute top-[44px] right-24 text-xs text-[var(--text-muted)] z-50 pointer-events-none">
             ESC
           </div>
 
           {/* Content Area */}
           <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex bg-[var(--bg-card)]">
             <div className="py-10 px-10 mx-auto pb-24 max-w-[740px] w-full space-y-8">
-            {activeTab === "overview" && (
-              <div className="max-w-[680px] space-y-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Channel Overview")}</h2>
-                  <p className="text-sm text-[var(--text-muted)] flex items-center gap-1.5">
-                    {channel.type === "announcement" ? <Megaphone className="w-3.5 h-3.5 text-blue-400" /> : isVoice ? <Volume2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : isCategory ? <Folder className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <Hash className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
-                    {channel.name}
-                    {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">{gt("ANNOUNCEMENTS")}</span>}
-                  </p>
-                </div>
-                {/* General section */}
-                <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-6 space-y-6">
-                  {/* Channel Name */}
-                  <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                      {isCategory ? gt("Category Name") : gt("Channel Name")}
-                    </Label>
-                    <div className="relative flex items-center">
-                      <span className="absolute left-3 text-[var(--text-muted)]">
-                        {isVoice ? <Volume2 className="w-4 h-4" /> : isCategory ? <Folder className="w-4 h-4" /> : channel.type === "announcement" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}
-                      </span>
-                      <Input
-                        value={name}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          if (!isVoice && !isCategory) {
-                            setName(val.toLowerCase().replace(/\s+/g, "-"));
-                          } else {
-                            setName(val);
-                          }
-                        }}
-                        maxLength={100}
-                        className="pl-9 bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--app-accent)] h-10"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Category info note */}
-                  {isCategory && (
-                    <div className="flex gap-3 p-3.5 rounded-xl bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed">
-                      <Folder className="w-4 h-4 shrink-0 text-[var(--text-muted)] mt-0.5" />
-                      <div>
-                        <span className="font-semibold text-[var(--text-primary)] block mb-0.5">{gt("Category")}</span>
-                        {gt("Categories group channels together. Use the")} <strong>{gt("Permissions")}</strong> {gt("tab to set default access rules that all channels in this category inherit.")}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Channel Topic (not for voice or category) */}
-                  {!isVoice && !isCategory && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                        {gt("Channel Topic")}
-                      </Label>
-                      <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)]">
-                        {/* Formatting Toolbar */}
-                        <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => insertFormatting("**")}
-                              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title={gt("Bold")}
-                            >
-                              <Bold className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => insertFormatting("*")}
-                              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title={gt("Italic")}
-                            >
-                              <Italic className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => insertFormatting("__")}
-                              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title={gt("Underline")}
-                            >
-                              <Underline className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => insertFormatting("~~")}
-                              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                              title={gt("Strikethrough")}
-                            >
-                              <Strikethrough className="w-3.5 h-3.5" />
-                            </button>
-                            <div className="h-4 w-[1px] bg-[var(--border-subtle)] mx-1" />
-                            <button
-                              type="button"
-                              onClick={() => setIsPreviewTopic(!isPreviewTopic)}
-                              className={`p-1 rounded transition-all ${
-                                isPreviewTopic
-                                  ? "bg-[var(--app-accent)] text-white"
-                                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)]"
-                              }`}
-                              title={gt("Toggle Preview")}
-                            >
-                              <Eye className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Editor / Preview text content */}
-                        {isPreviewTopic ? (
-                          <div className="p-3 min-h-[80px] text-sm text-[var(--text-secondary)] bg-[var(--bg-sidebar-elevated)] prose prose-invert max-w-none">
-                            {topic ? (
-                              <p className="whitespace-pre-wrap leading-relaxed">{topic}</p>
-                            ) : (
-                              <span className="italic text-[var(--text-muted)]">{gt("Nothing to preview. Write some topic description.")}</span>
-                            )}
-                          </div>
-                        ) : (
-                          <Textarea
-                            ref={topicRef}
-                            value={topic}
-                            onChange={(e) => setTopic(e.target.value)}
-                            maxLength={1024}
-                            placeholder={gt("Set a topic to let everyone know what this channel is about")}
-                            className="border-none bg-transparent text-[var(--text-primary)] focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[80px] resize-none rounded-none p-3 h-auto"
-                          />
-                        )}
-                      </div>
-                      <p className="text-[10px] text-[var(--text-muted)] text-right font-medium">
-                        {topic.length}/1024
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Category */}
-                  {!isCategory && (
-                    <div className="space-y-2">
-                      <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                        {gt("Category")}
-                      </Label>
-                      <Select value={parentId || "__none__"} onValueChange={(v) => setParentId(v === "__none__" ? null : v)}>
-                        <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
-                          <SelectItem value="__none__" className="text-[var(--text-secondary)]">
-                            {gt("No Category")}
-                          </SelectItem>
-                          {categories.map((cat) => (
-                            <SelectItem key={cat.id} value={cat.id} className="text-[var(--text-secondary)]">
-                              {cat.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
-
-                {/* Slowmode (text only) */}
-                {!isVoice && !isCategory && (
-                  <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-6 space-y-4 mt-6">
-                    <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                      {gt("Slowmode")}
-                    </Label>
-                    <div className="flex items-center gap-4">
-                      <input
-                        type="range"
-                        min={0}
-                        max={slowmodeOptions.length - 1}
-                        value={slowmodeOptions.findIndex((o) => o.value === slowmode)}
-                        onChange={(e) => setSlowmode(slowmodeOptions[parseInt(e.target.value)].value)}
-                        className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--bg-sidebar-elevated)] rounded-lg appearance-none cursor-pointer"
-                      />
-                      <span className="text-xs text-[var(--text-primary)] font-semibold bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] rounded px-2.5 py-1 min-w-[50px] text-center">
-                        {slowmodeOptions.find((o) => o.value === slowmode)?.label || gt("Off")}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      {gt("Members will be restricted to sending one message per slowmode interval unless they have Manage Messages or Manage Channel overrides.")}
-                    </p>
-                  </div>
-                )}
-
-                {/* Additional Toggles */}
-                {!isCategory && (
-                  <div className="space-y-4 mt-6">
-                    {/* NSFW Toggle */}
-                    <div className="flex items-center justify-between p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                      <div className="space-y-1">
-                        <span className="text-sm font-semibold text-[var(--text-primary)]">
-                          {gt("Age-Restricted Channel")}
-                        </span>
-                        <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                          {gt("Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.")}
-                        </p>
-                      </div>
-                      <ToggleSwitch
-                        checked={nsfw}
-                        onCheckedChange={setNsfw}
-                        aria-label={gt("Toggle NSFW")}
-                      />
-                    </div>
-
-                    {/* Announcement toggle — only meaningful for text channels */}
-                    {(channel.type === "text" || channel.type === "announcement") && (
-                    <div className="p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-1">
-                          <span className="text-sm font-semibold text-[var(--text-primary)]">
-                            {gt("Announcement Channel")}
-                          </span>
-                          <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                            {gt("Publish updates from this channel directly to other servers so members can stay up to date.")}
-                          </p>
-                        </div>
-                        <ToggleSwitch
-                          checked={announcement}
-                          onCheckedChange={setAnnouncement}
-                          aria-label={gt("Toggle Announcement")}
-                        />
-                      </div>
-                      {announcement && (
-                        <div className="flex gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 leading-relaxed">
-                          <Info className="w-4 h-4 shrink-0 text-blue-400" />
-                          <div>
-                            <span className="font-semibold text-blue-300 block mb-0.5">{gt("Announcement Channel")}</span>
-                            {gt("By creating an announcement channel, your server profile will be visible, and people can follow updates from this channel directly to their own servers.")}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    )}
-
-                    {/* Forum settings */}
-                    {channel.type === "forum" && (
-                      <div className="p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-5">
-                        <div className="space-y-1">
-                          <span className="text-sm font-semibold text-[var(--text-primary)]">{gt("Forum Type")}</span>
-                          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                            {gt("Posts are public discussions. Tickets are private — each is only visible to its creator and the support roles you choose.")}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          {(["posts", "tickets"] as const).map((mode) => (
-                            <button
-                              key={mode}
-                              onClick={() => { setForumMode(mode); setForumChanges(true); }}
-                              className={`p-3 rounded-lg border text-sm font-medium capitalize transition-colors ${
-                                forumMode === mode
-                                  ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                  : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
-                              }`}
-                            >
-                              {mode === "tickets" ? gt("Tickets") : gt("Posts")}
-                            </button>
-                          ))}
-                        </div>
-
-                        {forumMode === "tickets" && (
-                          <div className="space-y-2">
-                            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Support Roles")}</Label>
-                            <p className="text-xs text-[var(--text-muted)]">{gt("Members with these roles can see and respond to every ticket.")}</p>
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              {roles.filter((r) => !r.isDefault).map((r) => {
-                                const on = ticketRoleIds.includes(r.id);
-                                return (
-                                  <button
-                                    key={r.id}
-                                    onClick={() => {
-                                      setTicketRoleIds((prev) => on ? prev.filter((x) => x !== r.id) : [...prev, r.id]);
-                                      setForumChanges(true);
-                                    }}
-                                    className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                                      on ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]" : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
-                                    }`}
-                                    style={on && r.color ? { color: r.color, borderColor: r.color } : undefined}
-                                  >
-                                    {r.name}
-                                  </button>
-                                );
-                              })}
-                              {roles.filter((r) => !r.isDefault).length === 0 && (
-                                <span className="text-xs text-[var(--text-muted)]">{gt("No roles yet — create roles in Server Settings.")}</span>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="space-y-2">
-                          <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Tags")}</Label>
-                          <div className="flex flex-wrap gap-2">
-                            {forumTags.map((tag, i) => (
-                              <span key={tag.id || i} className="text-xs px-2.5 py-1 rounded-full bg-[var(--app-accent)]/15 text-[var(--app-accent)] flex items-center gap-1.5">
-                                {tag.name}
-                                <button
-                                  onClick={() => { setForumTags((prev) => prev.filter((_, idx) => idx !== i)); setForumChanges(true); }}
-                                  className="hover:text-red-400"
-                                >×</button>
-                              </span>
-                            ))}
-                          </div>
-                          <div className="flex gap-2">
-                            <Input
-                              value={newTagName}
-                              onChange={(e) => setNewTagName(e.target.value.slice(0, 40))}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter" && newTagName.trim()) {
-                                  setForumTags((prev) => [...prev, { name: newTagName.trim() }]);
-                                  setNewTagName("");
-                                  setForumChanges(true);
-                                }
-                              }}
-                              placeholder={gt("Add a tag and press Enter")}
-                              className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] h-9 text-sm"
-                            />
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={saveForumConfig}
-                          disabled={!forumChanges || isSaving}
-                          className="w-full py-2.5 rounded-lg bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
-                        >
-                          {gt("Save Forum Settings")}
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Hide After Inactivity */}
-                    <div className="space-y-3 p-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl">
-                      <div className="space-y-1">
-                        <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                          {gt("Hide After Inactivity")}
-                        </Label>
-                        <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                          {gt("New threads in this channel will be hidden from the channel list after this period of inactivity.")}
-                        </p>
-                      </div>
-                      <Select value={hideAfterInactivity} onValueChange={setHideAfterInactivity}>
-                        <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10 w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
-                          <SelectItem value="3600" className="text-[var(--text-secondary)]">{gt("1 Hour")}</SelectItem>
-                          <SelectItem value="86400" className="text-[var(--text-secondary)]">{gt("24 Hours")}</SelectItem>
-                          <SelectItem value="259200" className="text-[var(--text-secondary)]">{gt("3 Days")}</SelectItem>
-                          <SelectItem value="604800" className="text-[var(--text-secondary)]">{gt("1 Week")}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === "permissions" && currentServer && (
-              <ChannelPermissionsPanel
-                channel={{ id: channel.id, name: channel.name, type: channel.type }}
-                parent={parentChannel ? { id: parentChannel.id, name: parentChannel.name, permissionOverwrites: normalizeOverwrites(parentChannel.permissionOverwrites) } : null}
-                serverId={currentServer.id}
-                roles={roles}
-                overwrites={overwrites}
-                onChange={setOverwrites}
-                onSyncNow={() => void handleSyncNow()}
-                syncing={isSaving}
-              />
-            )}
-
-            {activeTab === "integrations" && (
-              <div className="max-w-[720px] space-y-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Integrations")}</h2>
-                  <p className="text-sm text-[var(--text-muted)]">{gt("Manage webhooks and applications integrated with this channel.")}</p>
-                </div>
-                <div className="flex items-center justify-between p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                  <div className="space-y-1">
-                    <span className="text-sm font-semibold text-[var(--text-primary)]">
-                      {gt("Webhooks Manager")}
-                    </span>
-                    <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
-                      {gt("Webhooks are an easy way to get data posted into this channel. Send alerts, build bots, or trigger hooks.")}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={() => setShowWebhookForm(!showWebhookForm)}
-                    className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
-                  >
-                    <Plus className="w-4 h-4 mr-1.5" />
-                    {gt("New Webhook")}
-                  </Button>
-                </div>
-
-                {showWebhookForm && (
-                  <div className="flex items-center gap-3 p-4 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                    <Input
-                      value={newWebhookName}
-                      onChange={(e) => setNewWebhookName(e.target.value)}
-                      placeholder={gt("Webhook name")}
-                      className="flex-1"
-                      onKeyDown={(e) => { if (e.key === "Enter" && newWebhookName.trim()) handleCreateWebhook(); }}
-                    />
-                    <Button
-                      onClick={handleCreateWebhook}
-                      disabled={!newWebhookName.trim() || creatingWebhook}
-                      className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
-                    >
-                      {creatingWebhook ? <Loader size={16} className="size-4" /> : gt("Create")}
-                    </Button>
-                    <Button
-                      onClick={() => { setShowWebhookForm(false); setNewWebhookName(""); }}
-                      variant="ghost"
-                      className="text-sm px-3 h-9"
-                    >
-                      {gt("Cancel")}
-                    </Button>
-                  </div>
-                )}
-
-                {isLoadingWebhooks ? (
-                  <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading webhooks...")}</div>
-                ) : webhooksForbidden ? (
-                  <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm">
-                    {gt("You need the Manage Webhooks permission to view this channel's webhooks.")}
-                  </div>
-                ) : webhooks.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
-                    <Radio className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
-                    <span>{gt("No webhooks created for this channel yet")}</span>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {webhooks.map((w) => (
-                      <div
-                        key={w.id}
-                        className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="w-10 h-10 rounded-full bg-[var(--bg-sidebar)] flex items-center justify-center border border-[var(--border-subtle)] shrink-0">
-                              {w.avatar ? (
-                                <img src={cdnImage(w.avatar)} alt={w.name} className="w-full h-full rounded-full object-cover" />
-                              ) : (
-                                <Radio className="w-5 h-5 text-[var(--text-secondary)]" />
-                              )}
-                            </div>
-                            <span className="font-semibold text-sm text-[var(--text-primary)] block truncate">
-                              {w.name}
-                            </span>
-                          </div>
-
-                          <button
-                            onClick={() => handleDeleteWebhook(w.id)}
-                            className="p-2 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
-                            title={gt("Delete Webhook")}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-
-                        {w.url && (
-                          <WebhookUrlField url={w.url} label={gt("Webhook URL copied")} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === "invites" && (
-              <div className="max-w-[720px] space-y-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Invites")}</h2>
-                  <p className="text-sm text-[var(--text-muted)]">{gt("Manage active invite links for this channel.")}</p>
-                </div>
-                <div className="p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                  <span className="text-sm font-semibold text-[var(--text-primary)] block mb-1">
-                    {gt("Channel-Specific Invites")}
-                  </span>
-                  <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                    {gt("A list of active invite links pointing directly to this channel. Revoking invite links deletes them immediately.")}
-                  </p>
-                </div>
-
-                {isLoadingInvites ? (
-                  <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading invites...")}</div>
-                ) : invites.length === 0 ? (
-                  <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
-                    <Link className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
-                    <span>{gt("No active invites for this channel")}</span>
-                  </div>
-                ) : (
-                  <div className="border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] overflow-hidden">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] text-[var(--text-muted)] uppercase tracking-wider font-bold">
-                          <th className="p-3 pl-4">{gt("Code")}</th>
-                          <th className="p-3">{gt("Uses")}</th>
-                          <th className="p-3">{gt("Expires")}</th>
-                          <th className="p-3 pr-4 text-right">{gt("Action")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {invites.map((inv) => (
-                          <tr key={inv.code} className="border-b border-[var(--border-subtle)]/50 last:border-none text-[var(--text-secondary)] font-medium">
-                            <td className="p-3 pl-4 font-mono text-[var(--text-primary)]">{inv.code}</td>
-                            <td className="p-3">{inv.uses} {inv.maxUses > 0 ? `/ ${inv.maxUses}` : ""}</td>
-                            <td className="p-3">
-                              {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : gt("Never")}
-                            </td>
-                            <td className="p-3 pr-4 text-right">
-                              <button
-                                onClick={() => handleDeleteInvite(inv.code)}
-                                className="px-2.5 py-1 rounded bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white text-xs font-semibold transition-all"
-                              >
-                                {gt("Revoke")}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === "delete" && (
-              <div className="max-w-[520px] space-y-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-red-500 mb-1">{isCategory ? gt("Delete Category") : gt("Delete Channel")}</h2>
-                  <p className="text-sm text-[var(--text-muted)]">
-                    {isCategory
-                      ? gt("Remove this category. Its channels stay and move out of the category.")
-                      : gt("Permanently remove this channel and all its content.")}
-                  </p>
-                </div>
-                <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/20">
-                  <h3 className="text-base font-semibold text-red-400 mb-2">
-                    {isCategory ? gt("Delete {name}", { name: channel.name }) : gt("Delete #{name}", { name: channel.name })}
-                  </h3>
-                  <p className="text-sm text-[var(--text-muted)] leading-relaxed">
-                    {gt("Are you sure you want to delete")}
-                    <span className="font-semibold text-[var(--text-primary)]">{isCategory ? channel.name : `#${channel.name}`}</span>?
-                    {isCategory
-                      ? gt("This can't be undone. The channels in it are kept.")
-                      : gt("This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.")}
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                    {gt("Type {name} to confirm", { name: channel.name })}
-                  </Label>
-                  <Input
-                    value={deleteConfirmText}
-                    onChange={(e) => setDeleteConfirmText(e.target.value)}
-                    placeholder={channel.name}
-                    className="bg-[var(--bg-sidebar)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-red-500 h-10"
-                  />
-                </div>
-
-                <Button
-                  onClick={handleDelete}
-                  disabled={deleteConfirmText !== channel.name}
-                  className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-medium w-full h-10"
-                >
-                  {isCategory ? gt("Delete Category") : gt("Delete Channel")}
-                </Button>
-              </div>
-            )}
+              {tabContent}
             </div>
           </ScrollArea>
 
-          {/* Unsaved Changes Bar */}
-          {(hasChanges && activeTab === "overview") && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom z-50">
-              <span className="text-[var(--text-primary)] text-sm font-medium">{gt("Careful — you have unsaved changes!")}</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    if (channel) {
-                      setName(channel.name);
-                      setTopic(channel.topic || "");
-                      setNsfw(channel.isNsfw || false);
-                      setAnnouncement(channel.type === "announcement");
-                      setParentId(channel.parentId || null);
-                      setSlowmode(channel.rateLimitPerUser || 0);
-                    }
-                  }}
-                  className="px-4 py-1.5 text-sm text-[var(--text-primary)] hover:underline transition-all"
-                >
-                  {gt("Reset")}
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving || !name.trim()}
-                  className="px-4 py-1.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
-                >
-                  {isSaving && <Loader size={16} />}
-                  {gt("Save Changes")}
-                </button>
-              </div>
-            </div>
+          {/* Unsaved Changes Bars */}
+          {hasChanges && activeTab === "overview" && (
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 animate-in slide-in-from-bottom z-50">{overviewBar}</div>
           )}
-
           {hasPermChanges && activeTab === "permissions" && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom z-50">
-              <span className="text-[var(--text-primary)] text-sm font-medium">{gt("Careful — you have unsaved permission changes!")}</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    if (channel) {
-                      setOverwrites((channel.permissionOverwrites || []).map(o => ({
-                        id: o.id,
-                        type: o.type,
-                        allow: o.allow || "0",
-                        deny: o.deny || "0",
-                      })));
-                    }
-                  }}
-                  className="px-4 py-1.5 text-sm text-[var(--text-primary)] hover:underline transition-all"
-                >
-                  {gt("Reset")}
-                </button>
-                <button
-                  onClick={handleSavePermissions}
-                  disabled={isSaving}
-                  className="px-4 py-1.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
-                >
-                  {isSaving && <Loader size={16} />}
-                  {gt("Save Changes")}
-                </button>
-              </div>
-            </div>
+            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 animate-in slide-in-from-bottom z-50">{permBar}</div>
           )}
         </div>
       </DialogContent>

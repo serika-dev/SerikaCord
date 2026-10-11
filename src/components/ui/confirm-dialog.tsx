@@ -57,7 +57,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       <Dialog open={!!options} onOpenChange={(open) => { if (!open) settle(false); }}>
-        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]">
+        {/* Phones get a bottom sheet with full-width 48px buttons. */}
+        <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-md:top-auto max-md:bottom-0 max-md:left-0 max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:rounded-b-none max-md:rounded-t-2xl max-md:border-x-0 max-md:border-b-0 max-md:pb-[max(1.5rem,env(safe-area-inset-bottom))] max-md:data-[state=open]:slide-in-from-bottom-8 max-md:data-[state=open]:zoom-in-100">
           <DialogHeader>
             <DialogTitle>{options?.title}</DialogTitle>
             {options?.description && (
@@ -66,7 +67,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
               </DialogDescription>
             )}
           </DialogHeader>
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 max-md:[&>button]:h-12 max-md:[&>button]:w-full max-md:[&>button]:text-base">
             <Button
               variant="ghost"
               onClick={() => settle(false)}

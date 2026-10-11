@@ -67,7 +67,7 @@ function TriState({
         aria-label={labels.deny}
         onClick={() => onSet("deny")}
         title={labels.deny}
-        className={cn("w-8 h-7 flex items-center justify-center transition-colors", state === "deny" ? "bg-red-500 text-white" : "text-red-400 hover:bg-red-500/10")}
+        className={cn("w-8 h-7 max-md:w-11 max-md:h-10 flex items-center justify-center transition-colors", state === "deny" ? "bg-red-500 text-white" : "text-red-400 hover:bg-red-500/10")}
       >
         <X className="w-4 h-4" />
       </button>
@@ -79,7 +79,7 @@ function TriState({
         onClick={() => onSet("neutral")}
         title={labels.inherit}
         className={cn(
-          "w-8 h-7 flex items-center justify-center border-x border-[var(--border-subtle)] transition-colors",
+          "w-8 h-7 max-md:w-11 max-md:h-10 flex items-center justify-center border-x border-[var(--border-subtle)] transition-colors",
           state === "neutral" ? "bg-[var(--app-surface-alt)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)]",
         )}
       >
@@ -92,7 +92,7 @@ function TriState({
         aria-label={labels.allow}
         onClick={() => onSet("allow")}
         title={labels.allow}
-        className={cn("w-8 h-7 flex items-center justify-center transition-colors", state === "allow" ? "bg-green-500 text-white" : "text-green-500 hover:bg-green-500/10")}
+        className={cn("w-8 h-7 max-md:w-11 max-md:h-10 flex items-center justify-center transition-colors", state === "allow" ? "bg-green-500 text-white" : "text-green-500 hover:bg-green-500/10")}
       >
         <Check className="w-4 h-4" />
       </button>
@@ -224,6 +224,14 @@ export function ChannelPermissionsPanel({
     setTimeout(() => pickerInputRef.current?.focus(), 30);
   };
 
+  // Phones stack the target list above the editor: bring the editor into view on pick.
+  const selectTarget = (t: Target) => {
+    setSelected(t);
+    if (typeof window !== "undefined" && window.matchMedia?.("(max-width: 767px)").matches) {
+      requestAnimationFrame(() => document.querySelector("[data-perm-editor]")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  };
+
   const pick = (t: Target) => {
     if (picker === "access") {
       let next = setOverwriteState(overwrites, t, PERMISSION_BITS.VIEW_CHANNEL, "allow");
@@ -231,7 +239,7 @@ export function ChannelPermissionsPanel({
       onChange(next);
     } else {
       onChange(addOverwrite(overwrites, t));
-      setSelected(t);
+      selectTarget(t);
       setShowAdvanced(true);
     }
     setPicker(null);
@@ -306,7 +314,7 @@ export function ChannelPermissionsPanel({
               key={`r-${t.id}`}
               type="button"
               onClick={() => pick(t)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
+              className="w-full flex items-center gap-2 px-3 py-1.5 max-md:py-3 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
             >
               {targetBadge(t)}
               <span className="truncate">{targetName(t)}</span>
@@ -322,7 +330,7 @@ export function ChannelPermissionsPanel({
                 key={`m-${t.id}`}
                 type="button"
                 onClick={() => pick(t)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
+                className="w-full flex items-center gap-2 px-3 py-1.5 max-md:py-3 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
               >
                 {targetBadge(t)}
                 <span className="truncate">{targetName(t)}</span>
@@ -341,7 +349,7 @@ export function ChannelPermissionsPanel({
   return (
     <div className="max-w-[720px] space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{isCategory ? gt("Category Permissions") : gt("Channel Permissions")}</h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{isCategory ? gt("Category Permissions") : gt("Channel Permissions")}</h2>
         <p className="text-sm text-[var(--text-muted)]">{gt("Use permissions to customise who can do what in this channel.")}</p>
       </div>
 
@@ -382,7 +390,7 @@ export function ChannelPermissionsPanel({
 
       {/* Private channel */}
       <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-        <div className="p-5 flex items-start justify-between gap-4">
+        <div className="p-4 sm:p-5 flex items-start justify-between gap-3 sm:gap-4">
           <div className="flex gap-3">
             <div className="p-2 rounded-lg bg-[var(--app-surface-alt)] text-[var(--text-secondary)] shrink-0">
               <Lock className="w-5 h-5" />
@@ -405,7 +413,7 @@ export function ChannelPermissionsPanel({
         </div>
         {isPrivate && (
           <div className="px-5 pb-5 border-t border-[var(--border-subtle)] pt-4 space-y-3">
-            <div className="flex items-center justify-between gap-3 relative">
+            <div className="flex flex-wrap items-center justify-between gap-3 relative">
               <span className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Who can access this channel?")}</span>
               <button
                 type="button"
@@ -424,7 +432,7 @@ export function ChannelPermissionsPanel({
                 {holders.map((o) => {
                   const t: Target = { id: o.id, type: o.type };
                   return (
-                    <li key={`${o.type}-${o.id}`} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md hover:bg-[var(--bg-hover)]">
+                    <li key={`${o.type}-${o.id}`} className="flex items-center gap-2.5 px-2.5 py-1.5 max-md:py-2.5 rounded-md hover:bg-[var(--bg-hover)]">
                       {targetBadge(t, "w-6 h-6")}
                       <span className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]">{targetName(t)}</span>
                       <span className="text-[11px] text-[var(--text-muted)]">{o.type === "role" ? gt("Role") : gt("Member")}</span>
@@ -433,7 +441,7 @@ export function ChannelPermissionsPanel({
                         onClick={() => removeAccess(t)}
                         title={gt("Remove")}
                         aria-label={gt("Remove")}
-                        className="p-1 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10"
+                        className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -459,7 +467,7 @@ export function ChannelPermissionsPanel({
         </button>
 
         {showAdvanced && (
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-[210px_1fr] gap-4 border border-[var(--border-subtle)] rounded-xl p-4 bg-[var(--bg-app)]">
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-[210px_1fr] gap-4 border border-[var(--border-subtle)] rounded-xl p-3 sm:p-4 bg-[var(--bg-app)]">
             <div className="md:border-r border-[var(--border-subtle)] md:pr-3 flex flex-col gap-1">
               <div className="flex items-center justify-between mb-1 relative">
                 <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">{gt("Roles/Members")}</span>
@@ -482,9 +490,9 @@ export function ChannelPermissionsPanel({
                   <button
                     key={`${o.type}-${o.id}`}
                     type="button"
-                    onClick={() => setSelected(t)}
+                    onClick={() => selectTarget(t)}
                     className={cn(
-                      "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium text-left transition-colors",
+                      "w-full flex items-center gap-2 px-2.5 py-1.5 max-md:py-3 max-md:text-sm rounded-md text-xs font-medium text-left transition-colors",
                       isActive ? "bg-[var(--bg-active)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]",
                     )}
                   >
@@ -508,7 +516,7 @@ export function ChannelPermissionsPanel({
                             if (isActive) setSelected(null);
                           }
                         }}
-                        className="p-0.5 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/20"
+                        className="p-0.5 max-md:p-1.5 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/20"
                       >
                         <X className="w-3.5 h-3.5" />
                       </span>
@@ -518,7 +526,7 @@ export function ChannelPermissionsPanel({
               })}
             </div>
 
-            <div className="min-w-0">
+            <div data-perm-editor="" className="min-w-0 scroll-mt-4">
               {activeTarget ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--border-subtle)]">
@@ -526,15 +534,15 @@ export function ChannelPermissionsPanel({
                       {targetBadge(activeTarget)}
                       <strong className="text-[var(--text-primary)] truncate">{targetName(activeTarget)}</strong>
                     </span>
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
+                    <div className="flex items-center gap-2 max-md:w-full">
+                      <div className="relative max-md:flex-1">
                         <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--text-muted)]" />
                         <input
                           value={permQuery}
                           onChange={(e) => setPermQuery(e.target.value)}
                           placeholder={gt("Search permissions")}
                           aria-label={gt("Search permissions")}
-                          className="w-40 pl-6 pr-2 py-1 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
+                          className="w-40 max-md:w-full pl-6 pr-2 py-1 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
                         />
                       </div>
                       <button
@@ -559,7 +567,7 @@ export function ChannelPermissionsPanel({
                           const flag = PERMISSION_BITS[key];
                           const state = getOverwriteState(activeOverwrite, flag);
                           return (
-                            <div key={key} className="flex items-start justify-between gap-4 py-2.5 border-b border-[var(--border-subtle)]/40 last:border-0">
+                            <div key={key} className="flex items-start justify-between gap-3 sm:gap-4 py-2.5 border-b border-[var(--border-subtle)]/40 last:border-0">
                               <div className="min-w-0">
                                 <p className="text-sm font-medium text-[var(--text-primary)]">{permLabel(key)}</p>
                                 <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{permDescription(key)}</p>

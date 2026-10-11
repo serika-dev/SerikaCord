@@ -107,7 +107,7 @@ export function UnsavedChangesBar({
               type="button"
               onClick={onDiscard}
               disabled={isSaving}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 transition-colors focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
+              className="flex items-center gap-1.5 px-3 py-1.5 max-md:py-2.5 rounded-md text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 transition-colors focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               {gt("Reset")}
@@ -116,7 +116,7 @@ export function UnsavedChangesBar({
               type="button"
               onClick={onSave}
               disabled={isSaving}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-md bg-[#23A559] hover:bg-[#1f9150] active:scale-[0.97] text-sm font-medium text-white disabled:opacity-60 transition-all focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
+              className="flex items-center gap-2 px-4 py-1.5 max-md:py-2.5 rounded-md bg-[#23A559] hover:bg-[#1f9150] active:scale-[0.97] text-sm font-medium text-white disabled:opacity-60 transition-all focus-visible:outline-2 focus-visible:outline-[var(--app-accent)]"
             >
               {isSaving && <Loader size={16} />}
               {isSaving ? gt("Saving...") : gt("Save Changes")}

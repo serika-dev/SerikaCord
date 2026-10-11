@@ -447,7 +447,7 @@ export function ServerAuditLogPanel({ serverId, roles }: { serverId: string; rol
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Audit Log")}</h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Audit Log")}</h2>
         <p className="text-sm text-[var(--text-secondary)]">{gt("View a record of all changes made to your server")}</p>
       </div>
 

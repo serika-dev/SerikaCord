@@ -556,6 +556,13 @@ html.native-app body {
   textarea {
     font-size: 16px !important; /* Prevent zoom on iOS */
   }
+  /* Phone settings pages (MobileSettingsShell): every text-like field and
+     select, including untyped inputs, stays at 16px so iOS never zooms. */
+  .mobile-settings-body input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]),
+  .mobile-settings-body select,
+  .mobile-settings-body textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* Smooth transitions for touch */

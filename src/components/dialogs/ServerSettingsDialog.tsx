@@ -49,6 +49,7 @@ import {
   Pencil,
   Bot,
   Sparkles,
+  ChevronRight,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
@@ -62,6 +63,20 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import dynamic from "next/dynamic";
 import { RoleIconEditor } from "@/components/dialogs/RoleIconEditor";
 import { RoleIcon } from "@/components/chat/RoleIcon";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackHandler } from "@/hooks/useBackHandler";
+import {
+  MobileSaveAction,
+  MobileSettingsList,
+  MobileSettingsScreen,
+  type MobileSettingsGroup,
+} from "@/components/settings/MobileSettingsShell";
+import {
+  mobileSettingsBack,
+  openMobileDetail,
+  openMobileSection,
+  type MobileSettingsNav,
+} from "@/lib/settings/mobileSettingsNav";
 
 // The audit log tab (filters, diffs, pagination) loads on first open.
 const ServerAuditLogPanel = dynamic(
@@ -248,6 +263,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
   const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
+  // Phone layout: grouped section list → pushed section page → detail page.
+  const isMobile = useIsMobile();
+  const [mobileNav, setMobileNav] = useState<MobileSettingsNav<SettingsTab>>({ section: "overview", page: false, detail: null });
+  // Every (re)open starts at the section list (adjusted during render, not in an effect).
+  const [lastOpen, setLastOpen] = useState(open);
+  if (open !== lastOpen) {
+    setLastOpen(open);
+    if (open) setMobileNav({ section: "overview", page: false, detail: null });
+  }
   const [isSaving, setIsSaving] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -947,6 +971,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           return [...deduped, createdRole].sort((a, b) => b.position - a.position);
         });
         setSelectedRoleId(createdRole.id);
+        if (isMobile) setMobileNav((nav) => openMobileDetail(nav, createdRole.id));
         toast.success(gt("Role created!"));
       } else {
         toast.error(gt("Failed to create role"));
@@ -959,6 +984,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const handleDeleteRole = async (roleId: string) => {
     if (!currentServer) return;
+    const roleName = roles.find((r) => r.id === roleId)?.name || "";
+    const ok = await confirmDialog({
+      title: gt("Delete Role"),
+      description: gt("Are you sure you want to delete the role \"{name}\"? Members will lose it.", { name: roleName }),
+      confirmLabel: gt("Delete"),
+    });
+    if (!ok) return;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/roles/${roleId}`, {
         method: "DELETE",
@@ -997,6 +1029,39 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       (roleDraft.unicodeEmoji ?? null) !== (selectedRole.unicodeEmoji ?? null)
     );
   })();
+
+  // Phone: one back press (header arrow or Android back) walks
+  // role editor → section page → section list → close.
+  const handleMobileBack = async () => {
+    if (mobileNav.detail !== null && hasUnsavedRoleChanges && selectedRole) {
+      const discard = await confirmDialog({
+        title: gt("Discard unsaved changes to this role?"),
+        confirmLabel: gt("Discard"),
+      });
+      if (!discard) return;
+      setRoleDraft({
+        name: selectedRole.name,
+        color: selectedRole.color || "#99AAB5",
+        permissions: selectedRole.permissions || "0",
+        hoist: Boolean(selectedRole.hoist),
+        mentionable: Boolean(selectedRole.mentionable),
+        icon: selectedRole.icon ?? null,
+        unicodeEmoji: selectedRole.unicodeEmoji ?? null,
+      });
+    }
+    const next = mobileSettingsBack(mobileNav);
+    if (next) setMobileNav(next);
+    else void handleRequestClose();
+  };
+  useBackHandler(open && isMobile, () => {
+    void handleMobileBack();
+    return true;
+  });
+
+  const openMobileTab = (tab: SettingsTab) => {
+    setActiveTab(tab);
+    setMobileNav((nav) => openMobileSection(nav, tab));
+  };
 
   const handleRoleDrop = async (targetRoleId: string) => {
     if (!draggingRoleId || !currentServer || draggingRoleId === targetRoleId) return;
@@ -1228,6 +1293,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const handleDeleteEmoji = async (emojiId: string) => {
     if (!currentServer) return;
+    if (!(await confirmDialog({ title: gt("Delete this emoji?"), confirmLabel: gt("Delete") }))) return;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/emojis/${emojiId}`, {
         method: "DELETE",
@@ -1354,6 +1420,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const handleDeleteSticker = async (stickerId: string) => {
     if (!currentServer) return;
+    if (!(await confirmDialog({ title: gt("Delete this sticker?"), confirmLabel: gt("Delete") }))) return;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/stickers/${stickerId}`, {
         method: "DELETE",
@@ -1450,6 +1517,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const handleDeleteSound = async (soundId: string) => {
     if (!currentServer) return;
+    if (!(await confirmDialog({ title: gt("Delete this sound?"), confirmLabel: gt("Delete") }))) return;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/soundboard/${soundId}`, {
         method: "DELETE",
@@ -1676,7 +1744,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderOverview = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Overview</T></h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Overview</T></h2>
         <p className="text-sm text-[var(--text-secondary)]"><T>Customize your server&apos;s identity</T></p>
       </div>
 
@@ -1697,7 +1765,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       />
 
       {/* Server Icon & Banner */}
-      <div className="flex gap-6">
+      <div className="flex gap-4 sm:gap-6">
         {/* Icon */}
         <div className="flex flex-col items-center gap-2">
           <div className="relative group">
@@ -1710,7 +1778,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <button
               onClick={() => iconInputRef.current?.click()}
               disabled={isUploadingIcon}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl disabled:cursor-not-allowed"
+              className="absolute inset-0 flex items-center justify-center bg-black/60 max-md:bg-black/35 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity rounded-2xl disabled:cursor-not-allowed"
             >
               {isUploadingIcon ? (
                 <Loader size={32} />
@@ -1731,7 +1799,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <button
               onClick={() => bannerInputRef.current?.click()}
               disabled={isUploadingBanner}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity disabled:cursor-not-allowed"
+              className="absolute inset-0 flex items-center justify-center bg-black/60 max-md:bg-black/35 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity disabled:cursor-not-allowed"
             >
               {isUploadingBanner ? (
                 <Loader size={32} />
@@ -1857,11 +1925,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           return { ...cat, permissions: perms };
         }).filter((cat) => cat.permissions.length > 0)
       : ROLE_PERMISSION_CATEGORIES;
+    // Phone: the role list and the role editor are separate pushed pages.
+    const mobileRoleDetail = isMobile && mobileNav.detail !== null;
     return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className={cn("flex flex-wrap items-center justify-between gap-3", mobileRoleDetail && "hidden")}>
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Roles</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Roles</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Manage role order, display, and permissions</T></p>
         </div>
         <button
@@ -1880,7 +1950,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
           {/* Role list sidebar */}
-          <div className="space-y-2">
+          <div className={cn("space-y-2", mobileRoleDetail && "hidden")}>
             {roles.length > 0 && (
               <div className="relative mb-2">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
@@ -1898,7 +1968,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               .sort((a, b) => b.position - a.position)
               .map((role) => {
                 const isSelected = role.id === selectedRoleId;
-                const canDrag = !role.isDefault && !role.managed;
+                // No HTML5 drag-and-drop on touch screens.
+                const canDrag = !isMobile && !role.isDefault && !role.managed;
                 return (
                   <div
                     key={role.id}
@@ -1913,20 +1984,23 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                       event.preventDefault();
                       void handleRoleDrop(role.id);
                     }}
-                    onClick={() => setSelectedRoleId(role.id)}
+                    onClick={() => {
+                      setSelectedRoleId(role.id);
+                      if (isMobile) setMobileNav((nav) => openMobileDetail(nav, role.id));
+                    }}
                     className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer",
-                      isSelected
-                        ? "bg-[#1d1630] border-[#8B5CF6] shadow-[0_0_12px_rgba(139,92,246,0.15)]"
-                        : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-strong)]",
+                      "flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer max-md:min-h-[56px] touch-manipulation",
+                      isSelected && !isMobile
+                        ? "bg-[var(--bg-active)] border-[var(--app-accent)] shadow-[0_0_12px_rgba(139,92,246,0.15)]"
+                        : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-strong)] active:bg-[var(--bg-active)]",
                       canDrag && "cursor-move",
                       draggingRoleId === role.id && "opacity-50"
                     )}
                   >
-                    <GripVertical className={cn("w-4 h-4 flex-shrink-0", canDrag ? "text-[var(--text-muted)]" : "text-[var(--text-muted)]")} />
+                    <GripVertical className="w-4 h-4 flex-shrink-0 text-[var(--text-muted)] max-md:hidden" />
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color || "#888888" }} />
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-medium truncate flex items-center gap-1"><span className="truncate">{role.name}</span><RoleIcon role={role} size={14} /></p>
+                      <p className="text-[var(--text-primary)] text-sm max-md:text-[15px] font-medium truncate flex items-center gap-1"><span className="truncate">{role.name}</span><RoleIcon role={role} size={14} /></p>
                       <p className="text-[11px] text-[var(--text-muted)]">
                         {role.memberCount ?? 0} members{role.isDefault ? " • default" : role.managed ? " • managed" : ""}
                       </p>
@@ -1937,11 +2011,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                           event.stopPropagation();
                           void handleDeleteRole(role.id);
                         }}
-                        className="p-1 hover:bg-red-500/10 rounded text-[var(--text-muted)] hover:text-red-500 transition-all"
+                        aria-label={gt("Delete role {role}", { role: role.name })}
+                        className="p-1 max-md:p-2.5 hover:bg-red-500/10 rounded text-[var(--text-muted)] hover:text-red-500 transition-all"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
                     )}
+                    {isMobile && <ChevronRight className="w-5 h-5 shrink-0 text-[var(--text-muted)]" />}
                   </div>
                 );
               })}
@@ -1954,7 +2030,13 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
 
           {/* Role editor panel */}
-          <div className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] flex flex-col max-h-[calc(100vh-220px)]">
+          <div
+            className={cn(
+              "rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] flex flex-col",
+              isMobile ? "border-0 bg-transparent" : "max-h-[calc(100vh-220px)]",
+              isMobile && !mobileRoleDetail && "hidden",
+            )}
+          >
             {!selectedRole || !roleDraft ? (
               <div className="flex items-center justify-center py-16 text-sm text-[var(--text-secondary)]">
                 <T>Select a role to edit.</T>
@@ -1962,9 +2044,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             ) : (
               <>
                 {/* Header */}
-                <div className="flex items-center gap-3 p-4 border-b border-[var(--border-subtle)] flex-shrink-0">
+                <div className={cn("flex items-center gap-3 p-4 border-b border-[var(--border-subtle)] flex-shrink-0", isMobile && "hidden")}>
                   <div className="w-4 h-4 rounded-full" style={{ backgroundColor: roleDraft.color || "#888888" }} />
-                  <h3 className="text-lg text-white font-semibold">{selectedRole.name}</h3>
+                  <h3 className="text-lg text-[var(--text-primary)] font-semibold">{selectedRole.name}</h3>
                   {selectedRole.isDefault && (
                     <span className="text-xs px-2 py-0.5 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)]"><T>Default</T></span>
                   )}
@@ -1974,7 +2056,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
 
                 {/* Scrollable content */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                <div className={cn("flex-1 space-y-5", isMobile ? "p-0" : "overflow-y-auto p-4")}>
                   {/* Name + Colour */}
                   <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
                     <div>
@@ -2094,7 +2176,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
 
                 {/* Sticky save bar */}
-                <div className="flex items-center justify-between p-3 border-t border-[var(--border-subtle)] flex-shrink-0 bg-[var(--bg-app)] rounded-b-lg">
+                <div className={cn("flex items-center justify-between p-3 border-t border-[var(--border-subtle)] flex-shrink-0 bg-[var(--bg-app)] rounded-b-lg", isMobile && "hidden")}>
                   <p className="text-xs text-[var(--text-muted)]">
                     {hasUnsavedRoleChanges ? gt("You have unsaved changes") : gt("All changes saved")}
                   </p>
@@ -2181,7 +2263,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     const vanityDirty = vanityDraft.trim().toLowerCase() !== (vanityInfo.code ?? "");
     return (
       <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="text-[var(--text-primary)] font-semibold flex items-center gap-2">
               <Crown className="w-4 h-4 text-[#F0B232]" />
@@ -2255,9 +2337,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const renderInvites = () => (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Invites</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Invites</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Create and manage invite links</T></p>
         </div>
         <button
@@ -2286,11 +2368,11 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           {invites.map((invite) => (
             <div
               key={invite.code}
-              className="flex items-center gap-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
+              className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
             >
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <code className="text-[#8B5CF6] font-mono">
+                <div className="flex items-center gap-2 min-w-0">
+                  <code className="text-[var(--app-accent)] font-mono truncate min-w-0">
                     serika.cc/{invite.code}
                   </code>
                   <button
@@ -2301,7 +2383,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     <Copy className="w-4 h-4 text-[var(--text-secondary)]" />
                   </button>
                 </div>
-                <div className="flex items-center gap-4 mt-1 text-xs text-[var(--text-muted)]">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 text-xs text-[var(--text-muted)]">
                   <span>#{invite.channel?.name || gt('deleted-channel')}</span>
                   <span>{invite.uses} {gt('uses')}</span>
                   {invite.expiresAt && (
@@ -2317,7 +2399,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               </Avatar>
               <button
                 onClick={() => handleDeleteInvite(invite.code)}
-                className="p-2 hover:bg-red-500/10 rounded-md text-[var(--text-secondary)] hover:text-red-500 transition-colors"
+                aria-label={gt("Delete invite")}
+                className="p-2 max-md:p-3 hover:bg-red-500/10 rounded-md text-[var(--text-secondary)] hover:text-red-500 transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -2331,7 +2414,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderBans = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Bans</T></h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Bans</T></h2>
         <p className="text-sm text-[var(--text-secondary)]"><T>View and manage banned users</T></p>
       </div>
 
@@ -2359,14 +2442,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </AvatarFallback>
               </Avatar>
               <div className="flex-1 min-w-0">
-                <p className="text-[var(--text-primary)] font-medium">{ban.username}</p>
+                <p className="text-[var(--text-primary)] font-medium truncate">{ban.username}</p>
                 {ban.reason && (
                   <p className="text-sm text-[var(--text-secondary)] truncate">{ban.reason}</p>
                 )}
               </div>
               <button
                 onClick={() => handleUnban(ban.id)}
-                className="px-3 py-1.5 bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-sm rounded-md transition-colors"
+                className="shrink-0 px-3 py-1.5 max-md:py-2.5 bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-sm rounded-md transition-colors"
               >
                 <T>Revoke Ban</T>
               </button>
@@ -2379,16 +2462,16 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const renderMembers = () => (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Members</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Members</T></h2>
           <p className="text-sm text-[var(--text-secondary)]">{members.length} {gt('members')}</p>
         </div>
         <Input
           placeholder={gt("Search members...")}
           value={memberSearch}
           onChange={(event) => setMemberSearch(event.target.value)}
-          className="w-64 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
+          className="w-full sm:w-64 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
         />
       </div>
 
@@ -2442,7 +2525,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                             <button
                               type="button"
                               onClick={() => void handleToggleMemberRole(member, role.id, false)}
-                              className="opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                              className="opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity max-md:p-1 max-md:-m-1"
                               title={gt("Remove role")}
                               aria-label={gt("Remove role {role}", { role: role.name })}
                             >
@@ -2458,7 +2541,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     )}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button className="p-0.5 text-[var(--text-secondary)] hover:text-[#8B5CF6] transition-colors" title={gt("Assign roles")}>
+                        <button className="p-0.5 max-md:p-2 max-md:-m-1.5 text-[var(--text-secondary)] hover:text-[var(--app-accent)] transition-colors" title={gt("Assign roles")} aria-label={gt("Assign roles")}>
                           <Plus className="w-3.5 h-3.5" />
                         </button>
                       </DropdownMenuTrigger>
@@ -2487,7 +2570,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                                       className="w-2 h-2 rounded-full"
                                       style={{ backgroundColor: role.color }}
                                     />
-                                    <span className={hasRole ? "text-white" : ""}>{role.name}</span>
+                                    <span className={hasRole ? "text-[var(--text-primary)]" : ""}>{role.name}</span>
                                   </div>
                                 </DropdownMenuCheckboxItem>
                               );
@@ -2510,9 +2593,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       : emojis;
     return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Emoji</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Emoji</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Upload custom emoji for your server</T> ({emojis.length}/500)</p>
         </div>
         <button
@@ -2591,7 +2674,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               )}
               <button
                 onClick={() => handleDeleteEmoji(emoji.id)}
-                className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-1 p-1 max-md:p-1.5 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
               >
                 <X className="w-3 h-3 text-white" />
               </button>
@@ -2600,7 +2683,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   setRenamingEmojiId(emoji.id);
                   setEmojiRenameValue(emoji.name);
                 }}
-                className="absolute top-1 right-7 p-1 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
               >
                 <Pencil className="w-3 h-3 text-white" />
               </button>
@@ -2653,9 +2736,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       : stickers;
     return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Stickers</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Stickers</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Upload custom stickers for your server</T> ({stickers.length}/500)</p>
         </div>
         <button
@@ -2725,7 +2808,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               />
               <button
                 onClick={() => handleDeleteSticker(sticker.id)}
-                className="absolute top-1 right-1 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-1 p-1 max-md:p-1.5 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
               >
                 <X className="w-3 h-3 text-white" />
               </button>
@@ -2734,7 +2817,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                   setRenamingStickerId(sticker.id);
                   setStickerRenameValue(sticker.name);
                 }}
-                className="absolute top-1 right-7 p-1 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
               >
                 <Pencil className="w-3 h-3 text-white" />
               </button>
@@ -2805,7 +2888,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Access</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Access</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Control how people join your server</T></p>
         </div>
 
@@ -2854,7 +2937,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         {joinMode === "discoverable" && (
           <div className="space-y-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] animate-in fade-in slide-in-from-top-2 duration-200">
             <div className="space-y-2">
-              <label className="text-white font-medium text-sm"><T>Discovery Description</T></label>
+              <label className="text-[var(--text-primary)] font-medium text-sm"><T>Discovery Description</T></label>
               <Textarea
                 placeholder={gt("A brief description of your server shown in Server Discovery...")}
                 value={draftString("discoveryDescription")}
@@ -2925,7 +3008,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         )}
 
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <span className="text-[var(--text-primary)] font-medium"><T>Age-Restricted Server</T></span>
               <p className="text-sm text-[var(--text-secondary)] mt-1">
@@ -2977,9 +3060,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Member Applications</T></h2>
+            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Member Applications</T></h2>
             <p className="text-sm text-[var(--text-secondary)]"><T>Review and manage server member applications</T></p>
           </div>
           <select
@@ -3016,7 +3099,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 key={app.id}
                 className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3"
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <Avatar className="w-10 h-10">
                       <AvatarImage src={cdnImage(app.user.avatar)} />
@@ -3089,7 +3172,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>App Discovery</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>App Discovery</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Browse and add public bots to your server</T></p>
         </div>
 
@@ -3161,7 +3244,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderWidget = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Server Widget</T></h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Widget</T></h2>
         <p className="text-sm text-[var(--text-secondary)]"><T>Embed your server on your website</T></p>
       </div>
 
@@ -3186,7 +3269,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </p>
         <label className="mt-4 flex items-center justify-between gap-4 cursor-pointer">
           <span>
-            <span className="block text-sm text-white"><T>Show recent messages</T></span>
+            <span className="block text-sm text-[var(--text-primary)]"><T>Show recent messages</T></span>
             <span className="block text-xs text-[var(--app-muted)] mt-1">
               <T>Anyone with the widget link can read the latest messages of channels that have no permission overwrites.</T>
             </span>
@@ -3224,7 +3307,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
           <T>WIDGET CODE</T>
         </label>
-        <div className="p-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] font-mono text-sm text-[var(--text-secondary)]">
+        <div className="p-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] font-mono text-sm text-[var(--text-secondary)] break-all">
           {`<iframe src="https://serika.chat/widget/${currentServer.id}" width="350" height="500" />`}
         </div>
         <button
@@ -3243,7 +3326,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderModeration = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Moderation</T></h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Moderation</T></h2>
         <p className="text-sm text-[var(--text-secondary)]"><T>Configure moderation settings for your server</T></p>
       </div>
 
@@ -3332,7 +3415,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         <fieldset disabled aria-disabled="true" className="space-y-4 opacity-60 cursor-not-allowed">
 
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <span className="text-[var(--text-primary)] font-medium"><T>2FA Requirement</T></span>
               <p className="text-sm text-[var(--text-secondary)] mt-1">
@@ -3355,7 +3438,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
 
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <span className="text-[var(--text-primary)] font-medium"><T>Raid Protection</T></span>
               <p className="text-sm text-[var(--text-secondary)] mt-1"><T>Auto-enable stricter checks during suspicious joins</T></p>
@@ -3402,12 +3485,12 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const renderSoundboard = () => (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Soundboard</T></h2>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Soundboard</T></h2>
         <p className="text-sm text-[var(--text-secondary)]"><T>Configure soundboard availability</T></p>
       </div>
 
       <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <span className="text-[var(--text-primary)] font-medium"><T>Enable Soundboard</T></span>
           <ToggleSwitch
             checked={draftBool("soundboard.enabled", true)}
@@ -3420,7 +3503,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
       {/* Sound list */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-[var(--text-primary)]"><T>Sounds</T> ({soundboardSounds.length}/500)</h3>
             <p className="text-xs text-[var(--text-secondary)]"><T>Upload audio files (max 20MB, 30s, mp3/wav/ogg)</T></p>
@@ -3478,7 +3561,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 </div>
                 <button
                   onClick={() => handleDeleteSound(sound.id)}
-                  className="flex-shrink-0 p-1 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="flex-shrink-0 p-1 max-md:p-2 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
                 >
                   <X className="w-3 h-3 text-white" />
                 </button>
@@ -3500,7 +3583,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     return (
       <div className="space-y-6">
         <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Integrations</T></h2>
+          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Integrations</T></h2>
           <p className="text-sm text-[var(--text-secondary)]"><T>Enable or disable external integrations for your server</T></p>
         </div>
 
@@ -3534,7 +3617,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
                   <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-white"><T>SerikaCord Bot</T></p>
+                    <p className="text-xs font-semibold text-[var(--text-primary)]"><T>SerikaCord Bot</T></p>
                     <p className="text-[11px] text-[var(--text-secondary)]"><T>Online and listening for messages via Gateway</T></p>
                   </div>
                   <a
@@ -3594,7 +3677,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                     </select>
                   </div>
 
-                  <div className="flex gap-3 pt-1">
+                  <div className="flex flex-wrap gap-3 pt-1">
                     <button
                       type="button"
                       onClick={handleDiscordSync}
@@ -3825,6 +3908,145 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     }
   };
 
+  const overlays = (
+    <>
+      {/* Image Cropper */}
+      <ImageCropper
+        open={cropperOpen}
+        onOpenChange={setCropperOpen}
+        imageUrl={cropperImage}
+        aspectRatio={cropperType === "icon" ? 1 : 2}
+        onCropComplete={handleCropComplete}
+        title={cropperType === "icon" ? gt("Crop Server Icon") : gt("Crop Server Banner")}
+        description={
+          cropperType === "icon"
+            ? gt("Adjust the crop area to select the portion of the image for your server icon.")
+            : gt("Adjust the crop area to select the portion of the image for your server banner.")
+        }
+        circular={cropperType === "icon"}
+      />
+
+      {/* Audio Trimmer (soundboard sounds over 30 seconds) */}
+      <AudioTrimmerDialog
+        open={trimmerOpen}
+        onOpenChange={(open) => {
+          setTrimmerOpen(open);
+          if (!open) setTrimmerFile(null);
+        }}
+        file={trimmerFile}
+        maxDuration={30}
+        onTrimmed={(blob, name) => {
+          setTrimmerFile(null);
+          void uploadSound(blob, name, `${name || "sound"}.wav`);
+        }}
+      />
+    </>
+  );
+
+  // Sections whose edits go into the settings draft (saved with one bulk PATCH).
+  const DRAFT_TABS = new Set<SettingsTab>(["overview", "widget", "moderation", "safety", "soundboard", "integrations", "access"]);
+
+  if (isMobile) {
+    const allItems = menuSections.flatMap((section) => section.items);
+    const sectionLabel = allItems.find((item) => item.id === mobileNav.section)?.label ?? "";
+    const mobileGroups: MobileSettingsGroup<SettingsTab | "delete-server">[] = menuSections.map((section, index) => ({
+      title: index === 0 ? gt("Settings") : section.title,
+      items: section.items.map((item) => ({
+        ...item,
+        badge: item.id === "applications" ? pendingAppCount : undefined,
+      })),
+    }));
+    if (isOwner) {
+      mobileGroups.push({ items: [{ id: "delete-server", label: gt("Delete Server"), icon: Trash2, destructive: true }] });
+    }
+    const roleDetailOpen = mobileNav.page && mobileNav.section === "roles" && mobileNav.detail !== null && Boolean(selectedRole);
+    const unsavedBar = (
+      <UnsavedChangesBar
+        visible={settingsDraft.isDirty}
+        isSaving={isSaving}
+        onSave={handleSaveAll}
+        onDiscard={handleDiscardChanges}
+        changeCount={settingsDraft.dirtyFields.size}
+        className="mt-0"
+      />
+    );
+    const roleBar = hasUnsavedRoleChanges ? (
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 shadow-2xl">
+        <p className="text-sm font-medium text-[var(--text-primary)] min-w-0">{gt("You have unsaved changes")}</p>
+        <button
+          type="button"
+          onClick={() => void handleSaveRole()}
+          disabled={isSavingRole || Boolean(selectedRole?.managed)}
+          className="h-11 px-5 shrink-0 rounded-lg bg-green-600 text-white text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
+        >
+          {isSavingRole && <Loader size={16} />}
+          {gt("Save")}
+        </button>
+      </div>
+    ) : null;
+
+    return (
+      <>
+        {!mobileNav.page ? (
+          <MobileSettingsScreen
+            leading="close"
+            onLeading={() => void handleRequestClose()}
+            title={gt("Server Settings")}
+            ariaLabel={gt("Server settings for {name}", { name: currentServer.name })}
+            animate={false}
+            footer={settingsDraft.isDirty ? unsavedBar : undefined}
+          >
+            <MobileSettingsList
+              groups={mobileGroups}
+              onSelect={(id) => {
+                if (id === "delete-server") void handleDeleteServer();
+                else openMobileTab(id);
+              }}
+              header={
+                <div className="flex items-center gap-3 px-1">
+                  <Avatar className="w-14 h-14 rounded-2xl">
+                    <AvatarImage src={cdnImage(serverIcon || currentServer.icon || undefined)} />
+                    <AvatarFallback className="bg-[var(--app-accent)] text-white text-xl rounded-2xl">
+                      {currentServer.name.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-[var(--text-primary)] truncate">{currentServer.name}</p>
+                    <p className="text-sm text-[var(--text-muted)]">{gt("Server Settings")}</p>
+                  </div>
+                </div>
+              }
+            />
+          </MobileSettingsScreen>
+        ) : (
+          <MobileSettingsScreen
+            key={`${mobileNav.section}:${mobileNav.detail ?? ""}`}
+            leading="back"
+            onLeading={() => void handleMobileBack()}
+            title={roleDetailOpen && selectedRole ? selectedRole.name : sectionLabel}
+            subtitle={roleDetailOpen ? gt("Edit Role") : currentServer.name}
+            ariaLabel={gt("Server settings for {name}", { name: currentServer.name })}
+            action={
+              roleDetailOpen ? (
+                <MobileSaveAction
+                  onSave={() => void handleSaveRole()}
+                  disabled={!hasUnsavedRoleChanges || Boolean(selectedRole?.managed)}
+                  saving={isSavingRole}
+                />
+              ) : DRAFT_TABS.has(mobileNav.section) ? (
+                <MobileSaveAction onSave={() => void handleSaveAll()} disabled={!settingsDraft.isDirty} saving={isSaving} />
+              ) : null
+            }
+            footer={roleDetailOpen ? roleBar : settingsDraft.isDirty ? unsavedBar : undefined}
+          >
+            <div className="px-4 pt-4 pb-10">{renderContent()}</div>
+          </MobileSettingsScreen>
+        )}
+        {overlays}
+      </>
+    );
+  }
+
   return (
     <div
       role="dialog"
@@ -3915,36 +4137,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
       </div>
 
-      {/* Image Cropper */}
-      <ImageCropper
-        open={cropperOpen}
-        onOpenChange={setCropperOpen}
-        imageUrl={cropperImage}
-        aspectRatio={cropperType === "icon" ? 1 : 2}
-        onCropComplete={handleCropComplete}
-        title={cropperType === "icon" ? gt("Crop Server Icon") : gt("Crop Server Banner")}
-        description={
-          cropperType === "icon"
-            ? gt("Adjust the crop area to select the portion of the image for your server icon.")
-            : gt("Adjust the crop area to select the portion of the image for your server banner.")
-        }
-        circular={cropperType === "icon"}
-      />
-
-      {/* Audio Trimmer (soundboard sounds over 30 seconds) */}
-      <AudioTrimmerDialog
-        open={trimmerOpen}
-        onOpenChange={(open) => {
-          setTrimmerOpen(open);
-          if (!open) setTrimmerFile(null);
-        }}
-        file={trimmerFile}
-        maxDuration={30}
-        onTrimmed={(blob, name) => {
-          setTrimmerFile(null);
-          void uploadSound(blob, name, `${name || "sound"}.wav`);
-        }}
-      />
+      {overlays}
     </div>
   );
 }
