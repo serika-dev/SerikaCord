@@ -493,6 +493,21 @@ export function pushCallRing(userIds: string[], ring: {
   });
 }
 
+/**
+ * A server notice for specific users (a scheduled event they're interested in
+ * started): push the phones of those not in the app.
+ */
+export function pushServerNotice(userIds: string[], notice: { title: string; body: string; route: string; tag: string }): void {
+  if (!isPushConfigured() || userIds.length === 0) return;
+  run(async () => {
+    const devices = await devicesFor(userIds);
+    if (devices.size === 0) return;
+    const targets = await filterInactive([...devices.keys()]);
+    const tokens = targets.flatMap((id) => devices.get(id) ?? []);
+    await sendToTokens(tokens, { kind: 'message', ...notice });
+  });
+}
+
 /** The call stopped ringing (answered elsewhere, declined, ended): drop the ring. */
 export function pushCallCancel(userIds: string[], roomId: string): void {
   if (!roomId || !isPushConfigured() || userIds.length === 0) return;

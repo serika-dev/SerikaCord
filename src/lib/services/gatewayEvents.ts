@@ -19,6 +19,7 @@ export const Intents = {
   GUILD_MEMBERS: 1 << 1,
   GUILD_MODERATION: 1 << 2,
   GUILD_MESSAGES: 1 << 9,
+  GUILD_SCHEDULED_EVENTS: 1 << 16,
   DIRECT_MESSAGES: 1 << 12,
   MESSAGE_CONTENT: 1 << 15,
   AUTO_MODERATION_CONFIGURATION: 1 << 20,
@@ -304,6 +305,11 @@ export function emitAutoModActionExecution(guildId: string, d: Record<string, un
     intent: Intents.AUTO_MODERATION_EXECUTION,
     d: { guild_id: guildId, ...d },
   });
+}
+
+/** GUILD_SCHEDULED_EVENT_CREATE / _UPDATE / _DELETE / _USER_ADD / _USER_REMOVE. */
+export function emitGuildScheduledEvent(t: string, guildId: string, d: unknown) {
+  return publish({ t, guildId, intent: Intents.GUILD_SCHEDULED_EVENTS, d });
 }
 
 export function gatewayBotUrl() {

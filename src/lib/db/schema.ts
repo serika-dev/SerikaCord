@@ -1009,6 +1009,58 @@ export const userNotes = pgTable('user_notes', {
   pk: primaryKey({ columns: [t.ownerId, t.targetId] }),
 }));
 
+// Server scheduled events (Discord "Events"). entity_type: voice | stage |
+// external; status: scheduled | active | completed | canceled (lib/chat/
+// scheduledEvents). Added at boot by ensureScheduledEventSchema() (mirrors
+// drizzle/manual_scheduled_events_announcements.sql).
+export const serverScheduledEvents = pgTable('server_scheduled_events', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  serverId: uuid('server_id').notNull(),
+  creatorId: uuid('creator_id').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  entityType: text('entity_type').notNull().default('voice'),
+  channelId: uuid('channel_id'),
+  location: text('location'),
+  image: text('image'),
+  status: text('status').notNull().default('scheduled'),
+  startAt: timestamp('start_at').notNull(),
+  endAt: timestamp('end_at'),
+  startedAt: timestamp('started_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  serverStatusIdx: index('server_scheduled_events_server_status_idx').on(t.serverId, t.status),
+  statusStartIdx: index('server_scheduled_events_status_start_idx').on(t.status, t.startAt),
+}));
+
+// "Interested" users of a scheduled event. Same boot ensure as above.
+export const serverScheduledEventUsers = pgTable('server_scheduled_event_users', {
+  eventId: uuid('event_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.eventId, t.userId] }),
+  userIdx: index('server_scheduled_event_users_user_idx').on(t.userId),
+}));
+
+// Announcement channel follows: published messages from source_channel_id are
+// posted into target_channel_id by webhook_id ("Server #channel"). Same boot
+// ensure as above.
+export const channelFollows = pgTable('channel_follows', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  sourceChannelId: uuid('source_channel_id').notNull(),
+  sourceServerId: uuid('source_server_id').notNull(),
+  targetChannelId: uuid('target_channel_id').notNull(),
+  targetServerId: uuid('target_server_id').notNull(),
+  webhookId: uuid('webhook_id').notNull(),
+  creatorId: uuid('creator_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  sourceTargetIdx: uniqueIndex('channel_follows_source_target_idx').on(t.sourceChannelId, t.targetChannelId),
+  targetIdx: index('channel_follows_target_idx').on(t.targetChannelId),
+}));
+
 // DM Message Requests: one row per (1:1 DM channel, recipient) with status
 // pending | accepted | ignored. Added at boot by ensureMessageRequestSchema()
 // (mirrors drizzle/manual_user_notes_message_requests.sql).

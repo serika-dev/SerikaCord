@@ -102,6 +102,12 @@ export const rateLimiters_config = {
   messageRequest: { points: 60, duration: 60 },
   // Changing another member's nickname, per user
   memberNickname: { points: 30, duration: 60 },
+  // Scheduled events: create / edit / cancel / interested, per user
+  scheduledEvent: { points: 30, duration: 60 },
+  // Announcement channels: publishing to followers, per channel (Discord: 10/hour)
+  crosspost: { points: 10, duration: 3600 },
+  // Following / unfollowing announcement channels, per user
+  channelFollow: { points: 20, duration: 600 },
 } as const;
 
 export async function checkRateLimit(

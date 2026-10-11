@@ -19,6 +19,8 @@ import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
 import { automodRoutes } from './automod';
 import { communityRoutes } from './community';
+import { scheduledEventRoutes } from './scheduledEvents';
+import { announcementRoutes } from './announcements';
 import { searchRoutes } from './search';
 import { adminRoutes } from './admin';
 import { badgeRoutes } from './badges';
@@ -4185,6 +4187,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(messageExtrasRoutes)
   .use(automodRoutes)
   .use(communityRoutes)
+  .use(scheduledEventRoutes)
+  .use(announcementRoutes)
   .use(voiceRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
@@ -4259,6 +4263,14 @@ export async function initializeAPI() {
         if (!ok) return;
         const timer = setTimeout(() => search.startSearchBackfill(PROCESS_INSTANCE_ID), 60_000);
         (timer as { unref?: () => void }).unref?.();
+      });
+    }
+    // Scheduled events + announcement follows tables, then the sweeper that
+    // starts / completes events on time. Idempotent, never throws, not awaited.
+    {
+      const events = await import('@/lib/services/scheduledEvents');
+      void events.ensureScheduledEventSchema().then((ok) => {
+        if (ok) events.startScheduledEventSweeper();
       });
     }
     // Private user notes + DM message requests tables. Idempotent, never
