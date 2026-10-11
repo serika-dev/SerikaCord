@@ -880,6 +880,118 @@ export async function listViewableServerChannels(userId: string, serverId: strin
   return out;
 }
 
+type ViewableCandidate = {
+  id: string;
+  serverId?: string | null;
+  type?: string | null;
+  parentId?: string | null;
+  ownerId?: string | null;
+  permissionOverwrites?: unknown;
+  threadMemberIds?: string[] | null;
+  ticketAccessRoleIds?: string[] | null;
+};
+
+const hasOverwrites = (c: { permissionOverwrites?: unknown }) =>
+  Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0;
+
+/**
+ * Batch `checkChannelAccess(...).hasAccess` for many server channels across
+ * many servers (startup unread seed, mentions inbox, quick switcher). The
+ * per-channel form re-loaded the channel, the membership and the server for
+ * every restricted channel (3-4 queries each, so a ticket server alone could
+ * cost hundreds of queries); this loads each membership / owner / missing
+ * parent once and computes permissions from the cached role bitfields.
+ *
+ * Same rules as checkChannelAccess: threads resolve against their parent's
+ * overwrites; private threads need creator / member / server owner / ticket
+ * access role / MANAGE_THREADS. Channels with no overwrites (and DMs) stay
+ * visible without a check, as before. Pass `memberships` when already loaded.
+ */
+export async function filterViewableServerChannels<C extends ViewableCandidate>(
+  userId: string,
+  channels: C[],
+  memberships?: ReadonlyArray<{ serverId: string; roles?: string[] | null }>,
+): Promise<C[]> {
+  const byId = new Map<string, ViewableCandidate>(channels.map((c) => [c.id, c]));
+  const isThread = (c: ViewableCandidate) => c.type === 'public_thread' || c.type === 'private_thread';
+
+  // Missing parents (a thread whose forum wasn't in the input), loaded once each.
+  const missingParentIds = [...new Set(
+    channels
+      .filter((c) => c.serverId && isThread(c) && c.parentId && !byId.has(c.parentId))
+      .map((c) => c.parentId as string),
+  )];
+  if (missingParentIds.length > 0) {
+    for (const p of await Channel.find({ id: { in: missingParentIds } })) byId.set(p.id, p);
+  }
+  const sourceOf = (c: ViewableCandidate): ViewableCandidate =>
+    (isThread(c) && c.parentId ? byId.get(c.parentId) : undefined) ?? c;
+
+  const needsCheck = (c: ViewableCandidate) =>
+    Boolean(c.serverId) && (c.type === 'private_thread' || hasOverwrites(sourceOf(c)));
+  const toCheck = channels.filter(needsCheck);
+  if (toCheck.length === 0) return channels;
+
+  const membershipByServer = new Map<string, { roles?: string[] | null } | null>();
+  for (const m of memberships ?? []) membershipByServer.set(m.serverId, m);
+  const serverIds = [...new Set(toCheck.map((c) => c.serverId as string))];
+  const [owners] = await Promise.all([
+    Promise.all(serverIds.map((sid) => getServerOwnerIdCached(sid).catch(() => null))),
+    Promise.all(
+      serverIds
+        .filter((sid) => !membershipByServer.has(sid))
+        .map(async (sid) => {
+          membershipByServer.set(sid, await ServerMember.findOne({ serverId: sid, userId }).catch(() => null));
+        }),
+    ),
+  ]);
+  const ownerByServer = new Map(serverIds.map((sid, i) => [sid, owners[i]]));
+
+  const canViewSource = new Map<string, Promise<boolean>>();
+  const manageThreads = new Map<string, Promise<boolean>>();
+  const verdicts = await Promise.all(
+    toCheck.map(async (channel): Promise<boolean> => {
+      const serverId = channel.serverId as string;
+      const membership = membershipByServer.get(serverId) ?? null;
+      if (!membership) return false;
+      const serverOwnerId = ownerByServer.get(serverId) ?? null;
+      const isServerOwner = Boolean(serverOwnerId && compareIds(serverOwnerId, userId));
+      const source = sourceOf(channel);
+      if (channel.type === 'private_thread' && !isServerOwner) {
+        const isCreator = compareIds(channel.ownerId ?? '', userId);
+        const isMember = (channel.threadMemberIds || []).some((m) => compareIds(m, userId));
+        const accessRoles = (source !== channel ? source.ticketAccessRoleIds || [] : []) as string[];
+        const memberRoles = (membership.roles || []) as string[];
+        const hasAccessRole = accessRoles.length > 0 && memberRoles.some((r) => accessRoles.includes(r));
+        if (!isCreator && !isMember && !hasAccessRole) {
+          let canManage = manageThreads.get(serverId);
+          if (!canManage) {
+            canManage = serverOwnerId
+              ? hasServerPermission({ id: serverId, ownerId: serverOwnerId }, userId, PERM_MANAGE_THREADS, membership).catch(() => false)
+              : Promise.resolve(false);
+            manageThreads.set(serverId, canManage);
+          }
+          if (!(await canManage)) return false;
+        }
+      }
+      let view = canViewSource.get(source.id);
+      if (!view) {
+        view = canViewChannel(
+          { permissionOverwrites: (source.permissionOverwrites || []) as ChannelOverwrite[], serverId },
+          userId,
+          membership,
+          serverOwnerId,
+        ).catch(() => false);
+        canViewSource.set(source.id, view);
+      }
+      return view;
+    }),
+  );
+  const denied = new Set<string>();
+  toCheck.forEach((c, i) => { if (!verdicts[i]) denied.add(c.id); });
+  return denied.size === 0 ? channels : channels.filter((c) => !denied.has(c.id));
+}
+
 /**
  * Returns true if a member (with the given role ids) can see every ticket in a
  * ticket-mode forum — i.e. server owner or holder of a configured access role.

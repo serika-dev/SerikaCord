@@ -338,19 +338,23 @@ export async function authenticateRequest(
 
   // For local tokens, verify session exists
   // For accounts.serika.dev tokens, skip session check (they manage their own sessions)
-  if (sessionId) {
-    if (type && type !== 'access') {
-      return { user: null, error: 'Invalid token type' };
-    }
-    const session = await getSession(sessionId);
-    if (!session) {
-      return { user: null, error: 'Session expired or invalid' };
-    }
+  if (sessionId && type && type !== 'access') {
+    return { user: null, error: 'Invalid token type' };
+  }
+
+  // Session check and the cached-user read are independent Redis GETs: run
+  // them together so every authenticated request pays one round-trip, not two.
+  const cacheKey = `user:${userId}`;
+  const [session, cachedUser] = await Promise.all([
+    sessionId ? getSession(sessionId) : Promise.resolve(null),
+    cache.get<IUser>(cacheKey),
+  ]);
+  if (sessionId && !session) {
+    return { user: null, error: 'Session expired or invalid' };
   }
 
   // Get user from cache or database
-  const cacheKey = `user:${userId}`;
-  let user = await cache.get<IUser>(cacheKey);
+  let user = cachedUser;
 
   if (!user) {
     let dbUser = await User.findById(userId);

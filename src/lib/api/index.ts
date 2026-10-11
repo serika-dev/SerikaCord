@@ -1060,7 +1060,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
 
       // Get all channels in those servers the user can actually view (private
       // channels' @everyone/role mentions must not leak to every member).
-      const channels = await filterViewableChannels(user.id, await Channel.find({ serverId: { in: serverIds } }));
+      const channels = await filterViewableChannels(user.id, await Channel.find({ serverId: { in: serverIds } }), memberships);
       const channelIds = channels.map(c => c.id);
 
       // Map channelId -> { serverId, name }
@@ -1202,21 +1202,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
         serverId: { in: serverIds },
         type: { in: ['text', 'announcement', 'forum', 'voice', 'stage'] },
       });
-      const { checkChannelAccess } = await import('./channels');
-      const visible = await Promise.all(
-        all.map((c) =>
-          Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0
-            ? checkChannelAccess(user.id, c.id).then((r) => r.hasAccess).catch(() => false)
-            : true,
-        ),
-      );
+      const [visible, categories] = await Promise.all([
+        filterViewableChannels(user.id, all, memberships),
+        Channel.find({ serverId: { in: serverIds }, type: 'category' }),
+      ]);
       const categoryNames = new Map<string, string>();
-      for (const c of await Channel.find({ serverId: { in: serverIds }, type: 'category' })) {
+      for (const c of categories) {
         categoryNames.set(c.id, c.name);
       }
       return {
-        channels: all
-          .filter((_, i) => visible[i])
+        channels: visible
           .map((c) => ({
             id: c.id,
             serverId: c.serverId,
@@ -1248,15 +1243,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const allChannels = await Channel.find({ serverId: { in: serverIds }, type: { in: ['text', 'announcement'] } });
       // Hide channels the user can't view (permission overwrites), otherwise
       // their server shows unread forever for a channel they can't open.
-      const { checkChannelAccess } = await import('./channels');
-      const visible = await Promise.all(
-        allChannels.map((c) =>
-          Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0
-            ? checkChannelAccess(user.id, c.id).then((r) => r.hasAccess).catch(() => false)
-            : true,
-        ),
-      );
-      const channels = allChannels.filter((_, i) => visible[i]);
+      const channels = await filterViewableChannels(user.id, allChannels, memberships);
       // The newest message's own time + author (one id-only query). The
       // channel's `updatedAt` also moves on renames and permission edits,
       // which used to light channels up with nothing new in them.
@@ -3429,19 +3416,15 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
  * threads). Channels without overwrites are visible to every member, so only
  * restricted ones pay for a full access check.
  */
-async function filterViewableChannels<C extends { id: string; type?: string | null; permissionOverwrites?: unknown }>(
+async function filterViewableChannels<C extends { id: string; serverId?: string | null; type?: string | null; permissionOverwrites?: unknown }>(
   userId: string,
   channels: C[],
+  memberships?: ReadonlyArray<{ serverId: string; roles?: string[] | null }>,
 ): Promise<C[]> {
-  const { checkChannelAccess } = await import('./channels');
-  const visible = await Promise.all(
-    channels.map((c) =>
-      c.type === 'private_thread' || (Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0)
-        ? checkChannelAccess(userId, c.id).then((r) => r.hasAccess).catch(() => false)
-        : true,
-    ),
-  );
-  return channels.filter((_, i) => visible[i]);
+  // Batched: one membership/owner lookup per server instead of a full
+  // checkChannelAccess (3-4 queries) per restricted channel.
+  const { filterViewableServerChannels } = await import('./channels');
+  return filterViewableServerChannels(userId, channels, memberships);
 }
 
 const notificationsRoutes = new Elysia({ prefix: '/notifications' })
@@ -3468,7 +3451,7 @@ const notificationsRoutes = new Elysia({ prefix: '/notifications' })
       }
 
       // Get all channels in those servers the user can actually view
-      const channels = await filterViewableChannels(user.id, await Channel.find({ serverId: { in: serverIds } }));
+      const channels = await filterViewableChannels(user.id, await Channel.find({ serverId: { in: serverIds } }), memberships);
       const channelIds = channels.map(c => c.id);
 
       // Map channelId -> { serverId, name }
