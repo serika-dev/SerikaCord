@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { isRiskyAttachment, storedAttachmentType } from '@/lib/chat/uploadPolicy';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { storage, keyFromUrl } from '@/lib/services/storage';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
@@ -36,18 +37,6 @@ function cleanupOldMedia(oldUrl: string | null | undefined, newUrl: string, owne
 // Type guard for file validation
 function isValidImageType(type: string): type is "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
   return config.ALLOWED_IMAGE_TYPES.includes(type as typeof config.ALLOWED_IMAGE_TYPES[number]);
-}
-
-function isValidFileType(type: string, customWhitelist?: IAllowedFileType[]): { allowed: boolean; warn: boolean } {
-  if (customWhitelist && customWhitelist.length > 0) {
-    const entry = customWhitelist.find((f) => f.type === type);
-    if (entry) {
-      return { allowed: true, warn: !entry.safe };
-    }
-    return { allowed: false, warn: false };
-  }
-  const allowed = config.ALLOWED_FILE_TYPES.includes(type as typeof config.ALLOWED_FILE_TYPES[number]);
-  return { allowed, warn: false };
 }
 
 export const uploadRoutes = new Elysia({ prefix: '/upload' })
@@ -494,17 +483,16 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Validate file type (use platform settings whitelist if configured)
+    // Any file can be attached, like Discord (split archives, source, binaries).
+    // The platform whitelist no longer blocks: it only marks types as unsafe,
+    // and unknown or page-like types are stored as plain downloads.
     const platformSettings = await getPlatformSettings();
-    const customWhitelist = platformSettings.allowedFileTypes as IAllowedFileType[] | undefined;
-    const fileCheck = isValidFileType(file.type, customWhitelist);
-    if (!fileCheck.allowed) {
-      const shouldWarn = platformSettings.warnOnUnknownFileTypes !== false;
-      set.status = 400;
-      return { error: shouldWarn ? `File type "${file.type}" is not allowed. Only whitelisted file types can be uploaded.` : 'File type not allowed' };
-    }
-    // File is allowed — if it's tagged as "bad" or unknown with warnings enabled, include a warning
-    const warning = fileCheck.warn ? 'Warning: This file type is flagged as potentially unsafe.' : undefined;
+    const customWhitelist = (platformSettings.allowedFileTypes as IAllowedFileType[] | undefined) ?? [];
+    const flaggedTypes = customWhitelist.filter((f) => !f.safe).map((f) => f.type.toLowerCase());
+    const storedType = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
+    const warning = isRiskyAttachment(file.name, flaggedTypes, file.type)
+      ? 'Warning: This file type is flagged as potentially unsafe.'
+      : undefined;
 
     // Validate file size — premium users get higher limit
     const maxSize = user.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
@@ -518,6 +506,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       const result = await storage.uploadFromFormData(file, 'attachments', {
         userId: user.id,
         channelId,
+        contentType: storedType,
       });
 
       return {
@@ -526,7 +515,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
         attachment: {
           id: result.hash.slice(0, 16),
           filename: file.name,
-          contentType: file.type,
+          contentType: storedType,
           size: file.size,
           url: result.url,
           spoiler: spoiler === 'true',

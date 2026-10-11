@@ -304,7 +304,7 @@ export class StorageService {
   async uploadFromFormData(
     file: File,
     category: UploadCategory,
-    options: { userId?: string; serverId?: string; channelId?: string } = {}
+    options: { userId?: string; serverId?: string; channelId?: string; contentType?: string } = {}
   ): Promise<UploadResult> {
     const buffer = Buffer.from(await file.arrayBuffer());
     
