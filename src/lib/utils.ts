@@ -46,6 +46,25 @@ export function cdnImage(url?: string | null, opts?: { still?: boolean }): strin
 }
 
 /**
+ * Retry a failed CDN image without format conversion. Keep the requested
+ * frame, crop and size so a still avatar never starts animating on retry.
+ * Other hosts and URLs without a conversion have no alternate source.
+ */
+export function cdnImageFallback(url?: string | null): string | undefined {
+  if (!url?.includes(CDN_IMAGE_HOST)) return undefined;
+  try {
+    const u = new URL(url);
+    if (u.hostname !== CDN_IMAGE_HOST || !["http:", "https:"].includes(u.protocol)) return undefined;
+    const formatParams = ["format", "output", "fm"];
+    if (!formatParams.some((param) => u.searchParams.has(param))) return undefined;
+    for (const param of formatParams) u.searchParams.delete(param);
+    return u.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Format a millisecond duration as a short human string, e.g. "2d 3h", "5m", "45s".
  */
 export function formatDuration(ms: number): string {

@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { Loader } from "@/components/ui/Loader";
-import { haptic } from "@/lib/native/bridge";
 import {
   RECORDER_MAX_SECS,
   downsampleWaveform,
@@ -140,7 +139,6 @@ export default function VoiceMessageRecorder({ hold, channelId, uploadEndpoint, 
         return;
       }
       setPhase("uploading");
-      haptic("light");
       recorder.onstop = () => {
         teardown();
         const type = recorder.mimeType || formatRef.current?.mimeType || "";
@@ -219,7 +217,6 @@ export default function VoiceMessageRecorder({ hold, channelId, uploadEndpoint, 
       recorder.start(250);
       startedAtRef.current = performance.now();
       setPhase("recording");
-      haptic("medium");
       tickRef.current = setInterval(() => {
         let level = 0;
         if (analyser && buf) {
@@ -262,7 +259,6 @@ export default function VoiceMessageRecorder({ hold, channelId, uploadEndpoint, 
       const dx = Math.max(0, hold.x - e.clientX);
       setSlide(dx);
       if (dx >= CANCEL_SLIDE_PX) {
-        haptic("light");
         finish(false);
       }
     };

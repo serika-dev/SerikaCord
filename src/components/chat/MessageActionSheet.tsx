@@ -1,18 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import { Copy, Hash, Link2, MessagesSquare, Pencil, Pin, Reply, Share2, SmilePlus, Trash2, CornerUpRight, EyeOff, Flag, Smile, Megaphone } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cdnImage, cn } from "@/lib/utils";
 import { DEFAULT_QUICK_REACTIONS, emojiKey, type FrecencyEmoji } from "@/lib/chat/emojiFrecency";
-import { canShare, haptic, shareLink } from "@/lib/native/bridge";
-import { useBackHandler } from "@/hooks/useBackHandler";
+import { canShare, shareLink } from "@/lib/native/bridge";
+import { MobileSheet } from "@/components/mobile/MobileSheet";
 import type { ChatMessage } from "@/lib/chat/types";
 import { requestForward } from "@/lib/chat/forwardBus";
 
-
-const DISMISS_DRAG_PX = 90;
 
 /** Whether `userId` already reacted to `message` with this emoji. */
 export function hasReactedWith(message: ChatMessage, emoji: FrecencyEmoji, userId?: string): boolean {
@@ -82,16 +79,7 @@ export function MessageActionSheet<M extends ChatMessage>({
   onReport,
 }: MessageActionSheetProps<M>) {
   const gt = useGT();
-  const [dragY, setDragY] = useState(0);
-  const dragStart = useRef<number | null>(null);
   const shareable = canShare();
-
-  useBackHandler(true, onClose);
-
-  // A firm tick when the sheet appears, like a native long-press menu.
-  useEffect(() => {
-    haptic("medium");
-  }, [message.id]);
 
   const run = (action: () => void) => () => {
     action();
@@ -100,62 +88,14 @@ export function MessageActionSheet<M extends ChatMessage>({
 
   const messageUrl = () => `${window.location.origin}${window.location.pathname}?jump=${message.id}`;
 
-  const onDragStart = (e: React.TouchEvent) => {
-    dragStart.current = e.touches[0].clientY;
-  };
-  const onDragMove = (e: React.TouchEvent) => {
-    if (dragStart.current === null) return;
-    setDragY(Math.max(0, e.touches[0].clientY - dragStart.current));
-  };
-  const onDragEnd = () => {
-    const close = dragY > DISMISS_DRAG_PX;
-    dragStart.current = null;
-    setDragY(0);
-    if (close) onClose();
-  };
-
   const rowClass =
     "flex w-full items-center gap-3 px-4 h-12 text-left text-[15px] font-medium text-[var(--text-primary)] active:bg-[var(--bg-hover)] touch-manipulation";
 
   return (
-    <div
-      className="fixed inset-0 z-[9999] md:hidden"
-      data-message-sheet=""
-      onClick={(e) => e.stopPropagation()}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      <div
-        className="absolute inset-0 bg-black/50 animate-in fade-in duration-150"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        role="menu"
-        aria-label={gt("Message actions")}
-        className={cn(
-          "absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-[var(--app-border)] bg-[var(--app-surface)] shadow-2xl",
-          "animate-in slide-in-from-bottom duration-200 ease-out",
-          dragY === 0 && "transition-transform duration-200",
-        )}
-        style={{ transform: `translateY(${dragY}px)`, paddingBottom: "max(0.75rem, var(--safe-area-bottom))" }}
-      >
-        <div
-          className="flex justify-center pb-3 pt-2.5"
-          onTouchStart={onDragStart}
-          onTouchMove={onDragMove}
-          onTouchEnd={onDragEnd}
-          onTouchCancel={onDragEnd}
-        >
-          <div className="h-1 w-10 rounded-full bg-[var(--app-border)]" />
-        </div>
-
+    <MobileSheet onClose={onClose} label={gt("Message actions")} containerClassName="md:hidden">
         {onReact && (
           <div
             className="flex items-center justify-between gap-1.5 px-4 pb-3"
-            onTouchStart={onDragStart}
-            onTouchMove={onDragMove}
-            onTouchEnd={onDragEnd}
-            onTouchCancel={onDragEnd}
           >
             {quickReactions.map((emoji) => {
               const reacted = hasReactedWith(message, emoji, currentUserId);
@@ -242,7 +182,6 @@ export function MessageActionSheet<M extends ChatMessage>({
               type="button"
               className={rowClass}
               onClick={run(() => {
-                haptic("light");
                 onCopy(message.forward?.content || message.content);
               })}
             >
@@ -293,7 +232,6 @@ export function MessageActionSheet<M extends ChatMessage>({
               type="button"
               className={cn(rowClass, "text-red-500")}
               onClick={run(() => {
-                haptic("warning");
                 onDelete(message);
               })}
             >
@@ -302,7 +240,6 @@ export function MessageActionSheet<M extends ChatMessage>({
             )}
           </div>
         )}
-      </div>
-    </div>
+    </MobileSheet>
   );
 }

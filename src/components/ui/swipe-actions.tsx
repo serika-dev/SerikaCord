@@ -2,11 +2,13 @@
 
 import { useRef, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { gestureAxis, GESTURE_SETTLE_CLASS, resistedDrag } from "@/lib/mobile/gestures";
+import { markRowSwipe } from "@/components/chat/SwipeReplyRow";
 
 export interface SwipeAction {
   icon: React.ReactNode;
   label: string;
-  /** Tailwind background class, e.g. "bg-[#8B5CF6]" or "bg-red-500" */
+  /** Tailwind background class using the action's theme token. */
   className: string;
   onAction: () => void;
 }
@@ -32,10 +34,25 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
   const [isDragging, setIsDragging] = useState(false);
   const startRef = useRef<{ x: number; y: number; offset: number } | null>(null);
   const directionLocked = useRef<"horizontal" | "vertical" | null>(null);
+  const claimed = useRef(false);
+  const suppressClick = useRef(false);
 
   const maxOffset = actions.length * ACTION_WIDTH;
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) {
+      const originalOffset = startRef.current?.offset;
+      startRef.current = null;
+      directionLocked.current = null;
+      claimed.current = false;
+      setIsDragging(false);
+      if (originalOffset !== undefined) setOffset(originalOffset);
+      return;
+    }
+    startRef.current = null;
+    directionLocked.current = null;
+    claimed.current = false;
+    suppressClick.current = false;
     if (disabled || actions.length === 0) return;
     const touch = e.touches[0];
     startRef.current = { x: touch.clientX, y: touch.clientY, offset };
@@ -45,30 +62,49 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const start = startRef.current;
     if (!start) return;
+    if (e.touches.length !== 1) {
+      startRef.current = null;
+      directionLocked.current = null;
+      setIsDragging(false);
+      setOffset(start.offset);
+      return;
+    }
     const touch = e.touches[0];
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
 
     if (!directionLocked.current) {
-      if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
-      directionLocked.current = Math.abs(dx) > Math.abs(dy) ? "horizontal" : "vertical";
+      directionLocked.current = gestureAxis(dx, dy);
+      claimed.current = directionLocked.current === "horizontal" && (start.offset !== 0 || dx < 0);
     }
-    if (directionLocked.current === "vertical") return;
+    // A rightward drag on a closed row belongs to page navigation.
+    if (!claimed.current) return;
 
+    markRowSwipe(e);
+    suppressClick.current = true;
     setIsDragging(true);
     // Negative offset slides content left; clamp with soft resistance past max
     const raw = start.offset + dx;
-    const clamped = Math.min(0, Math.max(raw, -maxOffset - 24));
+    const clamped = -resistedDrag(-raw, maxOffset, 24);
     setOffset(clamped);
   }, [maxOffset]);
 
-  const handleTouchEnd = useCallback(() => {
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (suppressClick.current) markRowSwipe(e);
     startRef.current = null;
     directionLocked.current = null;
     setIsDragging(false);
     // Snap open if past half of the action area, otherwise closed
     setOffset((current) => (current < -maxOffset / 2 ? -maxOffset : 0));
   }, [maxOffset]);
+
+  const handleTouchCancel = useCallback(() => {
+    const originalOffset = startRef.current?.offset;
+    startRef.current = null;
+    directionLocked.current = null;
+    setIsDragging(false);
+    if (originalOffset !== undefined) setOffset(originalOffset);
+  }, []);
 
   const close = useCallback(() => setOffset(0), []);
 
@@ -112,13 +148,14 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchEnd}
+        onTouchCancel={handleTouchCancel}
         onClickCapture={(e) => {
           // A tap while open just closes the row
-          if (isOpen) {
+          if (suppressClick.current || isOpen) {
             e.stopPropagation();
             e.preventDefault();
-            close();
+            if (!suppressClick.current) close();
+            suppressClick.current = false;
           }
         }}
         className={cn(
@@ -126,9 +163,9 @@ export function SwipeableRow({ children, actions, disabled = false, className }:
           // Opaque background only while sliding, so the buttons stay hidden
           // behind the row; when idle it must not mask hover highlights.
           isDisplaced && "bg-[var(--bg-app)]",
-          !isDragging && "transition-transform duration-200 ease-out"
+          !isDragging && GESTURE_SETTLE_CLASS
         )}
-        style={{ transform: `translateX(${offset}px)`, touchAction: "pan-y" }}
+        style={{ transform: offset ? `translate3d(${offset}px, 0, 0)` : undefined }}
       >
         {children}
       </div>

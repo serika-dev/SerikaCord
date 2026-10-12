@@ -16,19 +16,19 @@ export function PullIndicator({ distance, refreshing }: { distance: number; refr
       aria-hidden={!refreshing}
       className={cn(
         "flex items-end justify-center overflow-hidden",
-        distance === 0 && "transition-[height] duration-200 ease-out",
+        distance === 0 && "transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
       )}
       style={{ height }}
     >
       <div
         className={cn(
-          "mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bg-card)] shadow-md transition-transform duration-150",
+          "mb-2 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--bg-card)] shadow-md transition-[transform,background-color] duration-200 motion-reduce:transition-none",
           ready || refreshing ? "scale-100" : "scale-90",
         )}
         style={{ opacity: refreshing ? 1 : Math.min(1, distance / PULL_THRESHOLD) }}
       >
         <RefreshCw
-          className={cn("h-4 w-4 text-[var(--app-accent)]", refreshing && "animate-spin")}
+          className={cn("h-4 w-4 text-[var(--app-accent)]", refreshing && "animate-spin motion-reduce:animate-none")}
           style={refreshing ? undefined : { transform: `rotate(${distance * 3}deg)` }}
         />
       </div>

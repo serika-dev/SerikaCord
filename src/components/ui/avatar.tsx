@@ -3,7 +3,7 @@
 import * as React from "react"
 import * as AvatarPrimitive from "@radix-ui/react-avatar"
 
-import { cn } from "@/lib/utils"
+import { cdnImageFallback, cn } from "@/lib/utils"
 
 function Avatar({
   className,
@@ -21,15 +21,39 @@ function Avatar({
   )
 }
 
-function AvatarImage({
+type AvatarImageProps = React.ComponentProps<typeof AvatarPrimitive.Image>
+
+function AvatarImage({ src, ...props }: AvatarImageProps) {
+  // A new avatar starts with its optimized source, even if the previous
+  // person's image needed the original-format retry.
+  return <AvatarImageSource key={typeof src === "string" ? src : undefined} src={src} {...props} />
+}
+
+function AvatarImageSource({
+  src,
   className,
+  onLoadingStatusChange,
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Image>) {
+}: AvatarImageProps) {
+  const [retryOriginal, setRetryOriginal] = React.useState(false)
+  const originalSrc = cdnImageFallback(typeof src === "string" ? src : undefined)
+  const imageSrc = retryOriginal ? originalSrc : src
+
   return (
     <AvatarPrimitive.Image
+      key={retryOriginal ? "original" : "optimized"}
       data-slot="avatar-image"
-      className={cn("aspect-square size-full", className)}
+      className={cn("block aspect-square size-full shrink-0 object-cover", className)}
       {...props}
+      src={imageSrc}
+      onLoadingStatusChange={(status) => {
+        if (status === "error" && originalSrc && !retryOriginal) {
+          setRetryOriginal(true)
+          onLoadingStatusChange?.("loading")
+          return
+        }
+        onLoadingStatusChange?.(status)
+      }}
     />
   )
 }

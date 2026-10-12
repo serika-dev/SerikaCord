@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useRef, useState, type RefObject } from "react";
-import { haptic } from "@/lib/native/bridge";
+import { gestureAxis, type GestureAxis } from "@/lib/mobile/gestures";
 
 /** Distance (px, after resistance) that triggers a refresh on release. */
 export const PULL_THRESHOLD = 72;
 const MAX_PULL = 120;
+// Lists use buttons for their rows; pulling on one must still refresh.
+const IGNORE_PULL_SELECTOR = 'input, textarea, select, [contenteditable="true"], [data-no-pull-refresh], [role="slider"], audio, video';
 
 /** Rubber-band resistance: the indicator moves slower than the finger. */
 export function pullResistance(rawDy: number): number {
@@ -13,71 +15,67 @@ export function pullResistance(rawDy: number): number {
   return Math.min(MAX_PULL, rawDy * 0.5);
 }
 
-/**
- * Native-feeling pull-to-refresh for a scroll container: only engages when the
- * list is scrolled to the very top and the drag is mostly vertical, ticks a
- * haptic when the release point is reached, then calls `onRefresh`.
- */
+/** A deliberate downward pull at the top refreshes once when released. */
 export function usePullToRefresh(scrollRef: RefObject<HTMLElement | null>, onRefresh: () => unknown) {
   const [pullDistance, setPullDistance] = useState(0);
   const start = useRef<{ x: number; y: number } | null>(null);
-  const armed = useRef(false);
+  const axis = useRef<GestureAxis>(null);
   const distance = useRef(0);
+  const refreshing = useRef(false);
+
+  const reset = useCallback(() => {
+    start.current = null;
+    axis.current = null;
+    distance.current = 0;
+    setPullDistance(0);
+  }, []);
 
   const onTouchStart = useCallback((e: React.TouchEvent) => {
+    reset();
     const el = scrollRef.current;
-    if (!el || el.scrollTop > 0 || e.touches.length !== 1) {
-      start.current = null;
-      return;
-    }
+    if (!el || el.scrollTop > 0 || e.touches.length !== 1 || refreshing.current) return;
+    if ((e.target as Element | null)?.closest?.(IGNORE_PULL_SELECTOR)) return;
     start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    armed.current = false;
-    distance.current = 0;
-  }, [scrollRef]);
+  }, [scrollRef, reset]);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
     const s = start.current;
     const el = scrollRef.current;
     if (!s || !el) return;
-    if (el.scrollTop > 0) {
-      start.current = null;
-      if (distance.current) {
-        distance.current = 0;
-        setPullDistance(0);
-      }
+    if (el.scrollTop > 0 || e.touches.length !== 1) {
+      reset();
       return;
     }
     const dx = e.touches[0].clientX - s.x;
     const dy = e.touches[0].clientY - s.y;
-    if (dy <= 0 || Math.abs(dx) > Math.abs(dy)) {
-      if (distance.current) {
-        distance.current = 0;
-        setPullDistance(0);
-      }
+    axis.current ??= gestureAxis(dx, dy);
+    if (axis.current === "horizontal" || dy < -8) {
+      reset();
       return;
     }
+    if (axis.current !== "vertical") return;
     const next = pullResistance(dy);
     distance.current = next;
     setPullDistance(next);
-    if (!armed.current && next >= PULL_THRESHOLD) {
-      armed.current = true;
-      haptic("light");
-    } else if (armed.current && next < PULL_THRESHOLD) {
-      armed.current = false;
-    }
-  }, [scrollRef]);
+  }, [scrollRef, reset]);
 
-  const onTouchEnd = useCallback(() => {
-    const trigger = distance.current >= PULL_THRESHOLD;
-    start.current = null;
-    armed.current = false;
-    distance.current = 0;
-    setPullDistance(0);
-    if (trigger) void onRefresh();
-  }, [onRefresh]);
+  const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    const s = start.current;
+    const touch = e.changedTouches[0];
+    const trigger = s && touch && axis.current === "vertical" && distance.current >= PULL_THRESHOLD && pullResistance(touch.clientY - s.y) >= PULL_THRESHOLD;
+    reset();
+    if (trigger && !refreshing.current) {
+      refreshing.current = true;
+      // The caller owns error presentation. Always release the gesture lock.
+      Promise.resolve().then(onRefresh).then(
+        () => { refreshing.current = false; },
+        () => { refreshing.current = false; },
+      );
+    }
+  }, [onRefresh, reset]);
 
   return {
     pullDistance,
-    pullHandlers: { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: onTouchEnd },
+    pullHandlers: { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: reset },
   };
 }

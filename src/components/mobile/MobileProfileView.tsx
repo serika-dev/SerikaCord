@@ -50,15 +50,6 @@ const STATUS_COLORS: Record<string, string> = {
   offline: "#80848E",
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  online: "Online",
-  idle: "Idle",
-  dnd: "Do Not Disturb",
-  offline: "Invisible",
-};
-
-// STATUS_LABELS is static; we'll use gt() at render time instead
-
 interface SettingsItem {
   icon: React.ElementType;
   label: string;
@@ -144,7 +135,7 @@ export function MobileProfileView() {
       {/* Themed wash so the whole page picks up the profile colours */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-[var(--bg-app)]/70 to-[var(--bg-app)]" />
 
-      <ScrollArea className="profile-scroll-area relative flex-1 w-full overflow-x-hidden">
+      <ScrollArea className="profile-scroll-area relative min-h-0 flex-1 w-full overflow-x-hidden">
         <div className="w-full max-w-full overflow-x-hidden" style={{ paddingBottom: "calc(var(--mobile-content-pb) + 1rem)" }}>
           {/* ── Fullscreen profile hero ── */}
           <div className="relative">
@@ -161,10 +152,10 @@ export function MobileProfileView() {
             </div>
 
             {/* Identity block */}
-            <div className="relative px-6 -mt-14">
-              <div className="relative inline-block">
+            <div className="relative px-5 sm:px-6 -mt-14">
+              <div className="relative w-fit">
                 <Avatar className="w-28 h-28 border-4 border-[var(--bg-app)] shadow-2xl">
-                  <AvatarImage src={cdnImage(user?.avatar)} />
+                  <AvatarImage src={cdnImage(user?.avatar)} alt={displayName} />
                   <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-4xl font-bold">
                     {displayName.charAt(0).toUpperCase()}
                   </AvatarFallback>
@@ -176,25 +167,25 @@ export function MobileProfileView() {
                 />
               </div>
 
-              <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <div className="mt-3 flex min-w-0 items-start gap-2">
                 <h1
-                  className={cn("text-3xl font-extrabold text-[var(--text-primary)] leading-tight", getDisplayNameStyleClasses(customization?.displayNameStyle))}
+                  className={cn("min-w-0 [overflow-wrap:anywhere] text-3xl font-extrabold text-[var(--text-primary)] leading-tight", getDisplayNameStyleClasses(customization?.displayNameStyle))}
                   style={getDisplayNameStyleInline(customization?.displayNameStyle)}
                 >
                   {displayName}
                 </h1>
-                {user?.isPremium && <Crown className="w-6 h-6 text-[#F59E0B] shrink-0" />}
+                {user?.isPremium && <Crown className="mt-1.5 w-6 h-6 text-[var(--app-accent)] shrink-0" />}
               </div>
-              <p className="text-[var(--text-muted)] font-medium mt-0.5">@{user?.username}</p>
+              <p className="[overflow-wrap:anywhere] text-[var(--text-muted)] font-medium mt-0.5">@{user?.username}</p>
               {user?.pronouns && (
-                <p className="text-sm text-[var(--text-muted)] mt-0.5">{user.pronouns}</p>
+                <p className="[overflow-wrap:anywhere] text-sm text-[var(--text-muted)] mt-0.5">{user.pronouns}</p>
               )}
 
               {user?.customStatus ? (
                 <CustomStatusLine
                   text={user.customStatus}
                   customization={customization}
-                  className="mt-2 text-sm text-[var(--text-secondary)]"
+                  className="mt-2 max-w-full text-sm text-[var(--text-secondary)]"
                 />
               ) : null}
 
@@ -202,11 +193,13 @@ export function MobileProfileView() {
               <button
                 type="button"
                 onClick={() => setShowStatusSheet(true)}
-                className="mt-3 inline-flex touch-manipulation items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)] active:scale-[0.98]"
+                aria-haspopup="dialog"
+                aria-expanded={showStatusSheet}
+                className="mt-3 flex w-fit min-h-11 max-w-full touch-manipulation items-center gap-2 px-3 py-2 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)] transition-transform duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
               >
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
+                <span className="w-2.5 h-2.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
                 <span className="text-sm font-semibold text-[var(--text-primary)]">{statusLabelInvisible(status, gt)}</span>
-                <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                <ChevronRight className="w-3.5 h-3.5 shrink-0 text-[var(--text-muted)]" />
               </button>
 
               {/* Badges */}
@@ -219,20 +212,24 @@ export function MobileProfileView() {
           </div>
 
           {/* Customize + status quick actions */}
-          <div className="px-6 mt-6 mb-8 grid grid-cols-2 gap-3">
+          <div className="px-5 sm:px-6 mt-6 mb-8 grid grid-cols-2 gap-3">
             <button
+              type="button"
               onClick={() => router.push("/channels/settings/profiles")}
-              className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm font-semibold shadow-lg shadow-[var(--app-accent)]/20 active:scale-[0.98] transition-transform"
+              className="flex min-h-12 min-w-0 touch-manipulation items-center justify-center gap-2 px-3 py-3 rounded-2xl bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm font-semibold shadow-lg shadow-[var(--app-accent)]/20 active:scale-[0.98] transition-transform duration-200 ease-out motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
             >
-              <Palette className="w-4 h-4" />
-              {gt("Customize Profile")}
+              <Palette className="w-4 h-4 shrink-0" />
+              <span className="min-w-0 [overflow-wrap:anywhere]">{gt("Customize Profile")}</span>
             </button>
             <button
+              type="button"
               onClick={() => setShowStatusSheet(true)}
-              className="flex items-center justify-center gap-2 py-2.5 sm:py-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm font-semibold active:scale-[0.98] transition-transform"
+              aria-haspopup="dialog"
+              aria-expanded={showStatusSheet}
+              className="flex min-h-12 min-w-0 touch-manipulation items-center justify-center gap-2 px-3 py-3 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm font-semibold active:scale-[0.98] transition-transform duration-200 ease-out motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
             >
-              <User className="w-4 h-4" />
-              {gt("Set Status")}
+              <User className="w-4 h-4 shrink-0" />
+              <span className="min-w-0 [overflow-wrap:anywhere]">{gt("Set Status")}</span>
             </button>
           </div>
 
@@ -251,7 +248,7 @@ export function MobileProfileView() {
                         key={item.label}
                         onClick={() => item.onClick?.() || (item.href && router.push(item.href))}
                         className={cn(
-                          "w-full flex items-center gap-3.5 p-3.5 hover:bg-[var(--bg-hover)] transition-all active:bg-[var(--bg-active)]",
+                          "w-full flex min-w-0 touch-manipulation items-center gap-3 p-3.5 hover:bg-[var(--bg-hover)] transition-colors active:bg-[var(--bg-active)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--app-accent)]",
                           item.danger && "text-red-500"
                         )}
                       >
@@ -262,23 +259,18 @@ export function MobileProfileView() {
                           <Icon className="w-[18px] h-[18px]" />
                         </span>
                         <span className={cn(
-                          "flex-1 text-left font-medium",
+                          "min-w-0 flex-1 [overflow-wrap:anywhere] text-left font-medium",
                           item.danger ? "text-red-500" : "text-[var(--text-primary)]"
                         )}>
                           {item.label}
                         </span>
                         {item.badge && (
-                          <span className={cn(
-                            "px-2.5 py-1 rounded-full text-xs font-bold",
-                            item.badge === gt("Active")
-                              ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)]"
-                              : "bg-[#F59E0B]/20 text-[#F59E0B]"
-                          )}>
+                          <span className="shrink-0 px-2.5 py-1 rounded-full text-xs font-bold bg-[var(--app-accent)]/20 text-[var(--app-accent)]">
                             {item.badge}
                           </span>
                         )}
                         <ChevronRight className={cn(
-                          "w-4 h-4",
+                          "w-4 h-4 shrink-0",
                           item.danger ? "text-red-500/50" : "text-[var(--text-muted)]"
                         )} />
                       </button>

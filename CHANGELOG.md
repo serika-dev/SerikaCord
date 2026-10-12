@@ -1,15 +1,12 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.0.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.0.1.
 
 ---
 
 ## Unreleased
 
 ### Features
-
-- **Changelog popups** — staff can draft, preview, publish, and withdraw release notes from settings. New releases open in a What’s new popup, remember dismissal across devices, and stay available from settings.
-- **Staff roles and permissions** — create named roles with individual permissions, use support and release-team presets, assign multiple roles, and review each member’s combined access. Admin tools enforce permissions and protect against granting access beyond your own.
 
 ### Changes
 
@@ -20,6 +17,26 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.0.1 — 2026-10-12
+
+**Tag:** `v2.0.1` · **Commit:** `219bb76`
+
+### Features
+
+- **Changelog popups** — staff can draft, preview, publish, and withdraw release notes from settings. New releases open in a What’s new popup, remember dismissal across devices, and stay available from settings.
+- **Staff roles and permissions** — create named roles with individual permissions, use support and release-team presets, assign multiple roles, and review each member’s combined access. Admin tools enforce permissions and protect against granting access beyond your own.
+
+### Changes
+
+- **Smoother mobile gestures** — swipes follow your finger with gentle resistance and settle animations, sheets animate closed, and gesture feedback stays silent without vibration. Scrolling, cancelled gestures, and taps no longer trigger accidental actions; reduced-motion preferences are respected.
+
+### Bug Fixes
+
+- **Mobile account and profile spacing** — profile pictures no longer collide with account names, long names and email addresses fit narrow screens, and profile actions have comfortable touch targets.
+- **More reliable profile pictures** — avatars fill their frame consistently and retry the original image when a CDN format conversion fails.
 
 ---
 

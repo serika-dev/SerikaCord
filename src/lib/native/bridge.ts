@@ -92,24 +92,6 @@ export function addNativeListener(name: string, event: string, listener: Listene
   return () => {};
 }
 
-// ─── Haptics ──────────────────────────────────────────────────────────────────
-
-export type HapticKind = "light" | "medium" | "heavy" | "selection" | "success" | "warning";
-
-/** Native haptic tick. No-op on the web (vibration there feels cheap). */
-export function haptic(kind: HapticKind = "light"): void {
-  if (!isNativeApp()) return;
-  if (kind === "selection") {
-    void callNative("Haptics", "selectionStart").then(() => callNative("Haptics", "selectionChanged")).then(() => callNative("Haptics", "selectionEnd"));
-    return;
-  }
-  if (kind === "success" || kind === "warning") {
-    void callNative("Haptics", "notification", { type: kind === "success" ? "SUCCESS" : "WARNING" });
-    return;
-  }
-  void callNative("Haptics", "impact", { style: kind.toUpperCase() });
-}
-
 // ─── Share ────────────────────────────────────────────────────────────────────
 
 /**

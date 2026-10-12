@@ -20,7 +20,6 @@ import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 import { parseCallData } from "@/lib/voice/callMessage";
 import { applyPollUpdate, type PollUpdateEvent } from "@/lib/chat/polls";
-import { haptic } from "@/lib/native/bridge";
 import { MESSAGE_FLAGS, parseSilentPrefix } from "@/lib/chat/messageFlags";
 import {
   clearMessageCache,
@@ -906,7 +905,6 @@ export function useChatSession<M extends ChatMessage>({
       tempSeqRef.current += 1;
       const tempId = `temp-${Date.now()}-${tempSeqRef.current}`;
       // Native app: a soft tick as the message leaves the composer.
-      haptic("light");
       const buildOptimistic = (attachments: unknown[]) => ({
           id: tempId,
           content: silentParse.content,

@@ -6,7 +6,6 @@ import { useGT } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 import { reinsertMessage } from "@/lib/chat/messageWindow";
-import { haptic } from "@/lib/native/bridge";
 import { contextTargetOf } from "@/lib/chat/imageActions";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
@@ -132,7 +131,7 @@ export function useMessageActions<M extends ChatMessage>({
       rollback();
       toast.error(gt("Failed to edit message. Check your connection."));
     }
-  }, [apiBase, editingMessage, editContent, setMessages]);
+  }, [apiBase, editingMessage, editContent, setMessages, gt]);
 
   const handleEditKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -187,7 +186,7 @@ export function useMessageActions<M extends ChatMessage>({
       restore();
       toast.error(gt("Failed to delete message. Check your connection."));
     }
-  }, [apiBase, setMessages]);
+  }, [apiBase, setMessages, gt]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteConfirmMessage) return;
@@ -197,7 +196,7 @@ export function useMessageActions<M extends ChatMessage>({
   const copyMessage = useCallback((content: string) => {
     navigator.clipboard.writeText(content);
     toast.success(gt("Copied to clipboard"));
-  }, []);
+  }, [gt]);
 
   const togglePin = useCallback(
     async (message: M) => {
@@ -220,7 +219,7 @@ export function useMessageActions<M extends ChatMessage>({
         toast.error(gt("Failed to update pin"));
       }
     },
-    [apiBase, setMessages, onPinsChanged]
+    [apiBase, setMessages, onPinsChanged, gt]
   );
 
   // Shared reducer used by both optimistic updates and SSE events.
@@ -237,7 +236,6 @@ export function useMessageActions<M extends ChatMessage>({
     async (messageId: string, emoji: string) => {
       if (!apiBase || !userId) return;
       setReactionPickerMessage(null);
-      haptic("light");
       applyReactionEvent(messageId, emoji, userId, true);
       try {
         const response = await fetch(
@@ -254,13 +252,12 @@ export function useMessageActions<M extends ChatMessage>({
         toast.error(gt("Failed to add reaction. Check your connection."));
       }
     },
-    [apiBase, userId, applyReactionEvent]
+    [apiBase, userId, applyReactionEvent, gt]
   );
 
   const removeReaction = useCallback(
     async (messageId: string, emoji: string) => {
       if (!apiBase || !userId) return;
-      haptic("selection");
       applyReactionEvent(messageId, emoji, userId, false);
       try {
         const response = await fetch(
@@ -277,7 +274,7 @@ export function useMessageActions<M extends ChatMessage>({
         toast.error(gt("Failed to remove reaction. Check your connection."));
       }
     },
-    [apiBase, userId, applyReactionEvent]
+    [apiBase, userId, applyReactionEvent, gt]
   );
 
   const toggleReaction = useCallback(

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { haptic } from "@/lib/native/bridge";
 import { exceedsLongPressSlop, LONG_PRESS_MS } from "@/lib/mobile/channelGroups";
 
 /**
@@ -30,20 +29,26 @@ export function useLongPress<T>(onLongPress: (item: T) => void) {
 
   const bind = (item: T) => ({
     onTouchStart: (e: React.TouchEvent) => {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length !== 1) {
+        cancel();
+        return;
+      }
       fired.current = false;
       origin.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(() => {
         timer.current = null;
         fired.current = true;
-        haptic("medium");
         callback.current(item);
       }, LONG_PRESS_MS);
     },
     onTouchMove: (e: React.TouchEvent) => {
       const o = origin.current;
       if (!o) return;
+      if (e.touches.length !== 1) {
+        cancel();
+        return;
+      }
       if (exceedsLongPressSlop(e.touches[0].clientX - o.x, e.touches[0].clientY - o.y)) cancel();
     },
     onTouchEnd: cancel,

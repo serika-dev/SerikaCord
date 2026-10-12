@@ -8,7 +8,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
     X,
     User,
-    Settings,
     Bell,
     Palette,
     Shield,
@@ -18,7 +17,6 @@ import {
     Sparkles,
     Users,
     Plus,
-    MessageSquare,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -162,21 +160,23 @@ export function MobileDrawer({
             >
                 {/* Close Button */}
                 <button
+                    type="button"
                     onClick={onClose}
-                    className="absolute top-4 right-4 p-2 rounded-xl hover:bg-[var(--bg-hover)] transition-colors z-10"
+                    className="absolute right-3 flex h-11 w-11 touch-manipulation items-center justify-center rounded-xl hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)] transition-colors z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
+                    style={{ top: "calc(var(--safe-area-top, 0px) + 0.75rem)" }}
                     aria-label={gt("Close menu")}
                 >
                     <X className="w-5 h-5 text-[var(--text-muted)]" />
                 </button>
 
                 <ScrollArea className="h-full">
-                    <div className="px-4 py-6 space-y-6">
+                    <div className="px-4 pb-6 space-y-6" style={{ paddingTop: "calc(var(--safe-area-top, 0px) + 4rem)" }}>
                         {/* User Profile Section */}
-                        <div className="flex items-center gap-4 p-4 bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)]">
-                            <div className="relative">
+                        <div className="flex min-w-0 items-center gap-3 p-3 bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)]">
+                            <div className="relative shrink-0">
                                 <Avatar className="w-14 h-14">
-                                    <AvatarImage src={cdnImage(user?.avatar)} />
-                                    <AvatarFallback className="bg-[var(--app-accent)] text-white text-xl font-bold">
+                                    <AvatarImage src={cdnImage(user?.avatar)} alt={user?.displayName || user?.username || ""} />
+                                    <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-xl font-bold">
                                         {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
@@ -192,8 +192,10 @@ export function MobileDrawer({
                                 <p className="text-sm text-[var(--text-muted)] truncate">@{user?.username}</p>
                             </div>
                             <button
+                                type="button"
                                 onClick={() => handleNavigation("/channels/profile")}
-                                className="p-2 rounded-xl hover:bg-[var(--bg-hover)] transition-colors"
+                                className="flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center rounded-xl hover:bg-[var(--bg-hover)] active:bg-[var(--bg-active)] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
+                                aria-label={gt("View profile")}
                             >
                                 <ChevronRight className="w-5 h-5 text-[var(--text-muted)]" />
                             </button>
