@@ -306,6 +306,7 @@
   "a574741210759b9b": "Your device",
   "aeb203bb0330c21a": "Download {format}",
   "c1e8bfbc7e9233e1": "See releases",
+  "79c3f327622d208a": "Android: if installing says the app conflicts with an existing package, uninstall the old SerikaCord app once and install again. Versions before 2.0 were signed differently; updates install normally after that.",
   "0cebac0a2a6bdc99": "iPhone and iPad",
   "ba3e817aac3beef6": "Open SerikaCord in Safari, tap Share and choose Add to Home Screen.",
   "7a462e32dba47f4c": "Open in browser",

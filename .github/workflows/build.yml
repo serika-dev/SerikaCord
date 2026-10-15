@@ -196,17 +196,14 @@ jobs:
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
-            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
-          else
-            echo "::warning::ANDROID_KEYSTORE_BASE64 not set: signing with a throwaway key (users can't update over it)"
-            keytool -genkeypair -v -keystore release.keystore \
-              -storepass "${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'serikacord' }}" \
-              -alias serikacord \
-              -keypass "${{ secrets.ANDROID_KEY_PASSWORD || 'serikacord' }}" \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=SerikaCord,O=Serika,C=US"
+          # Never fall back to a throwaway key: an APK signed with any other key
+          # can't be installed over the existing app ("conflicts with an
+          # existing package"). Backup: ~/.serika-keys/serikacord-android-release.p12.
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set; refusing to sign with a throwaway key"
+            exit 1
           fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
 
       - name: Make gradlew executable
         working-directory: mobile/android
@@ -222,10 +219,23 @@ jobs:
       - name: Build Android APK
         working-directory: mobile/android
         env:
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'serikacord' }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD || 'serikacord' }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
         run: ./gradlew assembleRelease
+
+      # Same certificate as every release since v2.0.0, or users can't update.
+      - name: Verify APK signing certificate
+        env:
+          EXPECTED_CERT_SHA256: E9:2E:EE:4B:95:6B:34:F4:36:5A:9B:A2:EC:48:86:D1:D2:26:55:C3:4A:32:BC:8D:E4:C1:FD:00:03:93:C6:BF
+        run: |
+          APK=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          ACTUAL=$(keytool -printcert -jarfile "$APK" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1)
+          echo "APK certificate: $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK is signed with $ACTUAL, expected $EXPECTED_CERT_SHA256"
+            exit 1
+          fi
 
       - name: Rename APK
         run: |

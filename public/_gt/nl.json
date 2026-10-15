@@ -7372,5 +7372,6 @@
   "7c5a5cd3d0a7d014": "Je wordt aangemeld…",
   "25e5fbe77d7cc75c": "of",
   "34b2d2fde768c931": "Aanmelden & beveiliging",
-  "65005c94082e0ed6": "Er is een serika-verification-record gevonden met een andere code. Vervang het door de waarde die hier staat en controleer opnieuw."
+  "65005c94082e0ed6": "Er is een serika-verification-record gevonden met een andere code. Vervang het door de waarde die hier staat en controleer opnieuw.",
+  "79c3f327622d208a": "Android: zegt de installatie dat de app conflicteert met een bestaand pakket? Verwijder de oude SerikaCord-app één keer en installeer opnieuw. Versies van vóór 2.0 waren anders ondertekend; daarna worden updates gewoon geïnstalleerd."
 }

@@ -7240,5 +7240,6 @@
   "7c5a5cd3d0a7d014": "Signing you in…",
   "25e5fbe77d7cc75c": "or",
   "34b2d2fde768c931": "Sign-in & Security",
-  "65005c94082e0ed6": "Found a serika-verification record with a different code. Replace it with the value shown here, then check again."
+  "65005c94082e0ed6": "Found a serika-verification record with a different code. Replace it with the value shown here, then check again.",
+  "79c3f327622d208a": "Android: if installing says the app conflicts with an existing package, uninstall the old SerikaCord app once and install again. Versions before 2.0 were signed differently; updates install normally after that."
 }

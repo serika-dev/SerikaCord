@@ -365,6 +365,12 @@ export default function DownloadClient({ release }: { release: ReleaseInfo }) {
             })}
           </div>
 
+          {/* Releases before 2.0 were each signed with a throwaway key, so Android
+              refuses to install over them once ("conflicts with an existing package"). */}
+          <p className="mx-auto mt-4 max-w-3xl text-center text-xs leading-relaxed text-[#7a7a86]">
+            {gt("Android: if installing says the app conflicts with an existing package, uninstall the old SerikaCord app once and install again. Versions before 2.0 were signed differently; updates install normally after that.")}
+          </p>
+
           <div className="mt-4 flex flex-col items-center justify-between gap-3 rounded-2xl border border-white/[0.07] bg-[#0a0a0f] px-6 py-5 sm:flex-row">
             <div className="flex items-center gap-3">
               <Smartphone className="h-6 w-6 shrink-0 text-white/70" />

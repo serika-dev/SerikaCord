@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- **Android app updates install cleanly** — every release is now guaranteed to use the same signing key as 2.0 and later. If your phone says the app conflicts with an existing package (you still have a version from before 2.0), uninstall the old app once and install again; the download page explains this too.
 
 ### Performance
 
