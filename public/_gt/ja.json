@@ -11063,5 +11063,12 @@
   "0602f30d10935cb0": "each file in its own",
   "f08729724b758559": "field and the JSON body in a",
   "6a9cf7f84a02cf8f": "field. This works for creating and editing messages.",
-  "f6e2e77d9f9f0c06": "with this body:"
+  "f6e2e77d9f9f0c06": "with this body:",
+  "6480bab5c4550153": "Discord形式の数値IDに切り替えますか？ボットが扱うすべてのID（ユーザー、サーバー、チャンネル、メッセージ、ロール）が変わります。以前に保存したIDは一致しなくなるため、ボットのデータベースを消去するか、必要な情報を取得し直してください。",
+  "04e57b1cb53e443a": "UUID形式のIDに戻しますか？ボットが扱うすべてのIDが変わります。discord.jsやdiscord.pyなどのライブラリはUUID形式のIDでは動作しません。",
+  "d753b623b074b118": "ボットはDiscord形式のIDを使うようになりました",
+  "72d37892088928e3": "ボットはUUID形式のIDを使うようになりました",
+  "2a06819c3de728f3": "Discord形式のID",
+  "f64e0933ac503b68": "Discordと同じく、IDを数値のスノーフレークとしてボットに渡します。discord.js、discord.py、その他ほとんどのDiscordライブラリで必要です。新しいアプリケーションでは既定で有効です。",
+  "2acad2fced1eb23b": "有効にすると、ボットが扱うすべてのIDが変わります。以前に保存したIDは一致しなくなります。"
 }

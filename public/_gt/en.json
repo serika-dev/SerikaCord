@@ -10392,5 +10392,12 @@
   "0602f30d10935cb0": "each file in its own",
   "f08729724b758559": "field and the JSON body in a",
   "6a9cf7f84a02cf8f": "field. This works for creating and editing messages.",
-  "f6e2e77d9f9f0c06": "with this body:"
+  "f6e2e77d9f9f0c06": "with this body:",
+  "6480bab5c4550153": "Switch to Discord-style numeric ids? Every id your bot sees (users, servers, channels, messages, roles) changes. Ids your bot stored before will no longer match, so clear its database or re-fetch what it needs.",
+  "04e57b1cb53e443a": "Switch back to UUID ids? Every id your bot sees changes. Libraries such as discord.js and discord.py stop working with UUID ids.",
+  "d753b623b074b118": "Your bot now sees Discord-style ids",
+  "72d37892088928e3": "Your bot now sees UUID ids",
+  "2a06819c3de728f3": "Discord-style ids",
+  "f64e0933ac503b68": "Show ids to your bot as numeric snowflakes, like Discord. Needed for discord.js, discord.py and most other Discord libraries. New applications use this by default.",
+  "2acad2fced1eb23b": "Turning this on changes every id your bot sees. Ids it stored before will no longer match."
 }

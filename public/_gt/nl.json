@@ -11063,5 +11063,12 @@
   "0602f30d10935cb0": "each file in its own",
   "f08729724b758559": "field and the JSON body in a",
   "6a9cf7f84a02cf8f": "field. This works for creating and editing messages.",
-  "f6e2e77d9f9f0c06": "with this body:"
+  "f6e2e77d9f9f0c06": "with this body:",
+  "6480bab5c4550153": "Overschakelen naar numerieke id's in Discord-stijl? Elke id die je bot ziet (gebruikers, servers, kanalen, berichten, rollen) verandert. Id's die je bot eerder heeft opgeslagen kloppen dan niet meer, dus wis de database van je bot of haal opnieuw op wat hij nodig heeft.",
+  "04e57b1cb53e443a": "Terug naar UUID-id's? Elke id die je bot ziet verandert. Bibliotheken zoals discord.js en discord.py werken niet met UUID-id's.",
+  "d753b623b074b118": "Je bot ziet nu id's in Discord-stijl",
+  "72d37892088928e3": "Je bot ziet nu UUID-id's",
+  "2a06819c3de728f3": "Id's in Discord-stijl",
+  "f64e0933ac503b68": "Toon id's aan je bot als numerieke snowflakes, net als Discord. Nodig voor discord.js, discord.py en de meeste andere Discord-bibliotheken. Nieuwe applicaties gebruiken dit standaard.",
+  "2acad2fced1eb23b": "Als je dit inschakelt, verandert elke id die je bot ziet. Id's die hij eerder heeft opgeslagen kloppen dan niet meer."
 }
