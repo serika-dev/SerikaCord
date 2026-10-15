@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- Replies sent from an Android notification now show up live for the other person in DMs and group DMs, instead of only after a refresh.
 
 ### Performance
 

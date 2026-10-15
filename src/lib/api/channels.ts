@@ -3191,11 +3191,17 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Deliver to SSE connections everywhere: locally in-process AND, via the
     // Redis SSE bus, to every other app instance — so all viewers receive the
-    // message at the same time.
-    publishToChannel(params.channelId, {
-      type: 'message',
-      message: messageResponse,
-    });
+    // message at the same time. DMs and group DMs sent through this generic
+    // route (e.g. the Android notification's Reply) live on the DM stream.
+    if (channel.type === 'dm' || channel.type === 'group_dm') {
+      const { publishToDm } = await import('@/lib/api/dms');
+      publishToDm(params.channelId, { type: 'message', message: messageResponse });
+    } else {
+      publishToChannel(params.channelId, {
+        type: 'message',
+        message: messageResponse,
+      });
+    }
 
     void replicateToDiscord('create', params.channelId, messageResponse);
 
