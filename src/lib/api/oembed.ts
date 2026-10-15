@@ -70,8 +70,22 @@ function toInt(v?: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+/** Whether `url` is one of the page's own addresses (same host + path, query ignored). */
+export function isSamePage(url: string, pageUrls: Array<string | undefined>): boolean {
+  const key = (u: string) => {
+    try {
+      const x = new URL(u);
+      return `${x.hostname.replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`.toLowerCase();
+    } catch {
+      return null;
+    }
+  };
+  const k = key(url);
+  return k !== null && pageUrls.some((p) => p && key(p) === k);
+}
+
 // Extract Open Graph / Twitter Card / standard meta tags from HTML.
-function extractMetaTags(html: string): OEmbedResponse {
+export function extractMetaTags(html: string, pageUrl?: string): OEmbedResponse {
   const data: OEmbedResponse = {};
 
   const ogTitle = metaContent(html, 'og:title');
@@ -121,7 +135,13 @@ function extractMetaTags(html: string): OEmbedResponse {
   // Only surface a playable video when it looks like a direct media file, not
   // an HTML iframe player (those are handled by dedicated provider embeds).
   const candidateVideo = twitterStream || ogVideo;
-  const looksLikeFile = candidateVideo && (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(candidateVideo) || /video\/(mp4|webm)/i.test(ogVideoType || ''));
+  const canonical = html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["']/i)?.[1];
+  const looksLikeFile = candidateVideo && (
+    /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(candidateVideo)
+    // A claimed video/* type only counts when the "video" isn't the page
+    // itself (bilibili.tv points og:video at its own HTML page).
+    || (/video\/(mp4|webm)/i.test(ogVideoType || '') && !isSamePage(candidateVideo, [ogUrl, canonical, pageUrl]))
+  );
   if (looksLikeFile) {
     data.video = candidateVideo;
     data.videoWidth = toInt(metaContent(html, 'og:video:width'));
@@ -654,7 +674,7 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       clearTimeout(timeout);
       reader.cancel();
 
-      const data = extractMetaTags(html);
+      const data = extractMetaTags(html, response.url || url);
       data.url = url;
 
       // Only expose twitter:player iframe URLs for whitelisted pages, and only

@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- bilibili.tv links show a proper preview with thumbnail and title again, instead of a broken video player.
 
 ### Performance
 
