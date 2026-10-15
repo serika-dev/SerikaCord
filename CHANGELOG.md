@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.9.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.10.
 
 ---
 
@@ -11,13 +11,21 @@
 ### Changes
 
 ### Bug Fixes
-- bilibili.tv links show a proper preview with thumbnail and title again, instead of a broken video player.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.10 — 2026-10-15
+
+**Tag:** `v2.1.10` · **Commit:** `eb6d369`
+
+### Bug Fixes
+- bilibili.tv links show a proper preview with thumbnail and title again, instead of a broken video player.
 
 ---
 
