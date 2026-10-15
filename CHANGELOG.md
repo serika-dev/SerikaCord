@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.2.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.3.
 
 ---
 
@@ -11,13 +11,21 @@
 ### Changes
 
 ### Bug Fixes
-- **Android app updates install cleanly** — every release is now guaranteed to use the same signing key as 2.0 and later. If your phone says the app conflicts with an existing package (you still have a version from before 2.0), uninstall the old app once and install again; the download page explains this too.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.3 — 2026-10-15
+
+**Tag:** `v2.1.3` · **Commit:** `79ec408`
+
+### Bug Fixes
+- **Android app updates install cleanly** — every release is now guaranteed to use the same signing key as 2.0 and later. If your phone says the app conflicts with an existing package (you still have a version from before 2.0), uninstall the old app once and install again; the download page explains this too.
 
 ---
 
