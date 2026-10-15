@@ -41,6 +41,8 @@ import {
   decodeConversationRows,
   encryptChannelIdFor,
   hasEnvelope,
+  hasPendingPlaceholders,
+  hydrateFromMemory,
   isRememberedEncrypted,
   rememberEncrypted,
   type ConversationMeta,
@@ -93,11 +95,23 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
       const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
       if (!response.ok) return;
       const data = await response.json();
-      const raw: RawMessagePayload[] = Array.isArray(data) ? data : data.messages || [];
-      // DMs / group DMs: a page that is (or may be) end-to-end encrypted is
-      // only decrypted and checked once opened, never warmed here.
+      let raw: RawMessagePayload[] = Array.isArray(data) ? data : data.messages || [];
+      // DMs / group DMs that are (or may be) end-to-end encrypted: decrypt the
+      // page now, with exactly the checks an open conversation runs (bound to
+      // the URL's person / group), so opening it paints text at once. The
+      // persisted copy keeps envelopes only (messageCache).
       const meta = conversationMetaOf(data);
-      if (meta && (meta.e2ee || raw.some(hasEnvelope) || (await mayBeEncryptedHere(apiBase)))) return;
+      if (meta && (meta.e2ee || raw.some(hasEnvelope) || (await mayBeEncryptedHere(apiBase)))) {
+        const target = e2eeTargetForApiBase(apiBase);
+        const selfId = getE2eeSnapshot().userId;
+        if (!target || !selfId) return;
+        const encrypted = meta.e2ee || (await isRememberedEncrypted(selfId, target).catch(() => true));
+        raw = await decodeConversationRows(raw, { target, meta, encrypted, selfId });
+        // The conversation was opened (or prefetched again) meanwhile: its own
+        // fetch wins. Never warm with failures (keys still loading, …).
+        if (hasCachedMessages(apiBase)) return;
+        if (raw.some((r) => (r.e2ee as { status?: string } | undefined)?.status === "error")) return;
+      }
       const seen = new Set<string>();
       const deduped: ChatMessage[] = [];
       for (const item of raw) {
@@ -250,9 +264,9 @@ export function useChatSession<M extends ChatMessage>({
       const target = e2eeTargetForApiBase(apiBase);
       const meta = conversationMetaOf(data) ?? conversationRef.current;
       const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target));
-      return decodeConversationRows(raw, { target, meta, encrypted });
+      return decodeConversationRows(raw, { target, meta, encrypted, selfId: e2eeUid });
     },
-    [encryptedChat, apiBase, checkRemembered],
+    [encryptedChat, apiBase, checkRemembered, e2eeUid],
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
@@ -317,7 +331,9 @@ export function useChatSession<M extends ChatMessage>({
     hasMoreNewerRef.current = false;
     atBottomRef.current = true;
     if (apiBase) {
-      const cached = readCache<M>(apiBase);
+      const stored = readCache<M>(apiBase);
+      // Encrypted messages persisted as envelopes: fill them from the decrypted cache.
+      const cached = stored && encryptedChat ? hydrateFromMemory(stored, e2eeUid, e2eeTarget) : stored;
       if (cached && cached.length > 0) {
         setMessages(cached);
         // Optimistic about older history — loadOlderMessages self-corrects the
@@ -363,9 +379,9 @@ export function useChatSession<M extends ChatMessage>({
   const buildEditBody = useMemo(() => {
     const channelId = encryptChannelIdFor(e2eeTarget, conversation);
     return e2eeActive && channelId && e2eeTarget
-      ? (message: M, content: string) => buildEncryptedEditBody(channelId, message, content, e2eeTarget, memberIdsRef.current)
+      ? (message: M, content: string) => buildEncryptedEditBody(channelId, message, content, e2eeTarget, memberIdsRef.current, e2eeUid)
       : undefined;
-  }, [e2eeActive, e2eeTarget, conversation]);
+  }, [e2eeActive, e2eeTarget, conversation, e2eeUid]);
 
   const actions = useMessageActions<M>({
     apiBase,
@@ -385,8 +401,31 @@ export function useChatSession<M extends ChatMessage>({
 
     // Stale-while-revalidate: paint cached messages immediately (no spinner)
     // and revalidate below. Only fall back to the loading state on a cold open.
-    const cached = readCache<M>(requestedContext);
+    const stored = readCache<M>(requestedContext);
+    const cached = stored && encryptedChat ? hydrateFromMemory(stored, e2eeUid, e2eeTarget) : stored;
     const warm = Boolean(cached && cached.length > 0);
+    if (cached && warm && encryptedChat && e2eeTarget && hasPendingPlaceholders(cached)) {
+      // After a reload: decrypted text from the encrypted IndexedDB cache,
+      // usually long before the network page (no "Decrypting…" flash).
+      const target = e2eeTarget;
+      void loadE2eeSession()
+        .then((session) => session.hydratePlaceholders(cached, target, e2eeUid))
+        .then((filled) => {
+          if (filled === cached || activeFetchContextRef.current !== requestedContext) return;
+          const byId = new Map(filled.map((m) => [m.id, m]));
+          setMessages((prev) => {
+            let changed = false;
+            const next = prev.map((m) => {
+              const f = m.e2ee?.status === "pending" ? byId.get(m.id) : undefined;
+              if (!f || f.e2ee?.status !== "ok") return m;
+              changed = true;
+              return f;
+            });
+            return changed ? next : prev;
+          });
+        })
+        .catch(() => { /* the network page decrypts them */ });
+    }
     if (cached && warm) {
       setMessages(cached);
       // Be optimistic about older history when painting from cache: the cache may
@@ -444,7 +483,7 @@ export function useChatSession<M extends ChatMessage>({
         setIsLoading(false);
       }
     }
-  }, [apiBase, paginated, encryptedChat, decodeRaw]);
+  }, [apiBase, paginated, encryptedChat, decodeRaw, e2eeUid, e2eeTarget]);
 
   const messagesRef = useRef<M[]>([]);
   useEffect(() => {
@@ -484,15 +523,25 @@ export function useChatSession<M extends ChatMessage>({
   // Encrypted conversations: once this device's keys load or a contact's
   // security code is accepted / verified, messages that failed (unknown
   // device, keys not ready) are decrypted and verified again.
+  // A conversation key set that changed (a device added / removed, keys
+  // reset) re-checks every shown message against the new keys.
   const e2eeRecheckRef = useRef<string | null>(null);
+  const e2eeKeysSeenRef = useRef<number | null>(null);
   useEffect(() => {
     if (!encryptedChat) return;
     const sig = `${e2ee.phase}|${e2ee.pinsVersion}`;
     const previous = e2eeRecheckRef.current;
     e2eeRecheckRef.current = sig;
-    if (previous === null || previous === sig || hasMoreNewerRef.current) return;
-    if (messagesRef.current.some((m) => m.e2ee?.status === "error")) void catchUpTail();
-  }, [encryptedChat, e2ee.phase, e2ee.pinsVersion, catchUpTail]);
+    const keysPrevious = e2eeKeysSeenRef.current;
+    e2eeKeysSeenRef.current = e2ee.keysVersion;
+    if (hasMoreNewerRef.current) return;
+    if (keysPrevious !== null && keysPrevious !== e2ee.keysVersion && messagesRef.current.some((m) => m.e2ee)) {
+      void catchUpTail();
+      return;
+    }
+    if (previous === null || previous === sig) return;
+    if (messagesRef.current.some((m) => m.e2ee?.status === "error" || m.e2ee?.status === "pending")) void catchUpTail();
+  }, [encryptedChat, e2ee.phase, e2ee.pinsVersion, e2ee.keysVersion, catchUpTail]);
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
     if (!apiBase || isLoadingMore || !hasMoreOlder || messages.length === 0) return false;
@@ -750,13 +799,20 @@ export function useChatSession<M extends ChatMessage>({
   // decrypted first. Every event goes through one queue so they still apply
   // in arrival order (a delete never overtakes the message it deletes).
   const streamChainRef = useRef<Promise<void>>(Promise.resolve());
+  /** Drop a message's decrypted copies (deleted or edited). */
+  const forgetDecrypted = (messageId: string) => {
+    const channelId = encryptChannelIdFor(e2eeTarget, conversationRef.current);
+    if (!encryptedChat || !channelId || !e2eeUid) return;
+    void import("@/lib/e2ee/client/plainCache").then((m) => m.forgetPlainMessage(e2eeUid, channelId, messageId)).catch(() => {});
+  };
   const decodeStreamEvent = async (event: ChatStreamEvent): Promise<ChatStreamEvent | null> => {
     const target = e2eeTargetForApiBase(apiBase);
     const meta = conversationRef.current;
     if (event.type === "message") {
       const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target));
       if (!encrypted && !hasEnvelope(event.message)) return event;
-      const [message] = await decodeConversationRows([event.message], { target, meta, encrypted });
+      // Decrypted before it is inserted (about a millisecond): never a placeholder.
+      const [message] = await decodeConversationRows([event.message], { target, meta, encrypted, selfId: e2eeUid, live: true });
       return { ...event, message };
     }
     if (event.type === "edit") {
@@ -766,6 +822,8 @@ export function useChatSession<M extends ChatMessage>({
         return existing?.e2ee ? null : event;
       }
       if (!existing) return null;
+      // The replaced version's cached text goes (the new envelope is cached once decrypted).
+      forgetDecrypted(event.messageId);
       const [decoded] = await decodeConversationRows(
         [{
           id: event.messageId,
@@ -776,7 +834,7 @@ export function useChatSession<M extends ChatMessage>({
           // The blobs stored on the message (payload files must be among them).
           attachments: (existing.attachments ?? []).map((a) => ({ url: a.url })),
         }],
-        { target, meta, encrypted: true },
+        { target, meta, encrypted: true, selfId: e2eeUid, live: true },
       );
       return {
         ...event,
@@ -939,6 +997,7 @@ export function useChatSession<M extends ChatMessage>({
       }
 
       if (data.type === "delete") {
+        forgetDecrypted(String(data.messageId));
         setMessages((prev) => {
           const next = prev.filter((m) => m.id !== data.messageId);
           // Write through to the persisted (localStorage) tail cache too.
@@ -1141,8 +1200,10 @@ export function useChatSession<M extends ChatMessage>({
           reactions: [],
           customEmojis: [],
           pending: true,
-          // Never persisted as plaintext (see messageCache).
-          ...(encryptSend ? { e2ee: { status: "pending" } } : {}),
+          // The plaintext is ours already: shown at once, never a "Decrypting…"
+          // placeholder. Marked encrypted so it's never persisted as plaintext
+          // (see messageCache).
+          ...(encryptSend ? { e2ee: { status: "ok", verified: true } } : {}),
         } as unknown as M);
 
       // Every send shows its bubble right away, in queue order (= POST order =
@@ -1171,8 +1232,8 @@ export function useChatSession<M extends ChatMessage>({
           }
 
           let body: Record<string, unknown> = {};
-          if (encryptSend) {
-            body = await buildEncryptedSendBody({
+          const encryptBody = async (freshKeys: boolean) => {
+            const encrypted = await buildEncryptedSendBody({
               channelId: encryptChannelId!,
               target: sendTarget!,
               memberIds: memberIdsRef.current,
@@ -1180,8 +1241,16 @@ export function useChatSession<M extends ChatMessage>({
               attachments: uploadedAttachments,
               sticker,
               reply: replyReference ? { id: replyReference.id, content: replyReference.content } : null,
+              selfId: user.id,
+              freshKeys,
             });
-            if (silentParse.silent) body.flags = MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS;
+            if (silentParse.silent) encrypted.flags = MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS;
+            if (replyReference) encrypted.replyTo = replyReference.id;
+            if (replyReference && !replyMention) encrypted.mentionRepliedUser = false;
+            return encrypted;
+          };
+          if (encryptSend) {
+            body = await encryptBody(false);
           } else {
             if (messageContent) body.content = messageContent;
             if (sticker) body.sticker = sticker;
@@ -1194,11 +1263,18 @@ export function useChatSession<M extends ChatMessage>({
           if (replyReference) body.replyTo = replyReference.id;
           if (replyReference && !replyMention) body.mentionRepliedUser = false;
 
-          const response = await fetch(`${apiBase}/messages`, {
+          const post = (payload: Record<string, unknown>) => fetch(`${apiBase}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
+            body: JSON.stringify(payload),
           });
+          let response = await post(body);
+          if (encryptSend && response.status === 409) {
+            // Someone's devices / keys changed since we cached them: encrypt
+            // again for the current key set and retry once.
+            const refusal = await response.clone().json().catch(() => null);
+            if (refusal?.code === "e2ee_keys_changed") response = await post(await encryptBody(true));
+          }
 
           if (response.ok) {
             const payload = await response.json().catch(() => null);
@@ -1241,6 +1317,12 @@ export function useChatSession<M extends ChatMessage>({
                 action: { label: gt("View Account Standing"), onClick: openAccountStanding },
                 duration: 10_000,
               });
+            } else if (data?.code === "e2ee_keys_changed") {
+              toast.error(gt("Someone's encryption keys changed while sending. Try again."));
+            } else if (data?.code === "e2ee_device_inactive") {
+              toast.error(gt("This device was removed from your encrypted devices. Reload the app to set it up again."));
+            } else if (data?.code === "e2ee_required") {
+              toast.error(gt("This conversation is end-to-end encrypted. Reload the app to send messages here."));
             } else {
               toast.error(data?.error || gt("Failed to send message"));
             }

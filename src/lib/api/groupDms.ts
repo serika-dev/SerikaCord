@@ -60,6 +60,7 @@ import {
 import {
   canJoinEncrypted,
   checkE2eeChannelSend,
+  checkE2eeKeysFresh,
   conversationE2eeFlags,
   initialConversationE2ee,
 } from '@/lib/services/e2ee';
@@ -431,7 +432,12 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
     const e2eeGate = await checkE2eeChannelSend(user.id, channel, prepared.e2ee);
     if (e2eeGate) {
       set.status = e2eeGate.status;
-      return { error: e2eeGate.error };
+      return { error: e2eeGate.error, ...(e2eeGate.code ? { code: e2eeGate.code } : {}) };
+    }
+    const keysGate = prepared.e2ee ? await checkE2eeKeysFresh(channel, body.e2eeKeys) : null;
+    if (keysGate) {
+      set.status = keysGate.status;
+      return { error: keysGate.error, code: keysGate.code };
     }
     const [memberships, encryptedContent, spam] = await Promise.all([
       ServerMember.find({ userId: user.id }),

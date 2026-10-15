@@ -49,16 +49,23 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
   const autoTriedRef = useRef<string | null>(null);
   const nameOf = (id: string) => members.find((m) => m.id.toLowerCase() === id.toLowerCase())?.name || gt("Someone");
 
-  // Member key state (refreshed when trust pins change).
+  // Member key state: the cached key set at once (revalidated in the
+  // background; a change bumps keysVersion and this runs again), refreshed
+  // when trust pins change too.
   useEffect(() => {
     if (!channelId || e2ee.phase !== "ready" || unsupported) return;
     let cancelled = false;
     void loadE2eeSession()
       .then(async (session) => {
-        const keys = await session.getChannelKeys(channelId, true);
+        let keys = await session.getChannelKeys(channelId);
         // The key list must match what the user opened: exactly us + the
         // URL's person in a 1:1 DM; a group's must match the members shown.
-        const check = target ? session.checkMembers(keys, target, memberIds) : null;
+        let check = target ? session.checkMembers(keys, target, memberIds) : null;
+        // A cached key set may predate a member change: confirm a mismatch with the server first.
+        if (target && check && (!check.ok || check.hidden.length > 0 || check.missing.length > 0)) {
+          keys = await session.getChannelKeys(channelId, true);
+          check = session.checkMembers(keys, target, memberIds);
+        }
         return { keys, check };
       })
       .then(({ keys, check }) => {
@@ -83,7 +90,7 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
     return () => {
       cancelled = true;
     };
-  }, [channelId, e2ee.phase, e2ee.pinsVersion, unsupported, active, target, memberIds]);
+  }, [channelId, e2ee.phase, e2ee.pinsVersion, e2ee.keysVersion, unsupported, active, target, memberIds]);
 
   const current = issues && issues.channelId === channelId ? issues : null;
 
@@ -151,7 +158,7 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
               </span>
               {e2ee.phase === "needs-restore" && (
                 <button type="button" className={linkButton} onClick={() => openE2eeDialog("restore")}>
-                  {gt("Restore")}
+                  {gt("Set up")}
                 </button>
               )}
             </div>

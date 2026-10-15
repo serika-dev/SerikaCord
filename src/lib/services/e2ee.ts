@@ -11,8 +11,10 @@ import { cache, getRedis } from '@/lib/db/redis';
 import { config } from '@/lib/config';
 import {
   E2eeVerifyError,
+  canonicalKeySet,
   decryptAttachment,
   isFrankingDisclosure,
+  isKeysVersion,
   verifyFranking,
   type Envelope,
   type MessagePayload,
@@ -234,6 +236,57 @@ export async function keyBundles(userIds: string[], viewerId?: string) {
   });
 }
 
+/** Version of a key set (see lib/e2ee/keysVersion): 32 hex chars of SHA-256. */
+export function keysVersionOf(bundles: Awaited<ReturnType<typeof keyBundles>>): string {
+  return createHash('sha256').update(canonicalKeySet(bundles)).digest('hex').slice(0, 32);
+}
+
+/**
+ * Encrypted sends name the key-set version they were encrypted for
+ * (`e2eeKeys`). A stale one means a member added or removed a device or reset
+ * their keys since the sender cached them: refuse (409 e2ee_keys_changed) so
+ * the client refetches and re-encrypts. Older clients that don't send a
+ * version are let through (transition).
+ */
+export async function checkE2eeKeysFresh(
+  channel: { recipientIds?: string[] | null },
+  keysVersion: unknown,
+): Promise<{ status: number; error: string; code: string } | null> {
+  if (keysVersion === undefined || keysVersion === null) return null;
+  if (!isKeysVersion(keysVersion)) return { status: 400, error: 'Invalid key version', code: 'e2ee_keys_invalid' };
+  const members = channel.recipientIds ?? [];
+  if (members.length === 0) return null;
+  const current = keysVersionOf(await keyBundles(members));
+  if (current === keysVersion) return null;
+  return {
+    status: 409,
+    error: 'Encryption keys in this conversation changed. Your app will update them and try again.',
+    code: 'e2ee_keys_changed',
+  };
+}
+
+/**
+ * A user's keys changed (device added / removed, identity published or
+ * reset): tell everyone who shares a DM / group DM with them (and their own
+ * other sessions) to refresh cached key bundles. Best effort, fire-and-forget.
+ */
+export function notifyE2eeKeysChanged(userId: string): void {
+  const uid = normalizeId(userId);
+  void (async () => {
+    const rows = await db
+      .select({ recipientIds: schema.channels.recipientIds })
+      .from(schema.channels)
+      .where(and(
+        inArray(schema.channels.type, ['dm', 'group_dm']),
+        sql`${schema.channels.recipientIds} @> ARRAY[${uid}]::uuid[]`,
+      ));
+    const userIds = new Set<string>([uid]);
+    for (const row of rows) for (const id of row.recipientIds ?? []) userIds.add(normalizeId(id));
+    const { fanoutToUsers } = await import('@/lib/api/activity');
+    await fanoutToUsers({ userIds: [...userIds] }, { type: 'e2ee_keys', userId: uid });
+  })().catch((err) => console.warn('[e2ee] Key change notification failed:', (err as Error)?.message ?? err));
+}
+
 /** Whether every one of `userIds` has published an identity and at least one active device. */
 export async function usersHaveKeys(userIds: string[]): Promise<boolean> {
   const ids = [...new Set(userIds.map((u) => normalizeId(u)))];
@@ -308,13 +361,13 @@ export async function checkE2eeChannelSend(
   userId: string,
   channel: ChannelLike,
   envelope: Envelope | null | undefined,
-): Promise<{ status: number; error: string } | null> {
+): Promise<{ status: number; error: string; code?: string } | null> {
   const mismatch = e2eeMismatch(channel, Boolean(envelope));
-  if (mismatch) return mismatch;
+  if (mismatch) return { ...mismatch, code: isE2eeChannel(channel) ? 'e2ee_required' : 'e2ee_not_encrypted' };
   if (!envelope) return null;
   const device = await findUserDevice(userId, envelope.sd).catch(() => null);
   if (!device || device.revokedAt) {
-    return { status: 403, error: 'This device is not registered for end-to-end encryption' };
+    return { status: 403, error: 'This device is not registered for end-to-end encryption', code: 'e2ee_device_inactive' };
   }
   return null;
 }

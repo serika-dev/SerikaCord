@@ -926,7 +926,13 @@ class VoiceService {
     // Re-resolve whether this room must be verified (start early: signals wait for it).
     this.e2eeResolving.delete(channelId);
     this.e2eeResolved.delete(channelId);
-    if (VoiceService.isDmRoom(channelId)) void this.resolveRoomE2ee(channelId);
+    if (VoiceService.isDmRoom(channelId)) {
+      void this.resolveRoomE2ee(channelId);
+      // Load the peers' keys now, in parallel with media / ICE setup, so
+      // checking their SDP signatures doesn't wait on the network.
+      const me = this.getMyUserId();
+      void import("@/lib/e2ee/client/session").then((m) => m.prefetchCallKeys(channelId, me)).catch(() => {});
+    }
     this.meta = meta;
     this.sessionId = newSessionId();
     this.reconnectAttempt = 0;
@@ -1443,7 +1449,7 @@ class VoiceService {
         const sdp = (signal as { sdp?: unknown }).sdp;
         if (typeof sdp === "string" && VoiceService.isDmRoom(roomId)) {
           const session = await import("@/lib/e2ee/client/session").catch(() => null);
-          const proof = session ? await session.signCallSdp(roomId, sdp).catch(() => null) : null;
+          const proof = session ? await session.signCallSdp(roomId, sdp, this.getMyUserId()).catch(() => null) : null;
           if (proof) payload = { ...signal, e2ee: proof };
         }
         if (!current()) return;

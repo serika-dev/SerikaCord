@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
-import { KeyRound, Lock, ShieldAlert } from "lucide-react";
+import { KeyRound, Lock, MonitorSmartphone, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,7 +95,16 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
       close();
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
-      setError(name === "E2eeVerifyError" ? gt("That passphrase isn't right.") : gt("Couldn't restore your keys. Try again."));
+      const status = (err as { status?: number } | null)?.status;
+      setError(
+        name === "E2eeVerifyError"
+          ? gt("That passphrase isn't right.")
+          : name === "E2eeFormatError"
+            ? gt("This backup doesn't match your current keys. Reset encryption to start over.")
+            : status === 409
+              ? gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.")
+              : gt("Couldn't restore your keys. Try again."),
+      );
       setBusy(false);
     }
   };
@@ -125,7 +134,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
 
   return (
     <Dialog open={mode !== null} onOpenChange={(open) => !open && !busy && close()}>
-      <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-md">
+      <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-md max-h-[100dvh] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {mode === "reset" ? <ShieldAlert className="h-5 w-5 text-red-500" /> : mode === "restore" ? <KeyRound className="h-5 w-5 text-[var(--app-accent)]" /> : <Lock className="h-5 w-5 text-[var(--app-accent)]" />}
@@ -134,7 +143,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
               : mode === "change-passphrase"
                 ? gt("Change recovery passphrase")
                 : mode === "restore"
-                  ? gt("Restore encrypted messages")
+                  ? gt("Set up encryption on this device")
                   : gt("Reset encryption")}
           </DialogTitle>
           <DialogDescription className="text-[var(--text-secondary)]">
@@ -143,7 +152,9 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
               : mode === "change-passphrase"
                 ? gt("Your keys are sealed again with the new passphrase. The old one stops working.")
                 : mode === "restore"
-                  ? gt("This device doesn't have your encryption keys yet. Enter your recovery passphrase to read your encrypted messages here.")
+                  ? e2ee.keysLost
+                    ? gt("This browser cleared the encryption keys it had (for example after clearing site data). Set it up again with another device or your recovery passphrase.")
+                    : gt("This device doesn't have your encryption keys yet. Set it up with a device that already has them, or with your recovery passphrase.")
                   : gt("This creates new encryption keys. Encrypted messages from before stay readable on this device only, and your contacts will see that your security code changed. Enter your account password to confirm.")}
           </DialogDescription>
         </DialogHeader>
@@ -209,6 +220,19 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
         )}
 
         {mode === "restore" && (
+          <div className="flex flex-col gap-2 rounded-lg border border-[var(--border-subtle)] p-3">
+            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Use a device that's already set up")}</p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              {gt("Show a code here and scan it with your phone or another computer where you can read your encrypted messages. No passphrase needed.")}
+            </p>
+            <Button onClick={() => { reset(); onModeChange("link-new"); }} disabled={busy}>
+              <MonitorSmartphone className="h-4 w-4 mr-1" />
+              {gt("Show a code")}
+            </Button>
+          </div>
+        )}
+
+        {mode === "restore" && (
           e2ee.serverHasBackup ? (
             <Input
               type="password"
@@ -223,7 +247,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
             />
           ) : (
             <p className="text-sm text-[var(--text-secondary)]">
-              {gt("You didn't set a recovery passphrase, so your keys can't be restored here. Open SerikaCord on a device that still has them, or reset encryption.")}
+              {gt("You didn't set a recovery passphrase, so use a device that's already set up, or reset encryption.")}
             </p>
           )
         )}
@@ -242,7 +266,12 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           />
         )}
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {busy && (mode === "restore" || settingPassphrase) && (
+          <p className="text-xs text-[var(--app-muted)]" aria-live="polite">
+            {gt("Protecting your keys with the passphrase takes a few seconds on some phones.")}
+          </p>
+        )}
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
 
         <DialogFooter className="gap-2 sm:justify-between">
           {mode === "onboard" && (
@@ -262,7 +291,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           )}
           {settingPassphrase && (
             <Button onClick={() => void savePassphrase()} disabled={!canSave || busy}>
-              {gt("Save passphrase")}
+              {busy ? gt("Saving…") : gt("Save passphrase")}
             </Button>
           )}
           {mode === "restore" && e2ee.serverHasBackup && (

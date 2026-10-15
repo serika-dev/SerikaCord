@@ -51,8 +51,14 @@ export function ReportMessageDialog({ message, onClose }: ReportMessageDialogPro
       let e2ee: { key: string; payload: string; sig: string } | null = null;
       if (message.e2ee) {
         const sig = (message.e2ee.envelope as { sig?: unknown } | undefined)?.sig;
+        // Shown from the decrypted cache: the envelope is opened again for the key.
         const disclosure = message.e2ee.status === "ok" && typeof sig === "string"
-          ? (await loadE2eeSession()).frankingDisclosure(sig)
+          ? await (await loadE2eeSession()).frankingDisclosureFor({
+              id: message.id,
+              authorId: message.authorId,
+              channelId: message.channelId,
+              envelope: message.e2ee.envelope,
+            })
           : null;
         e2ee = disclosure && typeof sig === "string" ? { ...disclosure, sig } : null;
         if (!e2ee) {

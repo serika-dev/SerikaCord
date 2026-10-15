@@ -122,14 +122,15 @@ export function E2eeSettingsPanel() {
             {ready
               ? gt("Direct messages, group messages and calls in encrypted conversations can only be read by the people in them. Not even SerikaCord can read them.")
               : e2ee.phase === "needs-restore"
-                ? gt("Restore your keys with your recovery passphrase to read and send encrypted messages here.")
+                ? gt("Set it up with a device that's already set up (scan a code), or with your recovery passphrase, to read and send encrypted messages here.")
                 : e2ee.phase === "unavailable"
                   ? gt("Your browser blocks the storage encryption keys need (for example in a private window).")
                   : gt("Your messages are still protected in transit and encrypted at rest on our servers.")}
           </p>
           {e2ee.phase === "needs-restore" && (
             <div className="flex flex-wrap gap-2 pt-2">
-              <Button size="sm" onClick={() => openE2eeDialog("restore")}>{gt("Restore")}</Button>
+              <Button size="sm" onClick={() => openE2eeDialog("link-new")}>{gt("Use another device")}</Button>
+              <Button size="sm" variant="secondary" onClick={() => openE2eeDialog("restore")}>{gt("Use recovery passphrase")}</Button>
               <Button size="sm" variant="ghost" onClick={() => openE2eeDialog("reset")}>{gt("Reset encryption")}</Button>
             </div>
           )}
@@ -155,6 +156,23 @@ export function E2eeSettingsPanel() {
               <Button size="sm" variant="ghost" onClick={() => openE2eeDialog("reset")}>
                 {gt("Reset encryption")}
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ready && (
+        <div className={cn(card, "flex items-start gap-3")}>
+          <div className="w-10 h-10 rounded-lg bg-[var(--bg-card)] flex items-center justify-center flex-shrink-0">
+            <MonitorSmartphone className="w-5 h-5 text-[var(--app-accent)]" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Link a new device")}</p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              {gt("Signed in on a new phone or computer? It shows a code while setting up encryption: scan or type it here. No passphrase needed.")}
+            </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button size="sm" onClick={() => openE2eeDialog("link-approve")}>{gt("Link a new device")}</Button>
             </div>
           </div>
         </div>

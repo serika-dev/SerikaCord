@@ -14,6 +14,8 @@ import {
 import { isConversationRememberedEncrypted, rememberConversationEncrypted } from "./keyStore";
 import { loadE2eeSession } from "./state";
 import type { DecryptContext } from "./session";
+import { peekPlain, plainCacheKey, validatedChannelOf } from "./plainCache";
+import { applyPayload } from "./view";
 
 /**
  * Whether this device has seen the conversation encrypted (downgrade
@@ -40,6 +42,45 @@ export function decryptContextFor(target: E2eeTarget | null, meta: ConversationM
   if (!target) return { channelId: meta?.channelId ?? null };
   if (target.kind === "group") return { channelId: target.channelId };
   return { channelId: meta?.channelId ?? null, dmPeer: target.recipientId };
+}
+
+type PendingLike = { id: string; channelId?: string; authorId?: string; e2ee?: { status?: string; envelope?: unknown } };
+
+function pendingEnvelopeSig(m: PendingLike): string | null {
+  if (m.e2ee?.status !== "pending") return null;
+  const sig = (m.e2ee.envelope as { sig?: unknown } | null | undefined)?.sig;
+  return typeof sig === "string" ? sig : null;
+}
+
+/** Whether a cached list still has envelope-only placeholders (from the localStorage message cache). */
+export function hasPendingPlaceholders(messages: PendingLike[]): boolean {
+  return messages.some((m) => pendingEnvelopeSig(m) !== null);
+}
+
+/**
+ * Fill envelope-only placeholders from the in-memory decrypted cache,
+ * synchronously (first paint of a conversation this tab already decrypted
+ * and checked). Only rows of the conversation's validated channel (the URL's
+ * group; for a 1:1 DM the channel last checked to be exactly us + them);
+ * memory entries are dropped whenever trust changes, and only results that
+ * passed the URL allowlist are ever cached. Returns the same array when
+ * nothing was filled.
+ */
+export function hydrateFromMemory<M extends PendingLike>(messages: M[], selfId: string | null | undefined, target: E2eeTarget | null): M[] {
+  if (!selfId || !target) return messages;
+  const channelId = target.kind === "group" ? target.channelId.toLowerCase() : validatedChannelOf(conversationKey(target));
+  if (!channelId) return messages;
+  let changed = false;
+  const next = messages.map((m) => {
+    const sig = pendingEnvelopeSig(m);
+    if (!sig || !m.channelId || !m.authorId || m.channelId.toLowerCase() !== channelId) return m;
+    // Runs during render: read without reordering the LRU.
+    const hit = peekPlain(selfId, plainCacheKey(channelId, m.id, sig, m.authorId), false);
+    if (!hit) return m;
+    changed = true;
+    return applyPayload(m as unknown as Record<string, unknown>, hit.payload, hit.verified, m.e2ee!.envelope, channelId) as unknown as M;
+  });
+  return changed ? next : messages;
 }
 
 /** The channel id sends / edits are encrypted for (never a server-supplied id for groups). */
@@ -75,6 +116,10 @@ export interface DecodeOptions {
   meta: ConversationMeta | null;
   /** The conversation is encrypted (server flag, or remembered on this device). */
   encrypted: boolean;
+  /** The signed-in user (starts E2EE at once if it hasn't started). */
+  selfId?: string | null;
+  /** Rows that just arrived live (not in any cache yet). */
+  live?: boolean;
 }
 
 /**
@@ -86,7 +131,11 @@ export async function decodeConversationRows(raw: RawMessagePayload[], opts: Dec
   const rows = opts.encrypted ? flagPlaintextRows(raw, opts.target) : raw;
   if (!rows.some(hasEnvelope)) return rows;
   const session = await loadE2eeSession();
-  return session.decryptRawMessages(rows as Array<Record<string, unknown>>, decryptContextFor(opts.target, opts.meta));
+  return session.decryptRawMessages(rows as Array<Record<string, unknown>>, {
+    ...decryptContextFor(opts.target, opts.meta),
+    selfId: opts.selfId ?? null,
+    live: opts.live === true,
+  });
 }
 
 /** Conversation facts the DM / group DM message endpoints return with a page. */
@@ -142,10 +191,13 @@ export async function buildEncryptedSendBody(opts: {
   attachments: EncryptedAttachmentUpload[];
   sticker?: MessageSticker;
   reply?: { id: string; content?: string } | null;
+  selfId?: string | null;
+  /** Retry after the server said the key set changed: load it from the server first. */
+  freshKeys?: boolean;
 }): Promise<Record<string, unknown>> {
   const session = await loadE2eeSession();
   const files = opts.attachments.filter((a) => a.e2ee && a.original);
-  const envelope = await session.encryptForChannel(opts.channelId, {
+  const { envelope, keysVersion } = await session.encryptForChannel(opts.channelId, {
     v: 1,
     content: opts.content,
     ts: Date.now(),
@@ -166,10 +218,11 @@ export async function buildEncryptedSendBody(opts: {
       : {}),
     ...(opts.sticker ? { sticker: opts.sticker } : {}),
     ...(opts.reply ? { replyPreview: { id: opts.reply.id.toLowerCase(), content: (opts.reply.content ?? "").slice(0, 200) } } : {}),
-  }, opts.target, opts.memberIds);
+  }, opts.target, opts.memberIds, { selfId: opts.selfId, freshKeys: opts.freshKeys });
   return {
     content: "",
     e2ee: envelope,
+    ...(keysVersion ? { e2eeKeys: keysVersion } : {}),
     ...(files.length
       ? {
           attachments: files.map((a) => ({
@@ -191,10 +244,11 @@ export async function buildEncryptedEditBody(
   content: string,
   target: E2eeTarget,
   memberIds?: string[] | null,
+  selfId?: string | null,
 ): Promise<Record<string, unknown>> {
   const session = await loadE2eeSession();
   const files = (message.attachments ?? []).filter((a) => a.e2ee);
-  const envelope = await session.encryptForChannel(channelId, {
+  const { envelope } = await session.encryptForChannel(channelId, {
     v: 1,
     content,
     ts: Date.now(),
@@ -218,6 +272,6 @@ export async function buildEncryptedEditBody(
     ...(message.referencedMessage
       ? { replyPreview: { id: message.referencedMessage.id.toLowerCase(), content: (message.referencedMessage.content ?? "").slice(0, 200) } }
       : {}),
-  }, target, memberIds);
+  }, target, memberIds, { selfId });
   return { content: "", e2ee: envelope };
 }

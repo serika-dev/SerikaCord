@@ -3,7 +3,8 @@
 // IndexedDB storage for this device's E2EE keys, per signed-in account.
 // CryptoKey objects are stored as-is (structured clone): device private keys
 // are non-extractable and never leave IndexedDB. Plaintext messages are never
-// written here.
+// written here (the decrypted-message cache is a separate, encrypted database:
+// plainCache.ts).
 
 const DB_NAME = "serika-e2ee";
 const DB_VERSION = 1;
@@ -64,6 +65,19 @@ export interface ArchivedKeys {
   archivedAt: number;
 }
 
+/**
+ * The identity + backup private keys as JWK, AES-GCM sealed under a
+ * non-extractable key stored next to it: lets this device hand them to a
+ * new device it links (docs/architecture/e2ee.md "Linking a device").
+ */
+export interface LinkEscrow {
+  key: CryptoKey;
+  iv: Uint8Array;
+  ct: ArrayBuffer;
+  /** The identity public key the sealed keys belong to. */
+  identityPub: string;
+}
+
 interface Records {
   identity: StoredIdentity;
   backup: StoredIdentity;
@@ -77,6 +91,7 @@ interface Records {
   conversations: Record<string, true>;
   backupState: BackupState;
   archive: ArchivedKeys[];
+  linkEscrow: LinkEscrow;
 }
 
 export type RecordName = keyof Records;
@@ -98,7 +113,19 @@ function openDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // Another tab upgrading the database, or the browser dropping the
+      // connection (storage pressure, Safari): reopen on the next access.
+      db.onversionchange = () => {
+        db.close();
+        dbPromise = null;
+      };
+      (db as IDBDatabase & { onclose?: (() => void) | null }).onclose = () => {
+        dbPromise = null;
+      };
+      resolve(db);
+    };
     request.onerror = () => reject(new E2eeUnavailableError());
     request.onblocked = () => reject(new E2eeUnavailableError("Encrypted messaging is busy in another tab. Reload this page."));
   });
@@ -139,6 +166,21 @@ export class KeyStore {
     return value ?? null;
   }
 
+  /** Several records in one read transaction (startup). */
+  async getMany<N extends RecordName>(names: N[]): Promise<{ [K in N]: Records[K] | null }> {
+    const out = {} as { [K in N]: Records[K] | null };
+    await tx("readonly", (s) => {
+      for (const name of names) {
+        const req = s.get(this.key(name)) as IDBRequest<Records[N] | undefined>;
+        req.onsuccess = () => {
+          out[name] = (req.result ?? null) as Records[N] | null;
+        };
+      }
+    });
+    for (const name of names) if (!(name in out)) out[name] = null;
+    return out;
+  }
+
   async put<N extends RecordName>(name: N, value: Records[N]): Promise<void> {
     await tx("readwrite", (s) => {
       s.put(value, this.key(name));
@@ -169,6 +211,7 @@ export class KeyStore {
       s.delete(this.key("backup"));
       s.delete(this.key("device"));
       s.delete(this.key("backupState"));
+      s.delete(this.key("linkEscrow"));
     });
   }
 }
@@ -183,15 +226,30 @@ export async function isKeyStoreAvailable(): Promise<boolean> {
   }
 }
 
+/**
+ * "Seen encrypted" answers already known in this tab. Only positives are
+ * kept (the memory is one-way); a negative is always re-read, since another
+ * tab may have remembered the conversation meanwhile.
+ */
+const rememberedHere = new Set<string>();
+
 /** Whether this device has seen the conversation `key` encrypted (false when storage is unavailable). */
 export async function isConversationRememberedEncrypted(userId: string, key: string): Promise<boolean> {
-  if (!userId || !key || !(await isKeyStoreAvailable())) return false;
+  if (!userId || !key) return false;
+  const id = `${userId.toLowerCase()}|${key.toLowerCase()}`;
+  if (rememberedHere.has(id)) return true;
+  if (!(await isKeyStoreAvailable())) return false;
   const list = await new KeyStore(userId).get("conversations");
-  return Boolean(list?.[key.toLowerCase()]);
+  for (const k of Object.keys(list ?? {})) rememberedHere.add(`${userId.toLowerCase()}|${k}`);
+  return rememberedHere.has(id);
 }
 
 /** Remember that the conversation `key` is encrypted (one-way). */
 export async function rememberConversationEncrypted(userId: string, key: string): Promise<void> {
-  if (!userId || !key || !(await isKeyStoreAvailable())) return;
+  if (!userId || !key) return;
+  const id = `${userId.toLowerCase()}|${key.toLowerCase()}`;
+  if (rememberedHere.has(id)) return;
+  if (!(await isKeyStoreAvailable())) return;
   await new KeyStore(userId).update("conversations", (current) => ({ ...(current ?? {}), [key.toLowerCase()]: true }));
+  rememberedHere.add(id);
 }

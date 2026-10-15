@@ -37,14 +37,24 @@ function withoutPlaintext(m: ChatMessage): ChatMessage {
     sticker: undefined,
     mentionedUserIds: [],
     referencedMessage: ref,
-    e2ee: { status: "pending", envelope: m.e2ee.envelope },
+    // Only messages that decrypted fine come back as placeholders (to be
+    // filled from the decrypted cache); failures stay failures, without their
+    // envelope, until the next fetch checks them again.
+    e2ee: m.e2ee.status === "error"
+      ? { status: "error", reason: m.e2ee.reason }
+      : { status: "pending", envelope: m.e2ee.envelope },
   };
 }
 
 function lsPersist(key: string, messages: ChatMessage[]): void {
   if (typeof localStorage === "undefined") return;
   try {
-    const tail = messages.slice(-LS_PERSIST_TAIL).map(withoutPlaintext);
+    // An encrypted message still being sent has no envelope yet: nothing to
+    // decrypt after a reload, so it isn't persisted (the server copy will be).
+    const tail = messages
+      .filter((m) => !(m.e2ee && m.pending))
+      .slice(-LS_PERSIST_TAIL)
+      .map(withoutPlaintext);
     localStorage.setItem(LS_MSG_PREFIX + key, JSON.stringify(tail));
     // Maintain a small LRU index so we can evict old persisted contexts.
     const idx: string[] = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");
@@ -103,6 +113,11 @@ export function writeCache<M extends ChatMessage>(key: string, messages: M[], pe
 export function clearMessageCache(): void {
   messageCache.clear();
   inflightPrefetch.clear();
+  // The encrypted cache of decrypted E2EE messages goes too (loaded only when
+  // needed, so this module stays light for the root layout).
+  if (typeof indexedDB !== "undefined") {
+    void import("@/lib/e2ee/client/plainCache").then((m) => m.clearAllDecrypted()).catch(() => {});
+  }
   if (typeof localStorage === "undefined") return;
   try {
     const idx: string[] = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");

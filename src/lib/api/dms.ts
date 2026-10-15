@@ -33,6 +33,7 @@ import {
   ENCRYPTED_PREVIEW,
   archiveReplacedEnvelope,
   checkE2eeChannelSend,
+  checkE2eeKeysFresh,
   conversationE2eeFlags,
   initialConversationE2ee,
   isE2eeNotice,
@@ -1072,6 +1073,8 @@ export const DM_SEND_BODY = t.Object({
   flags: t.Optional(t.Number()),
   // End-to-end encrypted envelope (validated by lib/e2ee validateEnvelope).
   e2ee: t.Optional(t.Unknown()),
+  // The key-set version the envelope was encrypted for (stale → 409, see checkE2eeKeysFresh).
+  e2eeKeys: t.Optional(t.String({ maxLength: 64 })),
 });
 
 export const dmRoutes = new Elysia({ prefix: '/dms' })
@@ -1523,7 +1526,12 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const e2eeGate = await checkE2eeChannelSend(user.id, channel, prepared.e2ee);
     if (e2eeGate) {
       set.status = e2eeGate.status;
-      return { error: e2eeGate.error };
+      return { error: e2eeGate.error, ...(e2eeGate.code ? { code: e2eeGate.code } : {}) };
+    }
+    const keysGate = prepared.e2ee ? await checkE2eeKeysFresh(channel, body.e2eeKeys) : null;
+    if (keysGate) {
+      set.status = keysGate.status;
+      return { error: keysGate.error, code: keysGate.code };
     }
 
     const spam = await checkDmDuplicateSpam(channel.id, user.id, prepared);

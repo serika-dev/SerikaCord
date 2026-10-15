@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useMemo } from "react";
+import { Fragment, memo, useEffect, useMemo, useState } from "react";
 import { BellOff, Pin, Reply, Clock, Lock, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
@@ -43,6 +43,35 @@ function e2eeFailureText(gt: ChatGt, reason: string | undefined): string {
     default:
       return gt("Couldn't decrypt this message.");
   }
+}
+
+/** How long a decryption may take before "Decrypting…" shows (most finish well before). */
+const DECRYPT_PLACEHOLDER_DELAY_MS = 150;
+
+/**
+ * An encrypted message still being decrypted: an empty line at first (no
+ * flash for the usual few milliseconds), "Decrypting…" only if it takes
+ * longer than DECRYPT_PLACEHOLDER_DELAY_MS.
+ */
+function PendingDecryptBody() {
+  const gt = useChatGt();
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), DECRYPT_PLACEHOLDER_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return (
+    <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]" aria-busy="true">
+      {slow ? (
+        <>
+          <Lock className="w-3.5 h-3.5 animate-pulse" />
+          {gt("Decrypting…")}
+        </>
+      ) : (
+        <span className="invisible">{gt("Decrypting…")}</span>
+      )}
+    </span>
+  );
 }
 
 interface MentionUser {
@@ -346,20 +375,13 @@ function MessageGroupInner<M extends ChatMessage>({
                         {gt("Not encrypted – can't verify sender")}
                       </span>
                     )}
-                    {message.e2ee && message.e2ee.status !== "ok" ? (
-                      // End-to-end encrypted, not readable (yet) on this device.
+                    {message.e2ee && message.e2ee.status === "pending" ? (
+                      <PendingDecryptBody />
+                    ) : message.e2ee && message.e2ee.status !== "ok" ? (
+                      // End-to-end encrypted, not readable on this device.
                       <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]">
-                        {message.e2ee.status === "pending" ? (
-                          <>
-                            <Lock className="w-3.5 h-3.5 animate-pulse" />
-                            {gt("Decrypting…")}
-                          </>
-                        ) : (
-                          <>
-                            <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
-                            {e2eeFailureText(gt, message.e2ee.reason)}
-                          </>
-                        )}
+                        <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                        {e2eeFailureText(gt, message.e2ee.reason)}
                       </span>
                     ) : (
                     <MessageContent

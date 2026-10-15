@@ -20,3 +20,5 @@ export * from "./dtls";
 export * from "./franking";
 export * from "./conversation";
 export * from "./passphrase";
+export * from "./link";
+export * from "./keysVersion";

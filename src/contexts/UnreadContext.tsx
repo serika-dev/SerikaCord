@@ -774,6 +774,19 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // End-to-end encryption: someone's keys changed (refresh cached key
+      // sets), or a device-linking request moved on (E2eeHost / link dialog).
+      if (data.type === "e2ee_keys") {
+        const changed = (data as { userId?: string }).userId;
+        if (changed) window.dispatchEvent(new CustomEvent("serika:e2ee-keys", { detail: { userId: changed } }));
+        return;
+      }
+      if (data.type === "e2ee_link") {
+        const code = (data as { code?: string }).code;
+        if (code) window.dispatchEvent(new CustomEvent("serika:e2ee-link", { detail: { code } }));
+        return;
+      }
+
       // A moderator approved / rejected you in a server's rules screening.
       if (data.type === "server_onboarding_update") {
         const serverId = (data as { serverId?: string }).serverId;

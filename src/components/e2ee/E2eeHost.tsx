@@ -7,78 +7,153 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useE2ee } from "@/hooks/useE2ee";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
-import { getE2eeSnapshot, loadE2eeSession, onE2eeDialogRequest, openE2eeDialog, type E2eeDialogRequest } from "@/lib/e2ee/client/state";
+import {
+  E2EE_LINK_INPUT_KEY,
+  getE2eeSnapshot,
+  loadE2eeSession,
+  onE2eeDialogRequest,
+  openE2eeDialog,
+  type E2eeDialogOptions,
+  type E2eeDialogRequest,
+} from "@/lib/e2ee/client/state";
 
 const E2eeSetupDialog = dynamic(() => import("./E2eeSetupDialog").then((m) => m.E2eeSetupDialog), { ssr: false });
+const E2eeLinkDialog = dynamic(() => import("./E2eeLinkDialog").then((m) => m.E2eeLinkDialog), { ssr: false });
+
+type IdleWindow = Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
 
 /**
  * App-wide end-to-end encryption bootstrap (mounted once in AppShellProviders):
- * once the app is idle, loads the crypto module and sets up / checks this
- * device's keys without ever blocking startup; hosts the passphrase, restore
- * and reset dialogs (opened from anywhere with openE2eeDialog).
+ * right after sign-in (first idle moment, at most half a second later) it
+ * loads the crypto module and this device's keys, then checks them with the
+ * server in the background, without ever blocking first paint; hosts the
+ * passphrase, restore, reset and device-linking dialogs (opened from anywhere
+ * with openE2eeDialog) and applies realtime key changes.
  */
 export function E2eeHost() {
   const gt = useGT();
   const { user } = useAuth();
   const e2ee = useE2ee();
   const userId = user?.id ?? null;
-  const [dialog, setDialog] = useState<E2eeDialogRequest | null>(null);
+  const [dialog, setDialog] = useState<{ mode: E2eeDialogRequest; options?: E2eeDialogOptions; seq: number } | null>(null);
+  const seqRef = useRef(0);
   const promptedRef = useRef<string | null>(null);
 
-  useEffect(() => onE2eeDialogRequest(setDialog), []);
+  useEffect(
+    () => onE2eeDialogRequest((mode, options) => {
+      seqRef.current += 1;
+      setDialog({ mode, options, seq: seqRef.current });
+    }),
+    [],
+  );
 
-  // Start after startup work has settled; re-run on account switches.
+  // Start as soon as the app is idle (decryption waits for the keys, not for a timer).
   useEffect(() => {
     if (!userId) {
       if (getE2eeSnapshot().phase !== "idle") void loadE2eeSession().then((s) => s.shutdownE2ee()).catch(() => {});
       return;
     }
-    type IdleWindow = Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
     const w = window as IdleWindow;
     let cancelled = false;
     const start = () => {
       if (cancelled) return;
       void loadE2eeSession().then((s) => s.initE2ee({ id: userId })).catch(() => {});
     };
-    const timer = window.setTimeout(() => {
-      if (w.requestIdleCallback) w.requestIdleCallback(start, { timeout: 5000 });
-      else start();
-    }, 3000);
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(start, { timeout: 500 });
+      return () => {
+        cancelled = true;
+        w.cancelIdleCallback?.(id);
+      };
+    }
+    const timer = window.setTimeout(start, 50);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
   }, [userId]);
 
-  // One prompt per session: set a recovery passphrase, or restore on a new device.
+  // Someone's keys changed (a device added / removed, keys reset): refresh cached key sets.
+  useEffect(() => {
+    if (!userId) return;
+    const onKeys = (ev: Event) => {
+      const changed = (ev as CustomEvent<{ userId?: string }>).detail?.userId;
+      if (!changed || getE2eeSnapshot().phase === "idle") return;
+      void loadE2eeSession().then((s) => s.onRemoteKeysChanged(changed)).catch(() => {});
+    };
+    window.addEventListener("serika:e2ee-keys", onKeys);
+    return () => window.removeEventListener("serika:e2ee-keys", onKeys);
+  }, [userId]);
+
+  // Opened from a scanned linking QR (/e2ee/link): once this device's state is
+  // known, open the approve dialog (it explains when this device has to be set
+  // up first). The stored link is consumed either way.
+  useEffect(() => {
+    if (!userId || e2ee.phase === "idle") return;
+    let input: string | null = null;
+    try {
+      input = sessionStorage.getItem(E2EE_LINK_INPUT_KEY);
+      if (input) sessionStorage.removeItem(E2EE_LINK_INPUT_KEY);
+    } catch {
+      input = null;
+    }
+    if (!input) return;
+    const linkInput = input;
+    queueMicrotask(() => openE2eeDialog("link-approve", { linkInput }));
+  }, [userId, e2ee.phase]);
+
+  // One prompt per session: set a recovery passphrase, or set this device up.
   useEffect(() => {
     if (!userId || promptedRef.current === `${userId}:${e2ee.phase}`) return;
     if (e2ee.phase === "ready" && e2ee.remindPassphrase) {
       promptedRef.current = `${userId}:${e2ee.phase}`;
-      openE2eeDialog("onboard");
+      queueMicrotask(() => openE2eeDialog("onboard"));
     } else if (e2ee.phase === "needs-restore" && e2ee.resetElsewhere) {
       // The account's keys changed elsewhere: this device's keys were archived
       // (old messages stay readable here), never silently deleted.
       promptedRef.current = `${userId}:${e2ee.phase}`;
       toast.warning(gt("Encryption was reset on another device"), {
-        description: gt("Your older encrypted messages stay readable here. Enter your new recovery passphrase to read and send new ones. If you didn't reset it, change your password."),
-        action: { label: gt("Restore"), onClick: () => openE2eeDialog("restore") },
+        description: gt("Your older encrypted messages stay readable here. Set this device up again to read and send new ones. If you didn't reset it, change your password."),
+        action: { label: gt("Set up"), onClick: () => openE2eeDialog("restore") },
         duration: 30_000,
       });
     } else if (e2ee.phase === "needs-restore" && e2ee.enabled) {
       promptedRef.current = `${userId}:${e2ee.phase}`;
-      toast(gt("Your encrypted messages are locked on this device"), {
-        description: gt("Enter your recovery passphrase to read them here."),
-        action: { label: gt("Restore"), onClick: () => openE2eeDialog("restore") },
+      toast(e2ee.keysLost ? gt("This browser cleared your encryption keys") : gt("Your encrypted messages are locked on this device"), {
+        description: gt("Scan a code with a device that's already set up, or enter your recovery passphrase."),
+        action: { label: gt("Set up"), onClick: () => openE2eeDialog("restore") },
         duration: 15_000,
       });
     }
-  }, [userId, e2ee.phase, e2ee.remindPassphrase, e2ee.enabled, e2ee.resetElsewhere, gt]);
+  }, [userId, e2ee.phase, e2ee.remindPassphrase, e2ee.enabled, e2ee.resetElsewhere, e2ee.keysLost, gt]);
+
+  const linkMode = dialog && (dialog.mode === "link-new" || dialog.mode === "link-approve") ? dialog.mode : null;
+  const setupMode = dialog && !linkMode ? dialog.mode : null;
 
   return (
-    <MountWhenOpened open={dialog !== null}>
-      <E2eeSetupDialog mode={dialog} onClose={() => setDialog(null)} onModeChange={setDialog} />
-    </MountWhenOpened>
+    <>
+      <MountWhenOpened open={setupMode !== null}>
+        <E2eeSetupDialog
+          mode={setupMode}
+          onClose={() => setDialog(null)}
+          onModeChange={(mode) => openE2eeDialog(mode)}
+        />
+      </MountWhenOpened>
+      {linkMode && dialog && (
+        <E2eeLinkDialog
+          key={dialog.seq}
+          mode={linkMode}
+          initialInput={dialog.options?.linkInput}
+          onClose={() => setDialog((d) => (d && d.seq === dialog.seq ? null : d))}
+          onUsePassphrase={linkMode === "link-new"
+            ? () => {
+                void loadE2eeSession().then((s) => s.cancelDeviceLink()).catch(() => {});
+                openE2eeDialog("restore");
+              }
+            : undefined}
+        />
+      )}
+    </>
   );
 }
 

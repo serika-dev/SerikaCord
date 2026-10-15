@@ -37,13 +37,22 @@ function useDecryptedMedia(attachments: MessageAttachment[] | undefined) {
     [attachments],
   );
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [progress, setProgress] = useState<Record<string, number>>({});
   useEffect(() => {
     if (encryptedMedia.length === 0) return;
     let cancelled = false;
     void loadE2eeSession().then((session) => {
       for (const a of encryptedMedia) {
+        // Download progress in whole percent steps (big videos / pictures).
+        let shown = -1;
+        const onProgress = (fraction: number) => {
+          const percent = Math.floor(fraction * 100);
+          if (cancelled || percent === shown) return;
+          shown = percent;
+          setProgress((prev) => ({ ...prev, [a.id]: percent }));
+        };
         session
-          .decryptedObjectUrl({ url: a.url, contentType: a.contentType, e2ee: a.e2ee! })
+          .decryptedObjectUrl({ url: a.url, contentType: a.contentType, e2ee: a.e2ee! }, onProgress)
           .then((u) => {
             if (!cancelled) setUrls((prev) => (prev[a.id] === u ? prev : { ...prev, [a.id]: u }));
           })
@@ -60,11 +69,16 @@ function useDecryptedMedia(attachments: MessageAttachment[] | undefined) {
     () => (attachments ?? []).map((a) => (a.e2ee && urls[a.id] && urls[a.id] !== "error" ? { ...a, url: urls[a.id] } : a)),
     [attachments, urls],
   );
-  return { view, urls };
+  // Only the attachments still shown (an edit can drop files).
+  const shownProgress = useMemo(() => {
+    const ids = new Set(encryptedMedia.map((a) => a.id));
+    return Object.fromEntries(Object.entries(progress).filter(([id]) => ids.has(id)));
+  }, [progress, encryptedMedia]);
+  return { view, urls, progress: shownProgress };
 }
 
-/** Placeholder while an encrypted picture / video is being decrypted (or failed). */
-function EncryptedMediaPlaceholder({ failed, compact }: { failed: boolean; compact: boolean }) {
+/** Placeholder while an encrypted picture / video is being downloaded and decrypted (or failed). */
+function EncryptedMediaPlaceholder({ failed, compact, progress }: { failed: boolean; compact: boolean; progress?: number }) {
   const gt = useChatGt();
   return (
     <div
@@ -74,7 +88,13 @@ function EncryptedMediaPlaceholder({ failed, compact }: { failed: boolean; compa
       }
     >
       <Lock className={failed ? "w-5 h-5 text-red-400" : "w-5 h-5 animate-pulse"} />
-      <span className="text-xs">{failed ? gt("Couldn't decrypt this file") : gt("Decrypting…")}</span>
+      <span className="text-xs">
+        {failed
+          ? gt("Couldn't decrypt this file")
+          : progress !== undefined && progress < 100
+            ? gt("Downloading… {percent}%", { percent: progress })
+            : gt("Decrypting…")}
+      </span>
     </div>
   );
 }
@@ -126,7 +146,7 @@ function EncryptedFileCard({ attachment }: { attachment: MessageAttachment }) {
 export function MessageAttachments({ attachments: rawAttachments, messageId, onMediaClick }: MessageAttachmentsProps) {
   const gt = useChatGt();
   const [revealedSpoilers, setRevealedSpoilers] = useState<Set<string>>(new Set());
-  const { view: attachments, urls: decryptedUrls } = useDecryptedMedia(rawAttachments);
+  const { view: attachments, urls: decryptedUrls, progress: decryptProgress } = useDecryptedMedia(rawAttachments);
   if (!attachments?.length) return null;
   /** Encrypted media not decrypted yet (or failed): placeholder instead of a broken player. */
   const lockedMedia = (a: MessageAttachment) => Boolean(a.e2ee) && (!decryptedUrls[a.id] || decryptedUrls[a.id] === "error");
@@ -169,6 +189,7 @@ export function MessageAttachments({ attachments: rawAttachments, messageId, onM
                   key={attachment.id}
                   failed={decryptedUrls[attachment.id] === "error"}
                   compact={imageAttachments.length > 1}
+                  progress={decryptProgress[attachment.id]}
                 />
               );
             }
@@ -254,6 +275,7 @@ export function MessageAttachments({ attachments: rawAttachments, messageId, onM
                 key={attachment.id}
                 failed={decryptedUrls[attachment.id] === "error"}
                 compact={videoAttachments.length > 1}
+                progress={decryptProgress[attachment.id]}
               />
             ) : (attachment.spoiler || attachment.sensitive) && !revealedSpoilers.has(attachment.id) ? (
               <button
@@ -301,7 +323,7 @@ export function MessageAttachments({ attachments: rawAttachments, messageId, onM
           {attachment.e2ee && !attachment.contentType.startsWith("audio/") ? (
             <EncryptedFileCard attachment={attachment} />
           ) : lockedMedia(attachment) ? (
-            <EncryptedMediaPlaceholder failed={decryptedUrls[attachment.id] === "error"} compact />
+            <EncryptedMediaPlaceholder failed={decryptedUrls[attachment.id] === "error"} compact progress={decryptProgress[attachment.id]} />
           ) : isVoiceAttachment(attachment) ? (
             <VoiceMessagePlayer
               src={attachment.url}

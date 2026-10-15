@@ -185,6 +185,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "View Poll": gt("View Poll"),
       // End-to-end encryption (MessageGroup, MessageAttachments, E2eeSystemRow)
       "Decrypting…": gt("Decrypting…"),
+      "Downloading… {percent}%": gt("Downloading… {percent}%", { percent: "{percent}" }),
       "Couldn't decrypt this file": gt("Couldn't decrypt this file"),
       "Encrypted message": gt("Encrypted message"),
       "End-to-end encrypted": gt("End-to-end encrypted"),

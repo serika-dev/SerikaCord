@@ -6,6 +6,7 @@
 import { LABELS, SAFETY_NUMBER_ITERATIONS } from "./constants";
 import { concat, frame, type Bytes } from "./encoding";
 import { publicKeyBytes } from "./keys";
+import { sha256Sync } from "./sha256";
 
 export interface SafetyParty {
   userId: string;
@@ -15,9 +16,8 @@ export interface SafetyParty {
 async function fingerprintDigits(party: SafetyParty): Promise<string[]> {
   const pub = publicKeyBytes(party.identityPub);
   let hash: Bytes = frame(LABELS.safety, party.userId.toLowerCase(), pub);
-  for (let i = 0; i < SAFETY_NUMBER_ITERATIONS; i++) {
-    hash = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", concat(hash, pub)));
-  }
+  // Synchronous: 5200 awaited WebCrypto digests take about a second in browsers (same result).
+  for (let i = 0; i < SAFETY_NUMBER_ITERATIONS; i++) hash = sha256Sync(concat(hash, pub));
   const groups: string[] = [];
   for (let g = 0; g < 6; g++) {
     // 5 bytes → 40-bit integer → 5 decimal digits.

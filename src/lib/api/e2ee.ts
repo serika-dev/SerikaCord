@@ -16,6 +16,13 @@
 //   POST   /e2ee/channels/:channelId/enable    turn encryption on (member; all members have keys; one-way)
 //   GET    /e2ee/blob?url=                     same-origin relay of an encrypted attachment blob
 //                                              from our CDN (for browsers where the CDN lacks CORS)
+//   POST   /e2ee/link                          { commit } new device opens a link session (5 min)
+//   GET    /e2ee/link/:code                    session state (both devices poll it)
+//   POST   /e2ee/link/:code/join               { pub, commit } existing device's ephemeral key
+//   POST   /e2ee/link/:code/reveal             { pub } new device opens its commitment
+//   POST   /e2ee/link/:code/payload            { iv, ct } existing device's sealed key material
+//   POST   /e2ee/link/:code/done               new device stored the keys (the sealed copy is dropped)
+//   DELETE /e2ee/link/:code                    cancel
 //
 // Writes that create keys or encrypted conversations are refused while the
 // E2EE_ENABLED flag is off; reads and device revocation always work.
@@ -37,19 +44,29 @@ import {
   ensureE2eeSchema,
   getIdentity,
   keyBundles,
+  keysVersionOf,
+  notifyE2eeKeysChanged,
   publicDevice,
   usersHaveKeys,
 } from '@/lib/services/e2ee';
 import {
   E2eeFormatError,
   LIMITS,
+  LINK_TTL_SECONDS,
   isDeviceId,
+  isLinkCommitment,
+  isLinkPublicKey,
   isPublicKeyB64,
+  linkCommitment,
+  newLinkCode,
+  normalizeLinkCode,
   validateBackupRecord,
+  validateLinkPayload,
   verifyBackupKey,
   verifyDevice,
 } from '@/lib/e2ee';
 import { config } from '@/lib/config';
+import { getRedis } from '@/lib/db/redis';
 
 type Cookie = Record<string, { value?: unknown }>;
 
@@ -63,7 +80,7 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Cook
 
 type Setter = { status?: number | string };
 
-async function limited(kind: 'e2eeRead' | 'e2eeWrite' | 'e2eeEnable', userId: string, set: Setter) {
+async function limited(kind: 'e2eeRead' | 'e2eeWrite' | 'e2eeEnable' | 'e2eeLink', userId: string, set: Setter) {
   const rl = await checkRateLimit(kind, userId);
   if (rl.success) return null;
   set.status = 429;
@@ -129,6 +146,63 @@ async function membersWithoutRecovery(userIds: string[]): Promise<Set<string>> {
     .catch(() => [] as Array<{ userId: string; blob: string | null }>);
   const withBackup = new Set(rows.filter((r) => r.blob).map((r) => normalizeId(r.userId)));
   return new Set(ids.filter((id) => !withBackup.has(id)));
+}
+
+// ─── Device linking relay (lib/e2ee/link.ts) ──────────────────────────────────
+// One Redis hash per session, bound to the account that opened it and gone
+// after LINK_TTL_SECONDS. Each step is HSETNX, so it happens once: a second
+// device can't join, and nothing can be swapped after the fact. The server
+// only ever sees public keys, a commitment and AES-GCM ciphertext; the 6-digit
+// code both devices show is what stops it from sitting in the middle.
+
+type LinkRecord = { user?: string; commit?: string; created?: string; name?: string; oldPub?: string; newPub?: string; payload?: string; done?: string };
+
+const linkKey = (code: string) => `e2ee:link:${code}`;
+
+function linkStatus(r: LinkRecord): 'waiting' | 'joined' | 'revealed' | 'sent' | 'done' {
+  return r.done ? 'done' : r.payload ? 'sent' : r.newPub ? 'revealed' : r.oldPub ? 'joined' : 'waiting';
+}
+
+/** The caller's own live session `code`, or an error reply. */
+async function loadLinkSession(userId: string, rawCode: string, set: Setter): Promise<{ code: string; record: LinkRecord } | { error: string }> {
+  const redis = getRedis();
+  if (!redis) {
+    set.status = 503;
+    return { error: 'Linking devices is unavailable right now. Use your recovery passphrase instead.' };
+  }
+  const code = normalizeLinkCode(rawCode);
+  if (!code) {
+    set.status = 404;
+    return { error: 'That code is not valid or has expired' };
+  }
+  const record = (await redis.hgetall(linkKey(code)).catch(() => ({}))) as LinkRecord;
+  // Someone else's session looks exactly like a missing one.
+  if (!record.user || record.user !== normalizeId(userId)) {
+    set.status = 404;
+    return { error: 'That code is not valid or has expired' };
+  }
+  return { code, record };
+}
+
+/** Wake the account's other sessions (link dialogs refetch instead of waiting for the next poll). */
+function pingLink(userId: string, code: string, status: string) {
+  void import('@/lib/api/activity')
+    .then((m) => m.fanoutToUsers({ userIds: [normalizeId(userId)] }, { type: 'e2ee_link', code, status }))
+    .catch(() => {});
+}
+
+/** HSETNX one step; false when it already happened (or the session expired meanwhile). */
+async function setLinkStep(code: string, field: keyof LinkRecord, value: string): Promise<boolean> {
+  const redis = getRedis();
+  if (!redis) return false;
+  const key = linkKey(code);
+  const [[, exists], [, stored]] = (await redis.multi().exists(key).hsetnx(key, field, value).exec()) as [[unknown, number], [unknown, number]];
+  if (!exists) {
+    // HSETNX on an expired key just created a lone field: drop it again.
+    await redis.del(key).catch(() => 0);
+    return false;
+  }
+  return stored === 1;
 }
 
 export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
@@ -219,6 +293,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       }
       return saved;
     });
+    notifyE2eeKeysChanged(userId);
     return { identity: identitySummary(row), reset: Boolean(existing) };
   }, {
     body: t.Object({
@@ -287,7 +362,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
           .set({ lastSeenAt: new Date(), deviceSig: device.sig, identityPub: identity.identityPub, ...(name ? { name } : {}) })
           .where(eq(schema.e2eeDevices.id, device.id))
           .returning();
-        return { device: touched } as const;
+        return { device: touched, changed: existing.deviceSig !== device.sig } as const;
       }
       const [{ value: activeCount }] = await tx
         .select({ value: count() })
@@ -305,12 +380,13 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
         identityPub: identity.identityPub,
         name,
       }).returning();
-      return { device: created } as const;
+      return { device: created, changed: true } as const;
     });
     if ('error' in result) {
       set.status = result.status;
       return { error: result.error };
     }
+    if (result.changed) notifyE2eeKeysChanged(userId);
     return { device: publicDevice(result.device) };
   }, {
     body: t.Object({
@@ -348,6 +424,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       set.status = 404;
       return { error: 'Device not found' };
     }
+    notifyE2eeKeysChanged(user.id);
     return { success: true };
   }, { params: t.Object({ deviceId: t.String({ maxLength: 32 }) }) })
 
@@ -434,7 +511,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     return { keys: bundle };
   }, { params: t.Object({ userId: t.String() }) })
 
-  .get('/channels/:channelId/keys', async ({ headers, cookie, params, set }) => {
+  .get('/channels/:channelId/keys', async ({ headers, cookie, params, query, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) {
       set.status = 401;
@@ -450,12 +527,20 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     }
     await ensureE2eeSchema();
     const memberIds = channel.recipientIds || [];
+    const members = await keyBundles(memberIds, user.id);
+    // Clients cache bundles and revalidate with ?v=<version>: an unchanged set
+    // answers without the bundles.
+    const version = keysVersionOf(members);
+    if (typeof query.v === 'string' && query.v === version) {
+      return { channelId: channel.id, e2ee: channel.e2ee === true, version, unchanged: true };
+    }
     return {
       channelId: channel.id,
       e2ee: channel.e2ee === true,
-      members: await keyBundles(memberIds, user.id),
+      version,
+      members,
     };
-  }, { params: t.Object({ channelId: t.String() }) })
+  }, { params: t.Object({ channelId: t.String() }), query: t.Object({ v: t.Optional(t.String({ maxLength: 64 })) }) })
 
   .post('/channels/:channelId/enable', async ({ headers, cookie, params, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
@@ -533,6 +618,207 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       .slice(0, 5);
     return { success: true, e2ee: true, changed: true, message: messageData, withoutRecovery: names };
   }, { params: t.Object({ channelId: t.String() }) })
+
+  // ── Device linking (lib/e2ee/link.ts) ──────────────────────────────────────
+  .post('/link', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    if (!e2eeEnabled()) return disabled(set);
+    const rl = await limited('e2eeLink', user.id, set);
+    if (rl) return rl;
+    if (!isLinkCommitment(body.commit)) {
+      set.status = 400;
+      return { error: 'Invalid commitment' };
+    }
+    const redis = getRedis();
+    if (!redis) {
+      set.status = 503;
+      return { error: 'Linking devices is unavailable right now. Use your recovery passphrase instead.' };
+    }
+    const now = Date.now();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const code = newLinkCode();
+      const key = linkKey(code);
+      const created = await redis.hsetnx(key, 'user', normalizeId(user.id)).catch(() => 0);
+      if (created !== 1) continue;
+      const name = cleanDeviceName(body.name);
+      await redis.multi()
+        .hset(key, 'commit', body.commit, 'created', String(now), ...(name ? ['name', name] : []))
+        .expire(key, LINK_TTL_SECONDS)
+        .exec();
+      set.status = 201;
+      return { code, expiresAt: now + LINK_TTL_SECONDS * 1000 };
+    }
+    set.status = 503;
+    return { error: 'Could not start linking. Try again.' };
+  }, { body: t.Object({ commit: t.String({ maxLength: 64 }), name: t.Optional(t.String({ maxLength: 200 })) }) })
+
+  .get('/link/:code', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeRead', user.id, set);
+    if (rl) return rl;
+    const session = await loadLinkSession(user.id, params.code, set);
+    if ('error' in session) return session;
+    const r = session.record;
+    let payload: unknown = null;
+    try {
+      payload = r.payload ? JSON.parse(r.payload) : null;
+    } catch {
+      payload = null;
+    }
+    return {
+      code: session.code,
+      status: linkStatus(r),
+      commit: r.commit ?? null,
+      // How the requesting device described itself (shown before approving; informational).
+      name: r.name ?? null,
+      oldPub: r.oldPub ?? null,
+      newPub: r.newPub ?? null,
+      payload,
+      expiresAt: Number(r.created || 0) + LINK_TTL_SECONDS * 1000,
+    };
+  }, { params: t.Object({ code: t.String({ maxLength: 32 }) }) })
+
+  .post('/link/:code/join', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeLink', user.id, set);
+    if (rl) return rl;
+    if (!isLinkPublicKey(body.pub)) {
+      set.status = 400;
+      return { error: 'Invalid key' };
+    }
+    const session = await loadLinkSession(user.id, params.code, set);
+    if ('error' in session) return session;
+    if (session.record.done) {
+      set.status = 409;
+      return { error: 'This request is finished. Start again.' };
+    }
+    // The joining device must have seen the commitment first (it echoes it).
+    if (session.record.commit !== body.commit) {
+      set.status = 409;
+      return { error: 'This link request changed. Start again.' };
+    }
+    if (!(await setLinkStep(session.code, 'oldPub', body.pub))) {
+      set.status = 409;
+      return { error: 'Another device already answered this request. Start again.' };
+    }
+    pingLink(user.id, session.code, 'joined');
+    return { success: true };
+  }, { params: t.Object({ code: t.String({ maxLength: 32 }) }), body: t.Object({ pub: t.String({ maxLength: 120 }), commit: t.String({ maxLength: 64 }) }) })
+
+  .post('/link/:code/reveal', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeLink', user.id, set);
+    if (rl) return rl;
+    if (!isLinkPublicKey(body.pub)) {
+      set.status = 400;
+      return { error: 'Invalid key' };
+    }
+    const session = await loadLinkSession(user.id, params.code, set);
+    if ('error' in session) return session;
+    if (session.record.done) {
+      set.status = 409;
+      return { error: 'This request is finished. Start again.' };
+    }
+    if (!session.record.oldPub) {
+      set.status = 409;
+      return { error: 'Waiting for your other device' };
+    }
+    // Sanity only (clients check this themselves): the key opens the commitment.
+    if ((await linkCommitment(body.pub).catch(() => null)) !== session.record.commit) {
+      set.status = 400;
+      return { error: 'The key does not match this request' };
+    }
+    if (!(await setLinkStep(session.code, 'newPub', body.pub))) {
+      set.status = 409;
+      return { error: 'This request was already answered. Start again.' };
+    }
+    pingLink(user.id, session.code, 'revealed');
+    return { success: true };
+  }, { params: t.Object({ code: t.String({ maxLength: 32 }) }), body: t.Object({ pub: t.String({ maxLength: 120 }) }) })
+
+  .post('/link/:code/payload', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeLink', user.id, set);
+    if (rl) return rl;
+    let payload;
+    try {
+      payload = validateLinkPayload(body);
+    } catch {
+      set.status = 400;
+      return { error: 'Invalid payload' };
+    }
+    const session = await loadLinkSession(user.id, params.code, set);
+    if ('error' in session) return session;
+    if (session.record.done) {
+      set.status = 409;
+      return { error: 'This request is finished. Start again.' };
+    }
+    if (!session.record.newPub) {
+      set.status = 409;
+      return { error: 'Waiting for your new device' };
+    }
+    if (!(await setLinkStep(session.code, 'payload', JSON.stringify(payload)))) {
+      set.status = 409;
+      return { error: 'This request was already answered. Start again.' };
+    }
+    pingLink(user.id, session.code, 'sent');
+    return { success: true };
+  }, { params: t.Object({ code: t.String({ maxLength: 32 }) }), body: t.Object({ iv: t.String({ maxLength: 32 }), ct: t.String({ maxLength: 4096 }) }) })
+
+  .post('/link/:code/done', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeLink', user.id, set);
+    if (rl) return rl;
+    const session = await loadLinkSession(user.id, params.code, set);
+    if ('error' in session) return session;
+    if (!session.record.payload) {
+      set.status = 409;
+      return { error: 'Nothing was sent yet' };
+    }
+    // Keep the (expiring) session so the other device sees it finished; the sealed keys go now.
+    await getRedis()?.multi().hset(linkKey(session.code), 'done', '1').hdel(linkKey(session.code), 'payload').exec().catch(() => null);
+    pingLink(user.id, session.code, 'done');
+    return { success: true };
+  }, { params: t.Object({ code: t.String({ maxLength: 32 }) }) })
+
+  .delete('/link/:code', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeLink', user.id, set);
+    if (rl) return rl;
+    const session = await loadLinkSession(user.id, params.code, set);
+    if ('error' in session) return { success: true };
+    await getRedis()?.del(linkKey(session.code)).catch(() => 0);
+    pingLink(user.id, session.code, 'closed');
+    return { success: true };
+  }, { params: t.Object({ code: t.String({ maxLength: 32 }) }) })
 
   // Ciphertext relay: only `e2ee-*.bin` attachment blobs on our own CDN, so it
   // can't be used as a general proxy. Reveals nothing (the bytes are opaque).

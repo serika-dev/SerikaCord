@@ -129,6 +129,8 @@ export const rateLimiters_config = {
   e2eeWrite: { points: 20, duration: 600 },
   e2eeEnable: { points: 10, duration: 600 },
   e2eeBlob: { points: 600, duration: 60 }, // encrypted attachment relay (viewing media)
+  // Device linking sessions (create / join / reveal / send / finish), per user
+  e2eeLink: { points: 60, duration: 600 },
 } as const;
 
 export async function checkRateLimit(

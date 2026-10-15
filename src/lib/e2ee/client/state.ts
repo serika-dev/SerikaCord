@@ -45,6 +45,17 @@ export interface E2eeSnapshot {
    * changing the passphrase needs the current one.
    */
   keysExtractable: boolean;
+  /**
+   * Bumped whenever a cached conversation key set turned out to have changed
+   * (a device added / removed, keys reset): open chats re-check what they
+   * show, banners refresh.
+   */
+  keysVersion: number;
+  /**
+   * This browser had encryption keys for the account before and they are
+   * gone (cleared site data, storage eviction): guide to linking / restoring.
+   */
+  keysLost: boolean;
 }
 
 const INITIAL: E2eeSnapshot = {
@@ -60,6 +71,8 @@ const INITIAL: E2eeSnapshot = {
   pinsVersion: 0,
   resetElsewhere: false,
   keysExtractable: false,
+  keysVersion: 0,
+  keysLost: false,
 };
 
 let snapshot: E2eeSnapshot = INITIAL;
@@ -97,14 +110,29 @@ export function loadE2eeSession() {
 }
 
 // UI requests (open the restore / passphrase dialogs from anywhere).
-export type E2eeDialogRequest = "onboard" | "restore" | "change-passphrase" | "reset";
-const dialogListeners = new Set<(req: E2eeDialogRequest) => void>();
+export type E2eeDialogRequest =
+  | "onboard"
+  | "restore"
+  | "change-passphrase"
+  | "reset"
+  /** This (new) device: show a code / QR for another device to approve. */
+  | "link-new"
+  /** This (existing) device: approve a new device by its code / QR. */
+  | "link-approve";
+/** sessionStorage key: a link code opened from a scanned QR (/e2ee/link), picked up by E2eeHost. */
+export const E2EE_LINK_INPUT_KEY = "serika-e2ee:link-input";
 
-export function openE2eeDialog(request: E2eeDialogRequest): void {
-  dialogListeners.forEach((l) => l(request));
+/** Extra input for a dialog (link-approve: a code / scanned link to start with). */
+export interface E2eeDialogOptions {
+  linkInput?: string;
+}
+const dialogListeners = new Set<(req: E2eeDialogRequest, options?: E2eeDialogOptions) => void>();
+
+export function openE2eeDialog(request: E2eeDialogRequest, options?: E2eeDialogOptions): void {
+  dialogListeners.forEach((l) => l(request, options));
 }
 
-export function onE2eeDialogRequest(listener: (req: E2eeDialogRequest) => void): () => void {
+export function onE2eeDialogRequest(listener: (req: E2eeDialogRequest, options?: E2eeDialogOptions) => void): () => void {
   dialogListeners.add(listener);
   return () => dialogListeners.delete(listener);
 }
