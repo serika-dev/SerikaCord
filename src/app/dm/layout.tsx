@@ -7,6 +7,7 @@ export const metadata = buildMetadata({
   description:
     "Open your SerikaCord direct messages. Chat privately with friends, manage conversations, and stay connected one-to-one or in group DMs.",
   path: "/dm",
+  noIndex: true,
   keywords: [
     "SerikaCord DMs",
     "direct messages",

@@ -1,6 +1,9 @@
 import type { MetadataRoute } from "next";
 
+import { COMPARE_LAST_CHECKED_ISO } from "@/lib/compare";
+
 const BASE_URL = "https://serika.chat";
+const COMPARE_LAST_CHECKED = new Date(`${COMPARE_LAST_CHECKED_ISO}T00:00:00Z`);
 
 interface SitemapRoute {
   path: string;
@@ -22,17 +25,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/login", priority: 0.7, changeFrequency: "monthly", lastModified: now },
     { path: "/register", priority: 0.7, changeFrequency: "monthly", lastModified: now },
 
+    // Comparison pages (facts last checked on the date below)
+    { path: "/compare", priority: 0.7, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
+    { path: "/compare/discord", priority: 0.8, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
+    { path: "/compare/stoat", priority: 0.8, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
+
+    // What's new
+    { path: "/changelog", priority: 0.6, changeFrequency: "weekly", lastModified: now },
+
     // Legal pages
     { path: "/terms", priority: 0.5, changeFrequency: "monthly", lastModified: now },
     { path: "/privacy", priority: 0.5, changeFrequency: "monthly", lastModified: now },
     { path: "/guidelines", priority: 0.5, changeFrequency: "monthly", lastModified: now },
 
-    // Developer portal
-    { path: "/developers", priority: 0.8, changeFrequency: "weekly", lastModified: now },
-    { path: "/developers/applications", priority: 0.7, changeFrequency: "weekly", lastModified: now },
-
-    // Developer docs — intro & getting started
-    { path: "/developers/docs", priority: 0.8, changeFrequency: "weekly", lastModified: now },
+    // Developer docs — intro & getting started (/developers and
+    // /developers/docs only redirect; the application pages are signed-in only)
     { path: "/developers/docs/intro", priority: 0.7, changeFrequency: "weekly", lastModified: now },
     { path: "/developers/docs/getting-started", priority: 0.7, changeFrequency: "weekly", lastModified: now },
     { path: "/developers/docs/quick-start", priority: 0.7, changeFrequency: "weekly", lastModified: now },

@@ -6,6 +6,7 @@ import { Logo } from "@/components/ui/Logo";
 import { PartnerSection } from "@/components/home/PartnerSection";
 import { HomeNavActions, HomeHeroActions } from "@/components/home/HomeNav";
 import { buildMetadata } from "@/lib/seo";
+import { JsonLd, homepageJsonLd } from "@/components/seo/JsonLd";
 import { 
   MessageSquare,
   Users, 
@@ -43,6 +44,7 @@ export default async function HomePage() {
     { label: gt("Features"), href: "#features" },
     { label: gt("Discover"), href: "#discover" },
     { label: gt("Safety"), href: "#safety" },
+    { label: gt("Compare"), href: "/compare" },
   ];
   const features = [
     {
@@ -83,6 +85,7 @@ export default async function HomePage() {
   ];
   return (
     <div className="min-h-screen bg-[#000000] text-white overflow-x-hidden">
+      <JsonLd data={homepageJsonLd} />
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-[#000]/70 backdrop-blur-2xl border-b border-white/[0.05]">
         <div className="max-w-7xl mx-auto px-6 lg:px-10">
@@ -265,7 +268,7 @@ export default async function HomePage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-10 mb-14">
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Product</T></h4>
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Product</T></h3>
               <ul className="space-y-3 text-sm text-[#666]">
                 <li><Link href="/download" className="hover:text-white transition-colors"><T>Download</T></Link></li>
                 <li><Link href="https://status.serika.dev" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>Status</T></Link></li>
@@ -273,23 +276,25 @@ export default async function HomePage() {
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Company</T></h4>
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Company</T></h3>
               <ul className="space-y-3 text-sm text-[#666]">
                 <li><Link href="https://serika.pro" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>About Serika</T></Link></li>
                 <li><Link href="https://accounts.serika.dev" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>Serika Accounts</T></Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Resources</T></h4>
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Resources</T></h3>
               <ul className="space-y-3 text-sm text-[#666]">
                 <li><a href="mailto:support@serika.dev" className="hover:text-white transition-colors"><T>Support</T></a></li>
                 <li><Link href="#safety" className="hover:text-white transition-colors"><T>Safety</T></Link></li>
                 <li><Link href="https://status.serika.dev" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>Service Status</T></Link></li>
                 <li><a href="https://github.com/serika-dev/SerikaCord" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>Source code (GitHub)</T></a></li>
+                <li><Link href="/compare/discord" className="hover:text-white transition-colors">{gt("SerikaCord vs Discord")}</Link></li>
+                <li><Link href="/compare/stoat" className="hover:text-white transition-colors">{gt("SerikaCord vs Stoat")}</Link></li>
               </ul>
             </div>
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Legal</T></h4>
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-[#555] mb-4"><T>Legal</T></h3>
               <ul className="space-y-3 text-sm text-[#666]">
                 <li><Link href="/terms" className="hover:text-white transition-colors"><T>Terms of Service</T></Link></li>
                 <li><Link href="/privacy" className="hover:text-white transition-colors"><T>Privacy Policy</T></Link></li>

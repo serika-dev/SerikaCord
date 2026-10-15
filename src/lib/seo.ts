@@ -3,7 +3,8 @@ import type { Metadata } from "next";
 const SITE_NAME = "SerikaCord";
 const SITE_URL = "https://serika.chat";
 const DEFAULT_DESCRIPTION = "SerikaCord is a free, modern community chat platform with voice, video, text, and server discovery. Create or join communities, chat with friends, and build your space online.";
-const DEFAULT_OG_IMAGE = "/opengraph-image.png";
+// Served by src/app/opengraph-image.tsx (there is no static /opengraph-image.png).
+const DEFAULT_OG_IMAGE = "/opengraph-image";
 
 export interface SEOPageOptions {
   title: string;

@@ -6,6 +6,7 @@ export const metadata = buildMetadata({
   description:
     "Manage your SerikaCord application. Configure bot settings, OAuth2, webhooks, emoji, app directory page, analytics, and team members.",
   path: "/developers/applications",
+  noIndex: true,
   keywords: [
     "SerikaCord application",
     "bot settings",

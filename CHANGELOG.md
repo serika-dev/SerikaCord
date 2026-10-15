@@ -7,14 +7,17 @@
 ## Unreleased
 
 ### Features
+- **Honest comparison pages** — serika.chat/compare, with SerikaCord vs Discord and SerikaCord vs Stoat (formerly Revolt): feature tables, where each app is better, our own weak spots, an FAQ and dated sources.
 
 ### Changes
+- Better search-engine and link previews: proper titles, descriptions and share images per page, a cleaner sitemap and robots rules, and app-only pages are no longer indexed.
 
 ### Bug Fixes
 
 ### Performance
 
 ### Security
+- Link previews of a server page no longer show the name and icon of servers that aren't listed in Discovery.
 
 ### Removed
 

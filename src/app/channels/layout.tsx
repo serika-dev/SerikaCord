@@ -7,6 +7,9 @@ export const metadata = buildMetadata({
   description:
     "Open the SerikaCord app. Chat with friends, join servers, explore communities, manage settings, and stay connected in real time.",
   path: "/channels/me",
+  // The signed-in app shell is never indexed. Children that are public
+  // (Discover, Discovery-listed servers) set their own robots.
+  noIndex: true,
   keywords: [
     "SerikaCord app",
     "chat app",

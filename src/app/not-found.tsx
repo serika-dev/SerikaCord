@@ -7,6 +7,7 @@ export const metadata = buildMetadata({
   description:
     "The page you were looking for could not be found. Return to SerikaCord home or explore communities and conversations.",
   path: "/404",
+  noIndex: true,
   keywords: ["404", "not found", "SerikaCord"],
 });
 

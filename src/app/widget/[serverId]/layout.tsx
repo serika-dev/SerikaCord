@@ -5,6 +5,7 @@ export const metadata = buildMetadata({
   description:
     "View a SerikaCord server widget with live member count, online users, channels, and recent messages. Discover communities before joining.",
   path: "/widget",
+  noIndex: true,
   keywords: [
     "SerikaCord widget",
     "server widget",
