@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.11.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.12.
 
 ---
 
@@ -11,14 +11,22 @@
 ### Changes
 
 ### Bug Fixes
-- **PIN entry is smooth again** — typing a digit now moves straight to the next box (it kept jumping back), and backspace, paste and keyboard autofill all work.
-- Clearer encryption recovery screens: "Reset encryption" is now "Start over with new keys" and says plainly that nothing is recovered, and the unlock screen explains when your account has no PIN yet and where to create one.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.12 — 2026-10-15
+
+**Tag:** `v2.1.12` · **Commit:** `f7cd5cd`
+
+### Bug Fixes
+- **PIN entry is smooth again** — typing a digit now moves straight to the next box (it kept jumping back), and backspace, paste and keyboard autofill all work.
+- Clearer encryption recovery screens: "Reset encryption" is now "Start over with new keys" and says plainly that nothing is recovered, and the unlock screen explains when your account has no PIN yet and where to create one.
 
 ---
 
