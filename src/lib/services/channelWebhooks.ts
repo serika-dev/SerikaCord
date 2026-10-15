@@ -53,8 +53,11 @@ export function serializeWebhook(w: WebhookRow, opts: { withToken: boolean; user
 }
 
 /** The webhook with this id whose token matches (constant-time), or null. */
+const TOKEN_SHAPE = /^[A-Za-z0-9._~-]{1,256}$/;
+
 export async function findWebhookByToken(id: string, token: string): Promise<WebhookRow | null> {
-  if (!token || token.length > 256 || !isValidObjectId(id)) return null;
+  // ASCII only: secureCompare compares bytes, and odd input must never throw.
+  if (!token || !TOKEN_SHAPE.test(token) || !isValidObjectId(id)) return null;
   const w = await ChannelWebhook.findById(id).catch(() => null);
   if (!w || !w.token || !secureCompare(w.token, token)) return null;
   return w;
@@ -67,7 +70,7 @@ export async function findWebhookByToken(id: string, token: string): Promise<Web
 export async function findLegacyWebhook(first: string, token: string): Promise<WebhookRow | null> {
   const byId = await findWebhookByToken(first, token);
   if (byId) return byId;
-  if (!token || token.length > 256 || !isValidObjectId(first)) return null;
+  if (!token || !TOKEN_SHAPE.test(token) || !isValidObjectId(first)) return null;
   const w = await ChannelWebhook.findOne({ channelId: first, token }).catch(() => null);
   if (!w || !w.token || !secureCompare(w.token, token)) return null;
   return w;
