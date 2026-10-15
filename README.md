@@ -231,14 +231,15 @@ Please also read the [Security Policy](SECURITY.md) before reporting vulnerabili
 
 ## License
 
-This project is licensed under the **SerikaCord Source Available License** — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **SerikaCord Source Available License 2.0** — see the [LICENSE](LICENSE) file for details. It is source available, not open source.
 
 **Key points:**
-- View and study source code for personal education
-- Fork for personal learning and experimentation
-- Commercial use prohibited without written permission
-- Creating competing products prohibited
-- Redistribution prohibited
+- View, study and fork the source code
+- **Self-host it for personal, non-commercial use**: run your own instance, with or without changes, for yourself and the people you invite (family, friends, a hobby community). It must stay free for them and must not be open to public sign-up; donations towards running costs are fine
+- Share your changes as source code under the same license (for example a public fork)
+- Commercial use (businesses, charging users, ads, paid hosting) needs a license: contact **partners@serika.dev**
+- No competing public services, no redistribution of builds, and no using the SerikaCord name or logo for your instance (saying "powered by SerikaCord" is fine)
+- You're responsible for your own instance, including its security, its users' data and the laws that apply to you
 
 ## Security
 

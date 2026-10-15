@@ -1,4 +1,4 @@
-SerikaCord Source Available License
+SerikaCord Source Available License, version 2.0
 
 Copyright (c) 2026 Serika.dev - All Rights Reserved
 
@@ -13,26 +13,52 @@ configuration files, and related materials in this repository.
 
 "Derivative Work" means any work that is based on or derived from the Software.
 
-"Commercial Use" means any use of the Software intended for or directed toward
-commercial advantage or monetary compensation.
+"Commercial Use" means any use of the Software, or of a Derivative Work, that is
+intended for or directed toward commercial advantage or monetary compensation,
+including but not limited to:
+  - use by or on behalf of a business, company or other for-profit organisation;
+  - charging anyone for access to, accounts on, or features of an Instance;
+  - showing advertising, selling sponsorships or monetising users or their data
+    on or through an Instance;
+  - offering hosting, installation, management or support of the Software as a
+    paid service.
+Voluntary donations to cover the running costs of a Personal Instance, which do
+not unlock any features or access, are not Commercial Use.
+
+"Instance" means a running deployment of the Software or of a Derivative Work.
+
+"Personal Instance" means an Instance that You run for non-commercial purposes,
+for Yourself and for people You invite, such as family, friends, a hobby group,
+club or other non-commercial community, and that is not open to public sign-up
+by anyone on the internet.
 
 "Competing Product" means any software, service, or application that provides
 similar functionality to the Software, including but not limited to chat
-applications, communication platforms, and social networking services.
+applications, communication platforms, and social networking services, that is
+offered to the general public or used for Commercial Use. A Personal Instance is
+not a Competing Product.
 
 2. GRANT OF LIMITED RIGHTS
 
 Subject to the terms and conditions of this License, the copyright holders grant
 You a limited, non-exclusive, non-transferable, revocable license to:
 
-a) View and study the source code for personal educational purposes.
+a) View and study the source code.
 
-b) Fork the repository for personal learning and experimentation only.
+b) Fork the repository for personal learning and experimentation.
 
 c) Submit contributions (pull requests, bug reports, documentation improvements)
    to the official repository.
 
 d) Reference the code for educational purposes with proper attribution.
+
+e) Install, run and self-host the Software, with or without Your own
+   modifications, as a Personal Instance, and let the people You invite use it
+   free of charge.
+
+f) Share Your modifications for Personal Instances publicly, in source form only,
+   under this same License and with this License and all copyright notices
+   included, for example as a public fork of the official repository.
 
 3. RESTRICTIONS
 
@@ -41,26 +67,35 @@ You may NOT, without explicit prior written permission from the copyright holder
 a) Use the Software or any portion thereof to create, develop, or operate a
    Competing Product.
 
-b) Use the Software for any Commercial Use.
+b) Use the Software, a Derivative Work, or an Instance for any Commercial Use.
+   For commercial licensing, hosting for a business, or any other commercial
+   arrangement, contact partners@serika.dev.
 
 c) Redistribute, sublicense, sell, lease, or otherwise transfer the Software or
-   any rights therein.
+   any rights therein, except for sharing source code as allowed by
+   Section 2(f).
 
 d) Remove, alter, or obscure any copyright notices, license terms, or attribution
    notices in the Software.
 
 e) Claim ownership of the Software or represent that You created the Software.
 
-f) Use the Software to provide services to third parties.
+f) Use the Software to provide services to third parties, except running a
+   Personal Instance for the people You invite as allowed by Section 2(e).
 
-g) Deploy or host the Software in any production environment without explicit
-   written permission.
+g) Run an Instance that is open to public sign-up by anyone on the internet.
 
 h) Incorporate any portion of the Software into other projects, whether
    open-source or proprietary.
 
 i) Use the names, trademarks, logos, or branding of Serika.dev, SerikaCord, or
-   any associated entities without explicit written permission.
+   any associated entities without explicit written permission, or present an
+   Instance as official, endorsed by, or operated by Serika.dev. Saying that a
+   Personal Instance is "powered by SerikaCord" is allowed.
+
+j) Connect a Personal Instance to Serika.dev's own services (such as Serika
+   Accounts, serika.chat or its CDN) except through their public interfaces and
+   in line with their terms.
 
 4. CONTRIBUTIONS
 
@@ -75,34 +110,41 @@ b) Represent that You have the legal right to grant such license.
 c) Understand that Your contribution may be incorporated into the Software at
    the sole discretion of the copyright holders.
 
-5. NO WARRANTY
+5. RESPONSIBILITY FOR YOUR INSTANCE
+
+If You run an Instance, You alone are responsible for it, including its security,
+the data of the people who use it, and compliance with the laws that apply to
+You, such as data protection, content moderation and child-safety laws. The
+copyright holders do not operate, monitor or support Your Instance.
+
+6. NO WARRANTY
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
 INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
 PARTICULAR PURPOSE, AND NONINFRINGEMENT.
 
-6. LIMITATION OF LIABILITY
+7. LIMITATION OF LIABILITY
 
 IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT
-OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE,
+INCLUDING ANY INSTANCE YOU RUN.
 
-7. TERMINATION
+8. TERMINATION
 
 This License automatically terminates if You violate any of its terms. Upon
-termination, You must immediately cease all use of the Software and destroy all
-copies in Your possession or control.
+termination, You must immediately cease all use of the Software, shut down any
+Instance You run, and destroy all copies in Your possession or control.
 
-8. GOVERNING LAW
+9. GOVERNING LAW
 
 This License shall be governed by and construed in accordance with the laws of
-the jurisdiction where the primary copyright holder resides, without regard to
-conflict of law principles.
+the Netherlands, without regard to conflict of law principles.
 
-9. CONTACT
+10. CONTACT
 
-For permissions beyond this License, commercial licensing inquiries, or other
-questions, please contact: legal@serika.dev
+Commercial use, commercial licensing and partnerships: partners@serika.dev
+Other permissions beyond this License, or questions about it: legal@serika.dev
 
 ---
 
@@ -110,4 +152,4 @@ By accessing, viewing, downloading, or using the Software in any way, You
 acknowledge that You have read, understood, and agree to be bound by the terms
 and conditions of this License.
 
-Last Updated: January 2026
+Last Updated: October 2026
