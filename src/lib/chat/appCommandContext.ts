@@ -35,6 +35,8 @@ export function flattenAppCommands(groups: AppCommandGroup[]): AppLeafCommand[] 
   const leaves: AppLeafCommand[] = [];
   for (const group of groups) {
     for (const cmd of group.commands) {
+      // User / message context menu commands (types 2 and 3) aren't slash commands.
+      if ((cmd.type ?? 1) !== 1) continue;
       const opts = cmd.options ?? [];
       const subs = opts.filter(
         (o) => o.type === OPT.SUB_COMMAND || o.type === OPT.SUB_COMMAND_GROUP,

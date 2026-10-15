@@ -4,7 +4,8 @@ import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 import { ChannelWebhook, type IApplication } from '@/lib/models';
 import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
-import { AppCommand, type IAppCommand } from '@/lib/models/AppCommand';
+import { FormErrors } from '@/lib/botapi/formErrors';
+import { IS_COMPONENTS_V2, isComponentsV2, parseStoredComponents, resolveAttachmentRefs, validateMessageComponents } from '@/lib/botapi/components';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
 import { normalizeId } from '@/lib/db/normalizeId';
@@ -245,9 +246,23 @@ async function requireBotPerm(serverId: string | null | undefined, botId: string
   return g;
 }
 
-/** Bots may only manage their own application's commands. */
-function ownsApp(auth: { app: { id: string } }, appId: string): boolean {
-  return !!appId && compareIds(appId, auth.app.id);
+/**
+ * Bots may only manage their own application's commands. The application id
+ * is the app's id everywhere (READY, interactions, these routes); its client
+ * id is accepted as an alias.
+ */
+function ownsApp(auth: { app: { id: string; clientId?: string | null } }, appId: string): boolean {
+  if (!appId) return false;
+  return compareIds(appId, auth.app.id) || (!!auth.app.clientId && appId === auth.app.clientId);
+}
+
+const UNKNOWN_COMMAND = { code: 10063, message: 'Unknown application command' };
+
+/** Send a service result ({ status, body }) through Elysia's `set`. */
+function respond(set: { status?: number | string; headers: Record<string, string | number> }, r: { status: number; body: unknown; headers?: Record<string, string> }) {
+  set.status = r.status;
+  if (r.headers) Object.assign(set.headers, r.headers);
+  return r.status === 204 ? '' : r.body;
 }
 
 // ─── Discord-compatible response formatters ────────────────
@@ -338,6 +353,7 @@ function formatMessage(msg: any, viewerId?: string) {
     pinned: msg.pinned ?? false,
     type: msg.type === 'poll_result' ? 46 : 0,
     flags: typeof msg.flags === "number" ? msg.flags : 0,
+    components: parseStoredComponents(msg.components) ?? [],
     referenced_message: null,
     ...(msg.type !== 'poll_result' && parseStoredPoll(msg.poll) ? { poll: toDiscordPoll(parseStoredPoll(msg.poll)!) } : {}),
   };
@@ -767,8 +783,19 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const parsedBody = parseBotMessageBody(body);
   if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
   const { content, embeds, tts, attachments: rawAttachments, allowed_mentions, sticker_ids, components, flags, poll: pollRequest } = parsedBody.payload as { content?: string; embeds?: unknown[]; tts?: boolean; attachments?: unknown; allowed_mentions?: unknown; sticker_ids?: unknown[]; components?: unknown[]; flags?: number; poll?: unknown };
-  void tts; void allowed_mentions; void components;
+  void tts; void allowed_mentions;
   if (content !== undefined && content !== null && typeof content !== 'string') { set.status = 400; return { code: 50035, message: 'Invalid Form Body: content must be a string' }; }
+  // Message components: v1 action rows, or v2 layouts with IS_COMPONENTS_V2
+  // (then no content / embeds / poll). See src/lib/botapi/components.ts.
+  const componentErrors = new FormErrors();
+  const validatedComponents = validateMessageComponents(components, { flags, errors: componentErrors });
+  if (isComponentsV2(flags)) {
+    if (content) componentErrors.add(['content'], 'COMPONENT_INVALID', 'The content field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+    if (embeds?.length) componentErrors.add(['embeds'], 'COMPONENT_INVALID', 'The embeds field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+    if (pollRequest !== undefined && pollRequest !== null) componentErrors.add(['poll'], 'COMPONENT_INVALID', 'The poll field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+  }
+  if (!componentErrors.ok) { set.status = 400; return componentErrors.toBody(); }
+  let messageComponents = validatedComponents?.components ?? null;
   let attachments: IncomingAttachment[] = [];
   let attachmentPlan: Map<number, AttachmentMeta> = new Map();
   if (parsedBody.files.length > 0) {
@@ -794,7 +821,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if ('error' in parsed) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${parsed.error}` }; }
     poll = parsed.poll;
   }
-  if (!content && !embeds?.length && !attachmentCount && !sticker_ids?.length && !poll) {
+  if (!content && !embeds?.length && !attachmentCount && !sticker_ids?.length && !poll && !messageComponents?.length) {
     set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
   }
   if (parsedBody.files.length > 0) {
@@ -809,6 +836,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if (!uploaded.ok) { set.status = uploaded.status; return uploaded.body; }
     attachments = uploaded.attachments;
   }
+  if (messageComponents) {
+    // attachment://name media in thumbnails / galleries / file components.
+    const resolvedRefs = resolveAttachmentRefs(messageComponents, attachments.map((a) => ({ id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height })));
+    if (!resolvedRefs.ok) { set.status = 400; return { code: 50035, message: `Invalid Form Body (components: unknown attachment://${resolvedRefs.missing})` }; }
+    messageComponents = resolvedRefs.components;
+  }
 
   const { extractUserMentionIds, signalChannelMessage, signalDmMessage } = await import('@/lib/services/messageSignals');
   const isDm = channel.type === 'dm' || channel.type === 'group_dm';
@@ -822,7 +855,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     attachments,
   });
   if ('error' in voice) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${voice.error}` }; }
-  const msgFlags = sendFlags(flags, false) | voice.flag;
+  const msgFlags = sendFlags(flags, false) | voice.flag | (isComponentsV2(flags) ? IS_COMPONENTS_V2 : 0);
   const silent = isSilentMessage(msgFlags);
   const msg = await Message.create({
     channelId: params.channelId,
@@ -838,6 +871,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     mentionedUserIds,
     ...(poll ? { poll } : {}),
     flags: msgFlags,
+    ...(messageComponents?.length ? { components: messageComponents } : {}),
     ...((msgFlags & MESSAGE_FLAGS.SUPPRESS_EMBEDS) !== 0 ? { suppressEmbeds: true } : {}),
   });
   void Channel.updateById(params.channelId, { lastMessageId: msg.id, updatedAt: new Date() }).catch(() => {});
@@ -884,6 +918,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         type: 'default',
         ...(poll ? { poll: buildPollView(poll, {}, 0, []) } : {}),
         flags: msgFlags,
+        ...(messageComponents?.length ? { components: messageComponents } : {}),
       },
     });
   } catch {}
@@ -933,6 +968,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       attachments: (msg.attachments ?? []) as Array<Record<string, unknown>>,
       mentionedUserIds,
       ...(poll ? { poll } : {}),
+      embeds: msg.embeds as unknown[] ?? [],
+      components: messageComponents ?? [],
+      flags: msgFlags,
     }))
     .catch(() => {});
 
@@ -952,11 +990,20 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   const parsedBody = parseBotMessageBody(body);
   if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
-  const { content, embeds, attachments: rawAttachments } = parsedBody.payload as { content?: string; embeds?: unknown[]; attachments?: unknown };
+  const { content, embeds, attachments: rawAttachments, components: rawComponents, flags: rawFlags } = parsedBody.payload as { content?: string; embeds?: unknown[]; attachments?: unknown; components?: unknown; flags?: number };
   if (content !== undefined && content !== null && typeof content !== 'string') { set.status = 400; return { code: 50035, message: 'Invalid Form Body: content must be a string' }; }
   const updates: Record<string, unknown> = { edited: true };
   if (content !== undefined) updates.content = content;
   if (embeds !== undefined) updates.embeds = embeds;
+  // Components on edit (null / [] clears them). IS_COMPONENTS_V2 can be turned on, never off.
+  const editFlags = (msg.flags ?? 0) | (isComponentsV2(rawFlags) ? IS_COMPONENTS_V2 : 0);
+  if (rawComponents !== undefined) {
+    const componentErrors = new FormErrors();
+    const v = validateMessageComponents(rawComponents, { flags: editFlags, errors: componentErrors });
+    if (!componentErrors.ok) { set.status = 400; return componentErrors.toBody(); }
+    updates.components = v?.components.length ? v.components : null;
+  }
+  if (editFlags !== (msg.flags ?? 0)) updates.flags = editFlags;
   // Attachments on edit (Discord): `attachments` lists the ones to keep (by id)
   // plus metadata for new files[n]; new files are appended.
   if (parsedBody.files.length > 0 || rawAttachments !== undefined) {
@@ -1188,65 +1235,137 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 
 // ─── Application Commands ──────────────────────────────────
+// Global (guildId null) and guild commands share the handlers in
+// src/lib/services/appCommands.ts: POST upserts by name + type (201 / 200),
+// PUT diffs instead of delete + recreate so ids stay stable, validation errors
+// are 50035 trees. `:appId` is the application id (its client id also works).
 .get('/applications/:appId/commands', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  const cmds = await AppCommand.find({ applicationId: params.appId, guildId: null });
-  return cmds.map((c: IAppCommand) => ({
-    id: c.id,
-    application_id: params.appId,
-    name: c.name,
-    description: c.description,
-    options: c.options ?? [],
-    default_permission: c.defaultPermission,
-    type: c.type,
-    version: c.version,
-  }));
+  const { listCommands, serializeCommand } = await import('@/lib/services/appCommands');
+  return (await listCommands(auth.app.id, null)).map((c) => serializeCommand(c, auth.app.id));
 })
 .put('/applications/:appId/commands', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  // Bulk overwrite global commands.
-  const commands = (body as Array<{ name?: string; description?: string; options?: unknown[]; default_permission?: boolean; type?: number }>) ?? [];
-  const existing = await AppCommand.find({ applicationId: params.appId, guildId: null });
-  for (const cmd of existing) {
-    await AppCommand.deleteById(cmd.id);
-  }
-  const created: IAppCommand[] = [];
-  for (const c of commands) {
-    const row = await AppCommand.create({
-      applicationId: params.appId,
-      guildId: null,
-      name: c.name ?? '',
-      description: c.description ?? '',
-      options: c.options ?? [],
-      defaultPermission: c.default_permission ?? true,
-      type: c.type ?? 1,
-    });
-    created.push(row);
-  }
-  return created.map((c: IAppCommand) => ({
-    id: c.id,
-    application_id: params.appId,
-    name: c.name,
-    description: c.description,
-    options: c.options,
-    default_permission: c.defaultPermission,
-    type: c.type,
-    version: c.version,
-  }));
+  const { bulkOverwriteCommands } = await import('@/lib/services/appCommands');
+  return respond(set, await bulkOverwriteCommands(auth.app.id, null, body));
 })
-.post('/interactions/:interactionId/:interactionToken/callback', async ({ params, body, set }) => {
+.post('/applications/:appId/commands', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { upsertCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await upsertCommand(auth.app.id, null, body));
+})
+.get('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { getCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await getCommand(auth.app.id, null, params.commandId));
+})
+.patch('/applications/:appId/commands/:commandId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { patchCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await patchCommand(auth.app.id, null, params.commandId, body));
+})
+.delete('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { deleteCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await deleteCommand(auth.app.id, null, params.commandId));
+})
+.get('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { listCommands, serializeCommand } = await import('@/lib/services/appCommands');
+  return (await listCommands(auth.app.id, params.guildId)).map((c) => serializeCommand(c, auth.app.id));
+})
+.put('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { bulkOverwriteCommands } = await import('@/lib/services/appCommands');
+  return respond(set, await bulkOverwriteCommands(auth.app.id, params.guildId, body));
+})
+.post('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { upsertCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await upsertCommand(auth.app.id, params.guildId, body));
+})
+// Permissions v2. Discord only lets a Bearer token with
+// applications.commands.permissions.update write these; SerikaCord also lets
+// the app's own bot write them (there is no OAuth flow for that scope yet).
+.get('/applications/:appId/guilds/:guildId/commands/permissions', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { listGuildCommandPermissions } = await import('@/lib/services/appCommands');
+  return listGuildCommandPermissions(auth.app.id, params.guildId);
+})
+.get('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { getCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await getCommand(auth.app.id, params.guildId, params.commandId));
+})
+.patch('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { patchCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await patchCommand(auth.app.id, params.guildId, params.commandId, body));
+})
+.delete('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { deleteCommand } = await import('@/lib/services/appCommands');
+  return respond(set, await deleteCommand(auth.app.id, params.guildId, params.commandId));
+})
+.get('/applications/:appId/guilds/:guildId/commands/:commandId/permissions', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const commandId = ownsApp(auth, params.commandId) ? auth.app.id : params.commandId;
+  if (!isValidObjectId(commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { getCommandPermissions } = await import('@/lib/services/appCommands');
+  return respond(set, await getCommandPermissions(auth.app.id, params.guildId, commandId));
+})
+.put('/applications/:appId/guilds/:guildId/commands/:commandId/permissions', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const commandId = ownsApp(auth, params.commandId) ? auth.app.id : params.commandId;
+  if (!isValidObjectId(commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
+  const { putCommandPermissions } = await import('@/lib/services/appCommands');
+  return respond(set, await putCommandPermissions({ id: auth.app.id, botId: auth.app.botId ?? null }, params.guildId, commandId, body));
+})
+
+// ─── Interactions ──────────────────────────────────────────
+// No bot token: the interaction token is the credential (Discord). Responses
+// go through src/lib/services/interactions.ts (3 s deadline, single ack, types
+// 1 4 5 6 7 8 9; with_response=true returns an InteractionCallbackResponse).
+.post('/interactions/:interactionId/:interactionToken/callback', async ({ params, body, query, set }) => {
   const { handleInteractionCallback } = await import('@/lib/services/interactions');
-  const result = await handleInteractionCallback(params.interactionToken, body as { type?: number; data?: { content?: string; embeds?: unknown[]; flags?: number } });
-  if (!result.ok) {
-    set.status = 404;
-    return { code: 10062, message: 'Interaction token not found or expired' };
-  }
-  set.status = 204;
-  return '';
+  const withResponse = (query as Record<string, string | undefined>).with_response === 'true';
+  return respond(set, await handleInteractionCallback(params.interactionId, params.interactionToken, body, { withResponse }));
 })
 
 // ─── Invite ────────────────────────────────────────────────
@@ -1736,17 +1855,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
   const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_WEBHOOKS);
   if (!g.ok) { set.status = g.status; return g.body; }
+  const { serializeWebhook } = await import('@/lib/services/channelWebhooks');
   const webhooks = await ChannelWebhook.find({ serverId: params.guildId });
-  return webhooks.map((w: any) => ({
-    id: w.id,
-    type: 1,
-    guild_id: params.guildId,
-    channel_id: w.channelId,
-    name: w.name,
-    avatar: w.avatar,
-    token: w.token,
-    creator_id: w.creatorId,
-  }));
+  return webhooks.map((w) => serializeWebhook(w, { withToken: true }));
 })
 .get('/channels/:channelId/webhooks', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -1757,17 +1868,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!c.ok) { set.status = c.status; return c.body; }
   const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
+  const { serializeWebhook } = await import('@/lib/services/channelWebhooks');
   const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
-  return webhooks.map((w: any) => ({
-    id: w.id,
-    type: 1,
-    guild_id: w.serverId ?? null,
-    channel_id: params.channelId,
-    name: w.name,
-    avatar: w.avatar,
-    token: w.token,
-    creator_id: w.creatorId,
-  }));
+  return webhooks.map((w) => serializeWebhook(w, { withToken: true }));
 })
 .post('/channels/:channelId/webhooks', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
@@ -1779,29 +1882,26 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
 
-  const { name, avatar } = body as { name?: string; avatar?: string };
-  if (!name) { set.status = 400; return { code: 50035, message: 'Name is required' }; }
+  const { name, avatar } = (body ?? {}) as { name?: unknown; avatar?: unknown };
+  const { cleanWebhookUsername, cleanWebhookAvatarUrl } = await import('@/lib/chat/webhook');
+  const cleanName = cleanWebhookUsername(name);
+  if (!cleanName) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'BASE_TYPE_BAD_LENGTH', message: 'Must be between 1 and 80 in length.' }] } } }; }
+  if (/clyde|discord/i.test(cleanName)) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'USERNAME_INVALID_CONTAINS', message: 'Username cannot contain "clyde" or "discord"' }] } } }; }
 
-  const token = crypto.randomBytes(24).toString('hex');
-  const webhook = await ChannelWebhook.create({
+  const token = crypto.randomBytes(34).toString('base64url');
+  const { serializeWebhook, webhookUrl } = await import('@/lib/services/channelWebhooks');
+  const created = await ChannelWebhook.create({
     channelId: params.channelId,
     serverId: channel.serverId ?? undefined,
-    name,
-    avatar: avatar ?? null,
+    name: cleanName,
+    avatar: typeof avatar === 'string' ? cleanWebhookAvatarUrl(avatar) : null,
     token,
-    url: `${config.API_BASE_URL}/api/webhooks/${params.channelId}/${token}`,
+    url: 'pending',
     creatorId: auth.botUser.id,
+    applicationId: auth.app.id,
   });
-  return {
-    id: webhook.id,
-    type: 1,
-    guild_id: channel.serverId ?? null,
-    channel_id: params.channelId,
-    name: webhook.name,
-    avatar: webhook.avatar,
-    token: webhook.token,
-    creator_id: auth.botUser.id,
-  };
+  const webhook = (await ChannelWebhook.updateById(created.id, { url: webhookUrl(created) })) ?? created;
+  return serializeWebhook(webhook, { withToken: true, user: formatUser(auth.botUser) });
 })
 .get('/webhooks/:webhookId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -1821,16 +1921,28 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   } else if (!isCreator) {
     set.status = 404; return { code: 10015, message: 'Unknown Webhook' };
   }
-  return {
-    id: webhook.id,
-    type: 1,
-    guild_id: webhook.serverId ?? null,
-    channel_id: webhook.channelId,
-    name: webhook.name,
-    avatar: webhook.avatar,
-    token: isCreator || canManage ? webhook.token : undefined,
-    creator_id: webhook.creatorId,
-  };
+  const creator = webhook.creatorId ? await User.findById(webhook.creatorId) : null;
+  const { serializeWebhook } = await import('@/lib/services/channelWebhooks');
+  return serializeWebhook(webhook, { withToken: isCreator || canManage, user: creator ? formatUser(creator) : undefined });
+})
+.patch('/webhooks/:webhookId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+
+  if (!isValidObjectId(params.webhookId)) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  const webhook = await ChannelWebhook.findById(params.webhookId);
+  if (!webhook || !webhook.serverId) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  // MANAGE_WEBHOOKS in the webhook's channel; moving it also needs it in the target channel (same guild).
+  const c = await requireChannelAction(webhook.channelId, auth.botUser.id, 'manage_webhooks');
+  if (!c.ok) { set.status = c.status === 403 ? 403 : 404; return c.status === 403 ? c.body : { code: 10015, message: 'Unknown Webhook' }; }
+  const { patchWebhook } = await import('@/lib/services/channelWebhooks');
+  const result = await patchWebhook(webhook, body, {
+    allowChannel: async (channelId) => {
+      const target = await requireChannelAction(channelId, auth.botUser.id, 'manage_webhooks');
+      return target.ok && compareIds(target.channel.serverId ?? '', webhook.serverId ?? '') && target.channel.type !== 'category';
+    },
+  });
+  return respond(set, result);
 })
 .delete('/webhooks/:webhookId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -1849,17 +1961,71 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   set.status = 204;
   return '';
 })
-// Interaction followup: Discord-style POST /webhooks/:appId/:interactionToken
-// Used by bots that deferred their response (type 5) to send a followup message.
-.post('/webhooks/:applicationId/:interactionToken', async ({ params, body, set }) => {
-  const { handleInteractionCallback } = await import('@/lib/services/interactions');
-  const result = await handleInteractionCallback(params.interactionToken, { data: body as { content?: string; embeds?: unknown[]; flags?: number } });
-  if (!result.ok) {
-    set.status = 404;
-    return { code: 10062, message: 'Interaction token not found or expired' };
+
+// ─── Webhook router (token routes, no bot auth) ────────────
+// /webhooks/{id}/{token} is either a channel webhook (id = webhook id, token
+// compared in constant time) or an interaction (id = application id, token =
+// interaction token: followups and @original). Interaction tokens are tried
+// first; they're random 64-byte values looked up by hash.
+.post('/webhooks/:webhookId/:webhookToken', async ({ params, body, query, request, set }) => {
+  const { resolveInteractionWebhook, createFollowup } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (ix) return respond(set, await createFollowup(ix, body));
+  const { findWebhookByToken, executeWebhook } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await executeWebhook(webhook, body, query as Record<string, string | undefined>, { ip: getClientIP(request) }));
+})
+.get('/webhooks/:webhookId/:webhookToken', async ({ params, set }) => {
+  const { resolveInteractionWebhook } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (ix) {
+    const bot = await User.findById(ix.botId);
+    return { id: ix.applicationId, type: 3, application_id: ix.applicationId, name: bot?.username ?? '', avatar: bot?.avatar ?? null, channel_id: ix.channelId, guild_id: ix.guildId };
   }
-  set.status = 204;
-  return '';
+  const { findWebhookByToken, serializeWebhook } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return serializeWebhook(webhook, { withToken: true });
+})
+.patch('/webhooks/:webhookId/:webhookToken', async ({ params, body, set }) => {
+  const { findWebhookByToken, patchWebhook } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await patchWebhook(webhook, body));
+})
+.delete('/webhooks/:webhookId/:webhookToken', async ({ params, set }) => {
+  const { findWebhookByToken, deleteWebhook } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await deleteWebhook(webhook));
+})
+.get('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, query, set }) => {
+  const { resolveInteractionWebhook, getInteractionMessage } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (ix) return respond(set, await getInteractionMessage(ix, params.messageId));
+  const { findWebhookByToken, getWebhookMessage } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await getWebhookMessage(webhook, params.messageId, (query as Record<string, string | undefined>).thread_id));
+})
+.patch('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, body, query, request, set }) => {
+  const { resolveInteractionWebhook, editInteractionMessage } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (ix) return respond(set, await editInteractionMessage(ix, params.messageId, body));
+  const { findWebhookByToken, editWebhookMessage } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await editWebhookMessage(webhook, params.messageId, body, query as Record<string, string | undefined>, { ip: getClientIP(request) }));
+})
+.delete('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, query, set }) => {
+  const { resolveInteractionWebhook, deleteInteractionMessage } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (ix) return respond(set, await deleteInteractionMessage(ix, params.messageId));
+  const { findWebhookByToken, deleteWebhookMessage } = await import('@/lib/services/channelWebhooks');
+  const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
+  if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await deleteWebhookMessage(webhook, params.messageId, (query as Record<string, string | undefined>).thread_id));
 })
 
 // ─── Audit Log ─────────────────────────────────────────────
@@ -1955,149 +2121,6 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   await removeServerMember(params.guildId, auth.botUser.id);
   set.status = 204;
   return '';
-})
-
-// ─── Application Command CRUD ──────────────────────────────
-.get('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-
-  if (!isValidObjectId(params.commandId)) { set.status = 404; return { code: 10063, message: 'Unknown Command' }; }
-  const cmd = await AppCommand.findById(params.commandId);
-  if (!cmd || !compareIds(cmd.applicationId, auth.app.id) || cmd.guildId != null) { set.status = 404; return { code: 10063, message: 'Unknown Command' }; }
-  return {
-    id: cmd.id,
-    application_id: cmd.applicationId,
-    name: cmd.name,
-    description: cmd.description,
-    options: cmd.options ?? [],
-    default_permission: cmd.defaultPermission,
-    type: cmd.type,
-    version: cmd.version,
-  };
-})
-.post('/applications/:appId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-
-  const { name, description, options, default_permission, type } = body as { name?: string; description?: string; options?: unknown[]; default_permission?: boolean; type?: number };
-  if (!name || !description) { set.status = 400; return { code: 50035, message: 'Name and description are required' }; }
-
-  const cmd = await AppCommand.create({
-    applicationId: auth.app.id,
-    guildId: null,
-    name,
-    description,
-    options: options ?? [],
-    defaultPermission: default_permission ?? true,
-    type: type ?? 1,
-  });
-  return {
-    id: cmd.id,
-    application_id: params.appId,
-    name: cmd.name,
-    description: cmd.description,
-    options: cmd.options,
-    default_permission: cmd.defaultPermission,
-    type: cmd.type,
-    version: cmd.version,
-  };
-})
-.patch('/applications/:appId/commands/:commandId', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-
-  const cmd = isValidObjectId(params.commandId) ? await AppCommand.findById(params.commandId) : null;
-  if (!cmd || !compareIds(cmd.applicationId, auth.app.id) || cmd.guildId != null) { set.status = 404; return { code: 10063, message: 'Unknown Command' }; }
-
-  const { name, description, options, default_permission } = body as { name?: string; description?: string; options?: unknown[]; default_permission?: boolean };
-  const updates: Record<string, unknown> = {};
-  if (name !== undefined) updates.name = name;
-  if (description !== undefined) updates.description = description;
-  if (options !== undefined) updates.options = options;
-  if (default_permission !== undefined) updates.defaultPermission = default_permission;
-  const updated = await AppCommand.updateById(params.commandId, updates);
-  const result = updated || cmd;
-  return {
-    id: result.id,
-    application_id: params.appId,
-    name: result.name,
-    description: result.description,
-    options: result.options,
-    default_permission: result.defaultPermission,
-    type: result.type,
-    version: result.version,
-  };
-})
-.delete('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-
-  const cmd = isValidObjectId(params.commandId) ? await AppCommand.findById(params.commandId) : null;
-  if (!cmd || !compareIds(cmd.applicationId, auth.app.id) || cmd.guildId != null) { set.status = 404; return { code: 10063, message: 'Unknown Command' }; }
-  await AppCommand.deleteById(params.commandId);
-  set.status = 204;
-  return '';
-})
-
-// ─── Guild Application Commands ────────────────────────────
-.get('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-
-  const cmds = await AppCommand.find({ applicationId: params.appId, guildId: params.guildId });
-  return cmds.map((c: IAppCommand) => ({
-    id: c.id,
-    application_id: params.appId,
-    guild_id: params.guildId,
-    name: c.name,
-    description: c.description,
-    options: c.options ?? [],
-    default_permission: c.defaultPermission,
-    type: c.type,
-    version: c.version,
-  }));
-})
-.put('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-
-  // Bulk overwrite guild commands
-  const commands = body as Array<{ name?: string; description?: string; options?: unknown[]; default_permission?: boolean; type?: number }>;
-  const existing = await AppCommand.find({ applicationId: params.appId, guildId: params.guildId });
-  for (const cmd of existing) {
-    await AppCommand.deleteById(cmd.id);
-  }
-  const created: IAppCommand[] = [];
-  for (const c of commands) {
-    const row = await AppCommand.create({
-      applicationId: params.appId,
-      guildId: params.guildId,
-      name: c.name ?? '',
-      description: c.description ?? '',
-      options: c.options ?? [],
-      defaultPermission: c.default_permission ?? true,
-      type: c.type ?? 1,
-    });
-    created.push(row);
-  }
-  return created.map((c: IAppCommand) => ({
-    id: c.id,
-    application_id: params.appId,
-    guild_id: params.guildId,
-    name: c.name,
-    description: c.description,
-    options: c.options,
-    default_permission: c.defaultPermission,
-    type: c.type,
-    version: c.version,
-  }));
 })
 
 // ─── Voice Regions ─────────────────────────────────────────

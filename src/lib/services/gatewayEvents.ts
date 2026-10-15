@@ -131,6 +131,14 @@ interface InternalMessage {
   poll?: StoredPoll | null;
   pollResult?: PollResultData | null;
   forward?: ForwardView | null;
+  /** Rich embeds (bot / webhook / interaction messages). */
+  embeds?: unknown[] | null;
+  /** Message components (lib/botapi/components), already in Discord shape. */
+  components?: unknown[] | null;
+  webhookId?: string | null;
+  applicationId?: string | null;
+  /** Interaction that created this message ({ id, type, name, user }). */
+  interaction?: { id?: string; type?: number; name?: string; user?: { id: string; username?: string } } | null;
 }
 
 /** Discord message type numbers for our string types. */
@@ -180,7 +188,24 @@ export function toDiscordMessage(m: InternalMessage) {
       ...(typeof a.description === 'string' ? { description: a.description } : {}),
       ...toDiscordVoiceFields(a as VoiceAttachmentMeta),
     })),
-    embeds: [],
+    embeds: Array.isArray(m.embeds) ? m.embeds : [],
+    components: Array.isArray(m.components) ? m.components : [],
+    ...(m.webhookId ? { webhook_id: m.webhookId } : {}),
+    ...(m.applicationId ? { application_id: m.applicationId } : {}),
+    ...(m.interaction?.id ? {
+      interaction: {
+        id: m.interaction.id,
+        type: m.interaction.type ?? 2,
+        name: m.interaction.name ?? '',
+        user: m.interaction.user ? toDiscordUser({ id: m.interaction.user.id, username: m.interaction.user.username }) : null,
+      },
+      interaction_metadata: {
+        id: m.interaction.id,
+        type: m.interaction.type ?? 2,
+        user: m.interaction.user ? toDiscordUser({ id: m.interaction.user.id, username: m.interaction.user.username }) : null,
+        authorizing_integration_owners: m.serverId ? { '0': m.serverId } : {},
+      },
+    } : {}),
     reactions: m.reactions ?? [],
     pinned: m.pinned ?? false,
     type: typeof m.type === 'number' ? m.type : (MESSAGE_TYPE_NUMBERS[String(m.type)] ?? 0),
@@ -357,6 +382,20 @@ export function emitInteractionCreate(opts: {
     intent: 0,
     targetBotId: opts.botId,
     d: opts.interaction,
+  });
+}
+
+/**
+ * APPLICATION_COMMAND_PERMISSIONS_UPDATE to the application's own bot when a
+ * command's (or the app's) permissions change in a guild.
+ */
+export function emitApplicationCommandPermissionsUpdate(opts: { botId: string; guildId: string; permissions: unknown }) {
+  return publish({
+    t: 'APPLICATION_COMMAND_PERMISSIONS_UPDATE',
+    guildId: opts.guildId,
+    intent: 0,
+    targetBotId: opts.botId,
+    d: opts.permissions,
   });
 }
 

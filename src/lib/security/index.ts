@@ -59,6 +59,10 @@ export const rateLimiters_config = {
 
   // Incoming channel webhooks, per webhook
   webhookExecute: { points: 30, duration: 10 },
+  // Interactions a user starts (slash commands, button clicks, select menus,
+  // modal submits) and autocomplete requests while typing an option, per user.
+  interactionCreate: { points: 20, duration: 10 },
+  interactionAutocomplete: { points: 60, duration: 10 },
 
   // Bot API (/api/v10), per bot: see src/lib/security/botRateLimit.ts
   ...BOT_LIMITS,

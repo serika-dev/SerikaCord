@@ -1,49 +1,171 @@
-import { Application, Channel, Message, User, ServerMember } from '@/lib/models';
-import { AppCommand } from '@/lib/models/AppCommand';
+/**
+ * Interactions (Discord API v10): building and delivering them, applying the
+ * app's response, and the token-authenticated webhook routes that edit it.
+ *
+ *   user ──▶ /api/interactions/* (command / autocomplete / component / modal)
+ *          └▶ checks (channel access, command permissions, component exists
+ *             and isn't disabled, modal fields) ─▶ state in Redis (15 min)
+ *             ─▶ HTTP endpoint (Ed25519-signed, SSRF-guarded, 3 s, per-app
+ *                concurrency cap) when the app set one, else INTERACTION_CREATE
+ *                over the gateway
+ *   app ──▶ POST /interactions/{id}/{token}/callback (or the HTTP response body)
+ *          types 1 4 5 6 7 8 9; one acknowledgement within 3 s (40060 / 10062)
+ *   app ──▶ /webhooks/{app}/{token}[/messages/@original|{id}] followups and edits
+ *
+ * Ephemeral responses go only to the invoker's activity stream (lib/services/
+ * appMessages). The invoker's clients also get `interaction` events (ack,
+ * failed, modal) so buttons stop spinning and modals open.
+ */
+import { randomUUID } from 'crypto';
+import { Application, Channel, ChannelWebhook, ServerMember, User, type IChannel, type IMessage } from '@/lib/models';
+import type { IAppCommand } from '@/lib/models/AppCommand';
 import { signInteraction } from '@/lib/services/appIdentity';
-import { OPTION_TYPES, type AppCommandOption } from '@/lib/services/appCommands';
+import { getRedis } from '@/lib/db/redis';
+import { processShared } from '@/lib/realtime/processShared';
+import {
+  ACK_DEADLINE_MS, ACK_GRACE_MS, CallbackType, InteractionStore, InteractionType, checkInitialCallback, checkTokenAlive,
+  memoryKV, newInteractionToken, type InteractionKV, type InteractionResponseState, type InteractionState,
+} from '@/lib/botapi/interactionState';
+import {
+  CommandType, DISCORD_LOCALES, OptionType, checkInvocationOptions, findDeclaredOption, stripMention, validateAutocompleteChoices,
+  type CommandOption, type InvocationOption, type InvocationRefs,
+} from '@/lib/botapi/commands';
+import {
+  ComponentType, buildModalSubmit, checkComponentClick, parseStoredComponents, validateModal, type Modal, type ModalSubmitValue,
+} from '@/lib/botapi/components';
+import { FormErrors, formError, FE } from '@/lib/botapi/formErrors';
+import {
+  FLAG_EPHEMERAL, FLAG_LOADING, finalizeComponents, isEmptyOutgoing, parseOutgoingPayload, uploadOutgoingFiles,
+  type ApiFailure, type OutgoingMessage,
+} from '@/lib/services/outgoingMessage';
+import {
+  createAppMessage, deleteAppMessage, deleteEphemeral, editAppMessage, editEphemeral, ephemeralToDiscord, notifyInvoker,
+  type AppAuthor, type EphemeralRecord, type InteractionRef,
+} from '@/lib/services/appMessages';
+import {
+  attachmentSizeLimit, buildResolved, discordMember, discordMessageFromRow, discordPartialChannel, discordUser, loadLiveMessage,
+} from '@/lib/services/interactionPayload';
+import { DM_BOT_PERMISSIONS, applyTimeout } from '@/lib/permissions/botChannel';
+import { parseBotMessageBody } from '@/lib/chat/botMultipart';
+import type { IncomingAttachment } from '@/lib/chat/attachmentPolicy';
+import { channelContext, resolveInvocableCommand, findCommandsByName } from '@/lib/services/appCommands';
 
-// Interaction types (Discord)
-const INTERACTION_PING = 1;
-const INTERACTION_APPLICATION_COMMAND = 2;
+const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
-// Interaction callback types (Discord)
-const CB_PONG = 1;
-const CB_CHANNEL_MESSAGE = 4;
-const CB_DEFERRED_CHANNEL_MESSAGE = 5;
+// ─── Store ──────────────────────────────────────────────────
 
-// Message flags
-const FLAG_EPHEMERAL = 64;
-
-// In-memory store of interaction metadata for followup callbacks.
-// Keyed by interaction token. Entry expires after 15 minutes.
-interface InteractionMeta {
-  botId: string;
-  channelId: string;
-  serverId: string | null;
-  invokerId: string;
-  /** Command name + invoker, so the client can show "X used /name". */
-  commandName: string;
-  invokerName: string;
-  expiresAt: number;
+function redisKV(): InteractionKV | null {
+  const r = getRedis();
+  if (!r) return null;
+  return {
+    get: (k) => r.get(k),
+    set: async (k, v, ttl) => { await r.set(k, v, 'PX', ttl); },
+    setNX: async (k, v, ttl) => (await r.set(k, v, 'PX', ttl, 'NX')) === 'OK',
+    del: async (k) => { await r.del(k); },
+  };
 }
 
-/** Interaction reference attached to a bot response for the "used /cmd" header. */
-interface InteractionRef {
-  name: string;
-  user: { id: string; username: string };
+const memoryStore = processShared('interactionMemoryKV', () => memoryKV());
+
+/** The interaction store: Redis (shared by instances, survives restarts), else in-process. */
+export function interactionStore(): InteractionStore {
+  return new InteractionStore(redisKV() ?? memoryStore);
 }
-const interactionStore = new Map<string, InteractionMeta>();
-const INTERACTION_TTL_MS = 15 * 60 * 1000;
 
-const sameId = (a: string | null | undefined, b: string | null | undefined) =>
-  !!a && !!b && a.toLowerCase() === b.toLowerCase();
+// ─── Delivery to the app ────────────────────────────────────
 
-/** Recipient ids of a DM / group DM ([] for anything else). */
-async function dmRecipientIds(channelId: string): Promise<string[]> {
-  const channel = await Channel.findById(channelId).catch(() => null);
-  if (!channel || (channel.type !== 'dm' && channel.type !== 'group_dm')) return [];
-  return ((channel.recipientIds || []) as string[]).map(String);
+type App = NonNullable<Awaited<ReturnType<typeof Application.findById>>>;
+
+const httpInflight = processShared('interactionHttpInflight', () => new Map<string, number>());
+/** Concurrent HTTP interaction deliveries per application (per instance). */
+const HTTP_CONCURRENCY = 25;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
+async function readJsonLimited(res: Response): Promise<unknown> {
+  const len = Number(res.headers.get('content-length') ?? '0');
+  if (len > MAX_RESPONSE_BYTES) { try { await res.body?.cancel(); } catch { /* ignore */ } return null; }
+  const reader = res.body?.getReader();
+  if (!reader) return null;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* ignore */ } return null; }
+    chunks.push(value);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST a signed interaction to an application's interactions endpoint and return
+ * the parsed JSON response. Signs `timestamp + body` with the app's Ed25519 key
+ * (headers X-Signature-Ed25519 / X-Signature-Timestamp), exactly like Discord.
+ * The URL is re-checked against private / loopback addresses on every call
+ * (no redirects followed), the request times out after 3 s, and each app has
+ * a concurrency cap so a slow endpoint can't tie up the server.
+ */
+export async function postSignedInteraction(
+  app: { id?: string; interactionsEndpointUrl?: string | null; privateKeyPem?: string | null },
+  payload: unknown,
+): Promise<{ ok: boolean; status: number; body: unknown } | null> {
+  if (!app.interactionsEndpointUrl || !app.privateKeyPem) return null;
+  const key = app.id ?? app.interactionsEndpointUrl;
+  const current = httpInflight.get(key) ?? 0;
+  if (current >= HTTP_CONCURRENCY) return null;
+  httpInflight.set(key, current + 1);
+  try {
+    const body = JSON.stringify(payload);
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = signInteraction(app.privateKeyPem, timestamp + body);
+    const { safeFetch } = await import('@/lib/security/ssrf');
+    const res = await safeFetch(app.interactionsEndpointUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'SerikaCord-Interactions/1.0 (+https://serika.chat/developers)',
+        'X-Signature-Ed25519': signature,
+        'X-Signature-Timestamp': timestamp,
+      },
+      body,
+      signal: AbortSignal.timeout(ACK_DEADLINE_MS),
+    }, { maxRedirects: 0 });
+    if (res.status >= 300 && res.status < 400) return { ok: false, status: res.status, body: null };
+    const json = await readJsonLimited(res);
+    return { ok: res.ok, status: res.status, body: json };
+  } catch {
+    return null;
+  } finally {
+    const n = (httpInflight.get(key) ?? 1) - 1;
+    if (n <= 0) httpInflight.delete(key);
+    else httpInflight.set(key, n);
+  }
+}
+
+/**
+ * Verify an interactions endpoint URL by sending a PING. Discord requires the
+ * endpoint to respond to a signed PING with `{ type: 1 }` before it will accept
+ * the URL. Returns true only if the endpoint responds correctly.
+ */
+export async function verifyInteractionEndpoint(app: {
+  id?: string;
+  interactionsEndpointUrl?: string | null;
+  privateKeyPem?: string | null;
+  clientId?: string;
+}): Promise<boolean> {
+  const result = await postSignedInteraction(app, {
+    id: randomUUID(),
+    application_id: app.id ?? app.clientId ?? '',
+    type: InteractionType.PING,
+    token: newInteractionToken(),
+    version: 1,
+  });
+  return !!result && result.ok && (result.body as { type?: unknown } | null)?.type === CallbackType.PONG;
 }
 
 /**
@@ -52,31 +174,820 @@ async function dmRecipientIds(channelId: string): Promise<string[]> {
  * belong to that server. Checked on every callback / follow-up, so a token
  * can't be used after the bot left, nor point anywhere else.
  */
-async function botMayRespond(botId: string, channelId: string, serverId: string | null): Promise<boolean> {
+async function botMayRespond(botId: string, channelId: string, serverId: string | null): Promise<IChannel | null> {
   const channel = await Channel.findById(channelId).catch(() => null);
-  if (!channel) return false;
+  if (!channel) return null;
   if (!serverId) {
-    if (channel.serverId) return false;
-    return ((channel.recipientIds || []) as string[]).some((r) => sameId(r, botId));
+    if (channel.serverId) return null;
+    return ((channel.recipientIds || []) as string[]).some((r) => same(r, botId)) ? channel : null;
   }
-  if (!sameId(channel.serverId, serverId)) return false;
+  if (!same(channel.serverId, serverId)) return null;
   const member = await ServerMember.findOne({ serverId, userId: botId }).catch(() => null);
-  return !!member;
+  return member ? channel : null;
 }
 
-function storeInteraction(token: string, meta: Omit<InteractionMeta, 'expiresAt'>) {
-  interactionStore.set(token, { ...meta, expiresAt: Date.now() + INTERACTION_TTL_MS });
+function discordLocale(locale: unknown): string {
+  if (typeof locale !== 'string' || !locale) return 'en-US';
+  if (DISCORD_LOCALES.has(locale)) return locale;
+  const map: Record<string, string> = { en: 'en-US', es: 'es-ES', pt: 'pt-BR', sv: 'sv-SE', zh: 'zh-CN', 'zh-Hans': 'zh-CN', 'zh-Hant': 'zh-TW', nb: 'no' };
+  if (map[locale]) return map[locale];
+  const base = locale.split('-')[0];
+  return DISCORD_LOCALES.has(base) ? base : map[base] ?? 'en-US';
 }
 
-function getInteraction(token: string): InteractionMeta | null {
-  const meta = interactionStore.get(token);
-  if (!meta) return null;
-  if (Date.now() > meta.expiresAt) {
-    interactionStore.delete(token);
-    return null;
+type UserRow = NonNullable<Awaited<ReturnType<typeof User.findById>>>;
+
+interface InvokeContext {
+  user: UserRow;
+  channel: IChannel;
+  membership: { roles?: string[] | null; communicationDisabledUntil?: Date | null } | null;
+}
+
+/** The shared envelope of every interaction payload. */
+async function basePayload(opts: {
+  id: string;
+  token: string;
+  type: number;
+  app: App;
+  ctx: InvokeContext;
+  data?: unknown;
+  message?: unknown;
+}) {
+  const { ctx, app } = opts;
+  const channel = ctx.channel;
+  const guildId = channel.serverId ?? null;
+  let memberPerms: bigint | null = null;
+  let appPerms: bigint = DM_BOT_PERMISSIONS;
+  let member: unknown;
+  if (guildId) {
+    const { getMemberChannelPermissions } = await import('@/lib/api/channels');
+    const [membership, botMembership] = await Promise.all([
+      ServerMember.findOne({ serverId: guildId, userId: ctx.user.id }),
+      ServerMember.findOne({ serverId: guildId, userId: app.botId! }),
+    ]);
+    memberPerms = await getMemberChannelPermissions(ctx.user.id, channel as IChannel & { serverId: string }, membership);
+    const rawBotPerms = botMembership ? await getMemberChannelPermissions(app.botId!, channel as IChannel & { serverId: string }, botMembership) : 0n;
+    appPerms = applyTimeout(rawBotPerms, botMembership?.communicationDisabledUntil ?? null);
+    if (membership) member = discordMember(membership, ctx.user, memberPerms, true);
   }
-  return meta;
+  const context = channelContext(channel);
+  return {
+    id: opts.id,
+    application_id: app.id,
+    type: opts.type,
+    ...(opts.data !== undefined ? { data: opts.data } : {}),
+    ...(guildId ? { guild_id: guildId, guild: { id: guildId, locale: 'en-US', features: [] as string[] } } : {}),
+    channel_id: channel.id,
+    channel: discordPartialChannel(channel, memberPerms ?? (guildId ? 0n : null)),
+    ...(member ? { member } : { user: discordUser(ctx.user) }),
+    token: opts.token,
+    version: 1,
+    ...(opts.message ? { message: opts.message } : {}),
+    app_permissions: appPerms.toString(),
+    locale: discordLocale((ctx.user.settings as { locale?: unknown } | null)?.locale),
+    ...(guildId ? { guild_locale: 'en-US' } : {}),
+    entitlements: [] as unknown[],
+    authorizing_integration_owners: { '0': guildId ?? '0' },
+    context,
+    attachment_size_limit: attachmentSizeLimit(),
+  };
 }
+
+type DeliveryResult = { ok: true; interactionId: string } | { ok: false; status: number; error: string; code: string };
+
+/**
+ * Send an interaction to its app: HTTP endpoint when set (its response body is
+ * applied as the callback), otherwise the gateway (the app answers on the
+ * callback route). No acknowledgement in time → the invoker sees "failed".
+ */
+async function deliver(app: App, state: InteractionState, token: string, payload: unknown): Promise<DeliveryResult> {
+  const store = interactionStore();
+  await store.create(token, state);
+  const quiet = state.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE;
+  if (app.interactionsEndpointUrl) {
+    const res = await postSignedInteraction(app, payload);
+    if (!res || !res.ok || !res.body || typeof res.body !== 'object') {
+      if (!quiet) void notifyInvoker(state.invokerId, { event: 'failed', interactionId: state.id, channelId: state.channelId, reason: 'no_response' });
+      return { ok: true, interactionId: state.id };
+    }
+    const applied = await applyCallback(state, { payload: res.body as Record<string, unknown>, files: [] }, { withResponse: false });
+    if (applied.status >= 400 && !quiet) {
+      void notifyInvoker(state.invokerId, { event: 'failed', interactionId: state.id, channelId: state.channelId, reason: 'invalid_response' });
+    }
+    return { ok: true, interactionId: state.id };
+  }
+  const { emitInteractionCreate } = await import('@/lib/services/gatewayEvents');
+  await emitInteractionCreate({ botId: app.botId!, guildId: state.guildId, interaction: payload });
+  if (!quiet) {
+    const timer = setTimeout(() => {
+      void store.isAcked(state.id).then((acked) => {
+        if (!acked) void notifyInvoker(state.invokerId, { event: 'failed', interactionId: state.id, channelId: state.channelId, reason: 'no_response' });
+      }).catch(() => {});
+    }, ACK_DEADLINE_MS + ACK_GRACE_MS + 250);
+    (timer as { unref?: () => void }).unref?.();
+  }
+  return { ok: true, interactionId: state.id };
+}
+
+// ─── Applying the app's response ────────────────────────────
+
+export type CallbackResult = { status: number; body: unknown };
+
+function interactionRef(state: InteractionState): InteractionRef {
+  return { id: state.id, type: state.type, name: state.commandName ?? '', user: { id: state.invokerId, username: state.invokerName } };
+}
+
+function failure(f: ApiFailure): CallbackResult {
+  return { status: f.status, body: f.body };
+}
+
+/** Upload files + resolve attachment:// for a parsed outgoing message. */
+async function materialize(
+  parsed: Extract<ReturnType<typeof parseOutgoingPayload>, { ok: true }>,
+  uploaderId: string,
+  channelId: string,
+  keep: IncomingAttachment[],
+): Promise<{ ok: true; attachments: IncomingAttachment[]; components: OutgoingMessage['components'] } | ApiFailure> {
+  const uploaded = await uploadOutgoingFiles({ files: parsed.files, meta: parsed.fileMeta, uploaderId, channelId });
+  if (!uploaded.ok) return uploaded;
+  const attachments = [...keep, ...uploaded.attachments];
+  const fin = finalizeComponents(parsed.message.components, attachments);
+  if (!fin.ok) return fin;
+  return { ok: true, attachments, components: fin.components };
+}
+
+function botAuthorOf(state: InteractionState): AppAuthor {
+  return { kind: 'bot', botId: state.botId, applicationId: state.applicationId };
+}
+
+/**
+ * Apply an initial response (callback route or HTTP endpoint body). Checks the
+ * 3 s deadline, claims the single acknowledgement, then applies the type.
+ */
+async function applyCallback(
+  state: InteractionState,
+  input: { payload: Record<string, unknown>; files: Parameters<typeof parseOutgoingPayload>[1] },
+  opts: { withResponse: boolean },
+): Promise<CallbackResult> {
+  const store = interactionStore();
+  const type = input.payload.type;
+  const pre = checkInitialCallback(state, type, false);
+  if (!pre.ok) return { status: pre.status, body: { code: pre.code, message: pre.message } };
+  const cbType = type as number;
+
+  // Validate before claiming, so a malformed body doesn't burn the acknowledgement.
+  const data = input.payload.data;
+  let parsed: ReturnType<typeof parseOutgoingPayload> | null = null;
+  let modal: Modal | null = null;
+  let choices: ReturnType<typeof validateAutocompleteChoices> = null;
+  if (cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE || cbType === CallbackType.UPDATE_MESSAGE) {
+    parsed = parseOutgoingPayload(data ?? {}, input.files, { mode: cbType === CallbackType.UPDATE_MESSAGE ? 'edit' : 'create', allowEphemeral: cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE });
+    if (!parsed.ok) return failure(parsed);
+  } else if (cbType === CallbackType.MODAL) {
+    const errors = new FormErrors();
+    modal = validateModal(data, errors);
+    if (!modal) return { status: 400, body: errors.toBody() };
+  } else if (cbType === CallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT) {
+    choices = validateAutocompleteChoices(data ?? {}, state.focusedType ?? OptionType.STRING);
+    if (!choices) return { status: 400, body: formError(['data', 'choices'], FE.INVALID, 'Invalid autocomplete choices for the focused option') };
+  }
+
+  const channel = await botMayRespond(state.botId, state.channelId, state.guildId);
+  if (!channel) return { status: 404, body: { code: 10003, message: 'Unknown Channel' } };
+
+  if (!(await store.claimAck(state.id, cbType))) {
+    return { status: 400, body: { code: 40060, message: 'Interaction has already been acknowledged.' } };
+  }
+
+  try {
+    let response: InteractionResponseState = { type: cbType };
+    let resourceMessage: unknown = null;
+    switch (cbType) {
+      case CallbackType.PONG:
+        break;
+      case CallbackType.CHANNEL_MESSAGE_WITH_SOURCE: {
+        const p = parsed as Extract<typeof parsed, { ok: true }>;
+        const mat = await materialize(p, state.botId, state.channelId, []);
+        if (!mat.ok) { await store.releaseAck(state.id); return failure(mat); }
+        if (isEmptyOutgoing(p.message, mat.attachments.length)) {
+          await store.releaseAck(state.id);
+          return { status: 400, body: { code: 50006, message: 'Cannot send an empty message' } };
+        }
+        const created = await createAppMessage({
+          author: botAuthorOf(state),
+          channel,
+          body: { content: p.message.content, embeds: p.message.embeds, components: mat.components, attachments: mat.attachments, flags: p.message.flags, mentionedUserIds: p.message.ephemeral ? [] : p.message.allowedUserIds ?? [] },
+          interaction: interactionRef(state),
+          ephemeralFor: p.message.ephemeral ? { userId: state.invokerId, store, interactionId: state.id, applicationId: state.applicationId, botId: state.botId } : null,
+        });
+        response = { type: cbType, messageId: created.id, ephemeral: created.ephemeral };
+        resourceMessage = created.discord;
+        break;
+      }
+      case CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: {
+        const flags = typeof (data as { flags?: unknown } | undefined)?.flags === 'number' ? (data as { flags: number }).flags : 0;
+        const ephemeral = (flags & FLAG_EPHEMERAL) !== 0;
+        const created = await createAppMessage({
+          author: botAuthorOf(state),
+          channel,
+          body: { content: '', embeds: [], components: null, attachments: [], flags: 0, mentionedUserIds: [] },
+          interaction: interactionRef(state),
+          ephemeralFor: ephemeral ? { userId: state.invokerId, store, interactionId: state.id, applicationId: state.applicationId, botId: state.botId } : null,
+          loading: true,
+        });
+        response = { type: cbType, messageId: created.id, ephemeral, loading: true };
+        resourceMessage = created.discord;
+        break;
+      }
+      case CallbackType.DEFERRED_UPDATE_MESSAGE:
+        response = { type: cbType, messageId: state.sourceMessageId ?? null, ephemeral: Boolean(state.sourceEphemeral) };
+        break;
+      case CallbackType.UPDATE_MESSAGE: {
+        const p = parsed as Extract<typeof parsed, { ok: true }>;
+        const updated = await updateSourceMessage(state, channel, p);
+        if ('status' in updated) { await store.releaseAck(state.id); return updated; }
+        response = { type: cbType, messageId: state.sourceMessageId ?? null, ephemeral: Boolean(state.sourceEphemeral) };
+        resourceMessage = updated.discord;
+        break;
+      }
+      case CallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT:
+        await store.setAutocomplete(state.id, choices ?? []);
+        break;
+      case CallbackType.MODAL: {
+        const modalId = randomUUID().replace(/-/g, '');
+        await store.putRecord('modal', modalId, {
+          modal,
+          applicationId: state.applicationId,
+          botId: state.botId,
+          userId: state.invokerId,
+          channelId: state.channelId,
+          guildId: state.guildId,
+          sourceMessageId: state.sourceMessageId ?? null,
+          sourceEphemeral: Boolean(state.sourceEphemeral),
+          commandName: state.commandName ?? '',
+        } satisfies ModalRecord);
+        const app = await Application.findById(state.applicationId);
+        void notifyInvoker(state.invokerId, {
+          event: 'modal',
+          interactionId: state.id,
+          channelId: state.channelId,
+          modalId,
+          modal,
+          application: { id: state.applicationId, name: app?.name ?? '', icon: app?.icon ?? null },
+        });
+        break;
+      }
+    }
+    await store.setResponse(state.id, response);
+    void notifyInvoker(state.invokerId, { event: 'ack', interactionId: state.id, channelId: state.channelId, callbackType: cbType });
+    if (!opts.withResponse) return { status: 204, body: '' };
+    return {
+      status: 200,
+      body: {
+        interaction: {
+          id: state.id,
+          type: state.type,
+          ...(response.messageId ? { response_message_id: response.messageId } : {}),
+          ...(cbType === CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE ? { response_message_loading: true } : {}),
+          ...(response.messageId ? { response_message_ephemeral: Boolean(response.ephemeral) } : {}),
+          channel_id: state.channelId,
+          ...(state.guildId ? { guild_id: state.guildId } : {}),
+        },
+        ...(resourceMessage && (cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE || cbType === CallbackType.UPDATE_MESSAGE || cbType === CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE)
+          ? { resource: { type: cbType === CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE ? CallbackType.CHANNEL_MESSAGE_WITH_SOURCE : cbType, message: resourceMessage } }
+          : {}),
+      },
+    };
+  } catch (err) {
+    console.error('[interactions] applying callback failed:', (err as Error)?.message ?? err);
+    await store.releaseAck(state.id).catch(() => {});
+    return { status: 500, body: { code: 0, message: '500: Internal Server Error' } };
+  }
+}
+
+interface ModalRecord {
+  modal: Modal | null;
+  applicationId: string;
+  botId: string;
+  userId: string;
+  channelId: string;
+  guildId: string | null;
+  sourceMessageId: string | null;
+  sourceEphemeral: boolean;
+  commandName: string;
+}
+
+/** Callback 7: edit the message the component is on (only the app's own messages). */
+async function updateSourceMessage(
+  state: InteractionState,
+  channel: IChannel,
+  p: Extract<ReturnType<typeof parseOutgoingPayload>, { ok: true }>,
+): Promise<{ discord: unknown } | CallbackResult> {
+  const store = interactionStore();
+  if (!state.sourceMessageId) return { status: 400, body: { code: 50035, message: 'Invalid Form Body (type: there is no message to update)' } };
+  if (state.sourceEphemeral) {
+    const record = await store.getRecord<EphemeralRecord>('eph', state.sourceMessageId);
+    if (!record || !same(record.botId, state.botId) || !same(record.invokerId, state.invokerId)) return { status: 404, body: { code: 10008, message: 'Unknown Message' } };
+    const keep = keepAttachments(record.attachments, p.message.keepAttachmentIds);
+    const mat = await materialize(p, state.botId, state.channelId, keep);
+    if (!mat.ok) return failure(mat);
+    const r = await editEphemeral(store, record, patchFrom(p.message, mat));
+    return { discord: r.discord };
+  }
+  const msg = await loadLiveMessage(state.channelId, state.sourceMessageId);
+  if (!msg) return { status: 404, body: { code: 10008, message: 'Unknown Message' } };
+  const author = await sourceAuthor(msg, state);
+  if (!author) return { status: 403, body: { code: 50005, message: 'Cannot edit a message authored by another user' } };
+  const keep = keepAttachments((msg.attachments ?? []) as IncomingAttachment[], p.message.keepAttachmentIds);
+  const mat = await materialize(p, state.botId, state.channelId, keep);
+  if (!mat.ok) return failure(mat);
+  const r = await editAppMessage({ channel, message: msg, patch: patchFrom(p.message, mat), author });
+  return { discord: r.discord };
+}
+
+/** The author an interaction may edit a message as: the app's bot or an app-owned webhook. */
+async function sourceAuthor(msg: IMessage, state: InteractionState): Promise<AppAuthor | null> {
+  if (same(msg.authorId, state.botId)) return botAuthorOf(state);
+  const hook = await ChannelWebhook.findById(msg.authorId).catch(() => null);
+  if (hook && same((hook as { applicationId?: string | null }).applicationId, state.applicationId)) {
+    return { kind: 'webhook', webhook: { id: hook.id, name: hook.name, avatar: hook.avatar, applicationId: state.applicationId } };
+  }
+  return null;
+}
+
+function keepAttachments(existing: IncomingAttachment[], keepIds: string[] | null): IncomingAttachment[] {
+  if (keepIds === null) return existing;
+  return existing.filter((a) => keepIds.includes(String(a.id)));
+}
+
+function patchFrom(m: OutgoingMessage, mat: { attachments: IncomingAttachment[]; components: OutgoingMessage['components'] }) {
+  return {
+    ...(m.has.content ? { content: m.content } : {}),
+    ...(m.has.embeds ? { embeds: m.embeds } : {}),
+    ...(m.has.components ? { components: mat.components ?? [] } : {}),
+    ...(m.has.attachments ? { attachments: mat.attachments } : {}),
+    ...(m.has.flags ? { flags: m.flags } : {}),
+    ...(m.has.content ? { mentionedUserIds: m.allowedUserIds ?? [] } : {}),
+  };
+}
+
+/**
+ * POST /interactions/{id}/{token}/callback. `body` is JSON or multipart
+ * (payload_json = { type, data } + files[n]).
+ */
+export async function handleInteractionCallback(
+  interactionId: string,
+  token: string,
+  body: unknown,
+  opts: { withResponse?: boolean } = {},
+): Promise<CallbackResult> {
+  const store = interactionStore();
+  const state = await store.getByToken(token);
+  if (!state || !same(state.id, interactionId)) return { status: 404, body: { code: 10062, message: 'Unknown interaction' } };
+  const parsed = parseBotMessageBody(body);
+  if (!parsed.ok) return { status: 400, body: { code: parsed.code, message: parsed.error } };
+  return applyCallback(state, { payload: parsed.payload, files: parsed.files }, { withResponse: Boolean(opts.withResponse) });
+}
+
+// ─── Webhook-token routes (followups, @original) ────────────
+
+/** Resolve an interaction token for /webhooks/{application_id}/{token}…; null when it isn't one. */
+export async function resolveInteractionWebhook(applicationId: string, token: string): Promise<InteractionState | null> {
+  const state = await interactionStore().getByToken(token);
+  if (!state || !checkTokenAlive(state).ok) return null;
+  if (same(state.applicationId, applicationId)) return state;
+  // clientId alias for the application id.
+  const app = await Application.findById(state.applicationId).catch(() => null);
+  return app && same(app.clientId, applicationId) ? state : null;
+}
+
+const UNKNOWN_MESSAGE = { status: 404, body: { code: 10008, message: 'Unknown Message' } };
+const UNKNOWN_WEBHOOK = { status: 404, body: { code: 10015, message: 'Unknown Webhook' } };
+
+type Target =
+  | { kind: 'ephemeral'; record: EphemeralRecord; original: boolean }
+  | { kind: 'message'; message: IMessage; author: AppAuthor; original: boolean };
+
+async function findTarget(state: InteractionState, messageId: string): Promise<Target | null> {
+  const store = interactionStore();
+  const response = await store.getResponse(state.id);
+  const isOriginal = messageId === '@original';
+  const id = isOriginal ? response?.messageId ?? null : messageId;
+  if (!id) return null;
+  const ephemeral = isOriginal ? Boolean(response?.ephemeral) : false;
+  const record = await store.getRecord<EphemeralRecord>('eph', id);
+  if (record) {
+    if (!same(record.botId, state.botId) || !same(record.channelId, state.channelId)) return null;
+    if (!isOriginal && !same(record.interactionId, state.id)) return null;
+    return { kind: 'ephemeral', record, original: isOriginal || same(id, response?.messageId) };
+  }
+  if (ephemeral) return null;
+  const msg = await loadLiveMessage(state.channelId, id);
+  if (!msg) return null;
+  const ref = msg.interaction as { id?: string } | null;
+  const belongs = (isOriginal || same(id, response?.messageId)) || same(ref?.id, state.id);
+  if (!belongs) return null;
+  const author = await sourceAuthor(msg, state);
+  if (!author) return null;
+  return { kind: 'message', message: msg, author, original: isOriginal || same(id, response?.messageId) };
+}
+
+/** POST /webhooks/{app}/{token}: a followup message. */
+export async function createFollowup(state: InteractionState, body: unknown): Promise<CallbackResult> {
+  const store = interactionStore();
+  if (!(await store.isAcked(state.id))) return UNKNOWN_WEBHOOK;
+  const parsedBody = parseBotMessageBody(body);
+  if (!parsedBody.ok) return { status: 400, body: { code: parsedBody.code, message: parsedBody.error } };
+  const p = parseOutgoingPayload(parsedBody.payload, parsedBody.files, { mode: 'create', allowEphemeral: true });
+  if (!p.ok) return failure(p);
+  const channel = await botMayRespond(state.botId, state.channelId, state.guildId);
+  if (!channel) return { status: 404, body: { code: 10003, message: 'Unknown Channel' } };
+  const response = await store.getResponse(state.id);
+  // After a deferred response, the first followup completes the "thinking…" message.
+  if (response?.loading && response.messageId) {
+    const target = await findTarget(state, '@original');
+    if (target) {
+      const r = await editTarget(state, target, p, channel);
+      if ('discord' in r) {
+        await store.setResponse(state.id, { ...response, loading: false });
+        return { status: 200, body: r.discord };
+      }
+      return r;
+    }
+  }
+  const mat = await materialize(p, state.botId, state.channelId, []);
+  if (!mat.ok) return failure(mat);
+  if (isEmptyOutgoing(p.message, mat.attachments.length)) return { status: 400, body: { code: 50006, message: 'Cannot send an empty message' } };
+  const created = await createAppMessage({
+    author: botAuthorOf(state),
+    channel,
+    body: { content: p.message.content, embeds: p.message.embeds, components: mat.components, attachments: mat.attachments, flags: p.message.flags, mentionedUserIds: p.message.ephemeral ? [] : p.message.allowedUserIds ?? [] },
+    interaction: interactionRef(state),
+    ephemeralFor: p.message.ephemeral ? { userId: state.invokerId, store, interactionId: state.id, applicationId: state.applicationId, botId: state.botId } : null,
+  });
+  return { status: 200, body: created.discord };
+}
+
+async function editTarget(
+  state: InteractionState,
+  target: Target,
+  p: Extract<ReturnType<typeof parseOutgoingPayload>, { ok: true }>,
+  channel: IChannel,
+): Promise<{ discord: unknown } | CallbackResult> {
+  const store = interactionStore();
+  if (target.kind === 'ephemeral') {
+    const mat = await materialize(p, state.botId, state.channelId, keepAttachments(target.record.attachments, p.message.keepAttachmentIds));
+    if (!mat.ok) return failure(mat);
+    const r = await editEphemeral(store, target.record, patchFrom(p.message, mat));
+    return { discord: r.discord };
+  }
+  const mat = await materialize(p, state.botId, state.channelId, keepAttachments((target.message.attachments ?? []) as IncomingAttachment[], p.message.keepAttachmentIds));
+  if (!mat.ok) return failure(mat);
+  const r = await editAppMessage({ channel, message: target.message, patch: patchFrom(p.message, mat), author: target.author });
+  return { discord: r.discord };
+}
+
+/** GET /webhooks/{app}/{token}/messages/{@original|id}. */
+export async function getInteractionMessage(state: InteractionState, messageId: string): Promise<CallbackResult> {
+  const target = await findTarget(state, messageId);
+  if (!target) return UNKNOWN_MESSAGE;
+  if (target.kind === 'ephemeral') return { status: 200, body: await ephemeralToDiscord(target.record) };
+  return { status: 200, body: await discordMessageFromRow(target.message) };
+}
+
+/** PATCH /webhooks/{app}/{token}/messages/{@original|id}. */
+export async function editInteractionMessage(state: InteractionState, messageId: string, body: unknown): Promise<CallbackResult> {
+  const store = interactionStore();
+  const target = await findTarget(state, messageId);
+  if (!target) return UNKNOWN_MESSAGE;
+  const parsedBody = parseBotMessageBody(body);
+  if (!parsedBody.ok) return { status: 400, body: { code: parsedBody.code, message: parsedBody.error } };
+  const existing = target.kind === 'ephemeral' ? target.record : target.message;
+  const p = parseOutgoingPayload(parsedBody.payload, parsedBody.files, {
+    mode: 'edit',
+    existingAttachmentIds: ((existing.attachments ?? []) as IncomingAttachment[]).map((a) => String(a.id)),
+    existingFlags: (existing.flags ?? 0) & ~FLAG_LOADING,
+  });
+  if (!p.ok) return failure(p);
+  const channel = await botMayRespond(state.botId, state.channelId, state.guildId);
+  if (!channel) return { status: 404, body: { code: 10003, message: 'Unknown Channel' } };
+  const r = await editTarget(state, target, p, channel);
+  if (!('discord' in r)) return r;
+  if (target.original) {
+    const response = await store.getResponse(state.id);
+    if (response?.loading) await store.setResponse(state.id, { ...response, loading: false });
+  }
+  return { status: 200, body: r.discord };
+}
+
+/** DELETE /webhooks/{app}/{token}/messages/{@original|id}. */
+export async function deleteInteractionMessage(state: InteractionState, messageId: string): Promise<CallbackResult> {
+  const target = await findTarget(state, messageId);
+  if (!target) return UNKNOWN_MESSAGE;
+  if (target.kind === 'ephemeral') {
+    await deleteEphemeral(interactionStore(), target.record);
+    return { status: 204, body: '' };
+  }
+  const channel = await Channel.findById(state.channelId);
+  if (!channel) return UNKNOWN_MESSAGE;
+  await deleteAppMessage(channel, target.message);
+  return { status: 204, body: '' };
+}
+
+// ─── User → interaction ─────────────────────────────────────
+
+export type InvokeError = { ok: false; status: number; error: string; code: string };
+
+/** Channel access + timeout / send gate for the invoker (same as sending a message). */
+async function invokerContext(user: UserRow, channelId: string, opts: { requireSend: boolean }): Promise<{ ok: true; ctx: InvokeContext } | InvokeError> {
+  const { checkChannelAccess, checkCanSpeak, checkCanPostInChannel } = await import('@/lib/api/channels');
+  const access = await checkChannelAccess(user.id, channelId);
+  if (!access.hasAccess || !access.channel) return { ok: false, status: 403, error: access.error || 'Access denied', code: 'no_access' };
+  const channel = access.channel as IChannel;
+  const membership = access.membership ?? null;
+  if (opts.requireSend) {
+    const speak = await checkCanSpeak(channel, membership, user.id, ['send']);
+    if (speak) return { ok: false, status: speak.status, error: String(speak.body.error ?? 'Forbidden'), code: 'cannot_send' };
+  }
+  const denied = await checkCanPostInChannel(channel, user as never, membership, { checkSendPermission: false });
+  if (denied) return { ok: false, status: denied.status, error: String(denied.body.error ?? 'Forbidden'), code: 'cannot_send' };
+  return { ok: true, ctx: { user, channel, membership } };
+}
+
+async function rateLimited(kind: 'interactionCreate' | 'interactionAutocomplete', userId: string): Promise<InvokeError | null> {
+  const { checkRateLimit } = await import('@/lib/security');
+  const r = await checkRateLimit(kind, userId);
+  return r.success ? null : { ok: false, status: 429, error: 'You are doing that too fast', code: 'rate_limited' };
+}
+
+function newState(app: App, ctx: InvokeContext, type: number, extra: Partial<InteractionState> = {}): InteractionState {
+  return {
+    id: randomUUID(),
+    type,
+    applicationId: app.id,
+    botId: app.botId!,
+    channelId: ctx.channel.id,
+    guildId: ctx.channel.serverId ?? null,
+    invokerId: ctx.user.id,
+    invokerName: ctx.user.username,
+    createdAt: Date.now(),
+    ...extra,
+  };
+}
+
+const INVALID_OPTIONS = (option?: string): InvokeError => ({ ok: false, status: 400, error: option ? `Invalid value for option "${option}"` : 'Invalid command options', code: 'invalid_options' });
+
+/** Run an already-permitted command (shared by the picker route and the text fallback). */
+async function dispatchCommand(opts: {
+  ctx: InvokeContext;
+  command: IAppCommand;
+  app: App;
+  options?: unknown;
+  targetId?: string | null;
+  attachments?: IncomingAttachment[];
+}): Promise<DeliveryResult> {
+  const { ctx, command, app } = opts;
+  const type = command.type ?? CommandType.CHAT_INPUT;
+  const declared = (Array.isArray(command.options) ? command.options : []) as CommandOption[];
+  let options: InvocationOption[] = [];
+  let refs: InvocationRefs & { messages?: string[] } = { users: [], roles: [], channels: [], mentionables: [], attachments: [] };
+  let path: string[] = [];
+  let targetMessage: IMessage | null = null;
+  let targetId: string | undefined;
+  if (type === CommandType.CHAT_INPUT) {
+    const check = checkInvocationOptions(declared, opts.options);
+    if (!check.ok) return INVALID_OPTIONS(check.option);
+    options = check.options;
+    refs = check.refs;
+    path = check.path;
+  } else if (type === CommandType.USER) {
+    if (typeof opts.targetId !== 'string') return INVALID_OPTIONS();
+    targetId = stripMention(opts.targetId, 'user');
+    refs.users = [targetId];
+  } else if (type === CommandType.MESSAGE) {
+    if (typeof opts.targetId !== 'string') return INVALID_OPTIONS();
+    targetMessage = await loadLiveMessage(ctx.channel.id, opts.targetId);
+    if (!targetMessage) return { ok: false, status: 404, error: 'Unknown message', code: 'unknown_message' };
+    targetId = targetMessage.id;
+  } else {
+    return { ok: false, status: 400, error: 'Unsupported command type', code: 'unknown_command' };
+  }
+  const resolved = await buildResolved({ invokerId: ctx.user.id, channel: ctx.channel, attachments: opts.attachments, targetMessage }, refs);
+  if (!resolved.ok) return INVALID_OPTIONS();
+  const state = newState(app, ctx, InteractionType.APPLICATION_COMMAND, {
+    commandId: command.id,
+    commandType: type,
+    commandName: [command.name, ...path].join(' '),
+  });
+  const token = newInteractionToken();
+  const data = {
+    id: command.id,
+    name: command.name,
+    type,
+    ...(command.guildId ? { guild_id: command.guildId } : {}),
+    ...(options.length ? { options } : {}),
+    ...(Object.keys(resolved.resolved).length ? { resolved: resolved.resolved } : {}),
+    ...(targetId ? { target_id: targetId } : {}),
+  };
+  const payload = await basePayload({ id: state.id, token, type: InteractionType.APPLICATION_COMMAND, app, ctx, data });
+  return deliver(app, state, token, payload);
+}
+
+/** Picker / context menu: run command `commandId` (typed options or a target). */
+export async function invokeApplicationCommand(input: {
+  user: UserRow;
+  channelId: string;
+  commandId: string;
+  options?: unknown;
+  targetId?: string | null;
+  attachments?: IncomingAttachment[];
+}): Promise<DeliveryResult> {
+  const limited = await rateLimited('interactionCreate', input.user.id);
+  if (limited) return limited;
+  const c = await invokerContext(input.user, input.channelId, { requireSend: true });
+  if (!c.ok) return c;
+  const resolved = await resolveInvocableCommand({ userId: input.user.id, channel: c.ctx.channel, membership: c.ctx.membership }, input.commandId);
+  if (!resolved.ok) return resolved;
+  return dispatchCommand({ ctx: c.ctx, command: resolved.command, app: resolved.app, options: input.options, targetId: input.targetId, attachments: input.attachments });
+}
+
+/** Autocomplete while typing an option: returns the app's choices (or [] after ~2.5 s). */
+export async function invokeAutocomplete(input: {
+  user: UserRow;
+  channelId: string;
+  commandId: string;
+  options: unknown;
+}): Promise<{ ok: true; choices: unknown[] } | InvokeError> {
+  const limited = await rateLimited('interactionAutocomplete', input.user.id);
+  if (limited) return limited;
+  const c = await invokerContext(input.user, input.channelId, { requireSend: true });
+  if (!c.ok) return c;
+  const resolved = await resolveInvocableCommand({ userId: input.user.id, channel: c.ctx.channel, membership: c.ctx.membership }, input.commandId, CommandType.CHAT_INPUT);
+  if (!resolved.ok) return resolved;
+  const declared = (Array.isArray(resolved.command.options) ? resolved.command.options : []) as CommandOption[];
+  const check = checkInvocationOptions(declared, input.options, { autocomplete: true });
+  if (!check.ok || !check.focused) return INVALID_OPTIONS(check.ok ? undefined : check.option);
+  const focusedDecl = findDeclaredOption(declared, check.path, check.focused.name);
+  const state = newState(resolved.app, c.ctx, InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE, {
+    commandId: resolved.command.id,
+    commandType: CommandType.CHAT_INPUT,
+    commandName: resolved.command.name,
+    focusedType: focusedDecl?.type ?? OptionType.STRING,
+  });
+  const token = newInteractionToken();
+  const data = {
+    id: resolved.command.id,
+    name: resolved.command.name,
+    type: CommandType.CHAT_INPUT,
+    ...(resolved.command.guildId ? { guild_id: resolved.command.guildId } : {}),
+    options: check.options,
+  };
+  const payload = await basePayload({ id: state.id, token, type: InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE, app: resolved.app, ctx: c.ctx, data });
+  const delivered = await deliver(resolved.app, state, token, payload);
+  if (!delivered.ok) return delivered;
+  const store = interactionStore();
+  const deadline = Date.now() + ACK_DEADLINE_MS;
+  while (Date.now() < deadline) {
+    const choices = await store.takeAutocomplete(state.id);
+    if (choices) return { ok: true, choices };
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  return { ok: true, choices: [] };
+}
+
+/** The app that owns a message's components (its bot, or an app-owned webhook). */
+async function componentOwner(authorId: string): Promise<App | null> {
+  const byBot = await Application.findOne({ botId: authorId }).catch(() => null);
+  if (byBot) return byBot;
+  const hook = await ChannelWebhook.findById(authorId).catch(() => null);
+  const appId = (hook as { applicationId?: string | null } | null)?.applicationId;
+  return appId ? Application.findById(appId).catch(() => null) : null;
+}
+
+/** A button click or select choice on a message → MESSAGE_COMPONENT interaction. */
+export async function invokeComponent(input: {
+  user: UserRow;
+  channelId: string;
+  messageId: string;
+  customId: string;
+  componentType: number;
+  values?: unknown;
+}): Promise<DeliveryResult> {
+  const limited = await rateLimited('interactionCreate', input.user.id);
+  if (limited) return limited;
+  const c = await invokerContext(input.user, input.channelId, { requireSend: false });
+  if (!c.ok) return c;
+  const store = interactionStore();
+  let components: ReturnType<typeof parseStoredComponents> = null;
+  let ownerId: string;
+  let message: unknown;
+  let ephemeral = false;
+  const record = await store.getRecord<EphemeralRecord>('eph', input.messageId);
+  if (record) {
+    // Only the invoker ever saw an ephemeral message.
+    if (!same(record.invokerId, input.user.id) || !same(record.channelId, input.channelId)) return { ok: false, status: 404, error: 'Unknown message', code: 'unknown_message' };
+    components = record.components;
+    ownerId = record.botId;
+    message = await ephemeralToDiscord(record);
+    ephemeral = true;
+  } else {
+    const msg = await loadLiveMessage(input.channelId, input.messageId);
+    if (!msg) return { ok: false, status: 404, error: 'Unknown message', code: 'unknown_message' };
+    components = parseStoredComponents(msg.components);
+    ownerId = msg.authorId;
+    message = await discordMessageFromRow(msg);
+  }
+  const click = checkComponentClick(components, { customId: input.customId, componentType: input.componentType, values: input.values });
+  if (!click.ok) return { ok: false, status: 400, error: 'This component is not available', code: `component_${click.reason}` };
+  const app = await componentOwner(ownerId);
+  if (!app || !app.botId) return { ok: false, status: 404, error: 'Unknown application', code: 'unknown_application' };
+  if (!(await botMayRespond(app.botId, c.ctx.channel.id, c.ctx.channel.serverId ?? null))) {
+    return { ok: false, status: 404, error: 'The application is no longer here', code: 'unknown_application' };
+  }
+  // Entity selects: the picked users / roles / channels must be real and visible.
+  let resolved: Record<string, unknown> | null = null;
+  if (click.values && click.component.type !== ComponentType.STRING_SELECT) {
+    const refs: InvocationRefs = { users: [], roles: [], channels: [], mentionables: [], attachments: [] };
+    if (click.component.type === ComponentType.USER_SELECT) refs.users = click.values.map((v) => v.toLowerCase());
+    else if (click.component.type === ComponentType.ROLE_SELECT) refs.roles = click.values.map((v) => v.toLowerCase());
+    else if (click.component.type === ComponentType.CHANNEL_SELECT) refs.channels = click.values.map((v) => v.toLowerCase());
+    else refs.mentionables = click.values.map((v) => v.toLowerCase());
+    const r = await buildResolved({ invokerId: input.user.id, channel: c.ctx.channel }, refs);
+    if (!r.ok) return { ok: false, status: 400, error: 'This selection is not available', code: 'component_values' };
+    resolved = r.resolved;
+  }
+  const state = newState(app, c.ctx, InteractionType.MESSAGE_COMPONENT, {
+    sourceMessageId: input.messageId,
+    sourceEphemeral: ephemeral,
+    commandName: '',
+  });
+  const token = newInteractionToken();
+  const data = {
+    custom_id: click.component.custom_id,
+    component_type: click.component.type,
+    ...(click.component.id !== undefined ? { id: click.component.id } : {}),
+    ...(click.values ? { values: click.values } : {}),
+    ...(resolved && Object.keys(resolved).length ? { resolved } : {}),
+  };
+  const payload = await basePayload({ id: state.id, token, type: InteractionType.MESSAGE_COMPONENT, app, ctx: c.ctx, data, message });
+  return deliver(app, state, token, payload);
+}
+
+/** A submitted modal → MODAL_SUBMIT interaction (each modal can be submitted once). */
+export async function submitModal(input: {
+  user: UserRow;
+  modalId: string;
+  components: unknown;
+}): Promise<DeliveryResult> {
+  const limited = await rateLimited('interactionCreate', input.user.id);
+  if (limited) return limited;
+  const store = interactionStore();
+  const record = await store.getRecord<ModalRecord>('modal', input.modalId);
+  if (!record || !record.modal || !same(record.userId, input.user.id)) return { ok: false, status: 404, error: 'This form has expired', code: 'unknown_modal' };
+  const c = await invokerContext(input.user, record.channelId, { requireSend: false });
+  if (!c.ok) return c;
+  const submitted = Array.isArray(input.components) ? (input.components as ModalSubmitValue[]) : [];
+  const built = buildModalSubmit(record.modal, submitted);
+  if (!built.ok) return { ok: false, status: 400, error: 'Some fields are not valid', code: `modal_${built.reason}`, field: built.field } as InvokeError;
+  const app = await Application.findById(record.applicationId);
+  if (!app || !app.botId) return { ok: false, status: 404, error: 'Unknown application', code: 'unknown_application' };
+  let resolved: Record<string, unknown> | null = null;
+  const { users, roles, channels } = built.entityIds;
+  if (users.length || roles.length || channels.length) {
+    const r = await buildResolved({ invokerId: input.user.id, channel: c.ctx.channel }, {
+      users: users.filter((u) => !roles.includes(u)), roles: [], channels, mentionables: roles, attachments: [],
+    });
+    if (!r.ok) return { ok: false, status: 400, error: 'Some fields are not valid', code: 'modal_values' };
+    resolved = r.resolved;
+  }
+  if (!(await store.claimOnce('modal', input.modalId))) return { ok: false, status: 409, error: 'This form was already submitted', code: 'modal_used' };
+  let message: unknown;
+  if (record.sourceMessageId) {
+    if (record.sourceEphemeral) {
+      const eph = await store.getRecord<EphemeralRecord>('eph', record.sourceMessageId);
+      if (eph) message = await ephemeralToDiscord(eph);
+    } else {
+      const msg = await loadLiveMessage(record.channelId, record.sourceMessageId);
+      if (msg) message = await discordMessageFromRow(msg);
+    }
+  }
+  const state = newState(app, c.ctx, InteractionType.MODAL_SUBMIT, {
+    sourceMessageId: message ? record.sourceMessageId : null,
+    sourceEphemeral: record.sourceEphemeral,
+    commandName: record.commandName,
+  });
+  const token = newInteractionToken();
+  const data = {
+    custom_id: record.modal.custom_id,
+    components: built.components,
+    ...(resolved && Object.keys(resolved).length ? { resolved } : {}),
+  };
+  const payload = await basePayload({ id: state.id, token, type: InteractionType.MODAL_SUBMIT, app, ctx: c.ctx, data, message });
+  await store.deleteRecord('modal', input.modalId);
+  return deliver(app, state, token, payload);
+}
+
+// ─── Text fallback ("/name args" typed in the composer) ─────
 
 /** Split a command string into tokens, keeping `"quoted values"` together. */
 function tokenize(input: string): string[] {
@@ -95,109 +1006,52 @@ function tokenize(input: string): string[] {
   return tokens;
 }
 
-/** Coerce a raw string value to the JSON type implied by a Discord option type. */
-function coerceOptionValue(type: number, raw: string): string | number | boolean {
-  switch (type) {
-    case OPTION_TYPES.INTEGER: {
-      const n = parseInt(raw, 10);
-      return Number.isNaN(n) ? raw : n;
-    }
-    case OPTION_TYPES.NUMBER: {
-      const n = parseFloat(raw);
-      return Number.isNaN(n) ? raw : n;
-    }
-    case OPTION_TYPES.BOOLEAN:
-      return raw.toLowerCase() === 'true' || raw === '1' || raw.toLowerCase() === 'yes';
-    default:
-      return raw;
-  }
-}
-
-/**
- * Resolve a flat token list against a command's declared leaf options into
- * Discord-style option values. Supports `name:value` named options in any order
- * plus positional fallback for anything not explicitly named.
- */
-function resolveLeafOptions(
-  declared: AppCommandOption[],
-  tokens: string[],
-): { name: string; type: number; value: string | number | boolean }[] {
-  const leaves = declared.filter(
-    (o) => o.type !== OPTION_TYPES.SUB_COMMAND && o.type !== OPTION_TYPES.SUB_COMMAND_GROUP,
-  );
+/** `name:value` named options in any order, plus positional fallback. */
+function leafOptionsFromText(declared: CommandOption[], tokens: string[]): Array<{ name: string; type: number; value: unknown }> {
+  const leaves = declared.filter((o) => o.type !== OptionType.SUB_COMMAND && o.type !== OptionType.SUB_COMMAND_GROUP);
   const byName = new Map(leaves.map((o) => [o.name.toLowerCase(), o]));
   const named = new Map<string, string>();
   const positional: string[] = [];
-
   for (const token of tokens) {
     const sep = token.indexOf(':');
-    if (sep > 0) {
-      const key = token.slice(0, sep).toLowerCase();
-      if (byName.has(key)) {
-        named.set(key, token.slice(sep + 1));
-        continue;
-      }
+    if (sep > 0 && byName.has(token.slice(0, sep).toLowerCase())) {
+      named.set(token.slice(0, sep).toLowerCase(), token.slice(sep + 1));
+      continue;
     }
     positional.push(token);
   }
-
-  const result: { name: string; type: number; value: string | number | boolean }[] = [];
-  let posIdx = 0;
+  const out: Array<{ name: string; type: number; value: unknown }> = [];
+  let pos = 0;
   for (const opt of leaves) {
     const key = opt.name.toLowerCase();
     let raw: string | undefined;
-    if (named.has(key)) {
-      raw = named.get(key);
-    } else if (posIdx < positional.length) {
+    if (named.has(key)) raw = named.get(key);
+    else if (pos < positional.length) {
       // A free-text final option (e.g. a message/reason) greedily takes the rest.
-      const isLast = opt === leaves[leaves.length - 1];
-      raw = isLast && opt.type === OPTION_TYPES.STRING
-        ? positional.slice(posIdx).join(' ')
-        : positional[posIdx];
-      posIdx += isLast && opt.type === OPTION_TYPES.STRING ? positional.length - posIdx : 1;
+      const greedy = opt === leaves[leaves.length - 1] && opt.type === OptionType.STRING;
+      raw = greedy ? positional.slice(pos).join(' ') : positional[pos];
+      pos += greedy ? positional.length - pos : 1;
     }
-    if (raw === undefined || raw === '') {
-      if (opt.required) result.push({ name: opt.name, type: opt.type, value: '' });
-      continue;
-    }
-    result.push({ name: opt.name, type: opt.type, value: coerceOptionValue(opt.type, raw) });
+    if (raw === undefined || raw === '') continue;
+    let value: unknown = raw;
+    if (opt.type === OptionType.INTEGER || opt.type === OptionType.NUMBER) value = Number(raw);
+    else if (opt.type === OptionType.BOOLEAN) value = ['true', '1', 'yes'].includes(raw.toLowerCase()) ? true : ['false', '0', 'no'].includes(raw.toLowerCase()) ? false : raw;
+    out.push({ name: opt.name, type: opt.type, value });
   }
-  return result;
+  return out;
 }
 
-/**
- * Build the nested `data.options` for an interaction, walking subcommand and
- * subcommand-group paths declared on the command before resolving leaf options.
- */
-function buildInteractionOptions(
-  declared: AppCommandOption[],
-  tokens: string[],
-): any[] {
+function optionsFromText(declared: CommandOption[], tokens: string[]): unknown[] {
   const first = tokens[0]?.toLowerCase();
-
-  const group = declared.find(
-    (o) => o.type === OPTION_TYPES.SUB_COMMAND_GROUP && o.name.toLowerCase() === first,
-  );
+  const group = declared.find((o) => o.type === OptionType.SUB_COMMAND_GROUP && o.name.toLowerCase() === first);
   if (group) {
-    return [{
-      name: group.name,
-      type: OPTION_TYPES.SUB_COMMAND_GROUP,
-      options: buildInteractionOptions(group.options ?? [], tokens.slice(1)),
-    }];
+    const second = tokens[1]?.toLowerCase();
+    const sub = (group.options ?? []).find((o) => o.type === OptionType.SUB_COMMAND && o.name.toLowerCase() === second);
+    return [{ name: group.name, type: group.type, options: sub ? [{ name: sub.name, type: sub.type, options: leafOptionsFromText(sub.options ?? [], tokens.slice(2)) }] : [] }];
   }
-
-  const sub = declared.find(
-    (o) => o.type === OPTION_TYPES.SUB_COMMAND && o.name.toLowerCase() === first,
-  );
-  if (sub) {
-    return [{
-      name: sub.name,
-      type: OPTION_TYPES.SUB_COMMAND,
-      options: resolveLeafOptions(sub.options ?? [], tokens.slice(1)),
-    }];
-  }
-
-  return resolveLeafOptions(declared, tokens);
+  const sub = declared.find((o) => o.type === OptionType.SUB_COMMAND && o.name.toLowerCase() === first);
+  if (sub) return [{ name: sub.name, type: sub.type, options: leafOptionsFromText(sub.options ?? [], tokens.slice(1)) }];
+  return leafOptionsFromText(declared, tokens);
 }
 
 interface InternalMessageLike {
@@ -209,191 +1063,46 @@ interface InternalMessageLike {
 }
 
 /**
- * POST a signed interaction to an application's interactions endpoint and return
- * the parsed JSON response. Signs `timestamp + body` with the app's Ed25519 key,
- * exactly like Discord, so the bot can verify it with the shared public key.
- */
-export async function postSignedInteraction(
-  app: { interactionsEndpointUrl?: string | null; privateKeyPem?: string | null },
-  payload: unknown,
-): Promise<{ ok: boolean; status: number; body: any } | null> {
-  if (!app.interactionsEndpointUrl || !app.privateKeyPem) return null;
-
-  const body = JSON.stringify(payload);
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const signature = signInteraction(app.privateKeyPem, timestamp + body);
-
-  try {
-    const res = await fetch(app.interactionsEndpointUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'SerikaCord-Interactions/1.0',
-        'X-Signature-Ed25519': signature,
-        'X-Signature-Timestamp': timestamp,
-      },
-      body,
-      signal: AbortSignal.timeout(3000),
-    });
-    let json: any = null;
-    try { json = await res.json(); } catch { /* empty/no body */ }
-    return { ok: res.ok, status: res.status, body: json };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Verify an interactions endpoint URL by sending a PING. Discord requires the
- * endpoint to respond to a signed PING with `{ type: 1 }` before it will accept
- * the URL. Returns true only if the endpoint responds correctly.
- */
-export async function verifyInteractionEndpoint(app: {
-  interactionsEndpointUrl?: string | null;
-  privateKeyPem?: string | null;
-  clientId?: string;
-}): Promise<boolean> {
-  const result = await postSignedInteraction(app, {
-    id: crypto.randomUUID(),
-    application_id: app.clientId ?? '',
-    type: INTERACTION_PING,
-    token: 'ping',
-    version: 1,
-  });
-  return !!result && result.ok && result.body?.type === CB_PONG;
-}
-
-/**
  * If a user message is a slash-command invocation (`/name ...`) that maps to a
- * registered application command, build and dispatch an APPLICATION_COMMAND
- * interaction, then apply the bot's response.
- *
- * Returns `true` when the content was a *recognized* application command (so the
- * caller should treat it as consumed and NOT post it as a plain message), and
- * `false` when it isn't a command at all.
+ * registered application command, dispatch it (same checks as the picker).
+ * Returns `true` when the content was a recognized application command (the
+ * caller then must NOT post it as a plain message). Invalid options get a
+ * "failed" notice instead of reaching the bot.
  */
 export async function maybeDispatchSlashInteraction(
   message: InternalMessageLike,
-  // In a DM, only the bot on the other end should receive the command — pass its
-  // id here so a global command doesn't fan out to every unrelated bot.
+  // In a DM, only the bot on the other end should receive the command.
   restrictToBotId?: string | null,
 ): Promise<boolean> {
   const content = (message.content ?? '').trim();
-  if (!content.startsWith('/')) return false;
-
+  if (!content.startsWith('/') || !message.author?.id) return false;
   const tokens = tokenize(content.slice(1));
-  const rawName = tokens.shift();
-  const name = rawName?.toLowerCase();
-  if (!name) return false;
+  const name = tokens.shift()?.toLowerCase();
+  if (!name || name.length > 32) return false;
 
   const guildId = message.serverId ?? null;
+  const candidates = await findCommandsByName(name, guildId);
+  if (candidates.length === 0) return false;
+  const user = await User.findById(message.author.id);
+  if (!user) return false;
+  const channel = await Channel.findById(message.channelId);
+  if (!channel) return false;
+  const membership = guildId ? await ServerMember.findOne({ serverId: guildId, userId: user.id }) : null;
+  const ctx: InvokeContext = { user, channel, membership };
 
-  // Find every command registered under this name. Filter by name in-process too,
-  // in case the model's find doesn't apply the name filter.
-  const allCmds = await AppCommand.find({ name });
-  const matching = allCmds.filter((c) => (c.name ?? '').toLowerCase() === name);
-  if (matching.length === 0) return false;
-
-  // Collapse to ONE command per application: prefer a guild-scoped command for
-  // this guild, otherwise the app's global command. This is what lets two
-  // different bots expose the same command name — each is dispatched its own
-  // interaction independently.
-  const perApp = new Map<string, any>();
-  for (const c of matching) {
-    const appId = String(c.applicationId);
-    const isGuildMatch = !!(c.guildId && guildId && c.guildId === guildId);
-    const isGlobal = !c.guildId;
-    if (!isGuildMatch && !isGlobal) continue; // guild command for a different guild
-    const existing = perApp.get(appId);
-    const existingIsGuild = !!(existing && existing.guildId && guildId && existing.guildId === guildId);
-    if (!existing || (isGuildMatch && !existingIsGuild)) perApp.set(appId, c);
-  }
-  if (perApp.size === 0) return false;
-
-  const invokerId = message.author?.id ?? '';
-  const member = message.author
-    ? { user: { id: message.author.id, username: message.author.username ?? '' }, roles: [] }
-    : undefined;
-
-  let dispatchedAny = false;
-
-  // Outside a server, only bots that are recipients of this DM / group DM may
-  // receive the command (and get a token that lets them post here). Without
-  // this, every app with a global command of that name received the DM's
-  // channel id, the invoker and their arguments.
-  let dmRecipients: string[] | null = null;
-  if (!guildId) {
-    dmRecipients = await dmRecipientIds(message.channelId);
-    if (dmRecipients.length === 0) return false;
-  }
-
-  await Promise.all(
-    [...perApp.values()].map(async (cmd) => {
-      const app = await Application.findById(cmd.applicationId);
-      if (!app || !app.botId) return;
-
-      // In a DM, restrict dispatch to the recipient bot only.
-      if (restrictToBotId && !sameId(app.botId, restrictToBotId)) return;
-      if (dmRecipients && !dmRecipients.some((r) => sameId(r, app.botId))) return;
-
-      // Only dispatch to bots actually present where the command was invoked, so
-      // a global command from an unrelated server's bot doesn't fire here.
-      if (guildId) {
-        const isMember = await ServerMember.findOne({ serverId: guildId, userId: app.botId });
-        if (!isMember) return;
-      }
-
-      const declared = (cmd.options as AppCommandOption[]) ?? [];
-      const optionValues = buildInteractionOptions(declared, tokens);
-      // Token is unique per (message, app) so two bots' responses don't collide.
-      // It is the only credential for the callback/follow-up routes, so the
-      // secret part comes from a CSPRNG (128 bits), not Math.random().
-      const interactionToken = `${message.id}.${app.botId}.${crypto.randomUUID().replace(/-/g, '')}`;
-
-      const interaction = {
-        id: crypto.randomUUID(),
-        application_id: app.clientId,
-        type: INTERACTION_APPLICATION_COMMAND,
-        token: interactionToken,
-        version: 1,
-        channel_id: message.channelId,
-        guild_id: guildId ?? undefined,
-        member,
-        user: message.author ? { id: message.author.id, username: message.author.username ?? '' } : undefined,
-        data: { id: cmd.id, name: cmd.name, type: cmd.type ?? 1, options: optionValues },
-      };
-
-      const invokerName = message.author?.username ?? '';
-      storeInteraction(interactionToken, {
-        botId: app.botId,
-        channelId: message.channelId,
-        serverId: message.serverId ?? null,
-        invokerId,
-        commandName: cmd.name,
-        invokerName,
-      });
-
-      dispatchedAny = true;
-      const interactionRef: InteractionRef = { name: cmd.name, user: { id: invokerId, username: invokerName } };
-
-      if (app.interactionsEndpointUrl) {
-        // HTTP interactions endpoint (Discord-style signed webhook).
-        const result = await postSignedInteraction(app, interaction);
-        if (result && result.ok && result.body?.type === CB_CHANNEL_MESSAGE && result.body.data
-          && await botMayRespond(app.botId, message.channelId, message.serverId ?? null)) {
-          await sendBotResponse(app.botId, message.channelId, message.serverId ?? null, result.body.data, invokerId, interactionRef);
-        }
-        void CB_DEFERRED_CHANNEL_MESSAGE; // deferred: bot follows up via the callback endpoint
-      } else {
-        // Gateway-connected bot with no HTTP endpoint: deliver the interaction
-        // over the gateway. The bot replies via POST /interactions/:id/:token/callback.
-        const { emitInteractionCreate } = await import('@/lib/services/gatewayEvents');
-        await emitInteractionCreate({ botId: app.botId, guildId, interaction });
-      }
-    }),
-  );
-
-  return dispatchedAny;
+  let consumed = false;
+  await Promise.all(candidates.map(async (cmd) => {
+    const resolved = await resolveInvocableCommand({ userId: user.id, channel, membership }, cmd.id, CommandType.CHAT_INPUT);
+    if (!resolved.ok) return;
+    if (restrictToBotId && !same(resolved.app.botId, restrictToBotId)) return;
+    consumed = true;
+    const declared = (Array.isArray(cmd.options) ? cmd.options : []) as CommandOption[];
+    const result = await dispatchCommand({ ctx, command: cmd, app: resolved.app, options: optionsFromText(declared, tokens) });
+    if (!result.ok) {
+      void notifyInvoker(user.id, { event: 'failed', channelId: channel.id, reason: result.code, command: cmd.name });
+    }
+  }));
+  return consumed;
 }
 
 /**
@@ -410,163 +1119,10 @@ export async function dispatchSlashCommand(input: {
   restrictToBotId?: string | null;
 }): Promise<boolean> {
   return maybeDispatchSlashInteraction({
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     content: input.content,
     channelId: input.channelId,
     serverId: input.serverId,
     author: input.author,
   }, input.restrictToBotId);
-}
-
-/** Create a message authored by the bot in response to an interaction. */
-async function sendBotResponse(
-  botId: string,
-  channelId: string,
-  serverId: string | null,
-  data: { content?: string; embeds?: unknown[]; flags?: number },
-  invokerId?: string,
-  interactionRef?: InteractionRef,
-) {
-  if (!data.content && !(data.embeds && data.embeds.length)) return;
-
-  const isEphemeral = (data.flags ?? 0) & FLAG_EPHEMERAL;
-
-  const botUser = await User.findById(botId);
-  const authorObj = botUser ? {
-    id: botId,
-    username: botUser.username,
-    displayName: botUser.displayName || botUser.username,
-    avatar: botUser.avatar,
-    isBot: true,
-  } : null;
-
-  if (isEphemeral && invokerId) {
-    // Ephemeral messages are NOT persisted — they exist only in the SSE stream
-    // for the invoking user. Use a synthetic ID so the client can track it.
-    const ephemeralId = `eph_${crypto.randomUUID()}`;
-    const messageResponse = {
-      id: ephemeralId,
-      content: data.content ?? '',
-      authorId: botId,
-      author: authorObj,
-      channelId,
-      serverId: serverId ?? undefined,
-      createdAt: new Date().toISOString(),
-      attachments: [],
-      embeds: data.embeds ?? [],
-      type: 'default',
-      ephemeral: true,
-      interaction: interactionRef,
-    };
-
-    try {
-      // DM channels have no serverId and their clients listen on the DM SSE
-      // stream (publishToDm), not the channel stream — route accordingly so a
-      // bot's ephemeral reply actually renders inside a DM.
-      if (serverId) {
-        const { publishToChannel } = await import('@/lib/api/channels');
-        publishToChannel(channelId, { type: 'ephemeral', userId: invokerId, message: messageResponse });
-      } else {
-        const { publishToDm } = await import('@/lib/api/dms');
-        publishToDm(channelId, { type: 'ephemeral', userId: invokerId, message: messageResponse });
-      }
-    } catch {}
-    return;
-  }
-
-  // Normal (non-ephemeral) response: persist to DB and broadcast.
-  const msg = await Message.create({
-    channelId,
-    serverId: serverId || null,
-    authorId: botId,
-    content: data.content ?? '',
-    embeds: data.embeds ?? [],
-    type: 'default',
-    interaction: interactionRef ?? null,
-  });
-
-  const messageResponse = {
-    id: msg.id,
-    content: msg.content,
-    authorId: botId,
-    author: authorObj,
-    channelId,
-    serverId: serverId ?? undefined,
-    createdAt: msg.createdAt,
-    attachments: [],
-    embeds: data.embeds ?? [],
-    type: 'default',
-    interaction: interactionRef,
-  };
-
-  try {
-    // Route the persisted bot reply to the stream its client actually listens
-    // on: channel stream for servers, DM stream for DMs (no serverId).
-    if (serverId) {
-      const { publishToChannel } = await import('@/lib/api/channels');
-      publishToChannel(channelId, { type: 'message', message: messageResponse });
-    } else {
-      const { publishToDm } = await import('@/lib/api/dms');
-      publishToDm(channelId, { type: 'message', message: messageResponse });
-    }
-  } catch {}
-  try {
-    const { signalChannelMessage, signalDmMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
-    const botName = (authorObj as { displayName?: string; username?: string } | null)?.displayName
-      || (authorObj as { username?: string } | null)?.username;
-    if (serverId) {
-      const ch = await Channel.findById(channelId);
-      void signalChannelMessage({
-        channel: { id: channelId, serverId, name: ch?.name },
-        messageId: msg.id,
-        authorId: botId,
-        authorName: botName,
-        mentionedUserIds: extractUserMentionIds(data.content),
-        createdAt: msg.createdAt,
-      });
-    } else {
-      const ch = await Channel.findById(channelId);
-      void signalDmMessage({
-        channelId,
-        recipientIds: (ch?.recipientIds || []) as string[],
-        messageId: msg.id,
-        authorId: botId,
-        authorName: botName,
-        authorAvatar: (authorObj as { avatar?: string | null } | null)?.avatar ?? null,
-        content: data.content ?? '',
-        createdAt: msg.createdAt,
-      });
-    }
-  } catch {}
-  try {
-    const { emitMessageCreate } = await import('@/lib/services/gatewayEvents');
-    await emitMessageCreate(messageResponse as never);
-  } catch {}
-}
-
-/**
- * Handle a followup callback from the bot's interaction callback endpoint.
- * Looks up stored interaction metadata by token and creates a message.
- * Returns the created message ID, or null if the token is unknown / no content.
- */
-export async function handleInteractionCallback(
-  interactionToken: string,
-  body: { type?: number; data?: { content?: string; embeds?: unknown[]; flags?: number } },
-): Promise<{ ok: boolean; messageId?: string }> {
-  const meta = getInteraction(interactionToken);
-  if (!meta) return { ok: false };
-  // The token only lets its bot answer where it is still allowed to be.
-  if (!(await botMayRespond(meta.botId, meta.channelId, meta.serverId))) return { ok: false };
-
-  const data = body.data;
-  if (!data || (!data.content && !(data.embeds && data.embeds.length))) {
-    return { ok: true };
-  }
-
-  const interactionRef: InteractionRef = {
-    name: meta.commandName,
-    user: { id: meta.invokerId, username: meta.invokerName },
-  };
-  await sendBotResponse(meta.botId, meta.channelId, meta.serverId, data, meta.invokerId, interactionRef);
-  return { ok: true };
 }

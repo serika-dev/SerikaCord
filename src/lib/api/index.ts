@@ -19,6 +19,7 @@ import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
+import { interactionRoutes } from './interactionRoutes';
 import { automodRoutes } from './automod';
 import { communityRoutes } from './community';
 import { faviconRoutes } from './favicons';
@@ -4015,97 +4016,18 @@ export const api = new Elysia({ prefix: '/api' })
     const info = getVersionInfo(host);
     return { ...info, builtAt: getServerBuildTime() ?? info.builtAt };
   })
-  .post('/webhooks/:channelId/:token', async ({ params, body, set }) => {
-    const { ChannelWebhook, Channel, Message } = await import('@/lib/models');
-    const { secureCompare, validateMessageContent } = await import('@/lib/security');
-    const notFound = () => { set.status = 404; return { error: 'Webhook not found' }; };
-    if (!params.token || params.token.length > 128 || !isValidObjectId(normalizeId(params.channelId))) return notFound();
-    const webhook = await ChannelWebhook.findOne({
-      channelId: params.channelId,
-      token: params.token,
-    });
-    // Second, timing-safe guard: a model whitelist regression must never turn
-    // this back into "first webhook in the channel".
-    if (!webhook || !webhook.token || !secureCompare(webhook.token, params.token)) return notFound();
-
-    const limit = await checkRateLimit('webhookExecute', webhook.id);
-    if (!limit.success) {
-      set.status = 429;
-      set.headers['Retry-After'] = String(limit.retryAfter ?? 1);
-      return { error: 'Too many requests', retry_after: limit.retryAfter };
-    }
-
-    const channel = await Channel.findById(params.channelId);
-    if (!channel) {
-      set.status = 404;
-      return { error: 'Channel not found' };
-    }
-    const payload = (body ?? {}) as { content?: unknown; username?: unknown; avatar_url?: unknown };
-    const rawContent = typeof payload.content === 'string' ? payload.content : '';
-    const validation = validateMessageContent(rawContent);
-    if (!validation.valid) {
-      set.status = 400;
-      return { error: validation.error || 'Invalid message content' };
-    }
-    const { sanitizeMessageContent, publishToChannel } = await import('./channels');
-    const content = sanitizeMessageContent(rawContent);
-    if (!content) {
-      set.status = 400;
-      return { error: 'Message content cannot be empty' };
-    }
-    const { buildWebhookAuthor } = await import('@/lib/chat/webhook');
-    const author = buildWebhookAuthor(
-      { id: webhook.id, name: webhook.name, avatar: webhook.avatar },
-      { username: payload.username, avatarUrl: payload.avatar_url },
-      'online',
-    );
-    const { encryptForStorage } = await import('@/lib/security');
-    const encryptedContent = await encryptForStorage(content);
-    // Stored under the webhook's own id, not the creator's: a leaked token
-    // can't post as the admin who made it, and these never group with (or
-    // reload as) the creator's own messages.
-    const message = await Message.create({
-      channelId: channel.id,
-      serverId: channel.serverId ?? undefined,
-      authorId: webhook.id,
-      content: encryptedContent,
-      type: 'default',
-    });
-    await Channel.updateById(channel.id, { lastMessageId: message.id, updatedAt: new Date() });
-    const messageResponse = {
-      id: message.id,
-      content: content,
-      authorId: author.id,
-      author,
-      webhookId: webhook.id,
-      channelId: message.channelId,
-      serverId: channel.serverId,
-      createdAt: message.createdAt,
-      updatedAt: message.updatedAt,
-      attachments: [],
-      edited: false,
-      type: 'default',
-      pinned: false,
-      reactions: [],
-    };
-    publishToChannel(channel.id, { type: 'message', message: messageResponse });
-    const { signalChannelMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
-    void signalChannelMessage({
-      channel: { id: channel.id, serverId: channel.serverId, name: channel.name },
-      messageId: message.id,
-      // Not the creator's id: they should get unread for their webhook's posts too.
-      authorId: `webhook:${webhook.id}`,
-      authorName: author.username,
-      content,
-      mentionedUserIds: extractUserMentionIds(content),
-      createdAt: message.createdAt,
-    });
-    return {
-      id: message.id,
-      channel_id: channel.id,
-      content: content,
-      webhook_id: webhook.id,
-    };
+  // Channel webhook execute. Old URLs are /api/webhooks/{channel_id}/{token};
+  // Discord-style ones are /api/webhooks/{webhook_id}/{token} (same as
+  // /api/v10/webhooks/..., see botApi.ts): both resolve here, the token is
+  // compared in constant time. Without ?wait the old response shape is kept.
+  .post('/webhooks/:channelId/:token', async ({ params, body, query, request, set }) => {
+    const { findLegacyWebhook, executeWebhook } = await import('@/lib/services/channelWebhooks');
+    const webhook = await findLegacyWebhook(normalizeId(params.channelId), params.token);
+    if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook', error: 'Webhook not found' }; }
+    const result = await executeWebhook(webhook, body, query as Record<string, string | undefined>, { ip: getClientIP(request), legacy: true });
+    set.status = result.status;
+    if (result.headers) Object.assign(set.headers, result.headers);
+    return result.status === 204 ? '' : result.body;
   })
   .get('/platform/announcement', async () => {
     const { getPlatformSettings } = await import('@/lib/models/PlatformSettings');
@@ -4341,6 +4263,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(dmRoutes)
   .use(groupDmRoutes)
   .use(messageExtrasRoutes)
+  .use(interactionRoutes)
   .use(automodRoutes)
   .use(communityRoutes)
   .use(faviconRoutes)
@@ -4409,6 +4332,11 @@ export async function initializeAPI() {
     const { ensureMessageExtrasSchema, startPollSweeper } = await import('@/lib/services/messageExtras');
     await ensureMessageExtrasSchema();
     startPollSweeper();
+    // Interactions + components: messages.components / webhook_author (read
+    // by every message query), app_commands fields, app_command_permissions,
+    // channel_webhooks.application_id. Idempotent, never throws.
+    const { ensureInteractionSchema } = await import('@/lib/services/interactionSchema');
+    await ensureInteractionSchema();
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();

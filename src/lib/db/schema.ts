@@ -271,6 +271,14 @@ export const messages = pgTable('messages', {
   // Nullable, no default (metadata-only add on the big table). Added at boot by
   // ensureE2eeSchema() (drizzle/manual_e2ee.sql).
   e2ee: jsonb('e2ee'),
+  // Message components (Discord JSON shape, validated by lib/botapi/components):
+  // action rows / buttons / selects, or components v2 layouts with the
+  // IS_COMPONENTS_V2 flag. Nullable, no default. Added at boot by
+  // ensureInteractionSchema() (drizzle/manual_interactions_components.sql).
+  components: jsonb('components'),
+  // Webhook execute username / avatar_url override ({ username, avatar }).
+  // Nullable, no default. Added at boot by ensureInteractionSchema().
+  webhookAuthor: jsonb('webhook_author'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
@@ -825,12 +833,37 @@ export const appCommands = pgTable('app_commands', {
   defaultPermission: boolean('default_permission').default(true),
   type: integer('type').default(1),
   version: text('version').default('1'),
+  // Discord command fields (permissions v2, contexts, localizations). All
+  // nullable, no default. Added at boot by ensureInteractionSchema()
+  // (drizzle/manual_interactions_components.sql).
+  defaultMemberPermissions: text('default_member_permissions'),
+  dmPermission: boolean('dm_permission'),
+  contexts: integer('contexts').array(),
+  integrationTypes: integer('integration_types').array(),
+  nameLocalizations: jsonb('name_localizations'),
+  descriptionLocalizations: jsonb('description_localizations'),
+  nsfw: boolean('nsfw'),
+  handler: integer('handler'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
   appIdx: index('app_commands_application_id_idx').on(t.applicationId),
   guildIdx: index('app_commands_guild_id_idx').on(t.guildId),
   appGuildNameUnique: uniqueIndex('app_commands_application_id_guild_id_name_unique').on(t.applicationId, t.guildId, t.name),
+}));
+
+// Command permissions v2 overrides per guild ({ id, type, permission }[]).
+// command_id = the application id holds the app-wide defaults (as on Discord).
+// Added at boot by ensureInteractionSchema().
+export const appCommandPermissions = pgTable('app_command_permissions', {
+  guildId: uuid('guild_id').notNull(),
+  commandId: uuid('command_id').notNull(),
+  applicationId: uuid('application_id').notNull(),
+  permissions: jsonb('permissions').notNull().default([]),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.guildId, t.commandId] }),
+  appGuildIdx: index('app_command_permissions_app_guild_idx').on(t.applicationId, t.guildId),
 }));
 
 export const richPresence = pgTable('rich_presence', {
@@ -960,6 +993,9 @@ export const channelWebhooks = pgTable('channel_webhooks', {
   token: text('token').notNull(),
   url: text('url').notNull(),
   creatorId: uuid('creator_id').notNull(),
+  // Application (bot) that created it, if any. Nullable; added at boot by
+  // ensureInteractionSchema().
+  applicationId: uuid('application_id'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

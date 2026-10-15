@@ -396,7 +396,40 @@ export type MessageExtras = {
   poll?: PollView;
   pollResult?: ReturnType<typeof parsePollResult>;
   forward?: ForwardView;
+  /** Message components (buttons, selects, v2 layouts; lib/botapi/components). */
+  components?: unknown[];
+  /** Webhook post with a username / avatar override: the author as posted. */
+  author?: Record<string, unknown>;
 };
+
+/** Components + webhook identity overrides (no I/O, so no extra queries per page). */
+function applyAppExtras(rows: MessageRow[], out: Map<string, MessageExtras>): void {
+  for (const row of rows) {
+    const components = Array.isArray(row.components) && row.components.length ? (row.components as unknown[]) : null;
+    const wa = row.webhookAuthor as { username?: unknown; avatar?: unknown } | null;
+    if (!components && !(wa && typeof wa.username === 'string')) continue;
+    const extras: MessageExtras = { ...(out.get(row.id) ?? {}) };
+    if (components) extras.components = components;
+    if (wa && typeof wa.username === 'string') {
+      extras.author = {
+        id: row.authorId,
+        username: wa.username,
+        displayName: wa.username,
+        avatar: typeof wa.avatar === 'string' ? wa.avatar : null,
+        status: 'offline',
+        badges: [],
+        isOwner: false,
+        isSystem: false,
+        isBot: true,
+        isVerified: false,
+        isDiscord: false,
+        isWebhook: true,
+        customization: null,
+      };
+    }
+    out.set(row.id, extras);
+  }
+}
 
 /**
  * Poll tallies, poll result rows and forwards for one page of messages, as
@@ -405,6 +438,7 @@ export type MessageExtras = {
  */
 export async function loadMessageExtras(rows: MessageRow[], viewerId: string | null): Promise<Map<string, MessageExtras>> {
   const out = new Map<string, MessageExtras>();
+  applyAppExtras(rows, out);
   const pollRows: Array<{ id: string; poll: StoredPoll }> = [];
   const forwardRows: Array<{ id: string; stored: StoredForward }> = [];
   for (const row of rows) {

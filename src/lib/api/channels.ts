@@ -1685,17 +1685,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(user.id, params.channelId);
+    const { hasAccess, channel, membership, error } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) {
       set.status = 403;
       return { error: error || 'Access denied' };
     }
 
+    // Only what this user may run here (contexts, nsfw, default_member_permissions,
+    // permission overrides): slash commands plus user / message context menu commands.
     const { getChannelAppCommands } = await import('@/lib/services/appCommands');
-    const groups = await getChannelAppCommands({
-      serverId: channel.serverId ?? null,
-      recipientIds: channel.recipientIds ?? null,
-    });
+    const groups = await getChannelAppCommands(channel, { userId: user.id, channel, membership: membership ?? null });
     return { groups };
   }, {
     params: t.Object({
