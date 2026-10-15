@@ -5,6 +5,7 @@ import {
   boolean,
   integer,
   bigint,
+  smallint,
   numeric,
   timestamp,
   jsonb,
@@ -763,6 +764,10 @@ export const applications = pgTable('applications', {
   interactionsEndpointUrl: text('interactions_endpoint_url'),
   publicKey: text('public_key'),
   privateKeyPem: text('private_key_pem'),
+  // Id format the bot API shows this app: 'snowflake' (Discord-style numeric
+  // ids) or NULL (legacy UUIDs). Added at boot by ensureApiSnowflakeSchema()
+  // (drizzle/manual_api_snowflakes.sql).
+  apiIdFormat: text('api_id_format'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
@@ -770,6 +775,18 @@ export const applications = pgTable('applications', {
   teamIdx: index('applications_team_id_idx').on(t.teamId),
   clientIdIdx: index('applications_client_id_idx').on(t.clientId),
   ownerCreatedIdx: index('applications_owner_id_created_at_idx').on(t.ownerId, t.createdAt),
+}));
+
+// Public snowflake ids for the bot API (src/lib/botapi/snowflakeStore.ts):
+// one row per entity a snowflake-format bot has seen. Added at boot by
+// ensureApiSnowflakeSchema() (drizzle/manual_api_snowflakes.sql).
+export const apiSnowflakes = pgTable('api_snowflakes', {
+  snowflake: bigint('snowflake', { mode: 'bigint' }).primaryKey(),
+  kind: smallint('kind').notNull().default(0),
+  uuid: uuid('uuid').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  uuidUnique: uniqueIndex('api_snowflakes_uuid_unique').on(t.uuid),
 }));
 
 export const developerTeams = pgTable('developer_teams', {

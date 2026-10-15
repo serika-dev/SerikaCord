@@ -4399,6 +4399,10 @@ export async function initializeAPI() {
     // Group DMs: system message types + channels.icon. Idempotent, never throws.
     const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
     await ensureGroupDmSchema();
+    // Bot API snowflake ids: api_snowflakes + applications.api_id_format (read
+    // by every application query). Idempotent, never throws.
+    const { ensureApiSnowflakeSchema } = await import('@/lib/botapi/snowflakeStore');
+    await ensureApiSnowflakeSchema();
     // Threads in text channels: 'thread_created' message type + thread columns
     // on channels, then the auto-archive sweep. Idempotent, never throws.
     const { ensureThreadSchema, startThreadAutoArchive } = await import('@/lib/services/threads');

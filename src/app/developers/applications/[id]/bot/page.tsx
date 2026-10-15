@@ -184,6 +184,19 @@ export default function BotPage() {
     if (ok) toast.success(gt("Intent setting updated"));
   };
 
+  const snowflakeIds = app?.apiIdFormat === "snowflake";
+  const handleToggleIdFormat = async (value: boolean) => {
+    const warning = value
+      ? gt("Switch to Discord-style numeric ids? Every id your bot sees (users, servers, channels, messages, roles) changes. Ids your bot stored before will no longer match, so clear its database or re-fetch what it needs.")
+      : gt("Switch back to UUID ids? Every id your bot sees changes. Libraries such as discord.js and discord.py stop working with UUID ids.");
+    if (!confirm(warning)) return;
+    const ok = await saveApp({ apiIdFormat: value ? "snowflake" : "uuid" });
+    if (ok) {
+      toast.success(value ? gt("Your bot now sees Discord-style ids") : gt("Your bot now sees UUID ids"));
+      refetch();
+    }
+  };
+
   const handleEnableBot = async () => {
     setEnabling(true);
     try {
@@ -466,6 +479,38 @@ export default function BotPage() {
                 <span
                   className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
                     botRequireCodeGrant ? "translate-x-5" : ""
+                  }`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold">{gt("Discord-style ids")}</h3>
+                <p className="text-xs text-[var(--app-muted)] mt-1">
+                  {gt("Show ids to your bot as numeric snowflakes, like Discord. Needed for discord.js, discord.py and most other Discord libraries. New applications use this by default.")}
+                </p>
+                {!snowflakeIds && (
+                  <p className="text-xs text-yellow-500 mt-2 flex items-center gap-1">
+                    <AlertTriangle className="size-3 shrink-0" /> {gt("Turning this on changes every id your bot sees. Ids it stored before will no longer match.")}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => handleToggleIdFormat(!snowflakeIds)}
+                disabled={saving}
+                role="switch"
+                aria-checked={snowflakeIds}
+                aria-label={gt("Discord-style ids")}
+                className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${
+                  snowflakeIds ? "bg-[var(--app-accent)]" : "bg-[var(--app-border)]"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 size-5 bg-white rounded-full transition-transform ${
+                    snowflakeIds ? "translate-x-5" : ""
                   }`}
                 />
               </button>

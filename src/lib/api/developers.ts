@@ -150,6 +150,8 @@ function sanitizeApp(app: any) {
     gatewayIntents: allowedPrivilegedIntents(app),
     interactionsEndpointUrl: app.interactionsEndpointUrl ?? null,
     publicKey: app.publicKey ?? null,
+    // Id format the bot API shows this app ('snowflake' or 'uuid', see src/lib/botapi/boundary.ts).
+    apiIdFormat: app.apiIdFormat === 'snowflake' ? 'snowflake' : 'uuid',
     createdAt: app.createdAt,
     updatedAt: app.updatedAt,
   };
@@ -239,6 +241,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     serverCount: 0,
     tags: [],
     flags: 0,
+    // New apps get Discord-style numeric ids so discord.js / discord.py work as is.
+    apiIdFormat: 'snowflake',
   });
 
   // Auto-assign active_developer badge
@@ -308,7 +312,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     'name', 'description', 'icon', 'coverImage', 'botPublic', 'botRequireCodeGrant',
     'redirectUris', 'scopes', 'installParams', 'customInstallUrl', 'tags',
     'termsOfServiceUrl', 'privacyPolicyUrl', 'rpcOrigins', 'gatewayIntents',
-    'interactionsEndpointUrl',
+    'interactionsEndpointUrl', 'apiIdFormat',
   ];
 
   const updateData: Record<string, unknown> = {};
@@ -324,8 +328,20 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     if (stored === null) { set.status = 400; return { error: 'gatewayIntents must be a non-negative integer' }; }
     updateData.gatewayIntents = stored;
   }
+  if (updateData.apiIdFormat !== undefined) {
+    // 'snowflake' = Discord-style numeric ids; 'uuid' (stored as NULL) = legacy ids.
+    if (updateData.apiIdFormat !== 'snowflake' && updateData.apiIdFormat !== 'uuid') {
+      set.status = 400; return { error: "apiIdFormat must be 'snowflake' or 'uuid'" };
+    }
+    updateData.apiIdFormat = updateData.apiIdFormat === 'snowflake' ? 'snowflake' : null;
+  }
 
   await Application.updateById(app.id, updateData);
+  if (updateData.apiIdFormat !== undefined) {
+    // The bot API reads the format from the cached token lookup: drop it.
+    const { invalidateBotTokenCache } = await import('@/lib/services/botTokens');
+    invalidateBotTokenCache();
+  }
   const updated = await Application.findById(app.id);
   return { application: sanitizeApp(updated) };
 })

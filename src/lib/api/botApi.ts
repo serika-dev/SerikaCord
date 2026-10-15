@@ -29,6 +29,8 @@ import {
 } from '@/lib/chat/botMultipart';
 import { checkRateLimit, decryptFromStorage, getClientIP, isValidObjectId } from '@/lib/security';
 import { botRequestBuckets, rateLimitedResponse, rateLimitHeaders } from '@/lib/security/botRateLimit';
+import { botIdBoundary } from '@/lib/botapi/boundary';
+import { validationErrorBody } from '@/lib/botapi/errors';
 
 /** Audit-log a bot's moderation action (reason from X-Audit-Log-Reason, like Discord). */
 function botAudit(
@@ -432,6 +434,11 @@ function formatInvite(invite: any) {
 
 export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
+// ─── Snowflake id boundary ─────────────────────────────────
+// Snowflakes in params/query/body become UUIDs before any hook or route runs;
+// responses of snowflake-format apps get snowflake ids (src/lib/botapi/boundary.ts).
+.use(botIdBoundary)
+
 // ─── Uniform Discord-shaped errors ─────────────────────────
 // Any thrown error, failed validation, or unmatched route returns a
 // `{ code, message }` body with the right HTTP status — the same shape bots
@@ -444,7 +451,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       return { code: 0, message: '404: Not Found' };
     case 'VALIDATION':
       set.status = 400;
-      return { code: 50035, message: 'Invalid Form Body' };
+      return validationErrorBody(error);
     case 'PARSE':
       set.status = 400;
       return { code: 50109, message: 'The request body contains invalid JSON.' };
