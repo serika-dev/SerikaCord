@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.4.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.5.
 
 ---
 
@@ -11,13 +11,21 @@
 ### Changes
 
 ### Bug Fixes
-- Replies sent from an Android notification now show up live for the other person in DMs and group DMs, instead of only after a refresh.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.5 — 2026-10-15
+
+**Tag:** `v2.1.5` · **Commit:** `fda3bcb`
+
+### Bug Fixes
+- Replies sent from an Android notification now show up live for the other person in DMs and group DMs, instead of only after a refresh.
 
 ---
 
