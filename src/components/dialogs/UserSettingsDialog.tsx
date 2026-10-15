@@ -4654,7 +4654,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             {gt("Allowed Providers")}
                           </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {CONNECTION_PROVIDERS.map((prov) => {
+                            {/* Domains (DNS-verified websites) aren't an OAuth provider but share the toggle list. */}
+                            {[...CONNECTION_PROVIDERS, { id: "website", label: gt("Domains"), color: "#8B5CF6", bg: "#8B5CF620" }].map((prov) => {
                               const isDisabled = platformSettings?.disabledProviders?.includes(prov.id) || false;
                               return (
                                 <label
