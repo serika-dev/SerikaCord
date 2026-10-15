@@ -1,13 +1,12 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.12.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.13.
 
 ---
 
 ## Unreleased
 
 ### Features
-- **Message report review for staff** — reported messages now land in Trust & Safety → Reports: grouped by message, with filters, the reported message (encrypted reports show whether message franking verified them), the reporter's details and the author's account standing. Staff can dismiss, resolve, delete the message, or issue a strike, chat restriction or suspension; every action is logged and reporters can get a neutral "we took action" note.
 
 ### Changes
 
@@ -18,6 +17,15 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.13 — 2026-10-15
+
+**Tag:** `v2.1.13` · **Commit:** `4263cd2`
+
+### Features
+- **Message report review for staff** — reported messages now land in Trust & Safety → Reports: grouped by message, with filters, the reported message (encrypted reports show whether message franking verified them), the reporter's details and the author's account standing. Staff can dismiss, resolve, delete the message, or issue a strike, chat restriction or suspension; every action is logged and reporters can get a neutral "we took action" note.
 
 ---
 
