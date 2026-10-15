@@ -934,21 +934,25 @@ export async function addDmReaction(channel: DmChannelRef, user: AuthUser, messa
   if (!emojiData) return fail(400, 'Invalid emoji');
 
   // Row-locked so concurrent reactions can't overwrite each other.
-  const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) =>
-    addReaction(
+  let alreadyReacted = false;
+  const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+    alreadyReacted = current.find(matchReactionEmoji(emojiData))?.userIds?.some((id) => compareIds(id, user.id)) ?? false;
+    return addReaction(
       current,
       matchReactionEmoji(emojiData),
       { name: emojiData.name, id: emojiData.id, animated: emojiData.animated, url: emojiData.url },
       user.id,
       compareIds,
-    ).reactions,
-  );
+    ).reactions;
+  });
   if (!stored) return fail(404, 'Message not found');
 
   publishToDm(channel.id, { type: 'reaction_add', messageId, emoji, userId: user.id });
-  void import('@/lib/services/gatewayEvents')
-    .then(({ emitReactionAdd }) => emitReactionAdd({ channelId: channel.id, guildId: null, messageId: message.id, messageAuthorId: message.authorId, userId: user.id, emoji: emojiData }))
-    .catch(() => {});
+  if (!alreadyReacted) {
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitReactionAdd }) => emitReactionAdd({ channelId: channel.id, guildId: null, messageId: message.id, messageAuthorId: message.authorId, userId: user.id, emoji: emojiData }))
+      .catch(() => {});
+  }
   return ok();
 }
 

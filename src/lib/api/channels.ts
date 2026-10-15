@@ -4070,7 +4070,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Find or create reaction - match by ID for custom emojis, name for unicode.
     // Row-locked so concurrent reactions can't overwrite each other.
     let reactionCount = 0;
+    let alreadyReacted = false;
     const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+      alreadyReacted = current.find(matchReactionEmoji(emojiData))?.userIds?.some((id) => compareIds(id, user.id)) ?? false;
       const result = addReaction(
         current,
         matchReactionEmoji(emojiData),
@@ -4094,16 +4096,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       userId: user.id,
       count: reactionCount,
     });
-    void import('@/lib/services/gatewayEvents')
-      .then(({ emitReactionAdd }) => emitReactionAdd({
-        channelId: params.channelId,
-        guildId: channel.serverId ?? null,
-        messageId: message.id,
-        messageAuthorId: message.authorId,
-        userId: user.id,
-        emoji: emojiData,
-      }))
-      .catch(() => {});
+    if (!alreadyReacted) {
+      void import('@/lib/services/gatewayEvents')
+        .then(({ emitReactionAdd }) => emitReactionAdd({
+          channelId: params.channelId,
+          guildId: channel.serverId ?? null,
+          messageId: message.id,
+          messageAuthorId: message.authorId,
+          userId: user.id,
+          emoji: emojiData,
+        }))
+        .catch(() => {});
+    }
 
     return { success: true };
   }, {
