@@ -107,6 +107,9 @@ export async function sendSystemDM(
       },
     });
     publishToDm(channel.id, { type: 'message', message: messageData });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: channel.id, serverId: null }))
+      .catch(() => {});
     // Badge + notification for the recipient even when the DM list isn't open.
     void (async () => {
       try {

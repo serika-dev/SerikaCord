@@ -262,6 +262,9 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
   };
   const { publishToDm } = await import('@/lib/api/dms');
   publishToDm(channel.id, { type: 'message', message: messageData });
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: channel.id, serverId: null }))
+    .catch(() => {});
 
   // DM list bump for everyone + unread badge / notification for the callees.
   const { signalDmMessage } = await import('@/lib/services/messageSignals');

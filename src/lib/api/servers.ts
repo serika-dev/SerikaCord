@@ -5417,6 +5417,9 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     };
     const { publishToChannel } = await import('./channels');
     publishToChannel(channel.id, { type: 'message', message: messageResponse });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageCreate }) => emitMessageCreate({ id: msg.id, channelId: channel.id, serverId: server.id }))
+      .catch(() => {});
     return {
       success: true,
       message: messageResponse,

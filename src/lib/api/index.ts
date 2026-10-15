@@ -4089,6 +4089,9 @@ export const api = new Elysia({ prefix: '/api' })
       reactions: [],
     };
     publishToChannel(channel.id, { type: 'message', message: messageResponse });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: channel.id, serverId: channel.serverId ?? null }))
+      .catch(() => {});
     const { signalChannelMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
     void signalChannelMessage({
       channel: { id: channel.id, serverId: channel.serverId, name: channel.name },
@@ -4409,6 +4412,10 @@ export async function initializeAPI() {
     const { ensureMessageExtrasSchema, startPollSweeper } = await import('@/lib/services/messageExtras');
     await ensureMessageExtrasSchema();
     startPollSweeper();
+    // Bot API message parity: messages.tts / messages.pinned_at (read by every
+    // message query). Idempotent, never throws.
+    const { ensureBotMessageSchema } = await import('@/lib/services/botMessageSchema');
+    await ensureBotMessageSchema();
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();

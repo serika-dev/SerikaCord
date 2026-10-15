@@ -286,8 +286,9 @@ export function serializeMessage(m: MessageRowLike, ctx: SerializeContext = {}) 
   const poll = !isPollResult && !encrypted ? parseStoredPoll(m.poll) : null;
   const interaction = interactionInfo(m.interaction);
   const forward = ctx.forward ?? null;
-  const flags = typeof m.flags === 'number' ? m.flags : 0;
-  const suppressed = Boolean(m.suppressEmbeds) || (flags & (1 << 2)) !== 0;
+  // SUPPRESS_EMBEDS is also kept as its own column (the "remove embeds" action).
+  const flags = (typeof m.flags === 'number' ? m.flags : 0) | (m.suppressEmbeds ? 1 << 2 : 0);
+  const suppressed = (flags & (1 << 2)) !== 0;
   const embeds = encrypted
     ? []
     : isPollResult

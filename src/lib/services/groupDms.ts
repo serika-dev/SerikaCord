@@ -181,6 +181,9 @@ export async function postGroupEvent(
     groupEvent: groupEventPayload(type, nameText, opts.target ? { ...opts.target } : null),
   };
   publishToDm(channel.id, { type: 'message', message: messageData });
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: channel.id, serverId: null }))
+    .catch(() => {});
 
   const preview = groupEventPreview(type, actorName, targetName, nameText);
   const recipients = [...new Set([...(channel.recipientIds || []), ...(opts.notify || [])])];

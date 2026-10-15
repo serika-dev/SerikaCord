@@ -884,6 +884,9 @@ export async function startDiscordBot() {
             };
 
             publishToChannel(serikaChannelId, { type: 'message', message: messageResponse });
+            void import('@/lib/services/gatewayEvents')
+              .then(({ emitMessageCreate }) => emitMessageCreate({ id: msg.id, channelId: serikaChannelId, serverId: server.id }))
+              .catch(() => {});
             // Never log message content or author names (privacy; see security.md).
             console.log(`[Discord Bot] Forwarded message ${d.id} to Serika channel ${chan.id}`);
           }
@@ -929,6 +932,10 @@ export async function startDiscordBot() {
             if (newAttachments) update.attachments = newAttachments;
 
             await Message.updateById(serikaMsg.id, update);
+            // Content edits and Discord's own embed unfurls both reach Serika bots.
+            void import('@/lib/services/gatewayEvents')
+              .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: serikaMsg.id, channelId: serikaChannelId, serverId: serikaMsg.serverId ?? null }))
+              .catch(() => {});
 
             publishToChannel(serikaChannelId, {
               type: 'edit',
@@ -964,6 +971,9 @@ export async function startDiscordBot() {
               type: 'delete',
               messageId: serikaMsg.id,
             });
+            void import('@/lib/services/gatewayEvents')
+              .then(({ emitMessageDelete }) => emitMessageDelete({ id: serikaMsg.id, channelId: serikaChannelId, guildId: serikaMsg.serverId ?? null }))
+              .catch(() => {});
             console.log(`[Discord Bot] Forwarded message delete for Discord msg ${d.id} → Serika msg ${serikaMsg.id}`);
           }
         }

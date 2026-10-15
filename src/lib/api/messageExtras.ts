@@ -40,7 +40,6 @@ import {
   type StoredPoll,
 } from '@/lib/chat/polls';
 import {
-  isForwardable,
   normalizeForwardNote,
   normalizeForwardTargets,
   parseStoredForward,
@@ -48,6 +47,7 @@ import {
   type StoredForward,
 } from '@/lib/chat/forward';
 import {
+  buildForwardSnapshot,
   finalizePoll,
   forwardViewFor,
   loadPollTallies,
@@ -504,43 +504,10 @@ export const messageExtrasRoutes = new Elysia()
     const { checkChannelAccess } = await import('@/lib/api/channels');
     const sourceAccess = await checkChannelAccess(user.id, source.channelId);
     if (!sourceAccess.hasAccess) { set.status = 403; return { error: 'You cannot see that message' }; }
-    // An encrypted message's server copy is ciphertext: there is nothing to forward.
-    if ((source as { e2ee?: unknown }).e2ee) { set.status = 400; return { error: 'Encrypted messages cannot be forwarded yet' }; }
-
-    // Forwarding a forward passes the original along, like Discord.
-    const inner = source.messageSnapshot ? parseStoredForward(source.messageSnapshot) : null;
-    const forwardable = isForwardable({
-      id: source.id,
-      type: source.type as never,
-      content: source.content ? 'x' : '',
-      attachments: (source.attachments || []) as never,
-      embeds: (source.embeds || []) as never,
-      sticker: (source.sticker || undefined) as never,
-      poll: source.poll ? ({} as never) : null,
-      forward: inner ? ({} as never) : null,
-    });
-    if (!forwardable) { set.status = 400; return { error: 'This message cannot be forwarded' }; }
-
-    let snapshot: StoredForward;
-    if (inner) {
-      snapshot = inner;
-    } else {
-      const author = await User.findById(source.authorId).catch(() => null);
-      snapshot = {
-        messageId: source.id,
-        channelId: source.channelId,
-        serverId: source.serverId ?? null,
-        authorId: source.authorId,
-        author: author ? { id: author.id, username: author.username, displayName: author.displayName || author.username, avatar: author.avatar ?? null } : null,
-        // Copied still encrypted: same key, never decrypted on this path.
-        content: source.content || '',
-        attachments: (Array.isArray(source.attachments) ? source.attachments : []) as StoredForward['attachments'],
-        embeds: (Array.isArray(source.embeds) && !source.suppressEmbeds ? source.embeds : []) as StoredForward['embeds'],
-        sticker: (source.sticker || null) as StoredForward['sticker'],
-        createdAt: new Date(source.createdAt ?? Date.now()).toISOString(),
-        edited: Boolean(source.edited),
-      };
-    }
+    // Same snapshot rules as bot forwards (encrypted / unforwardable sources refused).
+    const built = await buildForwardSnapshot(source);
+    if ('error' in built) { set.status = 400; return { error: built.error }; }
+    const snapshot: StoredForward = built.snapshot;
 
     const global = await checkRateLimit('messageGlobal', user.id);
     if (!global.success) { set.status = 429; return { error: 'You are sending messages too quickly', retryAfter: global.retryAfter }; }

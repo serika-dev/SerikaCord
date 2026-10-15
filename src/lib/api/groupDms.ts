@@ -508,6 +508,9 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
     await cache.setTyping(channel.id, user.id);
     publishToDm(channel.id, { type: 'typing', userId: user.id, username: user.username });
     emitDmListUpdate(channel.recipientIds || [], { type: 'typing', channelId: channel.id, userId: user.id, username: user.username });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitTypingStart }) => emitTypingStart({ channelId: channel.id, guildId: null, userId: user.id }))
+      .catch(() => {});
     return { success: true };
   }, { params: t.Object({ channelId: t.String() }) })
   .patch('/:channelId/messages/:messageId', async ({ headers, cookie, params, body, set }) => {
