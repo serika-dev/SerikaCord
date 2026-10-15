@@ -20,7 +20,7 @@
 // Writes that create keys or encrypted conversations are refused while the
 // E2EE_ENABLED flag is off; reads and device revocation always work.
 import { Elysia, t } from 'elysia';
-import { and, count, eq, isNull, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { authenticateRequest } from '@/lib/services/auth';
@@ -116,6 +116,19 @@ function identitySummary(row: Awaited<ReturnType<typeof getIdentity>>) {
   return row
     ? { identityPub: row.identityPub, backupPub: row.backupPub, hasBackup: Boolean(row.backupBlob), updatedAt: row.updatedAt }
     : null;
+}
+
+/** Of these users, the ones whose identity has no passphrase backup yet. */
+async function membersWithoutRecovery(userIds: string[]): Promise<Set<string>> {
+  const ids = [...new Set(userIds.map((u) => normalizeId(u)))];
+  if (ids.length === 0) return new Set();
+  const rows = await db
+    .select({ userId: schema.e2eeIdentities.userId, blob: schema.e2eeIdentities.backupBlob })
+    .from(schema.e2eeIdentities)
+    .where(inArray(schema.e2eeIdentities.userId, ids))
+    .catch(() => [] as Array<{ userId: string; blob: string | null }>);
+  const withBackup = new Set(rows.filter((r) => r.blob).map((r) => normalizeId(r.userId)));
+  return new Set(ids.filter((id) => !withBackup.has(id)));
 }
 
 export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
@@ -511,7 +524,14 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     publishToDm(channel.id, { type: 'e2ee_enabled', channelId: channel.id });
     publishToDm(channel.id, { type: 'message', message: messageData });
     emitDmListUpdate(memberIds, { type: 'dm:e2ee', channelId: channel.id, e2ee: true });
-    return { success: true, e2ee: true, changed: true, message: messageData };
+    // Others who haven't set a recovery passphrase yet: encryption works, but
+    // they can't restore this history on a new device until they do.
+    const withoutRecovery = await membersWithoutRecovery(memberIds.filter((id) => normalizeId(id) !== normalizeId(user.id)));
+    const names = members
+      .filter((m) => withoutRecovery.has(normalizeId(m.id)))
+      .map((m) => m.displayName || m.username)
+      .slice(0, 5);
+    return { success: true, e2ee: true, changed: true, message: messageData, withoutRecovery: names };
   }, { params: t.Object({ channelId: t.String() }) })
 
   // Ciphertext relay: only `e2ee-*.bin` attachment blobs on our own CDN, so it

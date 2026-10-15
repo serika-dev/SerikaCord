@@ -685,9 +685,12 @@ export async function safetyNumberWith(uid: string, identityPub?: string | null)
   return computeSafetyNumber({ userId, identityPub: identity.pub }, { userId: uid, identityPub: theirs });
 }
 
-export async function enableChannelEncryption(channelId: string): Promise<void> {
-  await api(`/channels/${encodeURIComponent(channelId)}/enable`, { method: "POST" });
+/** Turn encryption on; `withoutRecovery` names others who haven't set a recovery passphrase. */
+export async function enableChannelEncryption(channelId: string): Promise<{ changed: boolean; withoutRecovery: string[] }> {
+  const res = await api<{ changed?: boolean; withoutRecovery?: unknown }>(`/channels/${encodeURIComponent(channelId)}/enable`, { method: "POST" });
   channelKeyCache.delete(lower(channelId));
+  const names = Array.isArray(res.withoutRecovery) ? res.withoutRecovery.filter((n): n is string => typeof n === "string") : [];
+  return { changed: res.changed !== false, withoutRecovery: names };
 }
 
 // ─── Who a conversation's messages are encrypted to ───────────────────────────

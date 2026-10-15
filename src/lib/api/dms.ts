@@ -1046,7 +1046,9 @@ const DM_SSE_HEADERS = {
 };
 
 export const DM_SEND_BODY = t.Object({
-  content: t.Optional(t.String({ minLength: 1, maxLength: 4000 })),
+  // May be '' (end-to-end encrypted messages carry their text in `e2ee`);
+  // empty plaintext sends are rejected by prepareDmSend.
+  content: t.Optional(t.String({ maxLength: 4000 })),
   sticker: t.Optional(t.Object({
     id: t.String(),
     name: t.String(),

@@ -92,9 +92,26 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
     setEnabling(true);
     try {
       const session = await loadE2eeSession();
-      await session.enableChannelEncryption(channelId);
+      const result = await session.enableChannelEncryption(channelId);
+      if (!auto) {
+        toast.success(gt("End-to-end encryption is on for this conversation."));
+        if (result.withoutRecovery.length > 0) {
+          toast(gt("{names} hasn't set a recovery passphrase yet. Messages work, but they can't restore this conversation on a new device until they set one.", { names: result.withoutRecovery.join(", ") }), { duration: 8000 });
+        }
+      }
     } catch (err) {
-      if (!auto) toast.error(err instanceof Error && err.message ? err.message : gt("Couldn't turn on encryption."));
+      if (!auto) {
+        const status = (err as { status?: number } | null)?.status;
+        toast.error(
+          status === 409
+            ? gt("Everyone here needs to open SerikaCord on an updated app before encryption can be turned on.")
+            : status === 400
+              ? gt("Conversations with bots or system accounts can't be encrypted.")
+              : status === 429
+                ? gt("Too many attempts. Wait a moment and try again.")
+                : gt("Couldn't turn on encryption."),
+        );
+      }
     } finally {
       setEnabling(false);
     }

@@ -659,3 +659,14 @@ describe("key bundles are bound to the user asked for (client session)", () => {
     }
   });
 });
+
+describe('DM send body schema', () => {
+  test('accepts an encrypted message with empty content', async () => {
+    const { Value } = await import('@sinclair/typebox/value');
+    const { DM_SEND_BODY } = await import('@/lib/api/dms');
+    const envelope = { v: 1, sd: 'dev', epk: 'k', iv: 'i', ct: 'c', cm: 'm', sig: 's', keys: [{ r: 'dev', iv: 'i', k: 'k' }] };
+    expect(Value.Check(DM_SEND_BODY, { content: '', e2ee: envelope })).toBe(true);
+    expect(Value.Check(DM_SEND_BODY, { e2ee: envelope })).toBe(true);
+    expect(Value.Check(DM_SEND_BODY, { content: 'x'.repeat(4001) })).toBe(false);
+  });
+});

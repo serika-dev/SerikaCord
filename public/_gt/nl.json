@@ -7607,5 +7607,9 @@
   "98a8c82a3dae78ef": "End-to-end versleuteling geldt voor DM's, groeps-DM's en de gesprekken daarin, niet voor serverkanalen. Het is nieuw en nog niet onafhankelijk geaudit.",
   "2140fb91e868e7ce": "Gesprekken maken waar mogelijk een peer-to-peerverbinding, dus anderen in een gesprek kunnen je IP-adres zien.",
   "727c19724c1ae616": "We gebruiken AI-programmeerassistenten bij het bouwen van SerikaCord. AI-moderatietools voor servers zijn in ontwikkeling en worden optioneel.",
-  "b3c1a8b8c58f5d38": "We hebben alle onderstaande bronnen gecontroleerd op {date}. Feiten over SerikaCord komen uit ons eigen beleid, onze documentatie en code. Stoat en Revolt zijn namen van hun respectievelijke eigenaren."
+  "b3c1a8b8c58f5d38": "We hebben alle onderstaande bronnen gecontroleerd op {date}. Feiten over SerikaCord komen uit ons eigen beleid, onze documentatie en code. Stoat en Revolt zijn namen van hun respectievelijke eigenaren.",
+  "ef1ba0d5c77c5035": "End-to-end-versleuteling staat aan voor dit gesprek.",
+  "3581dad8dc05456b": "{names} heeft nog geen herstelwachtzin ingesteld. Berichten werken gewoon, maar ze kunnen dit gesprek pas op een nieuw apparaat herstellen als ze er een instellen.",
+  "23dedb54fd329c9e": "Iedereen hier moet SerikaCord eerst openen in een bijgewerkte app voordat versleuteling aan kan.",
+  "3169d3b73bc74863": "Gesprekken met bots of systeemaccounts kunnen niet worden versleuteld."
 }

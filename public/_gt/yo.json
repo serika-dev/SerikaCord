@@ -7475,5 +7475,9 @@
   "98a8c82a3dae78ef": "End-to-end encryption covers DMs, group DMs and their calls, not server channels. It is new and hasn't been independently audited.",
   "2140fb91e868e7ce": "Calls connect peer-to-peer when possible, so other people in a call can see your IP address.",
   "727c19724c1ae616": "We use AI coding assistants to help build SerikaCord. AI moderation tools for servers are in development and will be optional.",
-  "b3c1a8b8c58f5d38": "We checked every source below on {date}. Facts about SerikaCord come from our own policies, documentation and code. Stoat and Revolt are names of their respective owners."
+  "b3c1a8b8c58f5d38": "We checked every source below on {date}. Facts about SerikaCord come from our own policies, documentation and code. Stoat and Revolt are names of their respective owners.",
+  "ef1ba0d5c77c5035": "End-to-end encryption is on for this conversation.",
+  "3581dad8dc05456b": "{names} hasn't set a recovery passphrase yet. Messages work, but they can't restore this conversation on a new device until they set one.",
+  "23dedb54fd329c9e": "Everyone here needs to open SerikaCord on an updated app before encryption can be turned on.",
+  "3169d3b73bc74863": "Conversations with bots or system accounts can't be encrypted."
 }

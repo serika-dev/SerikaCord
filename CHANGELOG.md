@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- **Encrypted DMs can send messages again** — after turning on end-to-end encryption, every message in that DM or group DM was refused. Turning encryption on now confirms it worked, explains why it can't be turned on yet, and tells you when someone hasn't set a recovery passphrase.
 
 ### Performance
 
