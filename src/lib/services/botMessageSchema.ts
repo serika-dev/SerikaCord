@@ -23,7 +23,8 @@ export function ensureBotMessageSchema(): Promise<void> {
         return;
       } catch (err) {
         console.error(`[messages] Ensuring tts / pinned_at columns failed (attempt ${attempt}):`, (err as Error)?.message ?? err);
-        await new Promise((r) => setTimeout(r, Math.min(30_000, 2_000 * attempt)));
+        // Short backoff: boot waits on this (every message select names these columns).
+        await new Promise((r) => setTimeout(r, Math.min(5_000, 500 * attempt)));
       }
     }
     g.__botMessageSchema = null;

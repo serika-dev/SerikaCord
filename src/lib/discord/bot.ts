@@ -70,12 +70,14 @@ function mapEmbeds(d: any): any[] {
  * the reply renders natively in Serika. Returns null if the referenced message
  * isn't bridged (e.g. it predates the bridge or was from an unconsented user).
  */
-async function resolveReply(d: any): Promise<{ referencedMessageId: string; referencedMessage: any } | null> {
+async function resolveReply(d: any, serikaChannelId?: string): Promise<{ referencedMessageId: string; referencedMessage: any } | null> {
   const refId: string | undefined = d.message_reference?.message_id || d.referenced_message?.id;
   if (!refId) return null;
   const { Message } = await import('@/lib/models');
   const serikaRef = await Message.findByDiscordMessageId(refId);
   if (!serikaRef) return null;
+  // Replies stay within one bridged channel: never quote a message from another one.
+  if (serikaChannelId && String(serikaRef.channelId).toLowerCase() !== String(serikaChannelId).toLowerCase()) return null;
 
   // Best-effort author snapshot for the inline reply preview.
   let refAuthor: any = { id: serikaRef.authorId, username: 'user', displayName: 'User' };
@@ -830,7 +832,7 @@ export async function startDiscordBot() {
             const content = formatDiscordContentForSerika(rawContent);
             const attachments = mapAttachments(d);
             const embeds = mapEmbeds(d);
-            const reply = await resolveReply(d);
+            const reply = await resolveReply(d, serikaChannelId);
 
             if (!content && attachments.length === 0 && embeds.length === 0) {
               console.warn('[Discord Bot] ⚠️ MESSAGE_CREATE has empty content and no attachments — skipping.');

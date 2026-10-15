@@ -160,7 +160,11 @@ export async function loadDiscordMessages(rows: IMessage[], opts: LoadOptions = 
     webhooks,
     includeGuildId: opts.gateway,
     authorMember: opts.gateway && r.serverId ? members.get(lower(r.serverId))?.get(lower(r.authorId)) ?? null : null,
-    referenced: r.referencedMessageId ? referencedSerialized.get(lower(r.referencedMessageId)) ?? null : null,
+    // Only a target in the same channel (replies never cross channels; never leak another channel's message).
+    referenced: r.referencedMessageId && referencedById.get(lower(r.referencedMessageId))?.channelId
+      && lower(referencedById.get(lower(r.referencedMessageId))!.channelId) === lower(r.channelId)
+      ? referencedSerialized.get(lower(r.referencedMessageId)) ?? null
+      : null,
     pollTally: (tallies as Map<string, { counts: Record<number, number>; myVotes: number[] }>).get(r.id) ?? null,
     forward: forwards[i],
     position: positions.get(lower(r.id)) ?? null,

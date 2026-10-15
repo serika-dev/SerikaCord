@@ -1037,6 +1037,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       if ((typeof content === 'string' && content) || embeds || embed || parsedBody.files.length || (Array.isArray(rawAttachments) && rawAttachments.length) || (Array.isArray(sticker_ids) && sticker_ids.length) || pollRequest) {
         set.status = 400; return formError(['message_reference'], 'MESSAGE_FORWARD_CANNOT_HAVE_CONTENT', 'A forwarded message cannot have content, embeds, files, stickers or a poll.');
       }
+      // Same visibility as the app (private threads, tickets, pending screening), then READ_MESSAGE_HISTORY.
+      if (!isValidObjectId(refChannelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+      const { checkChannelAccess } = await import('@/lib/api/channels');
+      const srcAccess = await checkChannelAccess(botId, refChannelId);
+      if (!srcAccess.channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+      if (!srcAccess.hasAccess) { set.status = 403; return MISSING_ACCESS; }
       const src = await requireChannelAction(refChannelId, botId, 'read_history');
       if (!src.ok) { set.status = src.status; return src.body; }
       const source = await loadChannelMessage(refChannelId, refMessageId);
@@ -1297,6 +1303,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = await Channel.findById(params.channelId);
   if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
   const isThread = isThreadChannel(channel);
+  // End-to-end encrypted conversations never get plaintext edits.
+  if ((channel as { e2ee?: boolean | null }).e2ee === true) { set.status = 403; return { code: 50007, message: 'Cannot send messages to this user' }; }
 
   const parsedBody = parseBotMessageBody(body);
   if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
