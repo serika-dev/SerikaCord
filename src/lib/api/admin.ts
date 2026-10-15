@@ -2307,7 +2307,10 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     if (priority && priority !== 'all') filter.priority = priority;
     if (category && category !== 'all') filter.category = category;
 
-    let allReports = await BugReport.find(filter);
+    // Message reports filed before the Trust & Safety report queue live on in
+    // bug_reports; they are reviewed there (Trust & Safety → Reports).
+    const { isLegacyMessageReportRow } = await import('@/lib/safety/messageReports');
+    let allReports = (await BugReport.find(filter)).filter((r) => !isLegacyMessageReportRow(r));
     const { normalizeUrl } = await import('@/lib/services/storage');
     allReports = allReports.map((r) => {
       if (!r.attachments || !Array.isArray(r.attachments)) return r;
@@ -2474,7 +2477,8 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       return { error: error || 'Admin access required' };
     }
 
-    const allReports = await BugReport.find({});
+    const { isLegacyMessageReportRow } = await import('@/lib/safety/messageReports');
+    const allReports = (await BugReport.find({})).filter((r) => !isLegacyMessageReportRow(r));
     const stats = {
       total: allReports.length,
       open: allReports.filter(r => r.status === 'open').length,

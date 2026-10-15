@@ -75,7 +75,8 @@ function RoleEditor({ role, access, onSaved, onDeleted }: {
   };
   const presets: { name: string; permissions: StaffPermission[] }[] = [
     { name: gt("Support"), permissions: ["users.view", "reports.manage"] },
-    { name: gt("Moderator"), permissions: ["users.view", "users.moderate", "servers.view", "reports.manage", "logs.view"] },
+    { name: gt("Moderator"), permissions: ["users.view", "users.moderate", "servers.view", "reports.manage", "reports.review", "logs.view"] },
+    { name: gt("Trust & Safety"), permissions: ["users.view", "reports.review", "safety.review", "logs.view"] },
     { name: gt("Release editor"), permissions: ["changelog.manage"] },
     { name: gt("Release publisher"), permissions: ["changelog.manage", "changelog.publish"] },
   ];

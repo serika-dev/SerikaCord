@@ -84,6 +84,8 @@ export function ensureTrustSafetySchema(): Promise<void> {
             added_by uuid, match_count integer NOT NULL DEFAULT 0, last_matched_at timestamp, created_at timestamp NOT NULL DEFAULT now())`);
           await tx.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS scam_image_hashes_hash_unique ON scam_image_hashes (hash)`);
         });
+        // The message report queue's table (its own ensure; never throws).
+        void import('@/lib/services/messageReports').then((m) => m.ensureMessageReportsSchema()).catch(() => {});
         return;
       } catch (err) {
         console.error(`[trust-safety] Ensuring schema failed (attempt ${attempt}):`, (err as Error)?.message ?? err);
@@ -123,6 +125,15 @@ export async function isStaffAccount(userId: string): Promise<boolean> {
   const { getUserStaffAccess } = await import('@/lib/services/staffAuth');
   const access = await getUserStaffAccess({ ...user, isBanned: false }).catch(() => null);
   return Boolean(access && (access.isSuperAdmin || access.permissions.length > 0 || access.roles.length > 0));
+}
+
+/** Only a super admin may put strikes / restrictions on another staff account. */
+export async function canActOnStaffTarget(actorId: string, targetId: string): Promise<boolean> {
+  if (!(await isStaffAccount(targetId))) return true;
+  const actor = await User.findById(actorId).catch(() => null);
+  if (!actor) return false;
+  const { getUserStaffAccess } = await import('@/lib/services/staffAuth');
+  return Boolean((await getUserStaffAccess(actor).catch(() => null))?.isSuperAdmin);
 }
 
 async function dropUserCache(userId: string) {

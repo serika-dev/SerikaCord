@@ -1119,6 +1119,52 @@ function formatSerikaContentForDiscord(content: string): string {
   return result;
 }
 
+/**
+ * Soft-deletes a server channel message and sends the live events: the
+ * delete, the channel's newest-message pointer, the unread reset, the Discord
+ * bridge and the thread chip. The caller has checked permission (author,
+ * MANAGE_MESSAGES, or Trust & Safety staff acting on a report via
+ * src/lib/services/messageReports.ts) and writes any audit entry.
+ */
+export async function softDeleteChannelMessage(
+  channel: Pick<IChannel, 'id' | 'serverId' | 'type' | 'lastMessageId'>,
+  message: Pick<IMessage, 'id' | 'createdAt'>,
+): Promise<void> {
+  await Message.updateById(message.id, { isDeleted: true, deletedAt: new Date() });
+
+  // Send to SSE connections
+  publishToChannel(channel.id, {
+    type: 'delete',
+    messageId: message.id,
+  });
+
+  // Clear stale unread: if this deletion removed the message that left the
+  // channel unread for other members, recompute the newest remaining message
+  // time and broadcast a reset so their badges roll back. Fire-and-forget.
+  void (async () => {
+    const [latest] = await Message.find({ channelId: channel.id, isDeleted: false, _limit: 1 });
+    // Move the channel's newest-message pointer off the deleted message (the
+    // unread seed reads it).
+    if (channel.lastMessageId && compareIds(channel.lastMessageId, message.id)) {
+      await Channel.updateById(channel.id, { lastMessageId: latest?.id ?? null }).catch(() => {});
+    }
+    const lastMessageAt = latest?.createdAt
+      ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
+      : null;
+    const { notifyUnreadReset } = await import('@/lib/api/activity');
+    notifyUnreadReset({ serverId: channel.serverId || undefined }, channel.id, lastMessageAt, [
+      { id: message.id, at: message.createdAt ? new Date(message.createdAt).toISOString() : null },
+    ]);
+  })().catch(() => { /* best-effort */ });
+
+  void replicateToDiscord('delete', channel.id, { id: message.id });
+
+  // A thread's chip shows its message count.
+  if (channel.type === 'public_thread' || channel.type === 'private_thread') {
+    refreshThreadAfterMessage(channel.id);
+  }
+}
+
 async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelId: string, message: any) {
   try {
     const channel = await Channel.findById(channelId);
@@ -3813,41 +3859,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'You do not have permission to delete this message' };
     }
 
-    // Soft delete
-    await Message.updateById(message.id, { isDeleted: true, deletedAt: new Date() });
-
-
-    // Send to SSE connections
-    publishToChannel(params.channelId, {
-      type: 'delete',
-      messageId: params.messageId,
-    });
-
-    // Clear stale unread: if this deletion removed the message that left the
-    // channel unread for other members, recompute the newest remaining message
-    // time and broadcast a reset so their badges roll back. Fire-and-forget.
-    void (async () => {
-      const [latest] = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: 1 });
-      // Move the channel's newest-message pointer off the deleted message (the
-      // unread seed reads it).
-      if (channel.lastMessageId && compareIds(channel.lastMessageId, message.id)) {
-        await Channel.updateById(channel.id, { lastMessageId: latest?.id ?? null }).catch(() => {});
-      }
-      const lastMessageAt = latest?.createdAt
-        ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
-        : null;
-      const { notifyUnreadReset } = await import('@/lib/api/activity');
-      notifyUnreadReset({ serverId: channel.serverId || undefined }, params.channelId, lastMessageAt, [
-        { id: message.id, at: message.createdAt ? new Date(message.createdAt).toISOString() : null },
-      ]);
-    })().catch(() => { /* best-effort */ });
-
-    void replicateToDiscord('delete', params.channelId, { id: params.messageId });
-
-    // A thread's chip shows its message count.
-    if (channel.type === 'public_thread' || channel.type === 'private_thread') {
-      refreshThreadAfterMessage(channel.id);
-    }
+    // Ids as requested (the SSE / Discord keys the delete used before).
+    await softDeleteChannelMessage({ ...channel, id: params.channelId }, { ...message, id: params.messageId });
     // A moderator deleting someone else's message is audited (Discord does not
     // log self-deletes).
     if (!isAuthor && channel.serverId) {
@@ -4224,9 +4237,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     params: t.Object({ channelId: t.String(), messageId: t.String(), userId: t.String() }),
     query: t.Object({ emoji: t.String() }),
   })
-  // Report a message to the SerikaCord staff (Trust & Safety). Stored in the
-  // staff reports queue (bug_reports, category "security") with the message,
-  // its author and a snippet, so staff can act from the admin panel.
+  // Report a message to the SerikaCord staff (Trust & Safety). Filed in the
+  // staff message report queue (message_reports, src/lib/services/messageReports.ts)
+  // with a snapshot of the message as reported; staff review it under
+  // Settings → Admin → Trust & Safety → Reports.
   .post('/:channelId/messages/:messageId/report', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
@@ -4253,56 +4267,51 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'You cannot report your own message' };
     }
     const reason = isMessageReportReason(body.reason) ? body.reason : 'other';
-    const details = (body.details ?? '').trim().slice(0, 1000);
-    let content = message.content ? (await decryptFromStorage(message.content)).slice(0, 1500) : '';
+    const details = sanitizeInput((body.details ?? '').slice(0, 1000)).trim();
+    let content = message.content ? await decryptFromStorage(message.content) : '';
     // End-to-end encrypted message: the reporter discloses the message key and
     // plaintext (message franking). Only a disclosure that verifies against
     // the stored envelope is accepted; disclosed images are scanned as the
     // sender's uploads. See docs/architecture/e2ee.md.
-    let frankingLines: string[] = [];
-    if (storedEnvelope(message.e2ee)) {
+    const encrypted = Boolean(storedEnvelope(message.e2ee));
+    let attachmentNotes: string[] = [];
+    if (encrypted) {
       const { frankEncryptedReport } = await import('@/lib/services/e2ee');
       const franked = await frankEncryptedReport(message, body.e2ee);
       if (!franked.ok) {
         set.status = franked.status;
         return { error: franked.error };
       }
-      content = franked.payload.content.slice(0, 1500);
-      frankingLines = [
-        'End-to-end encrypted message: content verified by message franking (commitment, decryption and sender device signature).',
-        ...franked.attachmentNotes.map((n) => `Encrypted attachment: ${n}`),
-      ];
+      content = franked.payload.content;
+      attachmentNotes = franked.attachmentNotes;
     }
-    const author = await User.findById(message.authorId).catch(() => null);
-    const { BugReport } = await import('@/lib/models');
-    await BugReport.create({
-      reporterId: user.id,
-      kind: 'bug',
-      title: `Message report: ${reason}`.slice(0, 200),
-      description: [
-        `Reason: ${reason}`,
-        details ? `Details: ${details}` : null,
-        `Message: ${message.id}`,
-        `Channel: ${channel.id}${channel.name ? ` (#${channel.name})` : ''} [${channel.type}]`,
-        channel.serverId ? `Server: ${channel.serverId}` : null,
-        `Author: ${message.authorId}${author ? ` (@${author.username})` : ''}`,
-        `Sent: ${message.createdAt ? new Date(message.createdAt).toISOString() : 'unknown'}`,
-        ...frankingLines,
-        '',
-        'Content:',
-        content || '(no text)',
-      ].filter((l) => l !== null).join('\n').slice(0, 5000),
-      category: 'security',
-      priority: reason === 'self_harm' || reason === 'illegal' ? 'high' : 'medium',
-      status: 'open',
-      // Encrypted blobs are useless to staff (the scan notes above cover them).
-      attachments: Array.isArray(message.attachments) && !storedEnvelope(message.e2ee)
-        ? (message.attachments as Array<{ url?: string; contentType?: string; filename?: string }>)
-            .filter((a) => typeof a?.url === 'string')
-            .slice(0, 10)
-            .map((a) => ({ url: a.url as string, type: a.contentType || 'file', name: a.filename || 'attachment' }))
-        : [],
-    });
+    const { fileMessageReport } = await import('@/lib/services/messageReports');
+    try {
+      await fileMessageReport({
+        messageId: message.id,
+        channel: { id: channel.id, serverId: channel.serverId ?? null, type: channel.type, name: channel.name || null },
+        reporterId: user.id,
+        reportedUserId: message.authorId,
+        category: reason,
+        details: details || null,
+        content,
+        encrypted,
+        frankingVerified: encrypted,
+        // Encrypted blobs are useless to staff (the scan notes cover them).
+        attachments: Array.isArray(message.attachments) && !encrypted
+          ? (message.attachments as Array<{ url?: string; contentType?: string; filename?: string }>)
+              .filter((a) => typeof a?.url === 'string')
+              .slice(0, 10)
+              .map((a) => ({ url: a.url as string, type: a.contentType || 'file', name: a.filename || 'attachment' }))
+          : [],
+        attachmentNotes,
+        messageSentAt: message.createdAt ? new Date(message.createdAt) : null,
+      });
+    } catch (err) {
+      console.error('[message-reports] Could not file a report:', (err as Error)?.message ?? err);
+      set.status = 503;
+      return { error: 'Reports are unavailable right now. Please try again later.' };
+    }
     return { success: true };
   }, {
     params: t.Object({ channelId: t.String(), messageId: t.String() }),

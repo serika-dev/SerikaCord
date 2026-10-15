@@ -1341,6 +1341,46 @@ export const scamImageHashes = pgTable('scam_image_hashes', {
   hashUnique: uniqueIndex('scam_image_hashes_hash_unique').on(t.hash),
 }));
 
+// ─── Message reports (drizzle/manual_message_reports.sql, ensureMessageReportsSchema) ─
+// "Report Message" submissions, one row per report (duplicates of a message
+// are grouped in the staff queue). `content` is the reported version: the
+// stored text for ordinary messages, the franking-verified plaintext for
+// end-to-end encrypted ones. details / content / staff_note are encrypted at
+// rest (fieldEncryption), attachments / attachment_notes as sealed JSON.
+export const messageReports = pgTable('message_reports', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  messageId: uuid('message_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  serverId: uuid('server_id'),
+  channelType: text('channel_type'),
+  channelName: text('channel_name'),
+  reporterId: uuid('reporter_id').notNull(),
+  reportedUserId: uuid('reported_user_id').notNull(),
+  category: text('category').notNull().default('other'),
+  details: text('details'),
+  content: text('content'),
+  attachments: jsonb('attachments').notNull().default([]),
+  attachmentNotes: jsonb('attachment_notes').notNull().default([]),
+  encrypted: boolean('encrypted').notNull().default(false),
+  frankingVerified: boolean('franking_verified').notNull().default(false),
+  messageSentAt: timestamp('message_sent_at'),
+  status: text('status').notNull().default('open'),
+  staffNote: text('staff_note'),
+  actions: jsonb('actions').notNull().default([]),
+  reviewedBy: uuid('reviewed_by'),
+  reviewedAt: timestamp('reviewed_at'),
+  reporterNotifiedAt: timestamp('reporter_notified_at'),
+  legacyBugReportId: uuid('legacy_bug_report_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+}, (t) => ({
+  statusIdx: index('message_reports_status_idx').on(t.status, t.createdAt),
+  messageIdx: index('message_reports_message_id_idx').on(t.messageId),
+  reporterIdx: index('message_reports_reporter_id_idx').on(t.reporterId),
+  reportedIdx: index('message_reports_reported_user_id_idx').on(t.reportedUserId),
+  legacyUnique: uniqueIndex('message_reports_legacy_bug_report_unique').on(t.legacyBugReportId),
+}));
+
 // ─── End-to-end encryption (drizzle/manual_e2ee.sql, ensureE2eeSchema) ───────
 // Public keys only, plus the passphrase-sealed key backup. See
 // docs/architecture/e2ee.md.

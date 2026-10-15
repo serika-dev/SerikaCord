@@ -137,7 +137,7 @@ const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-translations": ["translations.manage"],
   "admin-stats": ["stats.view"],
   "admin-bug-reports": ["reports.manage"],
-  "admin-trust-safety": ["safety.review"],
+  "admin-trust-safety": ["safety.review", "reports.review"],
 };
 
 interface UserSettingsDialogProps {

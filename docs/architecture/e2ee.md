@@ -552,7 +552,9 @@ message). The server checks `SHA-256(K ‖ ct) = cm`, decrypts `ct` under K with
 the AAD of the stored message (channel, author, `sd`) and requires the result
 to equal the disclosed payload byte for byte, and verifies `sig` with the
 stored signing key of device `sd` belonging to the author (revoked devices
-included). Only then is the report filed, with the verified plaintext. Each
+included). Only then is the report filed, with the verified plaintext, in the
+staff queue (`message_reports`, `src/lib/services/messageReports.ts`; staff see
+only the reported message, never the rest of the conversation). Each
 disclosed attachment whose URL is one of the message's stored blobs on our
 CDN is fetched (≤ 50 MB, 15 s), decrypted with the disclosed key, and images
 go through `scanUploadedImage` attributed to the **sender** (PhotoDNA +

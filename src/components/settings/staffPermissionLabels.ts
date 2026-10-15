@@ -8,6 +8,7 @@ export function useStaffPermissionGroups(): { name: string; permissions: { id: S
       { id: "users.view", name: gt("View users"), description: gt("Search accounts and inspect user details.") },
       { id: "users.moderate", name: gt("Moderate users"), description: gt("Suspend and restore ordinary user accounts.") },
       { id: "reports.manage", name: gt("Manage reports"), description: gt("Review, update, and remove bug reports and feedback.") },
+      { id: "reports.review", name: gt("Review message reports"), description: gt("See reported messages, including the content of reported encrypted messages, and dismiss, resolve or delete them. Strikes, restrictions and suspensions also need Trust & Safety.") },
       { id: "safety.review", name: gt("Trust & Safety"), description: gt("Review safety incidents and appeals, issue or remove strikes and restrictions, and manage scam image hashes.") },
       { id: "badges.manage", name: gt("Manage badges"), description: gt("Create badges and assign them to users. Only administrators can change privileged badges.") },
       { id: "staff.manage", name: gt("Manage staff roles"), description: gt("Create roles and assign access you already hold to other staff.") },

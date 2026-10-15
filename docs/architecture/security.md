@@ -239,6 +239,7 @@ ciphertext can't be replayed as a token).
 | `user_notes.note` | randomized | `setUserNote` | `listUserNotes`, `getUserNote` |
 | `account_appeals.message`, `account_appeals.staff_note` | randomized | `createAppeal`, `decideAppeal` | `listAppealsForUser`, `getAppeal`, `listAppeals`, `getStanding` |
 | `safety_incidents.ip`, `safety_incidents.notes` | randomized | `recordIncident`, `updateIncident` | `listIncidents` (staff panel) |
+| `message_reports.details`, `.content`, `.staff_note` (randomized); `.attachments`, `.attachment_notes` (jsonb `{ enc }`) | randomized / jsonb | `fileMessageReport`, `importLegacyMessageReports`, `setReportCaseNote` (`services/messageReports.ts`) | `listReportCases`, `getReportCase` (staff report queue, `reports.review`) |
 | `push_devices.token` | deterministic (unique index still works) | `registerPushDevice` (removes a legacy plaintext duplicate first) | `devicesFor`; unregister and dead-token cleanup match both forms |
 | `servers.settings.integrations.discordWebhooks.*` (Discord webhook URLs) | randomized per value | Discord channel sync in `api/servers.ts` | `replicateToDiscord` in `api/channels.ts` |
 

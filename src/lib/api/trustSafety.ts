@@ -24,6 +24,7 @@
 //   PATCH  /admin/trust-safety/hashes/:id              { label?, maxDistance? }
 //   DELETE /admin/trust-safety/hashes/:id
 //   POST   /admin/trust-safety/scan-test               multipart { file }: dry-run both scanners, records nothing
+//   /admin/trust-safety/message-reports/*               message report queue (reports.review): ./messageReports.ts
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
 import { getStaffAuth } from '@/lib/services/staffAuth';
@@ -34,6 +35,7 @@ import { normalizeId } from '@/lib/db/normalizeId';
 import {
   addRestriction,
   addScamHash,
+  canActOnStaffTarget,
   computeImageHash,
   createAppeal,
   decideAppeal,
@@ -59,6 +61,7 @@ import {
 import { photoDnaConfigured, photoDnaMatch } from '@/lib/services/photoDnaClient';
 import { normalizeAppealMessage, normalizeStrikeCategory, STRIKE_EXPIRY_DAYS } from '@/lib/safety/standing';
 import { findClosestHash, normalizeHash, sniffImageType, DEFAULT_MATCH_DISTANCE } from '@/lib/safety/imageHash';
+import { messageReportRoutes } from './messageReports';
 
 type Cookie = Record<string, { value?: unknown }>;
 
@@ -69,15 +72,6 @@ async function standingAuth(headers: Record<string, string | undefined>, cookie:
 
 async function staff(headers: Record<string, string | undefined>, cookie: Cookie) {
   return getStaffAuth(headers, cookie, 'safety.review');
-}
-
-/** Only a super admin may put strikes / restrictions on another staff account. */
-async function canActOnStaffTarget(actorId: string, targetId: string): Promise<boolean> {
-  if (!(await isStaffAccount(targetId))) return true;
-  const actor = await User.findById(actorId).catch(() => null);
-  if (!actor) return false;
-  const { getUserStaffAccess } = await import('@/lib/services/staffAuth');
-  return Boolean((await getUserStaffAccess(actor).catch(() => null))?.isSuperAdmin);
 }
 
 const same = (a: string | null | undefined, b: string | null | undefined) => Boolean(a && b && normalizeId(a) === normalizeId(b));
@@ -96,6 +90,7 @@ async function fileBuffer(file: File): Promise<Buffer | null> {
 }
 
 export const trustSafetyRoutes = new Elysia()
+  .use(messageReportRoutes)
   .onBeforeHandle(rejectInvalidObjectIdParams)
   // `:id` isn't in the global id-param guard: bad ids get a 400, not a DB error.
   .onBeforeHandle(({ params, query, body, set }) => {
@@ -139,7 +134,9 @@ export const trustSafetyRoutes = new Elysia()
   .get('/admin/trust-safety/overview', async ({ headers, cookie, set }) => {
     const auth = await staff(headers, cookie as Cookie);
     if (!auth.user) { set.status = auth.status; return { error: auth.error }; }
-    return { stats: await trustSafetyStats() };
+    const { messageReportStats } = await import('@/lib/services/messageReports');
+    const [stats, reports] = await Promise.all([trustSafetyStats(), messageReportStats()]);
+    return { stats: { ...stats, openMessageReports: reports.openCases } };
   })
   .get('/admin/trust-safety/incidents', async ({ headers, cookie, query, set }) => {
     const auth = await staff(headers, cookie as Cookie);

@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Message report review for staff** — reported messages now land in Trust & Safety → Reports: grouped by message, with filters, the reported message (encrypted reports show whether message franking verified them), the reporter's details and the author's account standing. Staff can dismiss, resolve, delete the message, or issue a strike, chat restriction or suspension; every action is logged and reporters can get a neutral "we took action" note.
 
 ### Changes
 

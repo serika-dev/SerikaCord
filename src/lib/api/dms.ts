@@ -867,7 +867,22 @@ export async function deleteDmMessage(channel: DmChannelRef, user: AuthUser, mes
   const message = await findLiveMessage(channel.id, messageId);
   if (!message) return fail(404, 'Message not found');
   if (message.authorId !== user.id) return fail(403, 'You can only delete your own messages');
+  await softDeleteDmMessage(channel, message, user.id);
+  return ok();
+}
 
+/**
+ * Soft-deletes a DM / group DM message (encrypted or not) and sends the live
+ * events: the delete, the DM-list preview pointer and the unread reset. The
+ * caller has checked permission (author, or Trust & Safety staff acting on a
+ * report via src/lib/services/messageReports.ts).
+ */
+export async function softDeleteDmMessage(
+  channel: DmChannelRef,
+  message: { id: string; createdAt?: Date | string | null },
+  actorId: string,
+): Promise<void> {
+  const messageId = message.id;
   await Message.updateById(message.id, { isDeleted: true, deletedAt: new Date() });
   publishToDm(channel.id, { type: 'delete', messageId });
 
@@ -893,12 +908,10 @@ export async function deleteDmMessage(channel: DmChannelRef, user: AuthUser, mes
       ? (latest.createdAt instanceof Date ? latest.createdAt.toISOString() : String(latest.createdAt))
       : null;
     const { notifyUnreadReset } = await import('@/lib/api/activity');
-    notifyUnreadReset({ userIds: channel.recipientIds?.length ? channel.recipientIds : [user.id] }, channel.id, lastMessageAt, [
+    notifyUnreadReset({ userIds: channel.recipientIds?.length ? channel.recipientIds : [actorId] }, channel.id, lastMessageAt, [
       { id: message.id, at: message.createdAt ? new Date(message.createdAt).toISOString() : null },
     ]);
   })().catch(() => { /* best-effort */ });
-
-  return ok();
 }
 
 /** Add your reaction to a message. */

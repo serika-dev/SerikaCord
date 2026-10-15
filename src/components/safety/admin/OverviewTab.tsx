@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   FileWarning,
   Fingerprint,
+  Flag,
   Gavel,
   Inbox,
   MessageSquareOff,
@@ -31,6 +32,8 @@ export interface TrustSafetyStats {
   hashes: number;
   suspended: number;
   photoDnaEnabled: number;
+  /** Reported messages with an open report (the Reports tab). */
+  openMessageReports?: number;
 }
 
 type PhotoDnaOutcome =
@@ -45,7 +48,7 @@ interface ScanTestResult {
   photoDnaEnabled: boolean;
 }
 
-export type OverviewTarget = "incidents" | "appeals" | "accounts" | "hashes";
+export type OverviewTarget = "incidents" | "reports" | "appeals" | "accounts" | "hashes";
 
 function StatCard({
   label,
@@ -227,6 +230,7 @@ export function OverviewTab({ stats, onNavigate }: { stats: TrustSafetyStats | n
         <StatCard label={gt("Open incidents")} value={stats.openIncidents} icon={<Inbox className="h-5 w-5" aria-hidden />} tone={stats.openIncidents > 0 ? "red" : "muted"} onClick={() => onNavigate("incidents")} />
         <StatCard label={gt("CSAM matches (30 days)")} value={stats.csam30d} icon={<ShieldAlert className="h-5 w-5" aria-hidden />} tone={stats.csam30d > 0 ? "red" : "muted"} onClick={() => onNavigate("incidents")} />
         <StatCard label={gt("Scam matches (30 days)")} value={stats.scam30d} icon={<FileWarning className="h-5 w-5" aria-hidden />} tone={stats.scam30d > 0 ? "amber" : "muted"} onClick={() => onNavigate("incidents")} />
+        <StatCard label={gt("Open message reports")} value={stats.openMessageReports ?? 0} icon={<Flag className="h-5 w-5" aria-hidden />} tone={(stats.openMessageReports ?? 0) > 0 ? "red" : "muted"} onClick={() => onNavigate("reports")} />
         <StatCard label={gt("Open appeals")} value={stats.openAppeals} icon={<Gavel className="h-5 w-5" aria-hidden />} tone={stats.openAppeals > 0 ? "accent" : "muted"} onClick={() => onNavigate("appeals")} />
         <StatCard label={gt("Active restrictions")} value={stats.activeRestrictions} icon={<MessageSquareOff className="h-5 w-5" aria-hidden />} tone="muted" onClick={() => onNavigate("accounts")} />
         <StatCard label={gt("Active strikes")} value={stats.activeStrikes} icon={<Gavel className="h-5 w-5" aria-hidden />} tone="muted" onClick={() => onNavigate("accounts")} />

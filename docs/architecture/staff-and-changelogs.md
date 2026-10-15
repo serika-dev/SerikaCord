@@ -23,6 +23,14 @@ server management (`servers.manage`). Banner announcements require
 `broadcast.send`. The announcements screen performs only the operations the
 actor is allowed to perform.
 
+Message reports (Trust & Safety → Reports) need `reports.review`: it shows
+reported messages (including the disclosed plaintext of reported end-to-end
+encrypted messages, never the rest of the conversation) and allows dismiss,
+resolve, reopen, staff notes and deleting the reported message. Strikes, chat
+restrictions and suspensions from a report also need `safety.review`. Staff
+with only `reports.review` see the Reports tab alone. The Moderator preset
+includes `reports.review`; the Trust & Safety preset adds `safety.review`.
+
 Custom managers need `staff.manage`. They may only create/edit roles and
 assign members whose permissions are within their own access. They cannot
 edit roles assigned to themselves, change their own assignments, or manage
