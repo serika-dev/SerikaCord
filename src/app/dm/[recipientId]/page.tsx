@@ -498,6 +498,7 @@ export default function DMConversationPage() {
 
   // Emoji `:` / slash `/` / `@user` autocomplete for the DM composer.
   const composerSuggestions = useComposerSuggestions({
+    appLeaves: dmAppCommands.leaves,
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
     isServer: false,
     customEmojis: availableServerEmojis,

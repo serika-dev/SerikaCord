@@ -124,7 +124,7 @@ export async function executeWebhook(
   if (!parsed.ok) return apiFailure(parsed);
   const m = parsed.message;
   // Components count only with ?with_components=true, and interactive ones only for app-owned webhooks.
-  let components = query.with_components === 'true' || opts.legacy ? m.components : null;
+  let components = query.with_components === 'true' ? m.components : null;
   if (components && !applicationIdOf(w) && hasInteractive(components)) {
     return { status: 400, body: formError(['components'], FE.INVALID, 'Interactive components can only be sent by application-owned webhooks.') };
   }

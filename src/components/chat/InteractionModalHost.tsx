@@ -31,6 +31,7 @@ export function InteractionModalHost() {
       if (e.interactionId && isClaimedInteraction(e.interactionId)) return;
       if (e.reason === "invalid_options") toast.error(gt("That command's options aren't valid."));
       else if (e.reason === "command_forbidden") toast.error(gt("You don't have permission to use this command here."));
+      else if (e.reason === "rate_limited") toast.error(gt("You are doing that too fast."));
       else toast.error(gt("The app didn't respond in time."));
     }
   }), [gt]);

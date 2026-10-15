@@ -1109,6 +1109,10 @@ export async function maybeDispatchSlashInteraction(
   if (candidates.length === 0) return false;
   const user = await User.findById(message.author.id);
   if (!user) return false;
+  if (await rateLimited('interactionCreate', user.id)) {
+    void notifyInvoker(user.id, { event: 'failed', channelId: message.channelId, reason: 'rate_limited' });
+    return true;
+  }
   const channel = await Channel.findById(message.channelId);
   if (!channel) return false;
   const membership = guildId ? await ServerMember.findOne({ serverId: guildId, userId: user.id }) : null;

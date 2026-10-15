@@ -129,7 +129,9 @@ export function buildTypedInvocation(text: string, leaves: AppLeafCommand[]): Bu
     if (value === null) return { ok: false, reason: "invalid", option: opt.name, leaf };
     options.push({ name: opt.name, type: opt.type, value });
   }
-  const attachmentOptions = leaf.options.filter((o) => o.type === OPT.ATTACHMENT);
+  // Attachment options: required ones always, optional ones when typed as `name:`.
+  const rest = tokens.slice(leaf.path.length).map((t) => t.toLowerCase());
+  const attachmentOptions = leaf.options.filter((o) => o.type === OPT.ATTACHMENT && (o.required || rest.some((t) => t.startsWith(`${o.name.toLowerCase()}:`))));
   return { ok: true, leaf, options, attachmentOptions };
 }
 
@@ -185,7 +187,6 @@ export async function invokeAppCommandText(text: string, channelId: string, leav
   const options = [...built.options];
   const attachments: Record<string, unknown>[] = [];
   for (const opt of built.attachmentOptions) {
-    if (!opt.required) continue;
     const uploaded = await pickAndUploadFile(channelId);
     if (!uploaded) return { status: "error", reason: "attachment", option: opt.name };
     attachments.push(uploaded);
