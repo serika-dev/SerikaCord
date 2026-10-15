@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.6.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.7.
 
 ---
 
@@ -11,13 +11,21 @@
 ### Changes
 
 ### Bug Fixes
-- **Encrypted DMs can send messages again** — after turning on end-to-end encryption, every message in that DM or group DM was refused. Turning encryption on now confirms it worked, explains why it can't be turned on yet, and tells you when someone hasn't set a recovery passphrase.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.7 — 2026-10-15
+
+**Tag:** `v2.1.7` · **Commit:** `4454e31`
+
+### Bug Fixes
+- **Encrypted DMs can send messages again** — after turning on end-to-end encryption, every message in that DM or group DM was refused. Turning encryption on now confirms it worked, explains why it can't be turned on yet, and tells you when someone hasn't set a recovery passphrase.
 
 ---
 
