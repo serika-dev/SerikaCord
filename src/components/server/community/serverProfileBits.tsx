@@ -10,7 +10,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useGT, useLocale } from "gt-next";
 import { BadgeCheck } from "lucide-react";
-import { getConnectionColor, getConnectionHref, getConnectionIcon } from "@/components/user/ConnectionIcon";
+import { ConnectionIcon, getConnectionHref } from "@/components/user/ConnectionIcon";
 import type { ApplicationQuestionView, ServerConnectionView } from "@/hooks/useServerOnboarding";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { cdnImage, cn } from "@/lib/utils";
@@ -114,7 +114,10 @@ function connectionLabel(c: ServerConnectionView): string {
   return decodeHtmlEntities(c.displayName || c.username || c.accountId || c.provider);
 }
 
-/** The owner's linked accounts (verified domains, OAuth) with verified checks. */
+/**
+ * The accounts a server shows (its own domains / accounts and the owner's
+ * linked ones), with verified checks. Websites show their real favicon.
+ */
 export function ServerConnectionsList({
   connections,
   variant = "list",
@@ -130,12 +133,11 @@ export function ServerConnectionsList({
   return (
     <ul className={cn(variant === "chips" ? "flex flex-wrap gap-1.5" : "space-y-1", className)}>
       {connections.map((c) => {
-        const Icon = getConnectionIcon(c.provider);
         const href = getConnectionHref(c.provider, c.accountId);
         const label = connectionLabel(c);
         const body = (
           <>
-            <Icon size={variant === "chips" ? 14 : 16} className="shrink-0" style={{ color: getConnectionColor(c.provider) }} aria-hidden />
+            <ConnectionIcon provider={c.provider} accountId={c.accountId} size={variant === "chips" ? 14 : 16} className="shrink-0" />
             <span className="min-w-0 truncate">{label}</span>
             {c.verified && (
               <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-[var(--app-accent)]" aria-label={gt("Verified")} />
@@ -150,7 +152,7 @@ export function ServerConnectionsList({
           href !== "#" && (variant === "chips" ? "hover:bg-[var(--bg-hover)]" : "hover:bg-[var(--bg-hover)]"),
         );
         return (
-          <li key={c.id} className="min-w-0">
+          <li key={`${c.source ?? "owner"}:${c.id}`} className="min-w-0">
             {href !== "#" ? (
               <a href={href} target="_blank" rel="noopener noreferrer nofollow" className={cls} title={label}>
                 {body}

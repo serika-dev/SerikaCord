@@ -70,6 +70,8 @@ export interface ServerConnectionView {
   username: string | null;
   displayName: string | null;
   verified: boolean;
+  /** "owner": one of the owner's own linked accounts; "server": owned by the server itself. */
+  source?: "owner" | "server";
 }
 
 export type ApplicationStatus = "pending" | "approved" | "rejected" | "interviewed";

@@ -12,28 +12,61 @@ import {
   SiInstagram,
   SiDiscord,
 } from '@icons-pack/react-simple-icons';
+import { useState, type CSSProperties } from 'react';
 import { Globe } from 'lucide-react';
+import { faviconPath } from '@/lib/connections/favicon';
 
-// Custom icon component for Serika — uses the serika.moe favicon
-const SerikaIcon: React.FC<{ size?: number; className?: string; style?: React.CSSProperties }> = ({ size = 16, className, style }) => (
+type IconProps = { size?: number; className?: string; style?: CSSProperties };
+
+// Serika's own icon ships with the app (public/icons/serika-moe.png): no
+// third-party request per render, and nothing to fall back from. The old
+// hot-linked serika.moe/favicon.ico replaced its parent's innerHTML on error,
+// which React then tripped over.
+const SerikaIcon: React.FC<IconProps> = ({ size = 16, className, style }) => (
+  // eslint-disable-next-line @next/next/no-img-element
   <img
-    src="https://serika.moe/favicon.ico"
-    alt="Serika"
+    src="/icons/serika-moe.png"
+    alt=""
+    aria-hidden
     width={size}
     height={size}
     className={className}
-    style={{ ...style, objectFit: 'contain', display: 'inline-block' }}
-    onError={(e) => {
-      (e.target as HTMLImageElement).style.display = 'none';
-      const parent = (e.target as HTMLImageElement).parentElement;
-      if (parent) {
-        parent.innerHTML = `<span style="font-size:${size}px;line-height:1">✦</span>`;
-      }
-    }}
+    style={{ ...style, width: size, height: size, objectFit: 'cover', borderRadius: Math.max(2, Math.round(size / 5)), display: 'inline-block', flexShrink: 0 }}
   />
 );
 
-const ICON_MAP: Record<string, React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>> = {
+/**
+ * A website connection's real favicon, fetched and cached by our server
+ * (GET /api/favicons/:domain) so viewers never contact the site. Falls back to
+ * the globe while it's missing or for unverified / invalid domains.
+ */
+export function WebsiteFavicon({ domain, size = 16, className, style }: IconProps & { domain: string | null | undefined }) {
+  const src = faviconPath(domain);
+  // Remember which URL failed (not a boolean) so a new domain gets a fresh try
+  // without resetting state in an effect.
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  if (!src || failedSrc === src) {
+    return <Globe size={size} className={className} style={{ color: getConnectionColor('website'), ...style }} aria-hidden />;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      width={size}
+      height={size}
+      loading="lazy"
+      decoding="async"
+      referrerPolicy="no-referrer"
+      onError={() => setFailedSrc(src)}
+      className={className}
+      style={{ ...style, width: size, height: size, objectFit: 'contain', display: 'inline-block', flexShrink: 0 }}
+    />
+  );
+}
+
+const ICON_MAP: Record<string, React.ComponentType<IconProps>> = {
   lastfm:    SiLastdotfm,
   spotify:   SiSpotify,
   youtube:   SiYoutube,
@@ -99,17 +132,26 @@ export function getConnectionHref(provider: string, accountId: string) {
   return HREF_MAP[provider]?.(accountId) ?? '#';
 }
 
+/**
+ * A connection's icon. Pass `accountId` for website connections to show the
+ * site's favicon (the domain) instead of the generic globe.
+ */
 export function ConnectionIcon({
   provider,
+  accountId,
   size = 16,
   className,
   style,
 }: {
   provider: string;
+  accountId?: string | null;
   size?: number;
   className?: string;
-  style?: React.CSSProperties;
+  style?: CSSProperties;
 }) {
+  if (provider === 'website' && accountId) {
+    return <WebsiteFavicon domain={accountId} size={size} className={className} style={style} />;
+  }
   const Icon = getConnectionIcon(provider);
   const color = getConnectionColor(provider);
   return <Icon size={size} className={className} style={{ color, ...style }} />;

@@ -6,7 +6,7 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { useBadges } from "@/hooks/useBadges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
-import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
+import { ConnectionIcon, getConnectionHref } from "@/components/user/ConnectionIcon";
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
@@ -526,10 +526,8 @@ export function FullProfileDialog({
                       <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Connections")}</h4>
                       <div className="grid grid-cols-2 gap-2">
                         {fullUser.connections.map((conn) => {
-                          const Icon = getConnectionIcon(conn.provider);
                           const label = conn.displayName || conn.username || conn.accountId;
                           const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
-                          const color = getConnectionColor(conn.provider);
                           return (
                             <a
                               key={`${conn.provider}:${conn.accountId}`}
@@ -544,7 +542,7 @@ export function FullProfileDialog({
                               ) : null}
                               <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
                               {conn.verified && <BadgeCheck className="w-3.5 h-3.5 text-green-500 shrink-0" aria-label={gt("Verified domain")} />}
-                              <Icon size={22} className="shrink-0" style={{ color }} />
+                              <ConnectionIcon provider={conn.provider} accountId={conn.accountId} size={22} className="shrink-0" />
                               <ExternalLink className="w-3 h-3 text-[#9a9aad] shrink-0" />
                             </a>
                           );

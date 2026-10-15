@@ -364,6 +364,29 @@ const FALLBACK_STICKER = 'Sent a sticker';
 const AVATAR_PX = 128;
 const IMAGE_PX = 720;
 
+/**
+ * A push picture URL on our CDN. Older avatars / icons are stored with the
+ * direct Backblaze B2 address; rewrite those to the CDN (same key) instead of
+ * dropping them, so notifications show the real avatar.
+ */
+function pushImage(url: string | null | undefined, size: number): string | null {
+  if (!url) return null;
+  let candidate = url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.endsWith('.backblazeb2.com')) {
+      let key = u.pathname.replace(/^\/+/, '').replace(/^file\//, '');
+      const bucketPrefix = `${config.B2_BUCKET_NAME}/`;
+      if (config.B2_BUCKET_NAME && key.startsWith(bucketPrefix)) key = key.slice(bucketPrefix.length);
+      if (key) candidate = `${config.CDN_URL.replace(/\/+$/, '')}/${key}`;
+    }
+  } catch {
+    // Relative key ("avatars/…"): serve it from the CDN.
+    if (/^\/?[\w-]+\/[\w./-]+$/.test(url)) candidate = `${config.CDN_URL.replace(/\/+$/, '')}/${url.replace(/^\/+/, '')}`;
+  }
+  return pushImageUrl(candidate, size, cdnHost());
+}
+
 function cdnHost(): string {
   try {
     return new URL(config.CDN_URL).hostname;
@@ -385,7 +408,7 @@ async function loadMessageMedia(messageId: string | undefined): Promise<{ label:
     const attachments = Array.isArray(row.attachments) ? (row.attachments as PushAttachment[]) : [];
     const sticker = row.sticker && typeof row.sticker === 'object' ? (row.sticker as { name?: string }) : null;
     const media = attachmentPreview(attachments, sticker);
-    return { label: media.label, image: pushImageUrl(media.image, IMAGE_PX, cdnHost()) };
+    return { label: media.label, image: pushImage(media.image, IMAGE_PX) };
   } catch {
     return { label: '', image: null };
   }
@@ -471,8 +494,8 @@ export function pushDmActivity(recipientIds: string[], event: {
         conversationTitle: group ? group.name : authorName,
         authorId: event.authorId,
         authorName,
-        authorAvatar: pushImageUrl(event.authorAvatar, AVATAR_PX, cdnHost()),
-        icon: group ? pushImageUrl(group.icon, AVATAR_PX, cdnHost()) : null,
+        authorAvatar: pushImage(event.authorAvatar, AVATAR_PX),
+        icon: group ? pushImage(group.icon, AVATAR_PX) : null,
         messageId: event.messageId ?? null,
         image: media.image,
         mention: false,
@@ -571,8 +594,8 @@ export function pushChannelActivity(event: {
         conversationTitle,
         authorId: event.authorId,
         authorName,
-        authorAvatar: pushImageUrl(event.authorAvatar, AVATAR_PX, cdnHost()),
-        icon: pushImageUrl(server?.icon, AVATAR_PX, cdnHost()),
+        authorAvatar: pushImage(event.authorAvatar, AVATAR_PX),
+        icon: pushImage(server?.icon, AVATAR_PX),
         messageId: event.messageId,
         image: media.image,
         mention: true,

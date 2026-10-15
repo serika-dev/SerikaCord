@@ -384,6 +384,32 @@ export const serverOnboardingResponses = pgTable('server_onboarding_responses', 
   pk: primaryKey({ columns: [t.serverId, t.userId] }),
 }));
 
+// Accounts that belong to a server itself rather than to its owner's profile:
+// a DNS-verified domain or an account linked through an OAuth sign-in made
+// for the server. Survives ownership transfers; deleted with the server.
+// `metadata` holds the domain challenge ({ domainVerification }) and never
+// any OAuth tokens. Added at boot by ensureCommunitySchema()
+// (drizzle/manual_server_owned_connections.sql).
+export const serverOwnedConnections = pgTable('server_owned_connections', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  serverId: uuid('server_id').notNull(),
+  provider: text('provider').notNull(),
+  accountId: text('account_id').notNull(),
+  username: text('username'),
+  displayName: text('display_name'),
+  avatar: text('avatar'),
+  metadata: jsonb('metadata').notNull().default({}),
+  verified: boolean('verified').notNull().default(false),
+  visible: boolean('visible').notNull().default(true),
+  createdBy: uuid('created_by'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  serverIdx: index('server_owned_connections_server_id_idx').on(t.serverId),
+  providerAccountIdx: index('server_owned_connections_provider_account_idx').on(t.provider, t.accountId),
+  serverProviderAccountUnique: uniqueIndex('server_owned_connections_server_provider_account_unique').on(t.serverId, t.provider, t.accountId),
+}));
+
 // Server templates (one per server, Discord-style). `serialized` is a
 // ServerSnapshot (src/lib/servers/community.ts). Added at boot by
 // ensureCommunitySchema().

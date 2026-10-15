@@ -23,6 +23,9 @@ import { AnimatePresence, motion } from "framer-motion";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { Logo } from "@/components/ui/Logo";
+import { toast } from "sonner";
+import { parseServerLinkReturn } from "@/lib/connections/serverOwned";
+import type { ServerSettingsTab } from "@/components/dialogs/ServerSettingsDialog";
 
 const dialogFallback = () => <div className="hidden" />;
 const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
@@ -176,9 +179,11 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   const [showInvite, setShowInvite] = useState(false);
   const [inviteServerId, setInviteServerId] = useState<string | null>(null);
   const [showServerSettings, setShowServerSettings] = useState(false);
+  const [serverSettingsTab, setServerSettingsTab] = useState<ServerSettingsTab | null>(null);
   const [channelSettingsId, setChannelSettingsId] = useState<string | null>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const gt = useGT();
   const { currentServer, currentChannel, channels } = useServer();
 
   // Live voice room id (null when not connected) so the mobile VoiceBar can
@@ -219,8 +224,41 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           setShowUserSettings(true);
         }
       }
+
+      // Back from linking an account for a server (OAuth): reopen Server
+      // Settings → Server Connections and say how it went.
+      const serverLink = parseServerLinkReturn(window.location.search);
+      if (serverLink) {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        if (serverLink.linked) {
+          toast.success(gt("Account linked to this server"));
+        } else if (serverLink.error) {
+          switch (serverLink.error) {
+            case "denied":
+              toast.error(gt("Linking was cancelled"));
+              break;
+            case "wrong_user":
+              toast.error(gt("Sign in as the server owner to link accounts"));
+              break;
+            case "not_owner":
+              toast.error(gt("Only the server owner can link accounts to the server"));
+              break;
+            case "too_many":
+              toast.error(gt("This server already has the maximum number of connections"));
+              break;
+            case "provider_disabled":
+            case "connections_disabled":
+              toast.error(gt("Linking this kind of account is turned off right now"));
+              break;
+            default:
+              toast.error(gt("Could not link the account. Try again."));
+          }
+        }
+        setServerSettingsTab(serverLink.tab);
+        setShowServerSettings(true);
+      }
     }
-  }, [router]);
+  }, [router, gt]);
 
   // Listen for custom events from UserPanel and mobile views
   useEffect(() => {
@@ -232,7 +270,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       setInviteServerId((e as CustomEvent<{ serverId?: string } | undefined>).detail?.serverId ?? null);
       setShowInvite(true);
     };
-    const handleOpenServerSettings = () => setShowServerSettings(true);
+    const handleOpenServerSettings = () => {
+      setServerSettingsTab(null);
+      setShowServerSettings(true);
+    };
     // Phone sheets (server / channel long-press menus) ask for these dialogs.
     const handleOpenCreateChannel = (e: Event) => {
       const detail = (e as CustomEvent<{ type?: "text" | "voice" | "category"; parentId?: string } | undefined>).detail;
@@ -410,6 +451,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           <ServerSettingsDialog
             open={showServerSettings}
             onOpenChange={setShowServerSettings}
+            initialTab={serverSettingsTab}
           />
         </MountWhenOpened>
         <MountWhenOpened open={!!channelSettingsId}>
@@ -440,7 +482,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
               setCreateChannelOptions({ open: true, defaultType, defaultParentId })
             }
             onInvitePeople={() => { setInviteServerId(null); setShowInvite(true); }}
-            onServerSettings={() => setShowServerSettings(true)}
+            onServerSettings={() => { setServerSettingsTab(null); setShowServerSettings(true); }}
           />
         )}
       </div>
@@ -496,6 +538,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         <ServerSettingsDialog
           open={showServerSettings}
           onOpenChange={setShowServerSettings}
+          initialTab={serverSettingsTab}
         />
       </MountWhenOpened>
       <VoiceAudioSink />

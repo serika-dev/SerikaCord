@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, type Dispatch, type SetStateAction } from "react";
-import { BadgeCheck, Check, Clock, Copy, Globe, Loader2, Trash2 } from "lucide-react";
+import { BadgeCheck, Check, Clock, Copy, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { WebsiteFavicon } from "@/components/user/ConnectionIcon";
 
 type DomainStatus = {
   name: string;
@@ -22,7 +23,7 @@ type Connection = {
   [key: string]: unknown;
 };
 
-function CopyField({ label, value }: { label: string; value: string }) {
+export function CopyField({ label, value }: { label: string; value: string }) {
   const gt = useGT();
   const [copied, setCopied] = useState(false);
   return (
@@ -164,7 +165,8 @@ export function DomainConnectionsSection({
             <div key={conn.id} className="px-4 py-3 space-y-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-[var(--app-accent)]/10">
-                  <Globe className="w-[18px] h-[18px] text-[var(--app-accent)]" />
+                  {/* The site's favicon once verified (the server only fetches verified domains). */}
+                  <WebsiteFavicon domain={verified ? name : null} size={18} style={{ color: "var(--app-accent)" }} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-[var(--text-primary)] truncate">{name}</p>

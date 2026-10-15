@@ -11,6 +11,8 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { ConnectionIcon } from "@/components/user/ConnectionIcon";
 import { invalidateServerOnboarding, type ServerConnectionView } from "@/hooks/useServerOnboarding";
 import { LINKED_CONNECTIONS_MAX } from "@/lib/servers/onboarding";
+import { mergeConnectionViews } from "@/lib/connections/serverOwned";
+import { ServerOwnedConnectionsSection, type ServerOwnedConnection } from "./ServerOwnedConnectionsSection";
 
 // The admin preview of the join flow loads on first open.
 const JoinPreviewDialog = dynamic(() => import("@/components/server/community/JoinPreviewDialog"), { ssr: false });
@@ -35,6 +37,11 @@ type Loaded = {
   own: OwnConnection[];
   draft: string[];
   saved: string[];
+  /** Owner only: the server's own domains / accounts and what can be added. */
+  serverOwned: ServerOwnedConnection[];
+  linkableProviders: string[];
+  domainsAllowed: boolean;
+  ownedMax: number;
 } | null;
 
 function connectionName(c: { provider: string; accountId: string; username?: string | null; displayName?: string | null; domain?: { name: string } }): string {
@@ -65,9 +72,10 @@ function VerifiedBadge() {
 }
 
 /**
- * Server Settings → Server Connections: the owner picks which of their own
- * linked accounts (OAuth connections, verified domains) the server shows on its
- * profile, invite page and Server Guide.
+ * Server Settings → Server Connections. The owner manages the server's own
+ * accounts (domains verified by DNS, accounts linked by an OAuth sign-in made
+ * for the server) and picks which of their personal linked accounts the server
+ * also shows on its profile, invite page and Server Guide.
  */
 export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId: string; isOwner: boolean }) {
   const gt = useGT();
@@ -94,6 +102,10 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
         own,
         draft: linked,
         saved: linked,
+        serverOwned: Array.isArray(data?.serverOwned) ? data.serverOwned : [],
+        linkableProviders: Array.isArray(data?.linkableProviders) ? data.linkableProviders.filter((p: unknown): p is string => typeof p === "string") : [],
+        domainsAllowed: data?.domainsAllowed === true,
+        ownedMax: typeof data?.limits?.total === "number" ? data.limits.total : 10,
       });
     };
     load().catch(() => active && setFailed(true));
@@ -148,9 +160,9 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
         ) : (
           <ul className="space-y-2">
             {loaded.shown.map((c) => (
-              <li key={c.id} className="flex items-center gap-3 min-h-14 px-3 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+              <li key={`${c.source ?? "owner"}:${c.id}`} className="flex items-center gap-3 min-h-14 px-3 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
                 <span className="w-9 h-9 shrink-0 rounded-md bg-[var(--bg-app)] flex items-center justify-center">
-                  <ConnectionIcon provider={c.provider} size={18} />
+                  <ConnectionIcon provider={c.provider} accountId={c.accountId} size={18} />
                 </span>
                 <span className="flex-1 min-w-0 text-sm font-medium text-[var(--text-primary)] truncate">{connectionName(c)}</span>
                 {c.verified && <VerifiedBadge />}
@@ -201,7 +213,7 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
     }
   };
 
-  const previewConnections: ServerConnectionView[] = linkedIds
+  const ownerPreview: ServerConnectionView[] = linkedIds
     .map((id) => ownById.get(id))
     .filter((c): c is OwnConnection => Boolean(c))
     .map((c) => ({
@@ -211,14 +223,38 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
       username: c.username ?? null,
       displayName: c.displayName ?? null,
       verified: isVerifiedOwn(c),
+      source: "owner" as const,
     }));
+  // Same order as the server builds it: the server's own verified accounts first.
+  const serverPreview: ServerConnectionView[] = loaded.serverOwned
+    .filter((c) => c.verified && c.visible)
+    .map((c) => ({
+      id: c.id,
+      provider: c.provider,
+      accountId: c.provider === "website" ? c.domain?.name || c.accountId : c.accountId,
+      username: c.username,
+      displayName: c.displayName,
+      verified: true,
+      source: "server" as const,
+    }));
+  const previewConnections = mergeConnectionViews(serverPreview, ownerPreview);
 
   return (
     <div className="space-y-6">
       {header}
 
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold uppercase text-[var(--text-secondary)]"><T>Your connections</T></span>
+      <ServerOwnedConnectionsSection
+        serverId={serverId}
+        rows={loaded.serverOwned}
+        onRowsChange={(serverOwned) => setLoaded({ ...loaded, serverOwned })}
+        linkableProviders={loaded.linkableProviders}
+        domainsAllowed={loaded.domainsAllowed}
+        max={loaded.ownedMax}
+        onChanged={() => invalidateServerOnboarding(serverId)}
+      />
+
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-[var(--border-subtle)]">
+        <span className="text-xs font-bold uppercase text-[var(--text-secondary)]"><T>From your account</T></span>
         <span className="text-xs text-[var(--text-muted)]">{linkedIds.length}/{LINKED_CONNECTIONS_MAX}</span>
       </div>
 
@@ -239,7 +275,7 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
                   className={`flex items-center gap-3 min-h-14 px-3 py-2 rounded-lg bg-[var(--bg-card)] border ${checked ? "border-[var(--app-accent)]" : "border-[var(--border-subtle)]"} ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
                 >
                   <span className="w-9 h-9 shrink-0 rounded-md bg-[var(--bg-app)] flex items-center justify-center">
-                    <ConnectionIcon provider={c.provider} size={18} />
+                    <ConnectionIcon provider={c.provider} accountId={c.provider === "website" && c.domain?.verified ? c.domain.name : null} size={18} />
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="flex flex-wrap items-center gap-1.5">

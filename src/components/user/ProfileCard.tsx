@@ -34,7 +34,7 @@ import { useUserActivity } from "@/hooks/useMoeActivity";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
-import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
+import { ConnectionIcon, getConnectionHref } from "@/components/user/ConnectionIcon";
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { BadgeCheck, ExternalLink } from "lucide-react";
@@ -520,8 +520,6 @@ export function ProfileCard({
             <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Connections")}</h4>
             <div className="space-y-1">
               {user.connections.map((conn) => {
-                const Icon = getConnectionIcon(conn.provider);
-                const color = getConnectionColor(conn.provider);
                 const label = conn.displayName || conn.username || conn.accountId;
                 const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
                 return (
@@ -536,7 +534,7 @@ export function ProfileCard({
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={cdnImage(conn.avatar)} alt={label} className="w-5 h-5 rounded-full object-cover shrink-0" />
                     ) : (
-                      <Icon size={20} className="shrink-0" style={{ color }} />
+                      <ConnectionIcon provider={conn.provider} accountId={conn.accountId} size={20} className="shrink-0" />
                     )}
                     <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
                     {conn.verified && <BadgeCheck className="w-3.5 h-3.5 text-green-500 shrink-0" aria-label={gt("Verified domain")} />}

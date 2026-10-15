@@ -7373,5 +7373,22 @@
   "25e5fbe77d7cc75c": "of",
   "34b2d2fde768c931": "Aanmelden & beveiliging",
   "65005c94082e0ed6": "Er is een serika-verification-record gevonden met een andere code. Vervang het door de waarde die hier staat en controleer opnieuw.",
-  "79c3f327622d208a": "Android: zegt de installatie dat de app conflicteert met een bestaand pakket? Verwijder de oude SerikaCord-app één keer en installeer opnieuw. Versies van vóór 2.0 waren anders ondertekend; daarna worden updates gewoon geïnstalleerd."
+  "79c3f327622d208a": "Android: zegt de installatie dat de app conflicteert met een bestaand pakket? Verwijder de oude SerikaCord-app één keer en installeer opnieuw. Versies van vóór 2.0 waren anders ondertekend; daarna worden updates gewoon geïnstalleerd.",
+  "4825a8f0ddd1de60": "Account gekoppeld aan deze server",
+  "122ac06b06a3f8eb": "Koppelen is geannuleerd",
+  "31fd0d233dabe27b": "Log in als de servereigenaar om accounts te koppelen",
+  "3dc746c0a13b8465": "Alleen de servereigenaar kan accounts aan de server koppelen",
+  "873ca89ee8b5dad9": "Deze server heeft al het maximale aantal koppelingen",
+  "d835358992110cbb": "Dit soort account koppelen is momenteel uitgeschakeld",
+  "0e2c48811b98098f": "Kan het account niet koppelen. Probeer het opnieuw.",
+  "3cf0b236395e9797": "Van je account",
+  "4ca5cd9620f5034e": "Kan het koppelen niet starten",
+  "defe22120f0904b3": "Koppeling verwijderd",
+  "373578dae29bacd9": "Kan de koppeling niet verwijderen",
+  "a732ebc4c3c8aa0d": "Eigen accounts van deze server",
+  "4b2bf2f62e511c83": "Domeinen en accounts die van de server zelf zijn, niet van je profiel. Ze blijven bij de server als je het eigendom overdraagt.",
+  "c629ae90036b9ff7": "Nog geen eigen accounts. Voeg hieronder een domein toe of koppel een account.",
+  "c24a5ffabd6c34d7": "Een server kan maximaal {count} eigen koppelingen hebben.",
+  "2b10a0f8dc445a3d": "Log in met het account dat je wilt tonen. Alleen de naam en afbeelding worden opgeslagen, nooit het wachtwoord of toegangstokens.",
+  "62ed7a617cab7e58": "Accounts koppelen is momenteel uitgeschakeld."
 }

@@ -9,8 +9,13 @@
 //   GET    /servers/:serverId/screening/pending    members waiting to be let in   (MANAGE_SERVER)
 //   POST   /servers/:serverId/screening/approve/:userId  let a waiting member in  (MANAGE_SERVER)
 //   GET    /servers/:serverId/application-form     rules + questions for Apply to Join
-//   GET    /servers/:serverId/connections          the owner's accounts the server shows
-//   PUT    /servers/:serverId/connections          pick them { connectionIds }    (owner only)
+//   GET    /servers/:serverId/connections          the accounts the server shows (+ owner: management data)
+//   PUT    /servers/:serverId/connections          pick the owner's own ones { connectionIds } (owner only)
+//   POST   /servers/:serverId/owned-connections/domains           add a server domain { domain } (owner only)
+//   POST   /servers/:serverId/owned-connections/link              start an OAuth link for the server { provider } → { url }
+//   POST   /servers/:serverId/owned-connections/:connectionId/verify  check the domain's TXT record (owner only)
+//   PATCH  /servers/:serverId/owned-connections/:connectionId     show / hide { visible }         (owner only)
+//   DELETE /servers/:serverId/owned-connections/:connectionId     remove it                        (owner only)
 //   GET    /servers/:serverId/welcome-screen       the editable welcome screen      (MANAGE_SERVER)
 //   PATCH  /servers/:serverId/welcome-screen       save it                          (MANAGE_SERVER)
 //   GET    /servers/:serverId/screening            the rules screening config       (MANAGE_SERVER)
@@ -30,7 +35,7 @@
 import { Elysia, t } from 'elysia';
 import { Channel, Role, Server, ServerMember, ServerMemberApplication, User, UserConnection } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams, sanitizeInput } from '@/lib/security';
+import { checkRateLimit, getClientIP, isValidObjectId, rejectInvalidObjectIdParams, sanitizeInput } from '@/lib/security';
 import { config } from '@/lib/config';
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
 import { hasServerPermission } from '@/lib/permissions/serverPermissions';
@@ -72,7 +77,29 @@ import { memberScreeningBlocked } from '@/lib/services/serverGate';
 import { canAssignRole, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
 import { getActorRoleContext } from '@/lib/permissions/serverPermissions';
 import { OAUTH_ONLY_PROVIDERS } from '@/lib/connections/policy';
-import { isVerifiedDomainConnection } from '@/lib/connections/domain';
+import { isVerifiedDomainConnection, normalizeDomain } from '@/lib/connections/domain';
+import {
+  MAX_DOMAINS_PER_SERVER,
+  MAX_SERVER_OWNED_CONNECTIONS,
+  allowedServerOAuthProviders,
+  isServerOAuthProvider,
+  mergeServerConnections,
+  pendingDomainToken,
+  serverDomainsAllowed,
+  serverOwnedCapacity,
+  serverOwnedOwnView,
+  type ServerConnectionView,
+} from '@/lib/connections/serverOwned';
+import {
+  addServerDomain,
+  createServerLinkTicket,
+  deleteServerOwnedConnection,
+  getServerOwnedConnection,
+  listServerOwnedConnections,
+  markServerDomainVerified,
+  setServerOwnedVisible,
+} from '@/lib/services/serverOwnedConnections';
+import { getPlatformSettings } from '@/lib/models/PlatformSettings';
 import { fanoutToUsers } from '@/lib/api/activity';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { requestUserChannelStreamRecheck } from '@/lib/realtime/channelStreams';
@@ -202,14 +229,7 @@ async function assignableOnboardingRoleIds(server: ServerRow, userId: string): P
   return new Set(roles.filter((r) => isSafeOnboardingRole(r) && !viaChannels.has(r.id) && canAssignRole(actor, r as HierarchyRole)).map((r) => r.id));
 }
 
-export interface ServerConnectionView {
-  id: string;
-  provider: string;
-  accountId: string;
-  username: string | null;
-  displayName: string | null;
-  verified: boolean;
-}
+export type { ServerConnectionView };
 
 /** May the owner show this connection on a server? Unverified domains never. */
 function isLinkableConnection(c: { provider: string; metadata?: unknown }): boolean {
@@ -217,10 +237,11 @@ function isLinkableConnection(c: { provider: string; metadata?: unknown }): bool
 }
 
 /**
- * The owner's connections a server shows. Resolved live from the current
- * owner's rows, so a disconnected account or an ownership transfer drops it.
+ * The owner's own linked accounts a server shows. Resolved live from the
+ * current owner's rows, so a disconnected account or an ownership transfer
+ * drops it.
  */
-export async function serverConnectionsView(serverId: string, ownerId: string): Promise<ServerConnectionView[]> {
+async function ownerLinkedConnectionsView(serverId: string, ownerId: string): Promise<ServerConnectionView[]> {
   const ids = await getLinkedConnectionIds(serverId).catch(() => []);
   if (ids.length === 0) return [];
   const rows = await UserConnection.find({ userId: ownerId }).catch(() => []);
@@ -236,9 +257,53 @@ export async function serverConnectionsView(serverId: string, ownerId: string): 
       username: c.username ?? null,
       displayName: c.displayName ?? null,
       verified: (OAUTH_ONLY_PROVIDERS as readonly string[]).includes(c.provider) || isVerifiedDomainConnection(c),
+      source: 'owner',
     });
   }
   return out;
+}
+
+/**
+ * Everything a server shows on its invite page, Server Guide and join
+ * preview: its own verified accounts / domains, then the owner's linked ones.
+ */
+export async function serverConnectionsView(serverId: string, ownerId: string): Promise<ServerConnectionView[]> {
+  const [owned, linked] = await Promise.all([
+    listServerOwnedConnections(serverId).catch(() => []),
+    ownerLinkedConnectionsView(serverId, ownerId),
+  ]);
+  return mergeServerConnections(owned, linked);
+}
+
+/** OAuth providers this deployment has credentials for (lazy: auth.ts is a big module). */
+async function configuredOAuthProviders(): Promise<string[]> {
+  const { configuredOAuthConnectionProviders } = await import('@/lib/api/auth');
+  return configuredOAuthConnectionProviders();
+}
+
+/** The owner's management data for server-owned connections. */
+async function serverOwnedOwnerData(serverId: string) {
+  const [rows, settings, configured] = await Promise.all([
+    listServerOwnedConnections(serverId, { fresh: true }),
+    getPlatformSettings(),
+    configuredOAuthProviders().catch(() => [] as string[]),
+  ]);
+  return {
+    serverOwned: rows.map(serverOwnedOwnView),
+    linkableProviders: allowedServerOAuthProviders(settings, configured),
+    domainsAllowed: serverDomainsAllowed(settings),
+    limits: { total: MAX_SERVER_OWNED_CONNECTIONS, domains: MAX_DOMAINS_PER_SERVER },
+  };
+}
+
+type OwnerOnly = { server: ServerRow } | { status: number; error: string };
+
+/** Server-owned connections are managed by the server owner only (like owner-linked ones). */
+async function ownerOnly(user: AuthUser, serverId: string): Promise<OwnerOnly> {
+  const server = await Server.findById(serverId);
+  if (!server) return { status: 404, error: 'Server not found' };
+  if (!sameUser(server.ownerId, user.id)) return { status: 403, error: 'Only the server owner can manage server connections' };
+  return { server };
 }
 
 async function ownerView(ownerId: string) {
@@ -418,10 +483,13 @@ export const communityRoutes = new Elysia()
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const access = await serverAccess(user, params.serverId, false);
     if ('error' in access) { set.status = access.status; return { error: access.error }; }
-    return {
-      connections: await serverConnectionsView(access.server.id, access.server.ownerId),
-      linkedConnectionIds: sameUser(access.server.ownerId, user.id) ? await getLinkedConnectionIds(access.server.id) : undefined,
-    };
+    const isOwner = sameUser(access.server.ownerId, user.id);
+    const [connections, linkedConnectionIds, owned] = await Promise.all([
+      serverConnectionsView(access.server.id, access.server.ownerId),
+      isOwner ? getLinkedConnectionIds(access.server.id) : Promise.resolve(undefined),
+      isOwner ? serverOwnedOwnerData(access.server.id) : Promise.resolve(null),
+    ]);
+    return { connections, linkedConnectionIds, ...(owned ?? {}) };
   }, { params: t.Object({ serverId: t.String() }) })
   .put('/servers/:serverId/connections', async ({ headers, cookie, params, body, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
@@ -441,6 +509,103 @@ export const communityRoutes = new Elysia()
     await saveLinkedConnectionIds(server.id, ids);
     return { connections: await serverConnectionsView(server.id, server.ownerId), linkedConnectionIds: ids };
   }, { params: t.Object({ serverId: t.String() }), body: t.Object({ connectionIds: t.Array(t.String({ maxLength: 64 }), { maxItems: 20 }) }) })
+  // ─── Server-owned connections (the server's own domains / accounts) ────────
+  .post('/servers/:serverId/owned-connections/domains', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await ownerOnly(user, params.serverId);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    if (!serverDomainsAllowed(await getPlatformSettings())) { set.status = 403; return { error: 'Domain connections are currently disabled' }; }
+    const domain = normalizeDomain(body.domain);
+    if (!domain) { set.status = 400; return { error: 'Enter a valid domain, like example.com' }; }
+    const limit = await checkRateLimit('serverConnection', user.id);
+    if (!limit.success) { set.status = 429; return { error: 'Too many changes. Try again in a few minutes.', retryAfter: limit.retryAfter }; }
+    const rows = await listServerOwnedConnections(access.server.id, { fresh: true });
+    const existing = rows.find((r) => r.provider === 'website' && r.accountId === domain);
+    if (existing) return { connection: serverOwnedOwnView(existing) };
+    const room = serverOwnedCapacity(rows, 'website');
+    if (room === 'too_many') { set.status = 400; return { error: `A server can own up to ${MAX_SERVER_OWNED_CONNECTIONS} connections`, code: room }; }
+    if (room === 'too_many_domains') { set.status = 400; return { error: `A server can own up to ${MAX_DOMAINS_PER_SERVER} domains`, code: room }; }
+    const row = await addServerDomain(access.server.id, domain, user.id);
+    if (!row) { set.status = 500; return { error: 'Failed to add domain' }; }
+    return { connection: serverOwnedOwnView(row) };
+  }, { params: t.Object({ serverId: t.String() }), body: t.Object({ domain: t.String({ minLength: 1, maxLength: 300 }) }) })
+  .post('/servers/:serverId/owned-connections/link', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await ownerOnly(user, params.serverId);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const [settings, configured] = await Promise.all([getPlatformSettings(), configuredOAuthProviders().catch(() => [] as string[])]);
+    const provider = body.provider;
+    if (!isServerOAuthProvider(provider) || !allowedServerOAuthProviders(settings, configured).includes(provider)) {
+      set.status = 400;
+      return { error: 'This provider can not be linked right now' };
+    }
+    const limit = await checkRateLimit('serverConnection', user.id);
+    if (!limit.success) { set.status = 429; return { error: 'Too many changes. Try again in a few minutes.', retryAfter: limit.retryAfter }; }
+    const rows = await listServerOwnedConnections(access.server.id, { fresh: true });
+    // Re-linking an account the server already has refreshes it, so only refuse when nothing could fit.
+    if (serverOwnedCapacity(rows, 'oauth') !== 'ok' && !rows.some((r) => r.provider === provider)) {
+      set.status = 400;
+      return { error: `A server can own up to ${MAX_SERVER_OWNED_CONNECTIONS} connections`, code: 'too_many' };
+    }
+    const ticket = await createServerLinkTicket({ provider, userId: user.id, serverId: access.server.id });
+    return { url: `/api/auth/${provider}/initiate?link=${ticket}` };
+  }, { params: t.Object({ serverId: t.String() }), body: t.Object({ provider: t.String({ maxLength: 32 }) }) })
+  .post('/servers/:serverId/owned-connections/:connectionId/verify', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await ownerOnly(user, params.serverId);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const row = isValidObjectId(normalizeId(params.connectionId))
+      ? await getServerOwnedConnection(access.server.id, params.connectionId)
+      : null;
+    if (!row || row.provider !== 'website') { set.status = 404; return { error: 'Connection not found' }; }
+    const token = pendingDomainToken(row);
+    if (!token) {
+      if (row.verified) return { connection: serverOwnedOwnView(row) };
+      set.status = 409;
+      return { error: 'Remove and re-add this domain to get a verification record', code: 'verification_not_started' };
+    }
+    const rate = await checkRateLimit('domainVerify', user.id);
+    if (!rate.success) { set.status = 429; return { error: 'Too many verification attempts. Try again in a few minutes.', retryAfter: rate.retryAfter }; }
+    const { checkDomainOwnership } = await import('@/lib/services/domainVerification');
+    const result = await checkDomainOwnership(row.accountId, token);
+    if (result.error) { set.status = 502; return { error: 'Could not look up DNS for this domain. Try again in a minute.', code: 'dns_error' }; }
+    if (!result.ok && result.found?.length) {
+      set.status = 400;
+      return { error: "A serika-verification record was found, but its code doesn't match this domain's.", code: 'token_mismatch', found: result.found, connection: serverOwnedOwnView(row) };
+    }
+    if (!result.ok) {
+      set.status = 400;
+      return { error: 'TXT record not found yet. DNS changes can take a few minutes to show up.', code: 'record_not_found', connection: serverOwnedOwnView(row) };
+    }
+    const updated = await markServerDomainVerified(access.server.id, row.id, token);
+    const { forgetFaviconDomainStatus } = await import('@/lib/services/favicons');
+    await forgetFaviconDomainStatus(row.accountId);
+    return { connection: serverOwnedOwnView(updated ?? row) };
+  }, { params: t.Object({ serverId: t.String(), connectionId: t.String({ maxLength: 64 }) }) })
+  .patch('/servers/:serverId/owned-connections/:connectionId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await ownerOnly(user, params.serverId);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const row = isValidObjectId(normalizeId(params.connectionId))
+      ? await setServerOwnedVisible(access.server.id, params.connectionId, body.visible)
+      : null;
+    if (!row) { set.status = 404; return { error: 'Connection not found' }; }
+    return { connection: serverOwnedOwnView(row) };
+  }, { params: t.Object({ serverId: t.String(), connectionId: t.String({ maxLength: 64 }) }), body: t.Object({ visible: t.Boolean() }) })
+  .delete('/servers/:serverId/owned-connections/:connectionId', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await ownerOnly(user, params.serverId);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const deleted = isValidObjectId(normalizeId(params.connectionId))
+      && await deleteServerOwnedConnection(access.server.id, params.connectionId);
+    if (!deleted) { set.status = 404; return { error: 'Connection not found' }; }
+    return { success: true };
+  }, { params: t.Object({ serverId: t.String(), connectionId: t.String({ maxLength: 64 }) }) })
   // ─── Apply to Join form ────────────────────────────────────────────────────
   .get('/servers/:serverId/application-form', async ({ headers, cookie, params, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);

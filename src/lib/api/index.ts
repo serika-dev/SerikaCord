@@ -20,6 +20,7 @@ import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
 import { automodRoutes } from './automod';
 import { communityRoutes } from './community';
+import { faviconRoutes } from './favicons';
 import { trustSafetyRoutes } from './trustSafety';
 // End-to-end encryption keys / devices / backups (docs/architecture/e2ee.md).
 import { e2eeRoutes } from './e2ee';
@@ -4332,6 +4333,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(messageExtrasRoutes)
   .use(automodRoutes)
   .use(communityRoutes)
+  .use(faviconRoutes)
   .use(trustSafetyRoutes)
   // End-to-end encryption (keys, devices, backups, enabling per DM).
   .use(e2eeRoutes)

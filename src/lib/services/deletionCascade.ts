@@ -36,6 +36,11 @@ export async function deleteServerCascade(serverId: string): Promise<void> {
     return ids;
   });
 
+  // Accounts / domains the server owned (boot-created table, so best-effort).
+  await import('@/lib/services/serverOwnedConnections')
+    .then((s) => s.deleteAllServerOwnedConnections(id))
+    .catch(() => { /* rows of a deleted server are never read again */ });
+
   if (channelIds.length > 0) {
     await db.delete(schema.channelReadStates)
       .where(inArray(schema.channelReadStates.channelId, channelIds))

@@ -221,6 +221,8 @@ function DurationInput({
 interface ServerSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Section to open on (e.g. "connections" after an OAuth link returns); the overview otherwise. */
+  initialTab?: ServerSettingsTab | null;
 }
 
 type SettingsTab =
@@ -356,7 +358,9 @@ interface ServerApplication {
   rejectionReason?: string;
 }
 
-export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialogProps) {
+export type ServerSettingsTab = SettingsTab;
+
+export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: ServerSettingsDialogProps) {
   const { currentServer, fetchServers, channels } = useServer();
   const gt = useGT();
   const locale = useLocale();
@@ -364,15 +368,21 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const { user } = useAuth();
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
-  const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "overview");
   // Phone layout: grouped section list → pushed section page → detail page.
   const isMobile = useIsMobile();
-  const [mobileNav, setMobileNav] = useState<MobileSettingsNav<SettingsTab>>({ section: "overview", page: false, detail: null });
-  // Every (re)open starts at the section list (adjusted during render, not in an effect).
+  const [mobileNav, setMobileNav] = useState<MobileSettingsNav<SettingsTab>>(
+    initialTab ? { section: initialTab, page: true, detail: null } : { section: "overview", page: false, detail: null },
+  );
+  // Every (re)open starts at the section list, or at `initialTab` when given
+  // (adjusted during render, not in an effect).
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
     setLastOpen(open);
-    if (open) setMobileNav({ section: "overview", page: false, detail: null });
+    if (open) {
+      setMobileNav(initialTab ? { section: initialTab, page: true, detail: null } : { section: "overview", page: false, detail: null });
+      if (initialTab) setActiveTab(initialTab);
+    }
   }
   const [isSaving, setIsSaving] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);

@@ -7241,5 +7241,22 @@
   "25e5fbe77d7cc75c": "or",
   "34b2d2fde768c931": "Sign-in & Security",
   "65005c94082e0ed6": "Found a serika-verification record with a different code. Replace it with the value shown here, then check again.",
-  "79c3f327622d208a": "Android: if installing says the app conflicts with an existing package, uninstall the old SerikaCord app once and install again. Versions before 2.0 were signed differently; updates install normally after that."
+  "79c3f327622d208a": "Android: if installing says the app conflicts with an existing package, uninstall the old SerikaCord app once and install again. Versions before 2.0 were signed differently; updates install normally after that.",
+  "4825a8f0ddd1de60": "Account linked to this server",
+  "122ac06b06a3f8eb": "Linking was cancelled",
+  "31fd0d233dabe27b": "Sign in as the server owner to link accounts",
+  "3dc746c0a13b8465": "Only the server owner can link accounts to the server",
+  "873ca89ee8b5dad9": "This server already has the maximum number of connections",
+  "d835358992110cbb": "Linking this kind of account is turned off right now",
+  "0e2c48811b98098f": "Could not link the account. Try again.",
+  "3cf0b236395e9797": "From your account",
+  "4ca5cd9620f5034e": "Could not start linking",
+  "defe22120f0904b3": "Connection removed",
+  "373578dae29bacd9": "Could not remove the connection",
+  "a732ebc4c3c8aa0d": "This server's own accounts",
+  "4b2bf2f62e511c83": "Domains and accounts that belong to the server itself, not to your profile. They stay with the server if you transfer ownership.",
+  "c629ae90036b9ff7": "No accounts of its own yet. Add a domain or link an account below.",
+  "c24a5ffabd6c34d7": "A server can own up to {count} connections.",
+  "2b10a0f8dc445a3d": "Sign in with the account you want to show. Only its name and picture are saved, never its password or access tokens.",
+  "62ed7a617cab7e58": "Account linking is turned off right now."
 }

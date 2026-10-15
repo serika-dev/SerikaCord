@@ -113,6 +113,10 @@ export const rateLimiters_config = {
   channelFollow: { points: 20, duration: 600 },
   // Domain connections: DNS TXT lookups per user
   domainVerify: { points: 10, duration: 300 },
+  // Server-owned connections: adding domains / starting OAuth links, per owner
+  serverConnection: { points: 20, duration: 600 },
+  // Website favicons fetched from the linked site (cache misses only), per IP
+  faviconFetch: { points: 30, duration: 60 },
   // Rules screening submissions with manual approval, per member per server
   screeningSubmit: { points: 5, duration: 600 },
   // Onboarding picks (each rewrite touches roles + the audit log)

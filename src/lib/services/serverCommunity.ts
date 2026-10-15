@@ -34,8 +34,9 @@ import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, diffMemberRoles } from '@/lib/audit/auditLog';
 
 // ─── Boot-time schema ensure ──────────────────────────────────────────────────
-// Mirrors drizzle/manual_server_community.sql and
-// drizzle/manual_server_onboarding.sql. Additive + idempotent; each
+// Mirrors drizzle/manual_server_community.sql,
+// drizzle/manual_server_onboarding.sql and
+// drizzle/manual_server_owned_connections.sql. Additive + idempotent; each
 // attempt gives up quickly instead of queueing behind a long lock on a shared
 // production table, and is retried.
 const g = globalThis as unknown as { __communitySchema?: Promise<void> | null };
@@ -89,6 +90,25 @@ export function ensureCommunitySchema(): Promise<void> {
             updated_at timestamp DEFAULT now(),
             PRIMARY KEY (server_id, user_id)
           )`);
+          // drizzle/manual_server_owned_connections.sql
+          await tx.execute(sql`CREATE TABLE IF NOT EXISTS server_owned_connections (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            server_id uuid NOT NULL,
+            provider text NOT NULL,
+            account_id text NOT NULL,
+            username text,
+            display_name text,
+            avatar text,
+            metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+            verified boolean NOT NULL DEFAULT false,
+            visible boolean NOT NULL DEFAULT true,
+            created_by uuid,
+            created_at timestamp DEFAULT now(),
+            updated_at timestamp DEFAULT now()
+          )`);
+          await tx.execute(sql`CREATE INDEX IF NOT EXISTS server_owned_connections_server_id_idx ON server_owned_connections (server_id)`);
+          await tx.execute(sql`CREATE INDEX IF NOT EXISTS server_owned_connections_provider_account_idx ON server_owned_connections (provider, account_id)`);
+          await tx.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS server_owned_connections_server_provider_account_unique ON server_owned_connections (server_id, provider, account_id)`);
         });
         return;
       } catch (err) {

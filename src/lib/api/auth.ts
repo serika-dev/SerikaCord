@@ -12,9 +12,15 @@ import {
   createSession,
 } from '../services/auth';
 import { cache, getRedis } from '../db/redis';
-import { UserConnection, User } from '../models';
+import { UserConnection, User, Server } from '../models';
 import { getPlatformSettings } from '../models/PlatformSettings';
 import { OAUTH_VERIFIED_KEY } from '../connections/policy';
+import {
+  allowedServerOAuthProviders,
+  checkServerLinkTarget,
+  serverLinkReturnPath,
+  serverOwnedCapacity,
+} from '../connections/serverOwned';
 import { checkRateLimit, getClientIP } from '../security';
 import {
   accountsRegister,
@@ -95,24 +101,92 @@ const CLEAR_AUTH_COOKIES = [
 // The state cookie carries `<provider>:<random nonce>`; the nonce maps to the
 // user who started the flow in Redis. A cookie naming a user id directly could
 // be hand-crafted to attach a connection (or a Discord login identity) to
-// someone else's account.
+// someone else's account. A server link (Server Settings → Server Connections
+// → Link account) also stores the server; the callback then saves the account
+// on the server instead of the user's profile, after checking again that the
+// signed-in user started the flow and still owns the server.
 const OAUTH_STATE_TTL = 600;
 
-async function createOAuthState(provider: string, userId: string): Promise<string> {
+type OAuthTarget = { userId: string; serverId: string | null };
+
+async function createOAuthState(provider: string, userId: string, serverId?: string): Promise<string> {
   const nonce = randomBytes(24).toString('hex');
-  await cache.set(`oauthstate:${nonce}`, { provider, userId }, OAUTH_STATE_TTL);
+  await cache.set(`oauthstate:${nonce}`, serverId ? { provider, userId, serverId } : { provider, userId }, OAUTH_STATE_TTL);
   return `${provider}:${nonce}`;
 }
 
-/** Resolve (and burn) a state cookie to the user that initiated the flow. */
-async function consumeOAuthState(provider: string, cookieValue: unknown): Promise<string | null> {
+/** Resolve (and burn) a state cookie to the user (and server, for a server link) that initiated the flow. */
+async function consumeOAuthState(provider: string, cookieValue: unknown): Promise<OAuthTarget | null> {
   const nonce = parseOAuthStateCookie(cookieValue, provider);
   if (!nonce) return null;
   const key = `oauthstate:${nonce}`;
-  const entry = await cache.get<{ provider?: string; userId?: string }>(key);
+  const entry = await cache.get<{ provider?: string; userId?: string; serverId?: unknown }>(key);
   if (!entry || entry.provider !== provider || !entry.userId) return null;
   await cache.del(key);
-  return entry.userId;
+  return { userId: entry.userId, serverId: typeof entry.serverId === 'string' ? entry.serverId : null };
+}
+
+/** The user the request's auth cookie belongs to (OAuth callbacks are top-level GETs, so it's sent). */
+async function cookieUserId(cookie: unknown): Promise<string | null> {
+  const token = (cookie as Record<string, { value?: unknown }>).auth_token?.value;
+  if (typeof token !== 'string' || !token) return null;
+  const { user } = await authenticateRequest(null, { auth_token: token });
+  return user?.id ?? null;
+}
+
+const frontendBase = () => config.FRONTEND_URL || config.API_BASE_URL;
+
+/** An OAuth callback error: back to User Settings, or to Server Settings for a server link. */
+function connectionFail(redirectBase: string, code: string, target: OAuthTarget | null, clearCookie: string): Response {
+  return target?.serverId
+    ? serverLinkRedirect(target.serverId, { error: code }, clearCookie)
+    : oauthRedirect(`${redirectBase}&error=${code}`);
+}
+
+/** Redirect back to Server Settings → Server Connections with a result. */
+function serverLinkRedirect(serverId: string, result: { linked?: string; error?: string }, setCookie?: string | string[]): Response {
+  return oauthRedirect(`${frontendBase()}${serverLinkReturnPath(serverId, result)}`, setCookie);
+}
+
+/**
+ * May the signed-in user (still) link `provider` to the target server? Null
+ * when yes, else an error code for the redirect.
+ */
+async function serverLinkProblem(provider: string, target: { userId: string; serverId: string }, cookie: unknown): Promise<string | null> {
+  const [authUserId, server, settings] = await Promise.all([
+    cookieUserId(cookie).catch(() => null),
+    Server.findById(target.serverId).catch(() => null),
+    getPlatformSettings(),
+  ]);
+  const verdict = checkServerLinkTarget(
+    { provider, userId: target.userId, serverId: target.serverId },
+    { provider, authUserId, serverOwnerId: server?.ownerId },
+  );
+  if (verdict !== 'ok') return verdict;
+  const allowed: string[] = allowedServerOAuthProviders(settings, configuredOAuthConnectionProviders());
+  if (!allowed.includes(provider)) return 'provider_disabled';
+  return null;
+}
+
+/** Saves an account an OAuth sign-in proved on the server (identity only, no tokens) and returns to settings. */
+async function finishServerLink(
+  provider: string,
+  target: { userId: string; serverId: string },
+  identity: { accountId: string; username?: string; displayName?: string; avatar?: string },
+  cookie: unknown,
+  clearCookie: string,
+): Promise<Response> {
+  const problem = await serverLinkProblem(provider, target, cookie);
+  if (problem) return serverLinkRedirect(target.serverId, { error: problem }, clearCookie);
+  if (!identity.accountId) return serverLinkRedirect(target.serverId, { error: 'session_failed' }, clearCookie);
+  const { listServerOwnedConnections, upsertServerOAuthConnection } = await import('../services/serverOwnedConnections');
+  const rows = await listServerOwnedConnections(target.serverId, { fresh: true });
+  const relink = rows.some((r) => r.provider === provider && r.accountId === identity.accountId);
+  if (!relink && serverOwnedCapacity(rows, 'oauth') !== 'ok') {
+    return serverLinkRedirect(target.serverId, { error: 'too_many' }, clearCookie);
+  }
+  await upsertServerOAuthConnection(target.serverId, target.userId, provider, identity);
+  return serverLinkRedirect(target.serverId, { linked: provider }, clearCookie);
 }
 
 // Raw 302 redirect. Elysia's `redirect()` helper mutates an immutable Response
@@ -134,6 +208,15 @@ function handoffRedirect(url: string, setCookie?: string | string[]): Response {
   res.headers.set('Cache-Control', 'no-store');
   res.headers.set('Referrer-Policy', 'no-referrer');
   return res;
+}
+
+/** Connection providers this deployment has credentials for (OAuth2 / OpenID + Last.fm). */
+export function configuredOAuthConnectionProviders(): string[] {
+  const out = Object.entries(OAUTH2_PROVIDERS)
+    .filter(([, p]) => Boolean(p.clientId && p.clientSecret))
+    .map(([id]) => id);
+  if (config.LASTFM_API_KEY && config.LASTFM_API_SECRET) out.push('lastfm');
+  return out;
 }
 
 // ── OAuth2 provider configurations ──────────────────────────────────────────
@@ -1211,6 +1294,8 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     if (discordError || !code) {
       // Check if this was a connection attempt
       if (isConnection) {
+        const target = await consumeOAuthState('discord', connectionState);
+        if (target?.serverId) return serverLinkRedirect(target.serverId, { error: 'denied' }, 'oauth2_state=; Path=/; Max-Age=0');
         return oauthRedirect(`${redirectBase}&error=discord_denied`, 'oauth2_state=; Path=/; Max-Age=0');
       }
       set.status = 400;
@@ -1219,10 +1304,17 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
     // Resolve who this flow belongs to BEFORE spending the code.
     let connectionUserId: string | null = null;
+    let linkServerId: string | null = null;
     if (isConnection) {
-      connectionUserId = await consumeOAuthState('discord', connectionState);
-      if (!connectionUserId) {
+      const target = await consumeOAuthState('discord', connectionState);
+      if (!target) {
         return oauthRedirect(`${redirectBase}&error=discord_state_missing`, 'oauth2_state=; Path=/; Max-Age=0');
+      }
+      connectionUserId = target.userId;
+      linkServerId = target.serverId;
+      if (linkServerId) {
+        const problem = await serverLinkProblem('discord', { userId: target.userId, serverId: linkServerId }, cookie);
+        if (problem) return serverLinkRedirect(linkServerId, { error: problem }, 'oauth2_state=; Path=/; Max-Age=0');
       }
     } else {
       const expected = cookies.discord_login_state?.value;
@@ -1284,6 +1376,16 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         const avatar = discordUser.avatar
           ? `https://cdn.discordapp.com/avatars/${discordUser.id}/${discordUser.avatar}.${discordUser.avatar.startsWith('a_') ? 'gif' : 'png'}`
           : undefined;
+
+        // Linked for a server: saved on the server, never on the user's profile.
+        if (linkServerId) {
+          return finishServerLink('discord', { userId, serverId: linkServerId }, {
+            accountId: discordUser.id,
+            username: discordUser.username,
+            displayName: discordUser.global_name || discordUser.username,
+            avatar,
+          }, cookie, 'oauth2_state=; Path=/; Max-Age=0');
+        }
 
         // Upsert UserConnection
         const existingConn = await UserConnection.findOne({ userId, provider: 'discord' });
@@ -1379,7 +1481,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   // /:provider/callback to avoid route conflicts between static and dynamic
   // paths in Elysia.
 
-  .get('/:provider/initiate', async ({ params, headers, cookie }) => {
+  .get('/:provider/initiate', async ({ params, query, headers, cookie }) => {
     const provider = params.provider;
     const base = config.FRONTEND_URL || config.API_BASE_URL;
 
@@ -1391,18 +1493,37 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       cookies.auth_token = authToken;
     }
     const { user } = await authenticateRequest(authHeader, cookies);
+
+    // Server link (Server Settings → Server Connections → Link account): the
+    // one-time ticket from POST /servers/:id/owned-connections/link names the
+    // server; it must belong to this signed-in owner.
+    const linkTicket = (query as Record<string, unknown> | undefined)?.link;
+    let linkServerId: string | null = null;
+    if (linkTicket !== undefined) {
+      const { consumeServerLinkTicket } = await import('../services/serverOwnedConnections');
+      const target = await consumeServerLinkTicket(linkTicket);
+      if (!target) return oauthRedirect(`${base}/channels/me?openSettings=connections&error=link_expired`);
+      const server = await Server.findById(target.serverId).catch(() => null);
+      const verdict = checkServerLinkTarget(target, { provider, authUserId: user?.id, serverOwnerId: server?.ownerId });
+      if (verdict !== 'ok') return serverLinkRedirect(target.serverId, { error: verdict });
+      linkServerId = target.serverId;
+    }
+    const fail = (code: string) => linkServerId
+      ? serverLinkRedirect(linkServerId, { error: code })
+      : oauthRedirect(`${base}/channels/me?openSettings=connections&error=${code}`);
+
     if (!user) {
-      return oauthRedirect(`${base}/channels/me?openSettings=connections&error=unauthorized`);
+      return fail('unauthorized');
     }
 
     // Check if connections are enabled
     const platformSettings = await getPlatformSettings();
     if (platformSettings.connectionsEnabled === false) {
-      return oauthRedirect(`${base}/channels/me?openSettings=connections&error=connections_disabled`);
+      return fail('connections_disabled');
     }
 
     if (platformSettings.disabledProviders?.includes(provider)) {
-      return oauthRedirect(`${base}/channels/me?openSettings=connections&error=provider_disabled`);
+      return fail('provider_disabled');
     }
 
     const userId = user.id;
@@ -1411,10 +1532,10 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     if (provider === 'lastfm') {
       const apiKey = config.LASTFM_API_KEY;
       if (!apiKey) {
-        return oauthRedirect(`${base}/channels/me?openSettings=connections&error=lastfm_not_configured`);
+        return fail('lastfm_not_configured');
       }
 
-      const lastfmState = await createOAuthState('lastfm', userId);
+      const lastfmState = await createOAuthState('lastfm', userId, linkServerId ?? undefined);
       const stateCookie = `lastfm_state=${encodeURIComponent(lastfmState)}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
       const callbackUrl = encodeURIComponent(`${base}/api/auth/lastfm/callback`);
       return oauthRedirect(`https://www.last.fm/api/auth/?api_key=${apiKey}&cb=${callbackUrl}`, stateCookie);
@@ -1423,10 +1544,10 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     // ── Generic OAuth2 initiate ─────────────────────────────────────────────
     const prov = OAUTH2_PROVIDERS[provider];
     if (!prov || !prov.clientId) {
-      return oauthRedirect(`${base}/channels/me?openSettings=connections&error=${provider}_not_configured`);
+      return fail(`${provider}_not_configured`);
     }
 
-    const state = await createOAuthState(provider, userId);
+    const state = await createOAuthState(provider, userId, linkServerId ?? undefined);
     const stateCookie = `oauth2_state=${encodeURIComponent(state)}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
     const callbackUrl = encodeURIComponent(`${base}/api/auth/${provider}/callback`);
     const authUrl = prov.getAuthUrl(prov.clientId, callbackUrl, prov.scopes);
@@ -1441,18 +1562,27 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     if (provider === 'lastfm') {
       const { token } = query as { token?: string };
 
+      const target = await consumeOAuthState('lastfm', (cookie as Record<string, { value?: unknown }>).lastfm_state?.value);
+      const clearLastfm = 'lastfm_state=; Path=/; Max-Age=0';
+      if (target?.serverId && !token) {
+        return serverLinkRedirect(target.serverId, { error: 'denied' }, clearLastfm);
+      }
       if (!token) {
         return oauthRedirect(`${redirectBase}&error=lastfm_denied`);
       }
-      const userId = await consumeOAuthState('lastfm', (cookie as Record<string, { value?: unknown }>).lastfm_state?.value);
-      if (!userId) {
+      if (!target) {
         return oauthRedirect(`${redirectBase}&error=lastfm_state_missing`);
+      }
+      const userId = target.userId;
+      if (target.serverId) {
+        const problem = await serverLinkProblem('lastfm', { userId, serverId: target.serverId }, cookie);
+        if (problem) return serverLinkRedirect(target.serverId, { error: problem }, clearLastfm);
       }
 
       const apiKey = config.LASTFM_API_KEY;
       const secret = config.LASTFM_API_SECRET;
       if (!apiKey || !secret) {
-        return oauthRedirect(`${redirectBase}&error=lastfm_not_configured`);
+        return connectionFail(redirectBase, 'lastfm_not_configured', target, clearLastfm);
       }
 
       try {
@@ -1479,7 +1609,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         const data = await resp.json() as { error?: string; session?: { name: string; key: string } };
 
         if (data.error || !data.session) {
-          return oauthRedirect(`${redirectBase}&error=lastfm_session_failed`);
+          return connectionFail(redirectBase, 'lastfm_session_failed', target, clearLastfm);
         }
 
         const lfmUsername: string = data.session.name;
@@ -1493,6 +1623,16 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         const infoResp = await fetch(infoUrl.toString());
         const infoData = await infoResp.json() as { user?: { image?: Array<{ size?: string; '#text'?: string }> } };
         const avatar: string | undefined = infoData.user?.image?.find((img) => img.size === 'large')?.['#text'] || undefined;
+
+        // Linked for a server: only the identity is kept (no session key).
+        if (target.serverId) {
+          return finishServerLink('lastfm', { userId, serverId: target.serverId }, {
+            accountId: lfmUsername,
+            username: lfmUsername,
+            displayName: lfmUsername,
+            avatar,
+          }, cookie, clearLastfm);
+        }
 
         const existingConn = await UserConnection.findOne({ userId, provider: 'lastfm' });
         if (existingConn) {
@@ -1518,7 +1658,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         return oauthRedirect(`${redirectBase}&success=lastfm`, 'lastfm_state=; Path=/; Max-Age=0');
       } catch (err) {
         console.error('Last.fm callback error:', err);
-        return oauthRedirect(`${redirectBase}&error=lastfm_error`);
+        return connectionFail(redirectBase, 'lastfm_error', target, clearLastfm);
       }
     }
 
@@ -1531,19 +1671,26 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         return oauthRedirect(`${redirectBase}&error=steam_not_configured`);
       }
       const q = query as Record<string, unknown>;
+      const target = await consumeOAuthState('steam', (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
+      const clearState = 'oauth2_state=; Path=/; Max-Age=0';
       if (!q['openid.identity'] || q['openid.mode'] !== 'id_res') {
+        if (target?.serverId) return serverLinkRedirect(target.serverId, { error: 'denied' }, clearState);
         return oauthRedirect(`${redirectBase}&error=steam_denied`);
       }
-      const userId = await consumeOAuthState('steam', (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
-      if (!userId) {
+      if (!target) {
         return oauthRedirect(`${redirectBase}&error=steam_state_missing`);
+      }
+      const userId = target.userId;
+      if (target.serverId) {
+        const problem = await serverLinkProblem('steam', { userId, serverId: target.serverId }, cookie);
+        if (problem) return serverLinkRedirect(target.serverId, { error: problem }, clearState);
       }
       // The query string is attacker-controlled: check the assertion's shape,
       // then have Steam confirm its signature before trusting the SteamID.
       const steamReturnTo = `${config.FRONTEND_URL || config.API_BASE_URL}/api/auth/steam/callback`;
       const assertion = checkSteamAssertion(q, steamReturnTo);
       if ('error' in assertion) {
-        return oauthRedirect(`${redirectBase}&error=steam_session_failed`);
+        return connectionFail(redirectBase, 'steam_session_failed', target, clearState);
       }
       const steamId = assertion.steamId;
       try {
@@ -1554,14 +1701,22 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           signal: AbortSignal.timeout(10_000),
         });
         if (!verifyResp.ok || !isSteamCheckAuthValid(await verifyResp.text())) {
-          return oauthRedirect(`${redirectBase}&error=steam_session_failed`);
+          return connectionFail(redirectBase, 'steam_session_failed', target, clearState);
         }
       } catch (err) {
         console.error('Steam OpenID verification error:', err);
-        return oauthRedirect(`${redirectBase}&error=steam_error`);
+        return connectionFail(redirectBase, 'steam_error', target, clearState);
       }
       try {
         const userInfo = await prov.fetchUser(steamId);
+        if (target.serverId) {
+          return finishServerLink('steam', { userId, serverId: target.serverId }, {
+            accountId: userInfo.accountId,
+            username: userInfo.username || userInfo.accountId,
+            displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
+            avatar: userInfo.avatar,
+          }, cookie, clearState);
+        }
         const existingConn = await UserConnection.findOne({ userId, provider: 'steam' });
         if (existingConn) {
           await UserConnection.updateById(existingConn.id, {
@@ -1585,23 +1740,30 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         return oauthRedirect(`${redirectBase}&success=steam`, 'oauth2_state=; Path=/; Max-Age=0');
       } catch (err) {
         console.error('Steam callback error:', err);
-        return oauthRedirect(`${redirectBase}&error=steam_error`);
+        return connectionFail(redirectBase, 'steam_error', target, clearState);
       }
     }
 
     const code = (query as Record<string, string>).code as string | undefined;
 
+    const target = await consumeOAuthState(provider, (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
+    const clearState = 'oauth2_state=; Path=/; Max-Age=0';
     if (!code) {
+      if (target?.serverId) return serverLinkRedirect(target.serverId, { error: 'denied' }, clearState);
       return oauthRedirect(`${redirectBase}&error=${provider}_denied`);
     }
-    const userId = await consumeOAuthState(provider, (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
-    if (!userId) {
+    if (!target) {
       return oauthRedirect(`${redirectBase}&error=${provider}_state_missing`);
+    }
+    const userId = target.userId;
+    if (target.serverId) {
+      const problem = await serverLinkProblem(provider, { userId, serverId: target.serverId }, cookie);
+      if (problem) return serverLinkRedirect(target.serverId, { error: problem }, clearState);
     }
 
     const prov = OAUTH2_PROVIDERS[provider];
     if (!prov || !prov.clientId || !prov.clientSecret) {
-      return oauthRedirect(`${redirectBase}&error=${provider}_not_configured`);
+      return connectionFail(redirectBase, `${provider}_not_configured`, target, clearState);
     }
 
     const callbackUrl = `${config.FRONTEND_URL || config.API_BASE_URL}/api/auth/${provider}/callback`;
@@ -1610,13 +1772,24 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       // Exchange code for access token
       const tokenResp = await prov.exchangeCode(prov.clientId, prov.clientSecret, code, callbackUrl);
       if (!tokenResp.access_token) {
-        return oauthRedirect(`${redirectBase}&error=${provider}_session_failed`);
+        return connectionFail(redirectBase, `${provider}_session_failed`, target, clearState);
       }
 
       // Fetch user info
       const userInfo = await prov.fetchUser(tokenResp.access_token);
       if (!userInfo.accountId) {
+        if (target.serverId) return serverLinkRedirect(target.serverId, { error: 'session_failed' }, clearState);
         return oauthRedirect(`${redirectBase}&error=${provider}_session_failed`);
+      }
+
+      // Linked for a server: only the identity is kept, the access token is dropped.
+      if (target.serverId) {
+        return finishServerLink(provider, { userId, serverId: target.serverId }, {
+          accountId: userInfo.accountId,
+          username: userInfo.username || userInfo.accountId,
+          displayName: userInfo.displayName || userInfo.username || userInfo.accountId,
+          avatar: userInfo.avatar,
+        }, cookie, clearState);
       }
 
       // Upsert connection
@@ -1644,7 +1817,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return oauthRedirect(`${redirectBase}&success=${provider}`, 'oauth2_state=; Path=/; Max-Age=0');
     } catch (err) {
       console.error(`${provider} callback error:`, err);
-      return oauthRedirect(`${redirectBase}&error=${provider}_error`);
+      return connectionFail(redirectBase, `${provider}_error`, target, clearState);
     }
   }, {
     query: t.Object({
