@@ -13,6 +13,7 @@ import { clientEmojiString, discordEmoji, parseReactionEmojiParam } from "@/lib/
 import { interpretNonceSlot, nonceKey, normalizeNonce, NONCE_PENDING } from "@/lib/chat/messageNonce";
 import { discordMessageType, serializeMessage } from "@/lib/chat/discordMessage";
 import { addFormError, invalidFormBody } from "@/lib/chat/discordFormErrors";
+import { botRequestBuckets } from "@/lib/security/botRateLimit";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -301,6 +302,18 @@ describe("message serializer", () => {
     expect(discordMessageType({ type: "default", interaction: { name: "ping" } })).toBe(20);
     expect(discordMessageType({ type: "poll_result" })).toBe(46);
     expect(discordMessageType({ type: "member_leave" })).toBe(0);
+  });
+});
+
+describe("bot message rate-limit buckets", () => {
+  test("bulk delete and typing get their own per-channel buckets", () => {
+    const bulk = botRequestBuckets(BOT, "POST", "/api/v10/channels/:channelId/messages/bulk-delete", { channelId: A });
+    expect(bulk.map((b) => b.limiter)).toEqual(["botBulkDelete", "botGlobal"]);
+    const typing = botRequestBuckets(BOT, "POST", "/api/v10/channels/:channelId/typing", { channelId: A });
+    expect(typing[0].limiter).toBe("botTyping");
+    const react = botRequestBuckets(BOT, "DELETE", "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji", { channelId: A });
+    expect(react[0].limiter).toBe("botReaction");
+    expect(react[0].key).not.toBe(botRequestBuckets(BOT, "DELETE", "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji", { channelId: B })[0].key);
   });
 });
 
