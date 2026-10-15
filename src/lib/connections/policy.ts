@@ -7,9 +7,11 @@
  *   identity (e.g. mapping a Discord author to a SerikaCord user in the bridge).
  */
 
-/** Providers a user may type in themselves; they are display-only. */
+/**
+ * Providers a user may type in themselves; they are display-only. Websites are
+ * not here: they go through DNS verification (see ./domain.ts).
+ */
 export const SELF_DECLARABLE_PROVIDERS = [
-  'website',
   'twitter',
   'instagram',
   'youtube',

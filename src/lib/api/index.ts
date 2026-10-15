@@ -43,6 +43,7 @@ import { normalizeId } from '@/lib/db/normalizeId';
 import { getVersionInfo } from '@/lib/version';
 import { getServerBuildTime } from '@/lib/versionServer';
 import { filterVisibleConnections, isSelfDeclarableProvider, toOwnConnection } from '@/lib/connections/policy';
+import { MAX_DOMAINS_PER_USER, createDomainToken, filterUnverifiedDomains, newDomainMetadata, normalizeDomain, ownDomainStatus, readDomainVerification, verifiedDomainMetadata } from '@/lib/connections/domain';
 import { mutateFriendPair, type FriendPairOutcome } from '@/lib/services/friendPairLock';
 import { addId, dedupeIds, hasId, removeId } from '@/lib/social/friendLists';
 import { normalizeDisplayName } from '@/lib/utils/normalizeDisplayName';
@@ -54,6 +55,12 @@ import { ACTIVE_DEVICE_TTL_SECONDS, AUTO_IDLE_FLAG_TTL_SECONDS, decideAutoIdle, 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
+}
+
+/** A connection as returned to its owner; websites carry their DNS verification status. */
+function toOwnConnectionView<T extends { provider: string; accountId: string; metadata?: unknown }>(row: T) {
+  const own = toOwnConnection(row);
+  return row.provider === 'website' ? { ...own, domain: ownDomainStatus(row) } : own;
 }
 
 const sseEncoder = new TextEncoder();
@@ -2190,7 +2197,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }
 
     connections.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
-    return { connections };
+    return { connections: connections.map(toOwnConnectionView) };
   })
   .post('/me/connections', async ({ headers, cookie, body, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -2206,7 +2213,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // otherwise hijack that person's Discord-bridge identity.
     if (!isSelfDeclarableProvider(payload.provider)) {
       set.status = 400;
-      return { error: 'This account type can only be linked through its sign-in flow' };
+      return {
+        error: payload.provider === 'website'
+          ? 'Websites are added through domain verification'
+          : 'This account type can only be linked through its sign-in flow',
+      };
     }
     // Check if connection already exists
     let connection = await UserConnection.findOne({
@@ -2234,7 +2245,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       });
     }
 
-    return { connection: toOwnConnection(connection) };
+    return { connection: toOwnConnectionView(connection) };
   }, {
     body: t.Object({
       provider: t.Union([
@@ -2259,6 +2270,115 @@ const userRoutes = new Elysia({ prefix: '/users' })
       displayName: t.Optional(t.String()),
       avatar: t.Optional(t.String()),
       metadata: t.Optional(t.Object({}, { additionalProperties: true })),
+    }),
+  })
+  // Add a domain (or return the existing one). It stays off the profile until
+  // its TXT record is verified by POST /me/connections/:id/verify.
+  .post('/me/connections/domains', async ({ headers, cookie, body, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { getPlatformSettings } = await import('@/lib/models/PlatformSettings');
+    const settings = await getPlatformSettings();
+    if (settings.connectionsEnabled === false || (settings.disabledProviders || []).includes('website')) {
+      set.status = 403;
+      return { error: 'Domain connections are currently disabled' };
+    }
+    const domain = normalizeDomain(body.domain);
+    if (!domain) {
+      set.status = 400;
+      return { error: 'Enter a valid domain, like example.com' };
+    }
+
+    const userId = authUser.id;
+    const existing = await UserConnection.find({ userId, provider: 'website' });
+    const current = existing.find((c) => c.accountId === domain && readDomainVerification(c.metadata));
+    if (current) return { connection: toOwnConnectionView(current) };
+
+    // Unverified rows from before verification existed, for the same domain,
+    // are replaced by this one.
+    const legacy = existing.filter((c) => !readDomainVerification(c.metadata) && normalizeDomain(c.accountId) === domain);
+    if (existing.length - legacy.length >= MAX_DOMAINS_PER_USER) {
+      set.status = 400;
+      return { error: `You can link up to ${MAX_DOMAINS_PER_USER} domains` };
+    }
+    for (const row of legacy) await UserConnection.deleteByIdForUser(row.id, userId);
+
+    let connection;
+    try {
+      connection = await UserConnection.create({
+        userId,
+        provider: 'website',
+        accountId: domain,
+        displayName: domain,
+        visible: true,
+        metadata: newDomainMetadata(createDomainToken()),
+      });
+    } catch {
+      // Lost a race with a concurrent add of the same domain.
+      connection = await UserConnection.findOne({ userId, provider: 'website', accountId: domain });
+    }
+    if (!connection) {
+      set.status = 500;
+      return { error: 'Failed to add domain' };
+    }
+    return { connection: toOwnConnectionView(connection) };
+  }, {
+    body: t.Object({
+      domain: t.String({ minLength: 1, maxLength: 300 }),
+    }),
+  })
+  // Look up the domain's TXT record and mark the connection verified.
+  .post('/me/connections/:connectionId/verify', async ({ headers, cookie, params, set }) => {
+    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const connection = isValidObjectId(normalizeId(params.connectionId))
+      ? await UserConnection.findById(params.connectionId)
+      : null;
+    if (!connection || connection.provider !== 'website' || !compareIds(connection.userId, authUser.id)) {
+      set.status = 404;
+      return { error: 'Connection not found' };
+    }
+    const challenge = readDomainVerification(connection.metadata);
+    if (!challenge) {
+      set.status = 409;
+      return { error: 'Re-add this domain to get a verification record', code: 'verification_not_started' };
+    }
+    if (challenge.verified) return { connection: toOwnConnectionView(connection) };
+
+    const rate = await checkRateLimit('domainVerify', authUser.id);
+    if (!rate.success) {
+      set.status = 429;
+      return { error: 'Too many verification attempts. Try again in a few minutes.', retryAfter: rate.retryAfter };
+    }
+
+    const { checkDomainOwnership } = await import('@/lib/services/domainVerification');
+    const result = await checkDomainOwnership(connection.accountId, challenge.token);
+    if (result.error) {
+      set.status = 502;
+      return { error: 'Could not look up DNS for this domain. Try again in a minute.', code: 'dns_error' };
+    }
+    if (!result.ok) {
+      set.status = 400;
+      return {
+        error: 'TXT record not found yet. DNS changes can take a few minutes to show up.',
+        code: 'record_not_found',
+        connection: toOwnConnectionView(connection),
+      };
+    }
+
+    const updated = await UserConnection.updateByIdForUser(connection.id, authUser.id, {
+      metadata: verifiedDomainMetadata(challenge.token, new Date()),
+    });
+    return { connection: toOwnConnectionView(updated ?? connection) };
+  }, {
+    params: t.Object({
+      connectionId: t.String(),
     }),
   })
   .delete('/me/connections/:connectionId', async ({ headers, cookie, params, set }) => {
@@ -2302,7 +2422,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: 'Connection not found' };
     }
 
-    return { connection: toOwnConnection(connection) };
+    return { connection: toOwnConnectionView(connection) };
   }, {
     params: t.Object({
       connectionId: t.String(),
@@ -2399,7 +2519,10 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // Public connections — strip sensitive metadata (e.g. session keys).
     // Hidden ones are filtered here: UserConnection.find has no 'visible' key,
     // and the column is nullable (NULL means visible).
-    const rawConnections = filterVisibleConnections(await UserConnection.find({ userId: targetUser.id }), isSelf);
+    // Websites only show once their domain is DNS-verified.
+    const rawConnections = filterUnverifiedDomains(
+      filterVisibleConnections(await UserConnection.find({ userId: targetUser.id }), isSelf),
+    );
     const connections = rawConnections.map((c) => ({
       provider: c.provider,
       accountId: c.accountId,
@@ -2407,6 +2530,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       displayName: c.displayName,
       avatar: c.avatar,
       visible: c.visible !== false,
+      ...(c.provider === 'website' ? { verified: true } : {}),
     }));
 
     return {

@@ -37,7 +37,7 @@ import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { getConnectionIcon, getConnectionColor, getConnectionHref } from "@/components/user/ConnectionIcon";
 import { FullProfileDialog } from "@/components/user/FullProfileDialog";
 import { useAuth } from "@/contexts/AuthContext";
-import { ExternalLink } from "lucide-react";
+import { BadgeCheck, ExternalLink } from "lucide-react";
 import { useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
 import { RoleIcon } from "@/components/chat/RoleIcon";
@@ -75,6 +75,8 @@ export interface ProfileCardUser {
     username?: string;
     displayName?: string;
     avatar?: string;
+    /** Websites only: domain ownership proven via DNS. */
+    verified?: boolean;
   }>;
   customization?: {
     profileColor?: string;
@@ -524,7 +526,7 @@ export function ProfileCard({
                 const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
                 return (
                   <a
-                    key={conn.provider}
+                    key={`${conn.provider}:${conn.accountId}`}
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
@@ -537,6 +539,7 @@ export function ProfileCard({
                       <Icon size={20} className="shrink-0" style={{ color }} />
                     )}
                     <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
+                    {conn.verified && <BadgeCheck className="w-3.5 h-3.5 text-green-500 shrink-0" aria-label={gt("Verified domain")} />}
                     <svg className="w-3 h-3 text-[#9a9aad] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
                   </a>
                 );

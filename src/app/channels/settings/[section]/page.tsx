@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft,  Trash2, Camera, Image, Lock, RotateCcw, Check, Pencil, ExternalLink } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -83,7 +84,6 @@ const CONNECTION_PROVIDERS: Array<{
   { id: "instagram", label: "Instagram",   color: "#e1306c", bg: "#e1306c20", hint: "Authorise via Instagram.", category: "social" },
   { id: "discord",   label: "Discord",     color: "#5865f2", bg: "#5865f220", hint: "Managed through your Serika account.", category: "social" },
   { id: "serika",    label: "Serika",      color: "#8B5CF6", bg: "#8B5CF620", hint: "Managed through your Serika account.", category: "social" },
-  { id: "website",   label: "Website",     color: "#8B5CF6", bg: "#8B5CF620", hint: "Enter your personal website URL.", category: "social" },
 ];
 
 const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
@@ -121,7 +121,6 @@ function connectionProviderHint(id: string, gt: GTFunc): string {
     case 'instagram': return gt('Authorise via Instagram.');
     case 'discord': return gt('Managed through your Serika account.');
     case 'serika': return gt('Managed through your Serika account.');
-    case 'website': return gt('Enter your personal website URL.');
     default: return '';
   }
 }
@@ -185,9 +184,6 @@ export default function MobileSettingsSectionPage() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
 
-  // Connections states
-  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  const [connectingValue, setConnectingValue] = useState("");
 
   useEffect(() => {
     if (user) {
@@ -1556,7 +1552,6 @@ export default function MobileSettingsSectionPage() {
                   <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-card)] divide-y divide-[var(--border-subtle)]">
                     {catProviders.map((prov) => {
                       const conn = connections.find((c) => c.provider === prov.id);
-                      const isExpanded = connectingProvider === prov.id;
                       return (
                         <div key={prov.id} className="p-4 space-y-3">
                           <div className="flex items-center justify-between">
@@ -1615,26 +1610,13 @@ export default function MobileSettingsSectionPage() {
                                 {gt("Disabled")}
                               </button>
                             ) : connectionsEnabled ? (
-                              prov.id === "website" ? (
-                                <button
-                                  onClick={() => {
-                                    setConnectingProvider(isExpanded ? null : prov.id);
-                                    setConnectingValue("");
-                                  }}
-                                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90"
-                                  style={{ backgroundColor: prov.color }}
-                                >
-                                  {isExpanded ? gt("Cancel") : gt("Connect")}
-                                </button>
-                              ) : (
-                                <a
-                                  href={`/api/auth/${prov.id}/initiate`}
-                                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90 inline-block"
-                                  style={{ backgroundColor: prov.color }}
-                                >
-                                  {gt("Connect")}
-                                </a>
-                              )
+                              <a
+                                href={`/api/auth/${prov.id}/initiate`}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90 inline-block"
+                                style={{ backgroundColor: prov.color }}
+                              >
+                                {gt("Connect")}
+                              </a>
                             ) : (
                               <button
                                 disabled
@@ -1675,44 +1657,6 @@ export default function MobileSettingsSectionPage() {
                             </div>
                           )}
 
-                          {isExpanded && prov.id === "website" && (
-                            <div className="flex gap-2 pt-2">
-                              <input
-                                type="text"
-                                placeholder="https://example.com"
-                                value={connectingValue}
-                                onChange={(e) => setConnectingValue(e.target.value)}
-                                className="flex-1 px-3 py-1.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)]"
-                              />
-                              <button
-                                onClick={async () => {
-                                  if (!connectingValue.trim()) return;
-                                  try {
-                                    const res = await fetch("/api/users/me/connections", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ provider: "website", accountId: connectingValue.trim() }),
-                                    });
-                                    if (res.ok) {
-                                      const data = await res.json();
-                                      setConnections((prev) => [data.connection, ...prev.filter((c) => c.provider !== "website")]);
-                                      toast.success(gt("Website connected"));
-                                      setConnectingProvider(null);
-                                      setConnectingValue("");
-                                    } else {
-                                      const err = await res.json().catch(() => ({}));
-                                      toast.error(err.error || gt("Failed to connect"));
-                                    }
-                                  } catch {
-                                    toast.error(gt("Failed to connect"));
-                                  }
-                                }}
-                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--app-accent)] text-white hover:opacity-90 transition-opacity"
-                              >
-                                {gt("Save")}
-                              </button>
-                            </div>
-                          )}
                         </div>
                       );
                     })}
@@ -1720,6 +1664,11 @@ export default function MobileSettingsSectionPage() {
                 </div>
               );
             })}
+            <DomainConnectionsSection
+              connections={connections}
+              setConnections={setConnections}
+              canAdd={connectionsEnabled && !disabledProviders.includes("website")}
+            />
           </div>
         )}
       </div>

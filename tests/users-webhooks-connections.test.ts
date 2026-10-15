@@ -70,10 +70,10 @@ describe("message grouping with webhooks", () => {
 
 describe("connection policy", () => {
   test("only display-only providers can be self-declared", () => {
-    for (const p of ["website", "twitter", "instagram", "youtube", "xbox", "psn", "roblox", "battlenet"]) {
+    for (const p of ["twitter", "instagram", "youtube", "xbox", "psn", "roblox", "battlenet"]) {
       expect(isSelfDeclarableProvider(p)).toBeTrue();
     }
-    for (const p of ["discord", "github", "spotify", "twitch", "steam", "lastfm", "serika", "", null]) {
+    for (const p of ["website", "discord", "github", "spotify", "twitch", "steam", "lastfm", "serika", "", null]) {
       expect(isSelfDeclarableProvider(p)).toBeFalse();
     }
   });

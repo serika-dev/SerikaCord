@@ -14,7 +14,7 @@ import { ProfileGameWidgets, type GameCategory } from "@/components/user/Profile
 import { ProfileAppWidgets } from "@/components/user/ProfileAppWidgets";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
+import { BadgeCheck, CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn, cdnImage } from "@/lib/utils";
@@ -532,7 +532,7 @@ export function FullProfileDialog({
                           const color = getConnectionColor(conn.provider);
                           return (
                             <a
-                              key={conn.provider}
+                              key={`${conn.provider}:${conn.accountId}`}
                               href={href}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -543,6 +543,7 @@ export function FullProfileDialog({
                                 <img src={cdnImage(conn.avatar)} alt={label} className="w-6 h-6 rounded-full object-cover shrink-0" />
                               ) : null}
                               <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
+                              {conn.verified && <BadgeCheck className="w-3.5 h-3.5 text-green-500 shrink-0" aria-label={gt("Verified domain")} />}
                               <Icon size={22} className="shrink-0" style={{ color }} />
                               <ExternalLink className="w-3 h-3 text-[#9a9aad] shrink-0" />
                             </a>

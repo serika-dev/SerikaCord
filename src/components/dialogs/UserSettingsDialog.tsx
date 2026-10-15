@@ -7,6 +7,7 @@ import { useStaffAccess } from "@/hooks/useStaffAccess";
 import type { StaffPermission } from "@/lib/staff/permissions";
 import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
 import { useAuth } from "@/contexts/AuthContext";
 import { mergeSettingsDeep, type SettingsPatch } from "@/lib/settings/mergeSettings";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -199,7 +200,6 @@ const CONNECTION_PROVIDERS: Array<{
   { id: "instagram", label: "Instagram",   color: "#e1306c", bg: "#e1306c20", hint: "Authorise via Instagram.", category: "social" },
   { id: "discord",   label: "Discord",     color: "#5865f2", bg: "#5865f220", hint: "Managed through your Serika account.", category: "social" },
   { id: "serika",    label: "Serika",      color: "#8B5CF6", bg: "#8B5CF620", hint: "Managed through your Serika account.", category: "social" },
-  { id: "website",   label: "Website",     color: "#8B5CF6", bg: "#8B5CF620", hint: "Enter your personal website URL.", category: "social" },
 ];
 
 const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
@@ -237,7 +237,6 @@ function connectionProviderHint(id: string, gt: GTFunc): string {
     case 'instagram': return gt('Authorise via Instagram.');
     case 'discord': return gt('Managed through your Serika account.');
     case 'serika': return gt('Managed through your Serika account.');
-    case 'website': return gt('Enter your personal website URL.');
     default: return '';
   }
 }
@@ -245,19 +244,11 @@ function connectionProviderHint(id: string, gt: GTFunc): string {
 function ConnectionsTabContent({
   userConnections,
   setUserConnections,
-  connectingProvider,
-  setConnectingProvider,
-  connectingValue,
-  setConnectingValue,
   connectionsEnabled = true,
   disabledProviders = [],
 }: {
   userConnections: any[];
   setUserConnections: Dispatch<SetStateAction<any[]>>;
-  connectingProvider: string | null;
-  setConnectingProvider: (v: string | null) => void;
-  connectingValue: string;
-  setConnectingValue: (v: string) => void;
   connectionsEnabled?: boolean;
   disabledProviders?: string[];
 }) {
@@ -299,32 +290,6 @@ function ConnectionsTabContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleConnect = async (provider: string, accountId: string) => {
-    if (!accountId.trim()) return;
-    try {
-      const res = await fetch("/api/users/me/connections", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, accountId: accountId.trim() }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUserConnections((prev) => {
-          const filtered = prev.filter((c) => c.provider !== provider);
-          return [data.connection, ...filtered];
-        });
-        toast.success(gt("{label} connected", { label: CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label || provider }));
-        setConnectingProvider(null);
-        setConnectingValue("");
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error((err as { error?: string }).error || gt("Failed to connect"));
-      }
-    } catch {
-      toast.error(gt("Failed to connect"));
-    }
-  };
-
   const handleDisconnect = async (connectionId: string, provider: string) => {
     const res = await fetch(`/api/users/me/connections/${connectionId}`, { method: "DELETE" });
     if (res.ok) {
@@ -334,10 +299,6 @@ function ConnectionsTabContent({
       toast.error(gt("Failed to disconnect"));
     }
   };
-
-  const activeProviderDef = connectingProvider
-    ? CONNECTION_PROVIDERS.find((x) => x.id === connectingProvider)
-    : null;
 
   return (
     <div>
@@ -356,46 +317,6 @@ function ConnectionsTabContent({
         </div>
       )}
 
-      {/* Inline connect form */}
-      {connectingProvider && activeProviderDef && (
-        <div className="mb-6 p-4 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-          <div className="flex items-center gap-2 mb-3">
-            <div
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
-              style={{ backgroundColor: activeProviderDef.bg, color: activeProviderDef.color }}
-            >
-              {activeProviderDef.label[0]}
-            </div>
-            <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Connect {label}", { label: activeProviderDef.label })}</p>
-            <button
-              onClick={() => { setConnectingProvider(null); setConnectingValue(""); }}
-              className="ml-auto text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <p className="text-xs text-[var(--text-muted)] mb-3">{connectionProviderHint(activeProviderDef.id, gt)}</p>
-          <div className="flex gap-2">
-            <Input
-              autoFocus
-              value={connectingValue}
-              onChange={(e) => setConnectingValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void handleConnect(connectingProvider, connectingValue)}
-              placeholder={gt("https://yoursite.com")}
-              className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
-            />
-            <button
-              onClick={() => void handleConnect(connectingProvider, connectingValue)}
-              disabled={!connectingValue.trim()}
-              className="px-4 py-2 text-sm rounded-lg text-white disabled:opacity-40 font-medium transition-opacity"
-              style={{ backgroundColor: activeProviderDef.color }}
-            >
-              {gt("Connect")}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* Provider list grouped by category */}
       <div className="space-y-6">
         {CONNECTION_CATEGORIES.map(({ id: catId, label: catLabel }) => {
@@ -406,7 +327,6 @@ function ConnectionsTabContent({
               <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)]">
                 {catProviders.map((p, i) => {
                   const conn = connectedMap[p.id];
-                  const isExpanded = connectingProvider === p.id;
                   return (
                     <div
                       key={p.id}
@@ -483,23 +403,13 @@ function ConnectionsTabContent({
                           {gt("Disabled")}
                         </button>
                       ) : connectionsEnabled ? (
-                        p.id === "website" ? (
-                          <button
-                            onClick={() => { setConnectingProvider(isExpanded ? null : p.id); setConnectingValue(""); }}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90"
-                            style={{ backgroundColor: p.color }}
-                          >
-                            {isExpanded ? gt("Cancel") : gt("Connect")}
-                          </button>
-                        ) : (
-                          <a
-                            href={`/api/auth/${p.id}/initiate`}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
-                            style={{ backgroundColor: p.color }}
-                          >
-                            {gt("Connect")}
-                          </a>
-                        )
+                        <a
+                          href={`/api/auth/${p.id}/initiate`}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
+                          style={{ backgroundColor: p.color }}
+                        >
+                          {gt("Connect")}
+                        </a>
                       ) : (
                         <button
                           disabled
@@ -515,6 +425,11 @@ function ConnectionsTabContent({
             </div>
           );
         })}
+        <DomainConnectionsSection
+          connections={userConnections}
+          setConnections={setUserConnections}
+          canAdd={connectionsEnabled && !disabledProviders.includes("website")}
+        />
       </div>
     </div>
   );
@@ -1064,8 +979,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const [oembedDomainInput, setOembedDomainInput] = useState("");
   const [fileTypeInput, setFileTypeInput] = useState("");
   const [fontTestText, setFontTestText] = useState("The quick brown fox jumps over the lazy dog");
-  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
-  const [connectingValue, setConnectingValue] = useState("");
 
   // Initialize form with user data
   useEffect(() => {
@@ -3694,10 +3607,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                 <ConnectionsTabContent
                   userConnections={userConnections}
                   setUserConnections={setUserConnections}
-                  connectingProvider={connectingProvider}
-                  setConnectingProvider={setConnectingProvider}
-                  connectingValue={connectingValue}
-                  setConnectingValue={setConnectingValue}
                   connectionsEnabled={connectionsEnabled}
                   disabledProviders={disabledProviders}
                 />

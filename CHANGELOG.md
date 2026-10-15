@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Verified domains** — website connections now need a DNS TXT record before they appear on your profile, and you can link several domains at once. Settings → Connections shows the exact record to add and a Check button; verified domains get a green check on your profile. Websites added before this stay hidden until verified.
 
 ### Changes
 

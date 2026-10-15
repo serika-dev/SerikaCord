@@ -108,6 +108,8 @@ export const rateLimiters_config = {
   crosspost: { points: 10, duration: 3600 },
   // Following / unfollowing announcement channels, per user
   channelFollow: { points: 20, duration: 600 },
+  // Domain connections: DNS TXT lookups per user
+  domainVerify: { points: 10, duration: 300 },
 } as const;
 
 export async function checkRateLimit(
