@@ -1,16 +1,12 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.10.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.11.
 
 ---
 
 ## Unreleased
 
 ### Features
-- **6-digit PIN for encrypted messages** — set up encryption with a 6-digit PIN and enter it once on a new device to read your encrypted DMs, like on X. Accounts that already have a recovery passphrase upgrade to a PIN once by entering their passphrase. The long passphrase stays available as an extra recovery method, and QR linking from another device still works.
-- **Turn encryption off per conversation** — encryption stays on by default, but any member of a DM or group DM can turn it off (and back on); everyone sees a signed notice.
-- **Encryption lock in the chat header** — the strip above encrypted chats is gone; a lock next to the name opens the encryption details, safety numbers and the on/off switch.
-- **Full-page server join flow** — welcome, role questions and rules now open as their own page with a step tracker instead of a pop-up, with a fixed Back/Continue bar on phones.
 
 ### Changes
 
@@ -21,6 +17,18 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.11 — 2026-10-15
+
+**Tag:** `v2.1.11` · **Commit:** `6e15ae2`
+
+### Features
+- **6-digit PIN for encrypted messages** — set up encryption with a 6-digit PIN and enter it once on a new device to read your encrypted DMs, like on X. Accounts that already have a recovery passphrase upgrade to a PIN once by entering their passphrase. The long passphrase stays available as an extra recovery method, and QR linking from another device still works.
+- **Turn encryption off per conversation** — encryption stays on by default, but any member of a DM or group DM can turn it off (and back on); everyone sees a signed notice.
+- **Encryption lock in the chat header** — the strip above encrypted chats is gone; a lock next to the name opens the encryption details, safety numbers and the on/off switch.
+- **Full-page server join flow** — welcome, role questions and rules now open as their own page with a step tracker instead of a pop-up, with a fixed Back/Continue bar on phones.
 
 ---
 
