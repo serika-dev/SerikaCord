@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useAppCommands } from "@/hooks/useAppCommands";
+import { invokeContextCommand } from "@/lib/chat/appCommandInvoke";
 import {
   AtSign,
   Ban,
@@ -15,6 +17,7 @@ import {
   Pencil,
   Phone,
   ShieldAlert,
+  Blocks,
   ShieldBan,
   User as UserIcon,
   UserMinus,
@@ -102,6 +105,11 @@ export function UserMenuItems({
   const member = serverId
     ? ((serverMembers?.members ?? []) as MemberLite[]).find((m) => norm(m.id) === id) ?? null
     : null;
+  // App user commands run in the channel that's open (/channels/{server}/{channel}).
+  const pathname = usePathname();
+  const pathMatch = /^\/channels\/([^/]+)\/([^/?#]+)/.exec(pathname ?? "");
+  const appChannelId = serverId && pathMatch && norm(pathMatch[1]) === norm(serverId) ? pathMatch[2] : null;
+  const { userCommands } = useAppCommands(appChannelId);
   const inServer = Boolean(serverId) && !user.isDiscord && (member !== null || !serverMembers);
   const targetIsOwner = Boolean(member?.isOwner);
   const canModerateTarget = inServer && !isSelf && !targetIsOwner && !permsLoading;
@@ -338,6 +346,26 @@ export function UserMenuItems({
           <ShieldAlert className="w-4 h-4" />
           {gt("Open Mod View")}
         </button>
+      )}
+
+      {/* App user commands (context menu, type 2) for the open channel. */}
+      {userCommands.length > 0 && appChannelId && !user.isDiscord && !user.isSystem && (
+        <>
+          <div className="ctx-sep" />
+          {userCommands.map((cmd) => (
+            <button
+              key={cmd.commandId}
+              className="ctx-item"
+              title={cmd.application.name}
+              onClick={run(() => void invokeContextCommand(appChannelId, cmd.commandId, user.id).then((r) => {
+                if (!r.ok) toast.error(r.code === "command_forbidden" ? gt("You don't have permission to use this command here.") : gt("Couldn't run that command."));
+              }))}
+            >
+              <Blocks className="w-4 h-4" />
+              <span className="truncate">{cmd.name}</span>
+            </button>
+          ))}
+        </>
       )}
 
       <div className="ctx-sep" />

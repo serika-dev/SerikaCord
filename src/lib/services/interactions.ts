@@ -110,11 +110,35 @@ async function readJsonLimited(res: Response): Promise<unknown> {
  * (no redirects followed), the request times out after 3 s, and each app has
  * a concurrency cap so a slow endpoint can't tie up the server.
  */
+/**
+ * Why an interactions endpoint URL is refused, or null when it's usable:
+ * https only, no credentials, standard port, and a public address (the DNS
+ * answer is checked, not just the name). Used by the portal setters and again
+ * by every delivery (safeFetch re-resolves, so a later DNS change to a private
+ * address is refused too).
+ */
+export async function interactionsEndpointUrlProblem(url: string): Promise<string | null> {
+  if (url.length > 2048) return 'URL is too long';
+  let u: URL;
+  try { u = new URL(url); } catch { return 'Invalid URL'; }
+  if (u.protocol !== 'https:') return 'The interactions endpoint must use https://';
+  const { assertPublicUrl, UnsafeUrlError } = await import('@/lib/security/ssrf');
+  try {
+    await assertPublicUrl(u);
+  } catch (err) {
+    return err instanceof UnsafeUrlError ? 'The interactions endpoint must be a public https URL' : 'Invalid URL';
+  }
+  return null;
+}
+
 export async function postSignedInteraction(
   app: { id?: string; interactionsEndpointUrl?: string | null; privateKeyPem?: string | null },
   payload: unknown,
 ): Promise<{ ok: boolean; status: number; body: unknown } | null> {
   if (!app.interactionsEndpointUrl || !app.privateKeyPem) return null;
+  // https only (safeFetch below also refuses private / loopback / link-local /
+  // metadata addresses after resolving DNS, and follows no redirects).
+  if (!/^https:\/\//i.test(app.interactionsEndpointUrl)) return null;
   const key = app.id ?? app.interactionsEndpointUrl;
   const current = httpInflight.get(key) ?? 0;
   if (current >= HTTP_CONCURRENCY) return null;

@@ -317,6 +317,26 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
       updateData[key] = patch[key];
     }
   }
+  if (updateData.interactionsEndpointUrl !== undefined && updateData.interactionsEndpointUrl !== app.interactionsEndpointUrl) {
+    // Same rules as POST …/bot/interactions-endpoint: a public https URL that
+    // answers a signed PING. Clearing it is always allowed.
+    const raw = updateData.interactionsEndpointUrl;
+    if (raw === null || raw === '') {
+      updateData.interactionsEndpointUrl = null;
+    } else {
+      if (typeof raw !== 'string') { set.status = 400; return { error: 'Invalid URL' }; }
+      const url = raw.trim();
+      const { interactionsEndpointUrlProblem, verifyInteractionEndpoint } = await import('@/lib/services/interactions');
+      const problem = await interactionsEndpointUrlProblem(url);
+      if (problem) { set.status = 400; return { error: problem }; }
+      const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+      await ensureBotProvisioned(app);
+      const fresh = await Application.findById(app.id);
+      const ok = await verifyInteractionEndpoint({ id: app.id, interactionsEndpointUrl: url, privateKeyPem: fresh?.privateKeyPem ?? app.privateKeyPem, clientId: app.clientId });
+      if (!ok) { set.status = 400; return { error: 'The interactions endpoint did not respond to our PING with a valid PONG.' }; }
+      updateData.interactionsEndpointUrl = url;
+    }
+  }
   if (updateData.gatewayIntents !== undefined) {
     // Only privileged bits are stored, plus the marker that ends grandfathering
     // (src/lib/gateway/intents.ts).
@@ -431,16 +451,21 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     return { interactionsEndpointUrl: null };
   }
 
-  try { new URL(url); } catch { set.status = 400; return { error: 'Invalid URL' }; }
+  // https, public address only (SSRF): checked here and again on every delivery.
+  const { interactionsEndpointUrlProblem } = await import('@/lib/services/interactions');
+  const problem = await interactionsEndpointUrlProblem(url);
+  if (problem) { set.status = 400; return { error: problem }; }
 
   // Make sure the app has a keypair to sign with.
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
   await ensureBotProvisioned(app);
 
   const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
+  const provisioned = await Application.findById(app.id);
   const ok = await verifyInteractionEndpoint({
+    id: app.id,
     interactionsEndpointUrl: url,
-    privateKeyPem: app.privateKeyPem,
+    privateKeyPem: provisioned?.privateKeyPem ?? app.privateKeyPem,
     clientId: app.clientId,
   });
   if (!ok) {

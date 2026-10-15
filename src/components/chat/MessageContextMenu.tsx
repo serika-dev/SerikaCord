@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef, useState, useEffect } from "react";
-import { Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash, CornerUpRight, Download, ExternalLink, EyeOff, Flag, Image as ImageIcon, SmilePlus, Volume2, Megaphone } from "lucide-react";
+import { Blocks, Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash, CornerUpRight, Download, ExternalLink, EyeOff, Flag, Image as ImageIcon, SmilePlus, Volume2, Megaphone } from "lucide-react";
 import { isCrossposted, isCrosspostCopy } from "@/lib/chat/announcements";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
@@ -17,6 +17,8 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { emojiToken, quickReactions, type FrecencyEmoji } from "@/lib/chat/emojiFrecency";
 import { recordEmoji, useFrecentEmojis } from "@/lib/chat/emojiFrecencyStore";
 import { copyImageToClipboard, saveImage } from "@/lib/chat/imageActions";
+import { useAppCommands } from "@/hooks/useAppCommands";
+import { invokeContextCommand } from "@/lib/chat/appCommandInvoke";
 
 interface MessageContextMenuProps<M extends ChatMessage> {
   menu: MessageContextMenuState<M> | null;
@@ -91,6 +93,8 @@ export function MessageContextMenu<M extends ChatMessage>({
   const frecent = useFrecentEmojis();
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  // App message commands (context menu, type 3) available in this conversation.
+  const { messageCommands } = useAppCommands(menu?.message.channelId ?? null);
 
   useLayoutEffect(() => {
     if (!menu || !menuRef.current || isMobile) return;
@@ -321,6 +325,24 @@ export function MessageContextMenu<M extends ChatMessage>({
         <button onClick={run(speak)} className={itemClass}>
           <Volume2 className="w-4 h-4" /> {gt("Speak Message")}
         </button>
+      )}
+      {/* App message commands (context menu, type 3) on saved messages. */}
+      {isSaved && !message.ephemeral && messageCommands.length > 0 && (
+        <>
+          <div className="ctx-sep" />
+          {messageCommands.map((cmd) => (
+            <button
+              key={cmd.commandId}
+              title={cmd.application.name}
+              onClick={run(() => void invokeContextCommand(message.channelId, cmd.commandId, message.id).then((r) => {
+                if (!r.ok) toast.error(r.code === "command_forbidden" ? gt("You don't have permission to use this command here.") : gt("Couldn't run that command."));
+              }))}
+              className={itemClass}
+            >
+              <Blocks className="w-4 h-4" /> <span className="truncate">{cmd.name}</span>
+            </button>
+          ))}
+        </>
       )}
       {target?.imageUrl && (
         <>
