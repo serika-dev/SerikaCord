@@ -107,6 +107,8 @@ export function DomainConnectionsSection({
         upsert(data.connection);
         setOpenId(null);
         toast.success(gt("{domain} verified", { domain: data.connection.domain?.name || conn.accountId }));
+      } else if (data.code === "token_mismatch") {
+        toast.error(gt("Found a serika-verification record with a different code. Replace it with the value shown here, then check again."));
       } else if (data.code === "record_not_found") {
         toast.error(gt("TXT record not found yet. DNS changes can take a few minutes to show up."));
       } else {

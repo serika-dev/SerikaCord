@@ -2372,6 +2372,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
       set.status = 502;
       return { error: 'Could not look up DNS for this domain. Try again in a minute.', code: 'dns_error' };
     }
+    if (!result.ok && result.found?.length) {
+      // A serika-verification record exists but with another code (stale or mistyped).
+      set.status = 400;
+      return {
+        error: "A serika-verification record was found, but its code doesn't match this domain's.",
+        code: 'token_mismatch',
+        found: result.found,
+        connection: toOwnConnectionView(connection),
+      };
+    }
     if (!result.ok) {
       set.status = 400;
       return {

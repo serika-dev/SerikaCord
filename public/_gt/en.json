@@ -2833,6 +2833,7 @@
   "addea434377b5f46": "Couldn't copy",
   "b2b808ea21c91e6a": "Failed to add domain",
   "f42f18a6a48c57f7": "{domain} verified",
+  "65005c94082e0ed6": "Found a serika-verification record with a different code. Replace it with the value shown here, then check again.",
   "fd663a0ad9d19828": "TXT record not found yet. DNS changes can take a few minutes to show up.",
   "393e8f824873c6dc": "Verification failed",
   "d98244f6116f0773": "Domain removed",

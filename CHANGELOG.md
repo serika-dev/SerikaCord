@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- **Domain verification finds new DNS records right away** — the check now asks the domain's own nameservers, so a TXT record you just added isn't hidden by a cached "not found" from an earlier check. If a serika-verification record with an old code is found, it tells you to replace it.
 
 ### Performance
 
