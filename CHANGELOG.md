@@ -1,24 +1,34 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.7.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.8.
 
 ---
 
 ## Unreleased
 
 ### Features
-- **Link a device without your passphrase** — on a new phone or computer, show a code and scan it (or type it) from a device that's already set up, compare the 6-digit number on both screens, and your encrypted messages are readable there. The server only relays it and can't read the keys.
 
 ### Changes
 
 ### Bug Fixes
 
 ### Performance
-- **Encrypted DMs open instantly** — encryption starts right after sign-in instead of seconds later, decrypted messages are kept securely on your device so a reload shows them at once, live messages and sends no longer wait on key downloads, and large encrypted files decrypt in the background without freezing the app.
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.8 — 2026-10-15
+
+**Tag:** `v2.1.8` · **Commit:** `e0c405a`
+
+### Features
+- **Link a device without your passphrase** — on a new phone or computer, show a code and scan it (or type it) from a device that's already set up, compare the 6-digit number on both screens, and your encrypted messages are readable there. The server only relays it and can't read the keys.
+
+### Performance
+- **Encrypted DMs open instantly** — encryption starts right after sign-in instead of seconds later, decrypted messages are kept securely on your device so a reload shows them at once, live messages and sends no longer wait on key downloads, and large encrypted files decrypt in the background without freezing the app.
 
 ---
 
