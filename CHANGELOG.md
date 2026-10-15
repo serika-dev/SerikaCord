@@ -1,25 +1,35 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.3.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.4.
 
 ---
 
 ## Unreleased
 
 ### Features
-- **Server-owned connections** — server owners can add a verified domain or link an account (GitHub, Twitch, Steam, Last.fm and more) to the server itself, so a company's accounts show on its server without being on the owner's personal profile. Server Settings → Server Connections → This server's own accounts.
-- **Website icons on connections** — linked websites show their own icon instead of a globe, on profiles, in settings and on server invite pages. Icons are fetched by SerikaCord, so viewers never connect to the website.
 
 ### Changes
 
 ### Bug Fixes
-- Android message notifications show the sender's real avatar again for profile pictures uploaded before the CDN move.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.4 — 2026-10-15
+
+**Tag:** `v2.1.4` · **Commit:** `eab6635`
+
+### Features
+- **Server-owned connections** — server owners can add a verified domain or link an account (GitHub, Twitch, Steam, Last.fm and more) to the server itself, so a company's accounts show on its server without being on the owner's personal profile. Server Settings → Server Connections → This server's own accounts.
+- **Website icons on connections** — linked websites show their own icon instead of a globe, on profiles, in settings and on server invite pages. Icons are fetched by SerikaCord, so viewers never connect to the website.
+
+### Bug Fixes
+- Android message notifications show the sender's real avatar again for profile pictures uploaded before the CDN move.
 
 ---
 
