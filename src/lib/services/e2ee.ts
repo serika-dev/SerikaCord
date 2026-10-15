@@ -16,6 +16,8 @@ import {
   isFrankingDisclosure,
   isKeysVersion,
   verifyFranking,
+  verifyNotifyKey,
+  type PublicNotifyKey,
   type Envelope,
   type MessagePayload,
 } from '@/lib/e2ee';
@@ -91,6 +93,17 @@ export function ensureE2eeSchema(): Promise<void> {
             replaced_at timestamp DEFAULT now(),
             PRIMARY KEY (message_id, sig)
           )`);
+          // Notification keys (Android push previews; drizzle/manual_e2ee_notify.sql).
+          await tx.execute(sql`CREATE TABLE IF NOT EXISTS e2ee_notify_keys (
+            id text PRIMARY KEY,
+            user_id uuid NOT NULL,
+            device_id text NOT NULL,
+            ecdh_pub text NOT NULL,
+            sig text NOT NULL,
+            created_at timestamp DEFAULT now(),
+            revoked_at timestamp
+          )`);
+          await tx.execute(sql`CREATE INDEX IF NOT EXISTS e2ee_notify_keys_user_id_idx ON e2ee_notify_keys (user_id)`);
         });
         return;
       } catch (err) {
@@ -202,18 +215,132 @@ export async function canLookUpKeys(viewerId: string, targetId: string): Promise
   return Boolean(server);
 }
 
+// ─── Notification keys (Android push previews, lib/e2ee/notifyKeys.ts) ───────
+
+export type NotifyKeyRow = typeof schema.e2eeNotifyKeys.$inferSelect;
+
+/** Active notification keys of these users. Never throws (no table yet → none). */
+async function activeNotifyKeysOf(userIds: string[]): Promise<NotifyKeyRow[]> {
+  if (userIds.length === 0) return [];
+  return db
+    .select()
+    .from(schema.e2eeNotifyKeys)
+    .where(and(inArray(schema.e2eeNotifyKeys.userId, userIds), isNull(schema.e2eeNotifyKeys.revokedAt)))
+    .catch(() => [] as NotifyKeyRow[]);
+}
+
+/**
+ * The notification keys a bundle lists: only ones whose owning device is
+ * active, the newest per device (clients check the device signature anyway).
+ */
+function bundleNotifyKeys(rows: NotifyKeyRow[], activeDeviceIds: Set<string>) {
+  const perDevice = new Map<string, NotifyKeyRow>();
+  for (const k of rows) {
+    if (!activeDeviceIds.has(k.deviceId)) continue;
+    const prev = perDevice.get(k.deviceId);
+    if (!prev || new Date(k.createdAt ?? 0).getTime() > new Date(prev.createdAt ?? 0).getTime()) perDevice.set(k.deviceId, k);
+  }
+  return [...perDevice.values()].map((k) => ({ id: k.id, deviceId: k.deviceId, ecdhPub: k.ecdhPub, sig: k.sig }));
+}
+
+/** Whether `notifyId` is an active notification key of `userId` on one of their active devices. */
+export async function isActiveNotifyKeyOf(userId: string, notifyId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ deviceId: schema.e2eeNotifyKeys.deviceId })
+    .from(schema.e2eeNotifyKeys)
+    .where(and(
+      eq(schema.e2eeNotifyKeys.id, notifyId),
+      eq(schema.e2eeNotifyKeys.userId, normalizeId(userId)),
+      isNull(schema.e2eeNotifyKeys.revokedAt),
+    ))
+    .limit(1)
+    .catch(() => []);
+  if (!row) return false;
+  const device = await findUserDevice(userId, row.deviceId).catch(() => null);
+  return Boolean(device && !device.revokedAt);
+}
+
+export type NotifyKeyResult =
+  | { ok: true; key: PublicNotifyKey; changed: boolean }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Register a notification key for one of the caller's active devices. The
+ * owning device's signing key must vouch for it (the server can't add one).
+ * A device keeps one: registering a new key revokes its previous ones.
+ * Registering the same key again is a no-op (the stored signature is kept, so
+ * the key-set version doesn't move).
+ */
+export async function registerNotifyKey(userId: string, key: PublicNotifyKey): Promise<NotifyKeyResult> {
+  const uid = normalizeId(userId);
+  const device = await findUserDevice(uid, key.deviceId);
+  if (!device || device.revokedAt) return { ok: false, status: 409, error: 'This device is not registered for end-to-end encryption' };
+  if (!(await verifyNotifyKey(device.signPub, uid, key))) {
+    return { ok: false, status: 400, error: 'The notification key signature does not match this device' };
+  }
+  const result = await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`e2ee:${uid}`}))`);
+    const [existing] = await tx.select().from(schema.e2eeNotifyKeys).where(eq(schema.e2eeNotifyKeys.id, key.id)).limit(1);
+    if (existing) {
+      const same = normalizeId(existing.userId) === uid && existing.deviceId === key.deviceId && existing.ecdhPub === key.ecdhPub;
+      if (!same) return { ok: false, status: 409, error: 'Notification key id already in use' } as const;
+      if (existing.revokedAt) return { ok: false, status: 409, error: 'This notification key was removed. Create a new one.' } as const;
+      return { ok: true, key: { id: existing.id, deviceId: existing.deviceId, ecdhPub: existing.ecdhPub, sig: existing.sig }, changed: false } as const;
+    }
+    // Ids share the wrap-recipient namespace with device ids.
+    const [clash] = await tx.select({ id: schema.e2eeDevices.id }).from(schema.e2eeDevices).where(eq(schema.e2eeDevices.id, key.id)).limit(1);
+    if (clash) return { ok: false, status: 409, error: 'Notification key id already in use' } as const;
+    const now = new Date();
+    await tx.update(schema.e2eeNotifyKeys)
+      .set({ revokedAt: now })
+      .where(and(eq(schema.e2eeNotifyKeys.userId, uid), eq(schema.e2eeNotifyKeys.deviceId, key.deviceId), isNull(schema.e2eeNotifyKeys.revokedAt)));
+    await tx.insert(schema.e2eeNotifyKeys).values({ id: key.id, userId: uid, deviceId: key.deviceId, ecdhPub: key.ecdhPub, sig: key.sig, createdAt: now });
+    return { ok: true, key, changed: true } as const;
+  });
+  if (result.ok && result.changed) notifyE2eeKeysChanged(uid);
+  return result;
+}
+
+/**
+ * Revoke notification keys of `userId`: one by id, those of some devices
+ * (device removed), or all (encryption reset). Phones linked to them stop
+ * getting encrypted previews. Returns how many were revoked.
+ */
+export async function revokeNotifyKeys(userId: string, which: { id?: string; deviceIds?: string[]; all?: boolean }): Promise<number> {
+  const uid = normalizeId(userId);
+  if (!which.id && !which.all && !(which.deviceIds && which.deviceIds.length > 0)) return 0;
+  const rows = await db.update(schema.e2eeNotifyKeys)
+    .set({ revokedAt: new Date() })
+    .where(and(
+      eq(schema.e2eeNotifyKeys.userId, uid),
+      isNull(schema.e2eeNotifyKeys.revokedAt),
+      which.id ? eq(schema.e2eeNotifyKeys.id, which.id) : undefined,
+      !which.id && !which.all && which.deviceIds ? inArray(schema.e2eeNotifyKeys.deviceId, which.deviceIds) : undefined,
+    ))
+    .returning({ id: schema.e2eeNotifyKeys.id })
+    .catch(() => [] as Array<{ id: string }>);
+  if (rows.length > 0) {
+    await db.update(schema.pushDevices)
+      .set({ e2eeNotifyId: null })
+      .where(and(eq(schema.pushDevices.userId, uid), inArray(schema.pushDevices.e2eeNotifyId, rows.map((r) => r.id))))
+      .catch(() => {});
+  }
+  return rows.length;
+}
+
 /**
  * Public key bundles for `userIds` (identity, backup, devices incl. recently
- * revoked). Device names and activity times are only included for the
- * viewer's own bundle.
+ * revoked, active notification keys). Device names and activity times are
+ * only included for the viewer's own bundle.
  */
 export async function keyBundles(userIds: string[], viewerId?: string) {
   const viewer = viewerId ? normalizeId(viewerId) : null;
   const ids = [...new Set(userIds.map((u) => normalizeId(u)))];
   if (ids.length === 0) return [];
-  const [identities, devices] = await Promise.all([
+  const [identities, devices, notifyKeys] = await Promise.all([
     db.select().from(schema.e2eeIdentities).where(inArray(schema.e2eeIdentities.userId, ids)),
     devicesOf(ids, { includeRevoked: true }),
+    activeNotifyKeysOf(ids),
   ]);
   const byUser = new Map(identities.map((i) => [normalizeId(i.userId), i]));
   return ids.map((userId) => {
@@ -232,6 +359,10 @@ export async function keyBundles(userIds: string[], viewerId?: string) {
       backupSig: identity?.backupSig ?? null,
       devices: active.map(userId === viewer ? publicDevice : contactDevice),
       revokedDevices: revoked.map(userId === viewer ? publicDevice : contactDevice),
+      notifyKeys: bundleNotifyKeys(
+        notifyKeys.filter((k) => normalizeId(k.userId) === userId),
+        new Set(active.map((d) => d.id)),
+      ),
     };
   });
 }

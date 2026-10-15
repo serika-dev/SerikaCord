@@ -12,6 +12,7 @@ import {
   removeSavedAccount,
 } from "@/lib/services/savedAccountsCookie";
 import { clearMessageCache } from "@/lib/chat/messageCache";
+import { registerForPush, unregisterPush } from "@/lib/native/push";
 
 // Only accounts with a saved token (switchable), one per username.
 function switchableAccounts(list: SavedAccountSummary[]): SavedAccountSummary[] {
@@ -68,6 +69,9 @@ export function SwitchAccountsDialog({
 
       // Use server endpoint to switch accounts
       if (account.switchable) {
+        // Like signing out: this phone stops getting the old account's pushes
+        // and drops its encrypted-preview key (needs the old session, so first).
+        await unregisterPush().catch(() => {});
         const response = await fetch("/api/auth/switch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -75,6 +79,7 @@ export function SwitchAccountsDialog({
         });
 
         if (!response.ok) {
+          void registerForPush();
           const data = await response.json();
           throw new Error(data.error || gt("Failed to switch account"));
         }
@@ -93,8 +98,8 @@ export function SwitchAccountsDialog({
         setError("");
         setMode("login");
       }
-    } catch (err: any) {
-      setError(err.message || gt("Failed to switch account"));
+    } catch (err: unknown) {
+      setError((err instanceof Error && err.message) || gt("Failed to switch account"));
     } finally {
       setIsLoading(false);
     }
@@ -110,16 +115,23 @@ export function SwitchAccountsDialog({
     setError("");
 
     try {
-      // Server handles saving current account before login
-      await login(email.trim(), password.trim());
+      // Server handles saving current account before login. This phone
+      // first stops the old account's pushes and encrypted-preview key.
+      await unregisterPush().catch(() => {});
+      try {
+        await login(email.trim(), password.trim());
+      } catch (err) {
+        void registerForPush();
+        throw err;
+      }
 
       onOpenChange(false);
       // Clear cached messages from the previous account before reloading.
       clearMessageCache();
       // Full reload to refresh all context (servers, DMs, etc.)
       window.location.reload();
-    } catch (err: any) {
-      setError(err.message || gt("Failed to login"));
+    } catch (err: unknown) {
+      setError((err instanceof Error && err.message) || gt("Failed to login"));
     } finally {
       setIsLoading(false);
     }

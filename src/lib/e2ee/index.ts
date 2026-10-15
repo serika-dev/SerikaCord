@@ -22,3 +22,5 @@ export * from "./conversation";
 export * from "./passphrase";
 export * from "./link";
 export * from "./keysVersion";
+export * from "./notifyKeys";
+export * from "./previewText";

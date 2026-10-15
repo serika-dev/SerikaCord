@@ -18,12 +18,14 @@ Code map:
 
 | Path | What |
 |------|------|
-| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `constants`, `encoding` |
-| `src/lib/e2ee/client/` | Browser only: `keyStore` (IndexedDB, incl. "seen encrypted" memory, archived keys, link escrow), `session` (setup, linking, trust, encrypt/decrypt, caches; lazy-loaded), `plainCache` (decrypted-message cache: memory + encrypted IndexedDB; cached key bundles), `view` (payload → rendered message, crypto-free), `fileCrypto` + `fileWorker` (attachments in a module Web Worker), `state` (crypto-free snapshot for React), `chatGlue` (useChatSession helpers), `callGuard` (does a call room need verified signatures) |
+| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `constants`, `encoding` |
+| `src/lib/e2ee/client/` | Browser only: `keyStore` (IndexedDB, incl. "seen encrypted" memory, archived keys, link escrow), `session` (setup, linking, trust, encrypt/decrypt, caches; lazy-loaded), `plainCache` (decrypted-message cache: memory + encrypted IndexedDB; cached key bundles), `view` (payload → rendered message, crypto-free), `fileCrypto` + `fileWorker` (attachments in a module Web Worker), `state` (crypto-free snapshot for React), `chatGlue` (useChatSession helpers), `callGuard` (does a call room need verified signatures), `previews` (notification / DM-list previews), `notifyKey` (Android: notification key + trusted senders for native code) |
 | `src/lib/services/e2ee.ts` | Server: flag, boot DDL, key lookups, key-set versions, key-change notifications, send gate, franking reports |
 | `src/lib/api/e2ee.ts` | `/api/e2ee` routes (incl. the device-linking relay) |
 | `src/components/e2ee/` | Host (starts E2EE right after sign-in, dialogs, realtime key changes), setup/restore/reset dialog, device-linking dialog, conversation banner, safety numbers, settings panel |
 | `src/app/e2ee/link` | Where a linking QR code points (a phone camera opens the app's approve dialog) |
+| `src/lib/push/fcm.ts`, `src/lib/services/pushNotifications.ts` | Push builder: the per-device `e2ee` block for protocol 3 phones |
+| `mobile/android/.../serikacord/` `E2eeNotifyCrypto`, `EncryptedPreviewText`, `EncryptedPushPreview`, `NotificationKeyStore` | Android: open + verify encrypted pushes, preview text, Keystore-wrapped notification key and trusted senders |
 
 ## Notation
 
@@ -42,7 +44,8 @@ lower-cased UUIDs.
 | Identity key (per user) | ECDSA P-256 | IndexedDB on the user's devices + passphrase backup | `e2ee_identities.identity_pub` |
 | Backup key (per user) | ECDH P-256 | IndexedDB + passphrase backup | `e2ee_identities.backup_pub` + `backup_sig` |
 | Device keys (per device) | ECDH P-256 (encryption) + ECDSA P-256 (signing), non-extractable | IndexedDB of that device only | `e2ee_devices` |
-| Link escrow (per device) | identity + backup private JWK, AES-256-GCM under a per-device non-extractable key | IndexedDB (`linkEscrow`) of devices that sealed / restored / were linked | none (see "Linking a device") |
+| Link escrow (per device, ≤ 10 min) | identity + backup private JWK, AES-256-GCM under a per-device non-extractable key | IndexedDB (`linkEscrow`) for 10 minutes after the passphrase was proven here or the device was linked | none (see "Linking a device") |
+| Notification key (per Android install, protocol 3) | ECDH P-256 | the APK's native storage, AES-256-GCM under a non-exportable Android Keystore key | `e2ee_notify_keys`, signed by the owning device's signing key |
 
 - **Device certificate:** `device_sig = Sign(identity, frame("serika-e2ee-device-v1", userId, deviceId, ecdhPub, signPub))`.
   The server checks it on registration (it can't add devices for a user);
@@ -195,8 +198,9 @@ gallery's URL list.
 - Never seen by the server: search indexing (skipped/removed for rows with
   `e2ee`), link previews (clients don't render LinkEmbed for encrypted
   messages, so links never reach `/api/oembed`), AutoMod (DMs don't run it),
-  DM list / notification / push previews ("Encrypted message"; pushes say
-  "New encrypted message", carry no picture and no inline reply).
+  DM list / notification / push previews: the server only ever sends the
+  envelope; devices decrypt previews themselves (see "Previews and push
+  notifications"). Pushes carry no picture and no inline reply.
 
 ## Recovery passphrase (key backup)
 
@@ -285,15 +289,24 @@ sealed payload is bound to the account and the code. Since the keys must
 match the published ones, a lying server could at most make N adopt a fake
 identity, which every contact would see as an unknown device.
 
-**Link escrow.** After a passphrase is set, identity / backup private keys
-are non-extractable, so E could not export them. Whenever a device holds them
-in the clear anyway (setting / changing the passphrase, restoring, being
-linked, or the one-time "enter your passphrase to link from this device"
-for devices set up before linking existed) it also keeps them as JWK sealed
-under a separate non-extractable AES-GCM key in IndexedDB (`linkEscrow`,
-AAD bound to user + identity key; deleted with the keys on reset). Only the
-linking flow opens it, after the SAS was confirmed. Before a passphrase is
-set, the keys are still extractable and are exported directly.
+**Link escrow (short-lived).** After a passphrase is set, identity / backup
+private keys are non-extractable, so E could not export them. Only right
+after the user proved the passphrase on this device (setting / changing it,
+restoring with it, or "enter your recovery passphrase" in the link dialog) or
+right after this device was linked does it keep them as JWK sealed under a
+separate non-extractable AES-GCM key in IndexedDB (`linkEscrow`, AAD bound to
+user + identity key), with `expiresAt` = now + 10 minutes. The expiry is
+checked on every read (an expired, far-future or pre-expiry record is
+deleted instead of used); expired records are also deleted at start, when
+the page becomes visible again and by a timer; a successful approval deletes
+it at once (one link per proof of the passphrase); a reset deletes it with
+the keys. Approving later asks for the recovery passphrase again (the dialog
+says so). Before a passphrase is set the keys are still extractable and are
+exported directly (that existing path is unchanged); an account without a
+passphrase whose keys here are no longer extractable (a device linked from
+one without a passphrase, after its 10 minutes) is told to set a recovery
+passphrase first. Setting the passphrase also uses the escrow while it is
+valid, so a freshly linked device can set one without the old one.
 
 ## Calls (DM / group DM voice and video)
 
@@ -346,6 +359,10 @@ valid disclosure is refused.
 - `e2ee_devices (id pk, user_id, ecdh_pub, sign_pub, device_sig, identity_pub, name, created_at, last_seen_at, revoked_at)` + index on `user_id`
 - `channels.e2ee boolean default false` (constant default: metadata-only),
   `messages.e2ee jsonb` (nullable, no default: metadata-only)
+- `e2ee_notify_keys (id pk, user_id, device_id, ecdh_pub, sig, created_at, revoked_at)` + index on
+  `user_id`, and `push_devices.e2ee_notify_id text` (nullable): notification keys and which phone
+  holds one (stage 2: `drizzle/manual_e2ee_notify.sql`, also ensured at boot by
+  `ensureE2eeSchema()` / `ensurePushSchema()`)
 - `e2ee_envelope_history (message_id, sig, envelope jsonb, replaced_at, pk (message_id, sig))`:
   envelopes replaced by edits (a separate table rather than a column on
   `messages`, so no existing `SELECT *` on the big table depends on it)
@@ -363,6 +380,7 @@ valid disclosure is refused.
 | `POST /link`, `GET /link/:code`, `POST /link/:code/{join,reveal,payload,done}`, `DELETE /link/:code` | device-linking relay (Redis, 5 min, single use, own account only) |
 | `POST /channels/:channelId/enable` | turn encryption on |
 | `GET /blob?url=` | same-origin relay of an encrypted attachment blob from our CDN |
+| `POST /notify-keys`, `DELETE /notify-keys/:id` | register (device-signed; optional `pushToken` link) / revoke this phone's notification key |
 
 Message DTOs (DM, group DM, pins, `GET /api/channels/:id/messages`) carry the
 `e2ee` envelope; DM / group DM pages get `{ channelId, e2ee, e2eeAuto }` with
@@ -374,8 +392,9 @@ conversation switches. Encrypted DM / group sends may carry `e2eeKeys`
 clients show a translated message. Activity-stream events: `e2ee_keys`
 (`{ userId }`) and `e2ee_link` (`{ code, status }`, own sessions only). Rate
 limits: `e2eeRead`, `e2eeWrite`, `e2eeEnable`, `e2eeBlob`, `e2eeLink`
-(`src/lib/security/index.ts`). No schema change since the first release:
-link sessions live in Redis, caches on the client.
+(`src/lib/security/index.ts`). Link sessions live in Redis, caches on the
+client. Stage 2 added notification keys (see Storage) and the `e2ee` field
+on `dm_activity`, `dm:list:update` and DM-list last messages.
 
 ## Client behaviour
 
@@ -481,31 +500,225 @@ does now:
   calls time out after 20 s (AbortController, not `AbortSignal.timeout`,
   which Chromium 102 lacks).
 
-## Previews (stage 2 hand-off)
+## Previews and push notifications (stage 2)
 
-`session.decryptForPreview(message, channelId, selfId)` decrypts one message
-for a notification or the DM list using every cache above (never throws;
-`{ ok, text, attachments, sticker, verified }` or a failure reason). The
-channel id must be the conversation the message belongs to (the AAD binds
-it).
+The server never sees preview text: every preview is decrypted on the device
+that shows it, with the same checks as an open conversation.
 
-A per-device **notification key** for Android native push plugs in as one
-more wrap recipient, without a new envelope version: the native app makes an
-ECDH P-256 key, gets a device-shaped id (16 random bytes, base64url, so
-`RECIPIENT_RE` / `validateEnvelope` already accept it and every v1 client
-simply ignores an entry that isn't its own), and publishes it signed by the
-identity key under its own label (e.g.
-`frame("serika-e2ee-notify-v1", userId, id, ecdhPub)`, so it can never pass as
-a signing device), listed in key bundles apart from devices (it never signs,
-so it must never be accepted as a sender). Senders add `{ r: id, iv, k }` for
-it exactly like a device wrap (counts towards the 128-recipient limit).
-Include these keys in `canonicalKeySet` so the 409 freshness check covers
-them. The push payload carries that one wrap + `sd`, `epk`, `iv`, `ct`, `cm`,
-`sig` (well under FCM's 4 KB for text); native code unwraps K, checks `cm`,
-decrypts with the same AAD (channel, sender, sender device) and verifies `sig`
-with the sender device key from a trusted-signer list the WebView syncs to it
-(pins + vouched, non-revoked devices). Previews of messages that fail any
-check show the generic "New encrypted message".
+### In-app and desktop notifications, DM list
+
+- Encrypted DM / group sends carry their envelope on the `dm_activity`
+  activity event and on `dm:list:update` (`{ encrypted: true, e2ee }`, the
+  same envelope the members already get over the DM stream). `GET /api/dms`
+  adds `lastMessage.e2ee` for encrypted last messages, **trimmed to the
+  viewer's own wrap entries** (their devices, revoked ones included, and
+  their backup key; `envelopeForRecipients` — the signature doesn't cover the
+  entry list, so it still verifies).
+- `session.decryptForPreview(msg, channelId, selfId, { dmPeer })` decrypts
+  through every cache (in flight / memory / encrypted IndexedDB) and verifies
+  the sender device signature exactly like the chat. For a 1:1 DM, `dmPeer`
+  makes the channel prove it is exactly us + that person (as when it is
+  opened); rows claiming another channel are refused.
+  `lib/e2ee/client/previews.ts` wraps it (lazy import of the crypto module,
+  4 s cap so an alert never waits on a slow key fetch) and formats one line
+  with `previewText.ts`: mentions as names (yourself, the author, else
+  `@user`), spoilers replaced by a "Spoiler" label, files / stickers
+  labelled when there is no text.
+- `UnreadContext` (in-app toasts, desktop notifications, the Qt shell, which
+  uses the browser Notification API): badges and unread state update
+  synchronously as before; only the alert waits for the decryption. "Show
+  message preview" off (or Streamer Mode) → "New message" with no decryption
+  at all; a failure to decrypt / verify → "New encrypted message". Blocked
+  authors never alert (unchanged).
+- Mobile DM list (`MobileMessagesView`; the desktop DM sidebar shows no
+  previews): rows render at once with "Encrypted message", then the newest
+  rows are decrypted six at a time and replaced; decrypted lines are kept in
+  memory so a list refresh doesn't flash the placeholder. Last messages by
+  blocked users are not decrypted. Streamer Mode still hides previews.
+- **Mentions.** The server can't see mentions inside encrypted text, so it
+  records none for encrypted messages (no Inbox entry, no server-side mention
+  count). Every DM / group DM message already counts towards the red DM
+  badge (DMs are "mentions" in the unread engine), so badges are unchanged.
+  After decrypting, the device runs `mentionsUser(text, selfId)`: the open
+  chat highlights the mention (`mentionedUserIds`, stage 1) and the
+  notification is raised as a mention (it passes Focus mode like any direct
+  mention). Limits: no Inbox entry; no "mentions only" filtering for group
+  DMs (DMs always notify per their level); legacy push devices don't know.
+- Reply quotes and jump-to previews of encrypted messages come from stage 1's
+  `view.ts` (our own decryption of the quoted message, else the sender's
+  snippet labelled "quoted by the sender"): reviewed, unchanged.
+
+### Notification keys (Android push previews)
+
+A per-install **notification key** lets a closed app show the real text.
+
+- **Created** by the WebView once E2EE is `ready` on an APK whose
+  `getCapabilities().pushProtocol >= 3`: an extractable ECDH P-256 pair. The
+  PKCS#8 private key goes to native code once
+  (`SerikaNative.setNotificationKey`), which stores it AES-256-GCM encrypted
+  under a non-exportable Android Keystore key (AAD = key id; usable while the
+  phone is locked, since pushes arrive then); the JS copy is zeroed and
+  dropped. The id is device-shaped (16 random bytes, base64url), so it is
+  just one more v1 wrap recipient that every other client ignores.
+- **Authenticated by the owning device:**
+  `sig = ECDSA(deviceSignKey, frame("serika-e2ee-notify-v1", userId, deviceId, notifyId, ecdhPub))`
+  (`POST /api/e2ee/notify-keys`; the server checks it against the device's
+  stored signing key). Senders verify it again and only wrap to a
+  notification key whose owning device is one of that user's verified,
+  active devices they already encrypt to (`selectNotifyRecipients`). So the
+  server can't add one, a device certificate can't pass as one (different
+  label), and a notification key never signs, so it can never pass as a
+  sender. One active key per device (a new one revokes the old); ids never
+  collide with device ids. (The stage 1 hand-off suggested an
+  identity-key signature; signing with the device key ties the key's
+  lifetime to its device: revoking the device drops it everywhere.)
+- **Listed** in key bundles as `notifyKeys: [{ id, deviceId, ecdhPub, sig }]`
+  (only keys of active devices). They enter `canonicalKeySet` only when a
+  bundle has any, so existing key-set versions stay the same; registering a
+  key bumps the version of that user's conversations (senders with a cached
+  set retry once after a 409, as for a new device) and fans out `e2ee_keys`.
+- **Wrapped to** by senders (own other phones included) after all device and
+  backup entries, and only while the envelope stays within the
+  128-recipient limit (`capRecipients`: readers first, notification keys are
+  optional).
+- **Linked to the push token**: `push_devices.e2ee_notify_id`, set by
+  `POST /api/e2ee/notify-keys { pushToken }` or by the push registration
+  (`POST /api/users/@me/push-devices { notifyKeyId }`, only the caller's own
+  active key). A token that moves to another account loses the link.
+- **Revoked** on sign-out (`DELETE /api/e2ee/notify-keys/:id` + native
+  `clearNotificationKey`, which also drops the trusted-sender list), when its
+  device is revoked, and on "Reset encryption" (all of the account's); the
+  phone is unlinked. A device that ends up `needs-restore` clears its native
+  key. A new device (re-setup) makes a new key.
+
+### Push flow (protocol 3)
+
+Push protocols (`push_devices.platform`): `android` / `ios` = 1
+(system-rendered), `android-2` = rich data-only, `android-3` = rich +
+encrypted previews. For an encrypted DM / group message the server builds,
+per device:
+
+- protocol 1 / 2: unchanged ("New encrypted message", no picture, no reply);
+- protocol 3: `enc: "1"`, and, when the phone is linked to a notification key
+  that has an entry in the envelope, `e2ee` = the JSON of
+  `{ v: 1, sd, epk, iv, ct, cm, sig, k: { r, iv, k } }`: that one wrap entry
+  and the fields needed to open and verify it (`notifyPushBlock`). It must
+  fit the 3600-byte data budget: the inline picture, group icon and avatar
+  are dropped first to make room; if it still doesn't fit (payload JSON over
+  roughly 1.5 KB: long texts, several attachments) it is left out and the
+  phone shows "New encrypted message". There is no separate short-preview
+  ciphertext: it would need a new envelope field, which v1 clients reject.
+  Never plaintext.
+
+The app (`EncryptedPushPreview` → `E2eeNotifyCrypto`) shows text only when
+all of these pass, otherwise its own translated "New encrypted message":
+
+1. `k.r` is its stored notification key id;
+2. the sender device `sd` is in the **trusted-sender list** for the push's
+   `authorId` (user id → device id → signing key) that the WebView syncs
+   (`setTrustedSigners`): every key bundle the client processes replaces
+   that user's entry (devices vouched for by a pinned identity key, not
+   revoked; for a contact whose new key isn't accepted yet only devices of
+   keys already accepted), and once per session the list is replaced with
+   everything derivable from the key sets cached on the device. That stale
+   copy is read-only (it never changes pins: only already accepted identity
+   keys count, a pending key change is left alone), never overrides a user
+   refreshed from the server this session, and never brings back a device
+   this session has seen revoked. Setting or replacing the native key
+   re-sends the whole list;
+3. the ECDSA signature over `frame("serika-e2ee-sig-v1", channel, sd, iv, ct, cm, epk)`
+   verifies under that key (P1363 converted to DER for JCA); `epk` must be a
+   point on P-256;
+4. ECDH + HKDF-SHA-256 + AES-GCM unwrap K, `SHA-256(K ‖ ct) = cm`, and `ct`
+   decrypts with `aad = frame("serika-e2ee-msg-v1", channel, author, sd)`
+   (channel and author come from the push data, so a server that lies about
+   either makes decryption fail);
+5. the payload is v1, has no `mid` (edits are never shown) and its sender
+   time `ts` is at most 3 days old (and at most a day ahead).
+
+Reply stays disabled for encrypted conversations (a native reply would go
+out unencrypted); tapping opens the conversation; Mark as read works as
+before. The text is shown with `VISIBILITY_PRIVATE` (hidden on a secure lock
+screen when the user hides sensitive content).
+
+**Test vectors**: `docs/architecture/e2ee-notify-vectors.json`, made by
+`bun scripts/e2ee-notify-vectors.ts --write` with the real web code: the key
+pair (PKCS#8), the exact FCM `e2ee` string, and the intermediate ECDH
+secret, wrap key, message key, both AADs, the signed bytes and the payload.
+Checked by `tests/e2ee-notify.test.ts` (TypeScript) and
+`mobile/android/app/src/test/java/dev/serika/serikacord/E2eeNotifyCryptoTest.java`
+(JVM unit test, `./gradlew test`; it also checks that every tampered field
+is refused). On a device: install a protocol 3 APK, sign in, open the app
+once (key + trusted senders sync), put it in the background and have a
+contact send an encrypted DM.
+
+### Threat model of previews
+
+- The server learns nothing new (envelopes, who talks to whom, timing). A
+  push carries only the receiving phone's wrap entry; FCM / Google see
+  ciphertext plus the metadata they saw before (names, avatars, ids).
+- A malicious server can withhold the `e2ee` block (generic text), replay an
+  old message's push (shown again while under 3 days old; the web chat has
+  the same replay limit), or show it under a wrong display name / title
+  (names were always server data; what is verified is "device `sd` of user
+  `authorId` wrote this in channel `channelId`"). Pointing a push at another
+  conversation makes decryption fail. It can't make the phone show text a
+  trusted sender device didn't sign for that conversation.
+- The notification key opens only messages wrapped to it (since it was
+  registered). It sits under a Keystore key, so a copy of the app's files
+  alone doesn't open it; whoever controls the unlocked phone can read the
+  notifications anyway.
+- The trusted-sender list is public data. Changing it needs control of the
+  app's storage or of the page's JS (which could use the device keys
+  anyway); it only affects previews, never what the chat shows.
+- **Encrypted conversations on the phone.** The WebView also syncs
+  (`setEncryptedConversations`, merge-only, cleared on sign-out) which
+  conversations it knows are encrypted and what each is: a 1:1 DM with
+  person X once its channel proved to be exactly us + X (opened, previewed
+  in the DM list, or sent to), a group once its page (URL) decrypted it or
+  from the device's "seen encrypted" memory. For those channels, and for any
+  push marked `enc` / carrying `e2ee`, the app never shows the server's
+  `body` (decrypted text or "New encrypted message" only), never offers
+  Reply (whatever `canReply` says), takes the kind and the tap route from the
+  synced entry (a signed group message can't be shown as a 1:1 DM), and for
+  a 1:1 DM only shows text whose sender is the synced person. A push whose
+  `tag` names another channel than its `channelId` is dropped. Encrypted
+  @mentions found after decrypting count as mentions (Mentions channel for
+  group DMs). A conversation the WebView never checked on this phone is
+  only protected if the push says it is encrypted.
+- **Lock screen.** Encrypted conversations' notifications carry a public
+  version ("New encrypted message", app name, no sender), shown on a secure
+  lock screen whatever the device's sensitive-content setting.
+- **Preview setting.** When the recipient turned message previews off
+  (Settings → Notifications, `settings.notifications.showPreview = false`,
+  stored on the server), their phones get no `e2ee` block (just
+  "New encrypted message"). Streamer Mode is a per-browser setting the
+  server doesn't know: it hides previews in that browser only.
+- **Bridge origin.** The WebView may also show `accounts.serika.dev` (sign-in),
+  which gets the Capacitor bridge too: the notification-key, trusted-sender
+  and conversation methods refuse unless the page is `https://serika.chat`
+  or `https://canary.serika.chat` (plus localhost / emulator hosts in debug
+  builds). The app loads its code from serika.chat, so the web limit applies
+  to Android as well: a malicious server shipping JS could call these
+  methods (as it could use the device keys).
+- **Backups.** The APK disables Auto Backup, `adb backup` and device-to-device
+  transfer (`allowBackup="false"` plus backup / data-extraction rules that
+  exclude everything): the WebView's IndexedDB holds the E2EE keys and
+  `shared_prefs` the notification key's ciphertext and the lists. If a
+  notification key's Keystore key is ever missing (e.g. a restore by other
+  means), `getNotificationKey` reports none and the web app makes a new one.
+- **Account switch** runs the sign-out cleanup first (push token and
+  notification key dropped while the old session is still valid).
+
+### Desktop / browser push when the app is closed
+
+Not built. The web app has a service worker (`public/sw.js`: caching and
+local notifications) but no Web Push (no `PushManager` subscription, VAPID
+keys or `push` handler), so a closed browser gets no push at all. Follow-up:
+subscribe browsers to Web Push, register a per-browser notification key the
+same way (signed by the device, wrapped like the Android one) and decrypt in
+the service worker with a non-extractable key from IndexedDB, checking
+signatures against the pins the page keeps there.
 
 ## Rollout: `E2EE_ENABLED`
 
@@ -553,14 +766,14 @@ messages as blank.
   history.
 - Recovery passphrase strength is enforced by clients only (the server never
   sees it); a modified client could seal with a weak one.
-- Link escrow: on a device that sealed, restored or was linked, script
-  running in the SerikaCord origin while the device is unlocked can obtain
-  the identity / backup private keys (it could previously only *use* them).
-  A malicious server shipping script could already capture the passphrase,
-  so this changes nothing against the server; it widens what an XSS bug
-  could take. Disk-level access to the browser profile reads it too, like
-  every key stored in IndexedDB (non-extractable keys are only protected from
-  script, not from someone holding the profile).
+- Link escrow: for up to 10 minutes after the passphrase was proven on a
+  device (or it was linked), script running in the SerikaCord origin can
+  obtain the identity / backup private keys (otherwise it can only *use*
+  them), and so can someone holding the browser profile on disk. A malicious
+  server shipping script could already capture the passphrase, so this
+  changes nothing against the server; it briefly widens what an XSS bug
+  could take. Expiry is enforced by the client (a deleted record is gone;
+  a copy of the profile taken inside the window keeps it).
 - The decrypted-message cache is encrypted under a key stored in the same
   browser profile: it keeps plaintext out of the files (backups, sync, casual
   forensics), not away from someone who controls the unlocked profile, who
@@ -573,3 +786,14 @@ messages as blank.
 - Key-set versions only keep honest clients fresh; a malicious server can
   report any version (it controls the key lists anyway — trust comes from
   identity signatures, pins and safety numbers).
+- Push previews: a push from a sender device this phone hasn't been told to
+  trust yet (a contact whose keys this device hasn't loaded since signing
+  in) shows "New encrypted message"; so do long messages (FCM's 4 KB).
+  Pushes under 3 days old can be replayed. Encrypted mentions never reach
+  the Inbox. Closed browsers get no push (no Web Push yet).
+- Notification-key revocation is enforced by the server only (there is no
+  signed revocation): a server could keep listing a revoked key, which only
+  lets that phone (whose key it is) read previews. Group names in push
+  titles are server data (only 1:1 DMs bind the sender).
+- Google (FCM) sees, per push, the ciphertext length (≈ message length) and
+  the sender device id, besides the names / ids it saw before.

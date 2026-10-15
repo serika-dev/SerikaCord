@@ -84,6 +84,12 @@ export async function signalDmMessage(opts: {
   silent?: boolean;
   /** End-to-end encrypted: no preview anywhere (DM list, notifications, pushes). */
   encrypted?: boolean;
+  /**
+   * The envelope of an encrypted message: carried with the DM-list update and
+   * the activity event so the recipients' devices (and phones holding a
+   * notification key) decrypt the preview themselves.
+   */
+  e2ee?: unknown;
 }): Promise<void> {
   try {
     const createdAt = new Date(opts.createdAt ?? Date.now()).toISOString();
@@ -113,7 +119,7 @@ export async function signalDmMessage(opts: {
           content: opts.encrypted ? 'Encrypted message' : text.slice(0, 180),
           authorId: opts.authorId,
           createdAt,
-          ...(opts.encrypted ? { encrypted: true } : {}),
+          ...(opts.encrypted ? { encrypted: true, ...(opts.e2ee ? { e2ee: opts.e2ee } : {}) } : {}),
         },
       });
     }
@@ -135,7 +141,7 @@ export async function signalDmMessage(opts: {
       ...(opts.isSystem ? { isSystem: true } : {}),
       ...(opts.group ? { group: opts.group } : {}),
       ...(opts.silent ? { silent: true } : {}),
-      ...(opts.encrypted ? { encrypted: true } : {}),
+      ...(opts.encrypted ? { encrypted: true, ...(opts.e2ee ? { e2ee: opts.e2ee } : {}) } : {}),
     });
   } catch {
     /* best-effort */

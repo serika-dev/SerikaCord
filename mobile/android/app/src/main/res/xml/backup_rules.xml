@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older (Auto Backup / adb backup): back up nothing. The app's
+     storage holds end-to-end encryption keys; restoring them elsewhere would
+     move a device's keys to another phone. -->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="database" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+    <exclude domain="device_root" path="." />
+</full-backup-content>

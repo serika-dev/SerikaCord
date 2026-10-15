@@ -1,5 +1,6 @@
 // The version of a conversation's public key set: a digest over what senders
-// encrypt to (members' identity and backup keys, active and revoked devices).
+// encrypt to (members' identity and backup keys, active and revoked devices,
+// notification keys).
 // Clients cache key bundles and say which version they encrypted for; the
 // send routes refuse a stale one (409 e2ee_keys_changed) so a client never
 // keeps encrypting to a revoked device or a replaced identity key, and the
@@ -21,6 +22,15 @@ export interface VersionedBundle {
   backupSig: string | null;
   devices: VersionedDevice[];
   revokedDevices?: VersionedDevice[];
+  /** Active notification keys (notifyKeys.ts): senders wrap to them too. */
+  notifyKeys?: VersionedNotifyKey[];
+}
+
+export interface VersionedNotifyKey {
+  id: string;
+  deviceId: string;
+  ecdhPub: string;
+  sig: string;
 }
 
 function revokedMs(value: VersionedDevice["revokedAt"]): number {
@@ -41,7 +51,13 @@ export function canonicalKeySet(bundles: VersionedBundle[]): string {
       const devices = [...(b.devices ?? []), ...(b.revokedDevices ?? [])]
         .map((d) => [d.id, d.ecdhPub, d.signPub, d.sig, revokedMs(d.revokedAt)] as const)
         .sort((a, c) => (a[0] < c[0] ? -1 : a[0] > c[0] ? 1 : 0));
-      return [b.userId.toLowerCase(), b.identityPub ?? "", b.backupPub ?? "", b.backupSig ?? "", devices] as const;
+      // Notification keys only when there are any: a key set without them
+      // keeps exactly the version it had before they existed.
+      const notify = [...(b.notifyKeys ?? [])]
+        .map((k) => [k.id, k.deviceId, k.ecdhPub, k.sig] as const)
+        .sort((a, c) => (a[0] < c[0] ? -1 : a[0] > c[0] ? 1 : 0));
+      const base = [b.userId.toLowerCase(), b.identityPub ?? "", b.backupPub ?? "", b.backupSig ?? "", devices] as const;
+      return notify.length > 0 ? [...base, notify] : base;
     })
     .sort((a, c) => (a[0] < c[0] ? -1 : a[0] > c[0] ? 1 : 0));
   return JSON.stringify(["serika-e2ee-keyset-v1", members]);

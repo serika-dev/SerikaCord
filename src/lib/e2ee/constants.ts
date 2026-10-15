@@ -14,6 +14,8 @@ export const LABELS = {
   dtls: "serika-e2ee-dtls-v1",
   safety: "serika-e2ee-safety-v1",
   attachment: "serika-e2ee-file-v1",
+  /** A device's push notification key, signed by that device's signing key (notifyKeys.ts). */
+  notify: "serika-e2ee-notify-v1",
 } as const;
 
 /** Raw uncompressed P-256 public key: 0x04 ‖ X ‖ Y. */

@@ -7547,5 +7547,8 @@
   "185cf322b7ccaf92": "Show a code",
   "79261887c9fed26b": "You didn't set a recovery passphrase, so use a device that's already set up, or reset encryption.",
   "0d55fc7563a1ca33": "Protecting your keys with the passphrase takes a few seconds on some phones.",
-  "fc56d3972e330a35": "Opening SerikaCord…"
+  "fc56d3972e330a35": "Opening SerikaCord…",
+  "aa51c062888c7f10": "New encrypted message",
+  "5fcfb43a466467ff": "To link devices from this one, set a recovery passphrase first (Settings → Encryption), then start again on the new device.",
+  "5f3bfbc94d2d4c01": "Enter your recovery passphrase to send your keys to the new device. It's asked again for every link made more than 10 minutes after you last entered it here."
 }

@@ -10,8 +10,9 @@ import java.util.Map;
 /**
  * Replaces the push plugin's FCM service (see AndroidManifest) so data-only
  * call messages can raise a native incoming-call notification even when the
- * app is closed, data-only "message" pushes (protocol 2) render as native
- * conversation notifications with Reply / Mark as read, and "message_read"
+ * app is closed, data-only "message" pushes (protocol 2+) render as native
+ * conversation notifications with Reply / Mark as read (protocol 3: with the
+ * decrypted text of end-to-end encrypted messages), and "message_read"
  * can remove a notification read on another device. Everything else
  * (including old system-rendered message pushes) is still forwarded to the
  * Capacitor plugin.

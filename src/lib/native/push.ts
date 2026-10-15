@@ -6,6 +6,8 @@
 import { addNativeListener, callNative, hasNativePlugin, isNativeApp, nativePlatform } from "./bridge";
 
 const TOKEN_KEY = "serika:pushToken";
+/** This phone's E2EE notification key id (lib/e2ee/client/notifyKey.ts). */
+export const NOTIFY_KEY_ID_KEY = "serika:notifyKeyId";
 
 /** Shared state other modules read (notificationService skips duplicates). */
 export const nativeAppState = {
@@ -23,6 +25,21 @@ function readStoredToken(): string | null {
   }
 }
 
+/** The FCM token this phone registered (null when not registered). */
+export function readPushToken(): string | null {
+  return readStoredToken();
+}
+
+/** The notification key id this phone registered with the server, if any. */
+export function readNotifyKeyId(): string | null {
+  try {
+    const id = localStorage.getItem(NOTIFY_KEY_ID_KEY);
+    return id && /^[A-Za-z0-9_-]{22}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 function storeToken(token: string | null) {
   try {
     if (token) localStorage.setItem(TOKEN_KEY, token);
@@ -32,7 +49,10 @@ function storeToken(token: string | null) {
   }
 }
 
-/** Push format the APK renders: 2+ draws rich message notifications natively. */
+/**
+ * Push format the APK renders: 2+ draws rich message notifications natively,
+ * 3+ also decrypts end-to-end encrypted previews (notification key).
+ */
 let pushProtocol = 0;
 
 async function firebaseAvailable(): Promise<boolean> {
@@ -70,10 +90,11 @@ export function registerForPush(): Promise<void> {
         const token = (data as { value?: string } | null)?.value;
         if (!token) return;
         const previous = readStoredToken();
+        const notifyKeyId = pushProtocol >= 3 ? readNotifyKeyId() : null;
         void fetch("/api/users/@me/push-devices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, platform: pushPlatform() }),
+          body: JSON.stringify({ token, platform: pushPlatform(), ...(notifyKeyId ? { notifyKeyId } : {}) }),
         })
           .then((res) => {
             if (!res.ok) return;
@@ -101,10 +122,32 @@ export function registerForPush(): Promise<void> {
   return registering;
 }
 
+/**
+ * Sign-out: drop this phone's E2EE notification key (server and native
+ * storage, with the trusted-sender list), so the next account never sees the
+ * previous one's previews.
+ */
+async function clearNotificationKey(): Promise<void> {
+  const id = readNotifyKeyId();
+  try {
+    localStorage.removeItem(NOTIFY_KEY_ID_KEY);
+  } catch {
+    /* storage blocked */
+  }
+  await callNative("SerikaNative", "clearNotificationKey");
+  if (!id) return;
+  try {
+    await fetch(`/api/e2ee/notify-keys/${encodeURIComponent(id)}`, { method: "DELETE", keepalive: true });
+  } catch {
+    /* offline: the key is replaced when this phone sets up encryption again */
+  }
+}
+
 /** Sign-out: stop pushes to this device for the account that is leaving. */
 export async function unregisterPush(): Promise<void> {
   const token = readStoredToken();
   nativeAppState.pushActive = false;
+  if (isNativeApp()) await clearNotificationKey();
   if (!token) return;
   storeToken(null);
   try {

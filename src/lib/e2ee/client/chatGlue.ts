@@ -40,7 +40,7 @@ export function hasEnvelope(raw: RawMessagePayload | null | undefined): boolean 
 /** Which channel an encrypted page's rows must belong to (the URL's group, or the DM channel checked against the URL's person). */
 export function decryptContextFor(target: E2eeTarget | null, meta: ConversationMeta | null): DecryptContext {
   if (!target) return { channelId: meta?.channelId ?? null };
-  if (target.kind === "group") return { channelId: target.channelId };
+  if (target.kind === "group") return { channelId: target.channelId, group: true };
   return { channelId: meta?.channelId ?? null, dmPeer: target.recipientId };
 }
 

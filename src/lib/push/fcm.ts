@@ -5,6 +5,7 @@
  * src/lib/services/pushNotifications.ts for the sending side.
  */
 import { renderMentionText, type MentionNames } from "@/lib/chat/mentionText";
+import { notifyPushBlock } from "@/lib/e2ee/notifyKeys";
 
 export interface FcmServiceAccount {
   projectId: string;
@@ -57,6 +58,13 @@ export const PUSH_CHANNEL_MENTIONS = "mentions";
  * its APK said it can draw them.
  */
 export const RICH_PUSH_PROTOCOL = 2;
+/**
+ *  - "android-3" (3): as 2, and the app can decrypt end-to-end encrypted
+ *    message previews: a push to a device linked to an E2EE notification key
+ *    carries that key's wrap entry + the envelope fields (`e2ee`, see
+ *    lib/e2ee/notifyKeys.ts). Never plaintext.
+ */
+export const E2EE_PUSH_PROTOCOL = 3;
 
 export function pushProtocolOf(platform: string | null | undefined): number {
   const m = /^android-(\d{1,3})$/.exec(platform ?? "");
@@ -95,6 +103,21 @@ export interface RichMessageInfo {
   timestamp?: number;
   /** Inline Reply is offered (posts to /api/channels/:channelId/messages). */
   canReply?: boolean;
+  /** End-to-end encrypted message (protocol 3 apps never show `body` or offer Reply for it). */
+  encrypted?: boolean;
+  /**
+   * End-to-end encrypted message: its stored envelope. Only the entry of the
+   * receiving device's notification key is sent, and only to protocol 3+.
+   */
+  e2ee?: unknown;
+}
+
+/** Per-device facts the push builder needs. */
+export interface PushTarget {
+  /** The device's push protocol (pushProtocolOf its platform). */
+  protocol?: number;
+  /** The E2EE notification key the device holds (push_devices.e2ee_notify_id). */
+  notifyId?: string | null;
 }
 
 export type PushPayload =
@@ -161,9 +184,12 @@ function shortId(id: string | null | undefined): string {
 /**
  * The data map of a rich (data-only) message push. Values are strings, the
  * total stays under RICH_DATA_BUDGET bytes: optional pictures are dropped
- * first, then the body is shortened.
+ * first, then the body is shortened. For an end-to-end encrypted message and
+ * a protocol 3+ device holding a notification key, `e2ee` carries that key's
+ * wrap entry and the envelope fields (pictures make room for it first); when
+ * it can't fit, it is left out and the app shows "New encrypted message".
  */
-export function buildRichMessageData(payload: Extract<PushPayload, { kind: "message" }>): Record<string, string> {
+export function buildRichMessageData(payload: Extract<PushPayload, { kind: "message" }>, target: PushTarget = {}): Record<string, string> {
   const r = payload.rich;
   if (!r) return { type: "message", route: payload.route, tag: payload.tag };
   const data: Record<string, string> = {
@@ -187,6 +213,10 @@ export function buildRichMessageData(payload: Extract<PushPayload, { kind: "mess
     replyChannelId: r.canReply === false ? "" : shortId(r.channelId),
     canReply: r.canReply === false ? "0" : "1",
   };
+  // Encrypted message to an APK that decrypts previews: it shows its own
+  // (translated) "New encrypted message" whenever it can't open `e2ee`.
+  const e2eeCapable = Boolean(r.encrypted || r.e2ee) && (target.protocol ?? 1) >= E2EE_PUSH_PROTOCOL;
+  if (e2eeCapable) data.enc = "1";
   for (const key of ["image", "icon", "avatar"] as const) {
     if (dataSize(data) <= RICH_DATA_BUDGET) break;
     data[key] = "";
@@ -199,6 +229,15 @@ export function buildRichMessageData(payload: Extract<PushPayload, { kind: "mess
     data.title = clip(data.title, Math.min(MAX_TITLE, bodyMax));
     data.authorName = clip(data.authorName, Math.min(MAX_TITLE, bodyMax));
   }
+  const block = e2eeCapable && r.e2ee && target.notifyId ? notifyPushBlock(r.e2ee, target.notifyId) : null;
+  if (block) {
+    const withBlock: Record<string, string> = { ...data, e2ee: JSON.stringify(block) };
+    for (const key of ["image", "icon", "avatar"] as const) {
+      if (dataSize(withBlock) <= RICH_DATA_BUDGET) break;
+      withBlock[key] = "";
+    }
+    if (dataSize(withBlock) <= RICH_DATA_BUDGET) return withBlock;
+  }
   return data;
 }
 
@@ -210,7 +249,7 @@ export function buildRichMessageData(payload: Extract<PushPayload, { kind: "mess
 export function buildFcmMessage(
   token: string,
   payload: PushPayload,
-  opts: { protocol?: number } = {},
+  opts: PushTarget = {},
 ): Record<string, unknown> {
   if (payload.kind === "message" && payload.rich && (opts.protocol ?? 1) >= RICH_PUSH_PROTOCOL) {
     // Data-only + high priority: the app draws a MessagingStyle notification
@@ -218,7 +257,7 @@ export function buildFcmMessage(
     // No collapse_key: each message must arrive to build the conversation.
     return {
       token,
-      data: buildRichMessageData(payload),
+      data: buildRichMessageData(payload, opts),
       android: { priority: "HIGH", ttl: "86400s" },
     };
   }

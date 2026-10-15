@@ -7680,5 +7680,8 @@
   "79261887c9fed26b": "Je hebt geen herstelwachtzin ingesteld, dus gebruik een apparaat dat al is ingesteld, of reset de versleuteling.",
   "0d55fc7563a1ca33": "Het beveiligen van je sleutels met de wachtzin duurt op sommige telefoons een paar seconden.",
   "6ad5d5a635a11015": "Opslaan…",
-  "fc56d3972e330a35": "SerikaCord openen…"
+  "fc56d3972e330a35": "SerikaCord openen…",
+  "aa51c062888c7f10": "Nieuw versleuteld bericht",
+  "5fcfb43a466467ff": "Stel eerst een herstelwachtzin in (Instellingen → Versleuteling) om vanaf dit apparaat andere apparaten te koppelen, en begin daarna opnieuw op het nieuwe apparaat.",
+  "5f3bfbc94d2d4c01": "Voer je herstelwachtzin in om je sleutels naar het nieuwe apparaat te sturen. Hij wordt opnieuw gevraagd voor elke koppeling die meer dan 10 minuten nadat je hem hier invoerde wordt gemaakt."
 }

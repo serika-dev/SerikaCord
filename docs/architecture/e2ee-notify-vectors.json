@@ -1,0 +1,22 @@
+{
+  "description": "Encrypted push preview (protocol 3): open `fcmData.e2ee` with the notification key, verify with the sender device key. All binary values are standard base64 with padding.",
+  "notifyKey": {
+    "id": "1DcahnJ9weUFd-mDLD7QZA",
+    "pkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgzCxgJ1WUxgpkrXtjQqvR5rH8ZrkHtlovt36r/wk66SOhRANCAAQrdJud9AcepCUAkf/5GnlbFjdXremrvFfvd0EnXeZZzhVPbMHsWbiaiJpQHnSNTD90t8UU2u7tPoVVA9ymLNCy",
+    "publicKey": "BCt0m530Bx6kJQCR//kaeVsWN1et6au8V+93QSdd5lnOFU9swexZuJqImlAedI1MP3S3xRTa7u0+hVUD3KYs0LI="
+  },
+  "channelId": "0b9f6c7e-3d2a-4c1b-9e8f-7a6b5c4d3e2f",
+  "senderUserId": "5d3c2b1a-0f9e-4d8c-8b7a-6f5e4d3c2b1a",
+  "senderDeviceId": "TI7O5fCVVsktsp1bA4QIvQ",
+  "senderSignPub": "BFKSRjD25IbDGu0jUK/rEkMlWR96eGX0+itRt1BOf6MX50lktG8UBHb33d4IIEoJzBj2PeY+y50lrzLMzZNU8PY=",
+  "fcmE2ee": "{\"v\":1,\"sd\":\"TI7O5fCVVsktsp1bA4QIvQ\",\"epk\":\"BOu5Vg9EjQL7TjoSPDCA0yZx4Xc3zQ9jKlMbcu4ZhC+RLIEwBoWaxLMGoVrXhwlC+C+qct5QVuo2EB0IUNM3Wqs=\",\"iv\":\"h2YGen+sJh22ExLq\",\"ct\":\"RxzqfqWu8bx/v9sfH6FPAwSAG+9iV5cSoksp0NBvHqNTPc2kj9Y1Kr/lIAorm6lwf+gHzZeAhihXyqV2S6D4hCW06BBzd3VOg1CkiLcnMZgSomISf0CQ8HFHl1IIs41W7dK97WDgMOZsU2eOywaCWdw3HLQNwvxqexstHN2+3hg+JviGCo1NW0p1qA==\",\"cm\":\"PIQs3aUYOOTU3phNYPeYIrCAcCnQ7T4aiwu/g7FXPY8=\",\"sig\":\"NQ53StCCYqtGFvMSjThQ5kzmm9vCTjPRBVjPNttKxTnv3ZIhDh5owvM4OBEz3rVwLCit89q6Jhf1gJHG9MBb3g==\",\"k\":{\"r\":\"1DcahnJ9weUFd-mDLD7QZA\",\"iv\":\"VtzMeZh9I+HMO2Do\",\"k\":\"Z0b8hxfOPUtJ0Msw2BPJG4x42sLis88CHZ44K3xVZ6+P2JOE5W+FyNCZEIwczQnU\"}}",
+  "expected": {
+    "sharedSecret": "RtuQDR6eBhAYLo2EM4mK9kmPQPqRwDZ/2hR9E0aEvlE=",
+    "wrapAad": "AAAAE3NlcmlrYS1lMmVlLXdyYXAtdjEAAAAWMURjYWhuSjl3ZVVGZC1tRExEN1FaQQ==",
+    "wrapKey": "FJcjHwxy1ldtTxnQL4LChMe3q883ENtLHrULJcTQm3k=",
+    "messageKey": "an4MlzsfgcfnERBa/9SsQk6yNcKtMO9SnGasY5zHcbc=",
+    "messageAad": "AAAAEnNlcmlrYS1lMmVlLW1zZy12MQAAACQwYjlmNmM3ZS0zZDJhLTRjMWItOWU4Zi03YTZiNWM0ZDNlMmYAAAAkNWQzYzJiMWEtMGY5ZS00ZDhjLThiN2EtNmY1ZTRkM2MyYjFhAAAAFlRJN081ZkNWVnNrdHNwMWJBNFFJdlE=",
+    "signedData": "AAAAEnNlcmlrYS1lMmVlLXNpZy12MQAAACQwYjlmNmM3ZS0zZDJhLTRjMWItOWU4Zi03YTZiNWM0ZDNlMmYAAAAWVEk3TzVmQ1ZWc2t0c3AxYkE0UUl2UQAAAAyHZgZ6f6wmHbYTEuoAAACLRxzqfqWu8bx/v9sfH6FPAwSAG+9iV5cSoksp0NBvHqNTPc2kj9Y1Kr/lIAorm6lwf+gHzZeAhihXyqV2S6D4hCW06BBzd3VOg1CkiLcnMZgSomISf0CQ8HFHl1IIs41W7dK97WDgMOZsU2eOywaCWdw3HLQNwvxqexstHN2+3hg+JviGCo1NW0p1qAAAACA8hCzdpRg45NTemE1g95gisIBwKdDtPhqLC7+DsVc9jwAAAEEE67lWD0SNAvtOOhI8MIDTJnHhdzfND2MqUxty7hmEL5EsgTAGhZrEswahWteHCUL4L6py3lBW6jYQHQhQ0zdaqw==",
+    "payloadJson": "{\"v\":1,\"content\":\"Hi <@9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d>! Notification preview test ✓ ||secret||\",\"ts\":1760000000000}"
+  }
+}

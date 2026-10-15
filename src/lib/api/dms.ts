@@ -35,12 +35,13 @@ import {
   checkE2eeChannelSend,
   checkE2eeKeysFresh,
   conversationE2eeFlags,
+  devicesOf,
   initialConversationE2ee,
   isE2eeNotice,
   parseEncryptedBody,
   storedEnvelope,
 } from '@/lib/services/e2ee';
-import type { Envelope } from '@/lib/e2ee';
+import { backupRecipientId, envelopeForRecipients, type Envelope } from '@/lib/e2ee';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -1128,7 +1129,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // Recipients, last-message previews (+ decrypt) and unread counts depend
     // only on `channels`, so run the three chains concurrently. Deleted
     // messages are never used as a preview.
-    const [allRecipients, lastMessageData, unreadCounts] = await Promise.all([
+    const [allRecipients, lastMessageData, unreadCounts, ownWrapIds] = await Promise.all([
       allRecipientIds.length > 0 ? User.find({ id: { in: allRecipientIds } }) : Promise.resolve([] as Awaited<ReturnType<typeof User.find>>),
       (async () => {
         const msgs = allLastMessageIds.length > 0
@@ -1154,6 +1155,14 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           user.id,
         ).catch(() => ({} as Record<string, number>));
       })(),
+      // Encrypted conversations: the viewer's own wrap entries (all their
+      // devices, revoked ones included, + their backup key). Previews carry
+      // only those, and the viewer's device decrypts them.
+      channels.some((c) => c.e2ee === true)
+        ? devicesOf([user.id], { includeRevoked: true })
+          .then((rows) => new Set([backupRecipientId(user.id), ...rows.map((d) => d.id)]))
+          .catch(() => new Set([backupRecipientId(user.id)]))
+        : Promise.resolve(new Set<string>()),
     ]);
     const recipientMap = new Map(allRecipients.map(r => [r.id, r]));
     const { lastMessageMap, lastContentMap } = lastMessageData;
@@ -1208,13 +1217,16 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
                     displayContent = 'Sent a sticker';
                   }
                 }
+                const envelope = storedEnvelope(msg.e2ee);
+                const previewEnvelope = envelope ? envelopeForRecipients(envelope, ownWrapIds) : null;
                 lastMessage = {
                   id: msg.id,
                   content: displayContent,
                   authorId: msg.authorId,
                   createdAt: msg.createdAt,
                   ...(msg.type === 'call' ? { type: 'call' as const } : {}),
-                  ...(storedEnvelope(msg.e2ee) ? { encrypted: true } : {}),
+                  ...(envelope ? { encrypted: true } : {}),
+                  ...(previewEnvelope ? { e2ee: previewEnvelope } : {}),
                 };
               }
             } catch (err) {
@@ -1584,7 +1596,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           content: prepared.e2ee ? ENCRYPTED_PREVIEW : sanitizedContent.slice(0, 180),
           authorId: user.id,
           createdAt: message.createdAt,
-          ...(prepared.e2ee ? { encrypted: true } : {}),
+          // Encrypted: the envelope, so DM lists can decrypt the preview on the device.
+          ...(prepared.e2ee ? { encrypted: true, e2ee: prepared.e2ee } : {}),
         },
       }
     );
@@ -1624,10 +1637,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             authorName: user.displayName || user.username,
             authorAvatar: user.avatar ?? null,
             // Short plaintext preview for the recipient's notification
-            // (none for end-to-end encrypted messages).
+            // (none for end-to-end encrypted messages: their envelope instead,
+            // decrypted on the recipient's devices for the notification).
             preview: sanitizedContent.slice(0, 120),
             mentionNames,
-            ...(prepared.e2ee ? { encrypted: true } : {}),
+            ...(prepared.e2ee ? { encrypted: true, e2ee: prepared.e2ee } : {}),
             hasAttachments: Array.isArray(attachments) && attachments.length > 0,
             hasSticker: Boolean(stickerData),
             createdAt: createdAtIso,

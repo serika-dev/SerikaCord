@@ -43,8 +43,9 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Native message notifications for data-only "message" pushes (protocol 2,
- * see src/lib/push/fcm.ts buildRichMessageData): one MessagingStyle
+ * Native message notifications for data-only "message" pushes (protocol 2+,
+ * see src/lib/push/fcm.ts buildRichMessageData; protocol 3 adds end-to-end
+ * encrypted previews, {@link EncryptedPushPreview}): one MessagingStyle
  * notification per conversation with sender avatars, the last few messages,
  * inline pictures, a group summary, and Reply / Mark as read actions handled
  * by {@link MessageActionReceiver}.
@@ -96,6 +97,7 @@ public final class MessageNotifications {
     private static final String X_REPLY_CHANNEL = "serika.replyChannel";
     private static final String X_MESSAGE = "serika.message";
     private static final String X_MENTION = "serika.mention";
+    private static final String X_ENCRYPTED = "serika.encrypted";
 
     private static final int AVATAR_PX = 128;
     private static final int IMAGE_MAX_PX = 1080;
@@ -143,6 +145,8 @@ public final class MessageNotifications {
         String replyChannelId = "";
         String lastMessageId = "";
         boolean mention;
+        /** End-to-end encrypted: lock screens show only a generic public version. */
+        boolean encrypted;
         long postedAt;
         Bitmap largeIcon;
         IconCompat shortcutIcon;
@@ -188,12 +192,41 @@ public final class MessageNotifications {
         boolean mention = "1".equals(str(data, "mention"));
         boolean canReply = !"0".equals(str(data, "canReply")) && !str(data, "replyChannelId").isEmpty();
 
+        // A message notification is keyed by its conversation: the tag must name the push's channel.
+        String channelId = str(data, "channelId");
+        String tagChannel = tag.substring(TAG_PREFIX.length());
+        if (!tagChannel.equalsIgnoreCase(channelId)) return;
+
+        // End-to-end encrypted: the push says so (protocol 3), or the web app
+        // told us this conversation is encrypted (a server can't take that back).
+        // Then the server's text is never shown, Reply is never offered (it
+        // would go out unencrypted), and the kind / sender / route come from
+        // what the web app synced, not from the push.
+        NotificationKeyStore.Conversation known = NotificationKeyStore.conversationFor(app, channelId);
+        boolean encrypted = known != null || "1".equals(str(data, "enc")) || !str(data, "e2ee").isEmpty();
+        if (encrypted) {
+            canReply = false;
+            if (known != null) {
+                kind = known.kind;
+                String messageId = str(data, "messageId");
+                String jump = E2eeNotifyCrypto.isUuid(messageId) ? "?jump=" + messageId : "";
+                route = ("dm".equals(known.kind) ? "/dm/" + known.peer : "/dm/group/" + channelId.toLowerCase(Locale.ROOT)) + jump;
+            } else if ("channel".equals(kind)) {
+                kind = "dm";
+            }
+            EncryptedPushPreview.Result preview = EncryptedPushPreview.open(app, data, known);
+            body = preview != null ? preview.text : app.getString(R.string.notification_encrypted_message);
+            // The server can't see mentions in encrypted text: this phone found one.
+            if (preview != null && preview.mention) mention = true;
+        }
+
         // Network work happens before taking the lock (FCM gives us ~10s here).
         Bitmap avatar = loadCircle(str(data, "avatar"));
         if (avatar == null) avatar = letterAvatar(authorName, str(data, "authorId"));
         Bitmap icon = "dm".equals(kind) ? avatar : loadCircle(str(data, "icon"));
         if (icon == null) icon = letterAvatar(title, str(data, "channelId"));
-        Uri image = cacheImage(app, str(data, "image"));
+        // Encrypted conversations never show a server-chosen picture.
+        Uri image = encrypted ? null : cacheImage(app, str(data, "image"));
 
         Person author = new Person.Builder()
             .setKey(orDefault(str(data, "authorId"), authorName))
@@ -211,6 +244,7 @@ public final class MessageNotifications {
             c.replyChannelId = canReply ? str(data, "replyChannelId") : "";
             c.lastMessageId = str(data, "messageId");
             c.mention = c.mention || mention;
+            c.encrypted = c.encrypted || encrypted;
             c.largeIcon = icon;
             c.shortcutIcon = IconCompat.createWithBitmap(icon);
             if (c.isDm()) c.dmPerson = author;
@@ -303,6 +337,7 @@ public final class MessageNotifications {
                 c.replyChannelId = orDefault(x.getString(X_REPLY_CHANNEL), "");
                 c.lastMessageId = orDefault(x.getString(X_MESSAGE), "");
                 c.mention = x.getBoolean(X_MENTION, false);
+                c.encrypted = x.getBoolean(X_ENCRYPTED, false);
             }
             NotificationCompat.MessagingStyle style =
                 NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(showing);
@@ -366,7 +401,7 @@ public final class MessageNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        String channel = "channel".equals(c.kind) && c.mention ? NotificationChannels.MENTIONS : NotificationChannels.MESSAGES;
+        String channel = !c.isDm() && c.mention ? NotificationChannels.MENTIONS : NotificationChannels.MESSAGES;
         Bundle extras = new Bundle();
         extras.putString(X_ROUTE, c.route);
         extras.putString(X_KIND, c.kind);
@@ -375,6 +410,7 @@ public final class MessageNotifications {
         extras.putString(X_REPLY_CHANNEL, c.replyChannelId);
         extras.putString(X_MESSAGE, c.lastMessageId);
         extras.putBoolean(X_MENTION, c.mention);
+        extras.putBoolean(X_ENCRYPTED, c.encrypted);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_stat_serika)
@@ -394,6 +430,18 @@ public final class MessageNotifications {
         if (c.largeIcon != null) builder.setLargeIcon(c.largeIcon);
         if (c.dmPerson != null) builder.addPerson(c.dmPerson);
         if (!alert) builder.setSilent(true);
+        if (c.encrypted) {
+            // Secure lock screens show this instead, whatever the device's
+            // "sensitive content" setting: no sender, no text.
+            Notification publicVersion = new NotificationCompat.Builder(ctx, channel)
+                .setSmallIcon(R.drawable.ic_stat_serika)
+                .setColor(ACCENT)
+                .setContentTitle(ctx.getString(R.string.app_name))
+                .setContentText(ctx.getString(R.string.notification_encrypted_message))
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .build();
+            builder.setPublicVersion(publicVersion);
+        }
 
         if (!c.replyChannelId.isEmpty()) {
             RemoteInput remoteInput = new RemoteInput.Builder(KEY_REPLY_TEXT)

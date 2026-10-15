@@ -1035,6 +1035,10 @@ export const pushDevices = pgTable('push_devices', {
   userId: uuid('user_id').notNull(),
   token: text('token').notNull(),
   platform: text('platform').notNull().default('android'),
+  // The E2EE notification key this phone holds (e2ee_notify_keys.id): encrypted
+  // DM pushes carry that key's wrap entry so the app can show the real text.
+  // ensurePushSchema() / drizzle/manual_e2ee_notify.sql.
+  e2eeNotifyId: text('e2ee_notify_id'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
@@ -1375,6 +1379,23 @@ export const e2eeDevices = pgTable('e2ee_devices', {
 // Envelopes replaced by edits of encrypted messages, so a franking report can
 // name (by signature) the version the reporter saw. Capped per message by the
 // app. ensureE2eeSchema() / drizzle/manual_e2ee.sql.
+// Notification keys (one per Android install / E2EE device): an ECDH key whose
+// private half lives only in the app's native storage, signed by the owning
+// device's signing key. Senders wrap message keys to it too, so pushes can
+// carry a preview only that phone can decrypt. Revoked rows are kept.
+// ensureE2eeSchema() / drizzle/manual_e2ee_notify.sql.
+export const e2eeNotifyKeys = pgTable('e2ee_notify_keys', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  deviceId: text('device_id').notNull(),
+  ecdhPub: text('ecdh_pub').notNull(),
+  sig: text('sig').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+  revokedAt: timestamp('revoked_at'),
+}, (t) => ({
+  userIdx: index('e2ee_notify_keys_user_id_idx').on(t.userId),
+}));
+
 export const e2eeEnvelopeHistory = pgTable('e2ee_envelope_history', {
   messageId: uuid('message_id').notNull(),
   sig: text('sig').notNull(),

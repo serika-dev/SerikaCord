@@ -63,6 +63,8 @@ export function ensurePushSchema(): Promise<void> {
           )`);
           await tx.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS "push_devices_token_unique" ON "push_devices" ("token")`);
           await tx.execute(sql`CREATE INDEX IF NOT EXISTS "push_devices_user_id_idx" ON "push_devices" ("user_id")`);
+          // The E2EE notification key the phone holds (drizzle/manual_e2ee_notify.sql).
+          await tx.execute(sql`ALTER TABLE "push_devices" ADD COLUMN IF NOT EXISTS "e2ee_notify_id" text`);
         });
         return;
       } catch (err) {
@@ -154,8 +156,13 @@ async function accessToken(account: FcmServiceAccount): Promise<string | null> {
 // and the lookups below still work on the stored value. Rows registered
 // before that hold the plaintext token; every query matches both forms.
 
-/** Store (or move to this user) a device token. Keeps the newest few per user. */
-export async function registerPushDevice(userId: string, token: string, platform: string): Promise<void> {
+/**
+ * Store (or move to this user) a device token. Keeps the newest few per user.
+ * `notifyId` links the phone's E2EE notification key (checked by the caller);
+ * without it an existing link of the same user is kept, and a token that
+ * moves to another account loses it.
+ */
+export async function registerPushDevice(userId: string, token: string, platform: string, notifyId?: string | null): Promise<void> {
   await ensurePushSchema();
   const uid = normalizeId(userId);
   const stored = await encryptLookupField(token);
@@ -164,8 +171,18 @@ export async function registerPushDevice(userId: string, token: string, platform
   if (stored !== token) await db.delete(table).where(eq(table.token, token));
   await db
     .insert(table)
-    .values({ userId: uid, token: stored, platform })
-    .onConflictDoUpdate({ target: table.token, set: { userId: uid, platform, updatedAt: new Date() } });
+    .values({ userId: uid, token: stored, platform, e2eeNotifyId: notifyId ?? null })
+    .onConflictDoUpdate({
+      target: table.token,
+      set: {
+        userId: uid,
+        platform,
+        updatedAt: new Date(),
+        e2eeNotifyId: notifyId
+          ? notifyId
+          : sql`CASE WHEN ${table.userId} = ${uid}::uuid THEN ${table.e2eeNotifyId} ELSE NULL END`,
+      },
+    });
   const rows = await db
     .select({ id: table.id, updatedAt: table.updatedAt })
     .from(table)
@@ -177,6 +194,17 @@ export async function registerPushDevice(userId: string, token: string, platform
       .map((r) => r.id);
     if (stale.length > 0) await db.delete(table).where(and(eq(table.userId, uid), inArray(table.id, stale)));
   }
+}
+
+/** Link a registered phone (by push token) to its E2EE notification key. True when a row was updated. */
+export async function linkPushNotifyKey(userId: string, token: string, notifyId: string): Promise<boolean> {
+  await ensurePushSchema();
+  const rows = await db
+    .update(table)
+    .set({ e2eeNotifyId: notifyId, updatedAt: new Date() })
+    .where(and(eq(table.userId, normalizeId(userId)), inArray(table.token, await fieldLookupCandidates(token))))
+    .returning({ id: table.id });
+  return rows.length > 0;
 }
 
 /** Forget a device token (sign-out / notifications turned off on the phone). */
@@ -195,22 +223,27 @@ async function deleteTokens(tokens: string[]): Promise<void> {
   }
 }
 
-/** A registered phone: its FCM token and the push protocol its APK speaks. */
-type PushDevice = { token: string; protocol: number };
+/** A registered phone: its FCM token, the push protocol its APK speaks and its E2EE notification key. */
+type PushDevice = { token: string; protocol: number; notifyId: string | null };
 
 async function devicesFor(userIds: string[]): Promise<Map<string, PushDevice[]>> {
   const out = new Map<string, PushDevice[]>();
   if (userIds.length === 0) return out;
   await ensurePushSchema();
   const ids = [...new Set(userIds.map(normalizeId))];
+  // e2ee_notify_id comes from boot DDL: if that never ran, push without it.
   const rows = await db
-    .select({ userId: table.userId, token: table.token, platform: table.platform })
+    .select({ userId: table.userId, token: table.token, platform: table.platform, notifyId: table.e2eeNotifyId })
     .from(table)
-    .where(inArray(table.userId, ids));
+    .where(inArray(table.userId, ids))
+    .catch(async () => (await db
+      .select({ userId: table.userId, token: table.token, platform: table.platform })
+      .from(table)
+      .where(inArray(table.userId, ids))).map((r) => ({ ...r, notifyId: null as string | null })));
   const tokens = await Promise.all(rows.map((r) => decryptField(r.token)));
   for (const [i, r] of rows.entries()) {
     const list = out.get(r.userId) ?? [];
-    list.push({ token: tokens[i], protocol: pushProtocolOf(r.platform) });
+    list.push({ token: tokens[i], protocol: pushProtocolOf(r.platform), notifyId: r.notifyId ?? null });
     out.set(r.userId, list);
   }
   return out;
@@ -317,7 +350,7 @@ async function sendOne(account: FcmServiceAccount, device: PushDevice, payload: 
       const res = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.projectId)}/messages:send`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: buildFcmMessage(device.token, payload, { protocol: device.protocol }) }),
+        body: JSON.stringify({ message: buildFcmMessage(device.token, payload, { protocol: device.protocol, notifyId: device.notifyId }) }),
         signal: AbortSignal.timeout(10_000),
       });
       const body = res.ok ? null : await res.json().catch(() => null);
@@ -428,6 +461,22 @@ function timestampOf(value: string | Date | null | undefined): number {
 /** Push body for end-to-end encrypted DMs (the server can't read them). */
 const ENCRYPTED_MESSAGE_BODY = 'New encrypted message';
 
+/** Of these users, the ones who turned message previews in notifications off. Never throws. */
+async function previewsOffFor(userIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (userIds.length === 0) return out;
+  const rows = await db
+    .select({ id: schema.users.id, settings: schema.users.settings })
+    .from(schema.users)
+    .where(inArray(schema.users.id, userIds))
+    .catch(() => [] as Array<{ id: string; settings: unknown }>);
+  for (const r of rows) {
+    const n = (r.settings as { notifications?: { showPreview?: unknown } } | null)?.notifications;
+    if (n?.showPreview === false) out.add(normalizeId(r.id));
+  }
+  return out;
+}
+
 /** A DM (or group DM) message: push the recipients who aren't in the app. */
 export function pushDmActivity(recipientIds: string[], event: {
   channelId: string;
@@ -449,6 +498,12 @@ export function pushDmActivity(recipientIds: string[], event: {
   silent?: boolean;
   /** End-to-end encrypted: no preview, no picture, no inline reply (it would be plaintext). */
   encrypted?: boolean;
+  /**
+   * The message's envelope (encrypted only). Phones that hold a notification
+   * key get just their own wrap entry with it and decrypt the preview
+   * themselves (protocol 3); everyone else gets "New encrypted message".
+   */
+  e2ee?: unknown;
 }): void {
   if (event.isCall || event.isSystem || event.silent || !isPushConfigured()) return;
   const others = [...new Set(recipientIds)].filter((id) => id && id !== event.authorId);
@@ -478,10 +533,17 @@ export function pushDmActivity(recipientIds: string[], event: {
         const alert = decideMessageAlert({ resolved, isDM: true, mentionedDirectly: false, mentionedEveryone: false, mentionedRole: false });
         if (!alert.notify) continue;
       }
-      tokens.push(...(devices.get(userId) ?? []));
       pushed.push(userId);
     }
-    await sendToDevices(tokens, {
+    // Encrypted previews only for people who show message previews in
+    // notifications (Settings → Notifications): the others' phones get no
+    // ciphertext to decrypt, just "New encrypted message".
+    const previewOff = event.encrypted && event.e2ee ? await previewsOffFor(pushed) : new Set<string>();
+    for (const userId of pushed) {
+      if (!previewOff.has(normalizeId(userId))) tokens.push(...(devices.get(userId) ?? []));
+    }
+    const noPreview = pushed.filter((id) => previewOff.has(normalizeId(id))).flatMap((id) => devices.get(id) ?? []);
+    const payload: PushPayload = {
       kind: 'message',
       // Old APKs show this title: keep naming the group like before.
       title: group ? `${authorName} (${group.name})` : authorName,
@@ -502,8 +564,14 @@ export function pushDmActivity(recipientIds: string[], event: {
         timestamp: timestampOf(event.createdAt),
         // A reply from the notification would be sent unencrypted.
         canReply: !event.encrypted,
+        ...(event.encrypted ? { encrypted: true } : {}),
+        ...(event.encrypted && event.e2ee ? { e2ee: event.e2ee } : {}),
       },
-    });
+    };
+    await sendToDevices(tokens, payload);
+    if (noPreview.length > 0 && payload.kind === 'message' && payload.rich) {
+      await sendToDevices(noPreview, { ...payload, rich: { ...payload.rich, e2ee: undefined } });
+    }
     await markShown(pushed, event.channelId);
   });
 }

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useE2ee } from "@/hooks/useE2ee";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { isNativeApp } from "@/lib/native/bridge";
 import {
   E2EE_LINK_INPUT_KEY,
   getE2eeSnapshot,
@@ -83,6 +84,36 @@ export function E2eeHost() {
     };
     window.addEventListener("serika:e2ee-keys", onKeys);
     return () => window.removeEventListener("serika:e2ee-keys", onKeys);
+  }, [userId]);
+
+  // Android app: encrypted push previews need this phone's notification key
+  // and the senders this device trusts in native storage (APKs that can't
+  // decrypt pushes skip all of it). Lazy: nothing loads on the web.
+  useEffect(() => {
+    if (!userId || !isNativeApp()) return;
+    const phase = e2ee.phase;
+    if (phase !== "ready" && phase !== "needs-restore") return;
+    let cancelled = false;
+    void import("@/lib/e2ee/client/notifyKey").then((m) => {
+      if (cancelled) return;
+      if (phase === "needs-restore") {
+        // This device can't read new messages: no stale key or trust stays in native storage.
+        m.stopTrustedSignerSync();
+        void m.clearNativeNotificationKey();
+        return;
+      }
+      void m.ensureNotificationKey(userId);
+      void m.startTrustedSignerSync(userId);
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, e2ee.phase, e2ee.deviceId]);
+
+  // Signed out: stop handing trust changes to native code.
+  useEffect(() => {
+    if (userId || !isNativeApp()) return;
+    void import("@/lib/e2ee/client/notifyKey").then((m) => m.stopTrustedSignerSync()).catch(() => {});
   }, [userId]);
 
   // Opened from a scanned linking QR (/e2ee/link): once this device's state is

@@ -382,6 +382,11 @@ function ApproveFlow({ initialInput, onDone }: { initialInput?: string; onDone: 
         setState({ kind: "passphrase", sas });
         return;
       }
+      if (err instanceof Error && err.name === "E2eeLinkNeedsPassphraseError") {
+        void loadE2eeSession().then((s) => s.cancelLinkApproval()).catch(() => {});
+        setState({ kind: "error", message: gt("To link devices from this one, set a recovery passphrase first (Settings → Encryption), then start again on the new device.") });
+        return;
+      }
       setState({ kind: "error", message: errorText(err) });
     }
   };
@@ -492,7 +497,7 @@ function ApproveFlow({ initialInput, onDone }: { initialInput?: string; onDone: 
       <div className="flex flex-col gap-3">
         <SasCode sas={state.sas} />
         <p className="text-sm text-[var(--text-secondary)]">
-          {gt("Enter your recovery passphrase once so this device can link others from now on.")}
+          {gt("Enter your recovery passphrase to send your keys to the new device. It's asked again for every link made more than 10 minutes after you last entered it here.")}
         </p>
         <Input
           type="password"

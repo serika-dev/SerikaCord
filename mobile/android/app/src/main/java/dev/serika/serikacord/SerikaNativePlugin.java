@@ -3,7 +3,9 @@ package dev.serika.serikacord;
 import android.app.Activity;
 import android.app.NotificationManager;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.graphics.Color;
+import android.net.Uri;
 import android.os.Build;
 import android.service.notification.StatusBarNotification;
 import android.view.View;
@@ -22,6 +24,9 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Native glue the hosted web app can't do on its own. The web side detects it
@@ -33,6 +38,9 @@ import java.util.List;
  *  - launch routes: where a tapped notification wants the app to go
  *  - clearNotifications / setBadge: drop delivered notifications once read
  *  - minimize: back button at the root sends the app to the background
+ *  - get/set/clearNotificationKey, setTrustedSigners, setEncryptedConversations:
+ *    end-to-end encrypted push previews (NotificationKeyStore,
+ *    EncryptedPushPreview); only from the SerikaCord origin
  */
 @CapacitorPlugin(name = "SerikaNative")
 public class SerikaNativePlugin extends Plugin {
@@ -205,8 +213,9 @@ public class SerikaNativePlugin extends Plugin {
         ret.put("firebase", firebase);
         ret.put("fullScreenCalls", true);
         // Draws data-only message pushes itself (MessagingStyle, inline Reply /
-        // Mark as read). The web app registers its token as "android-<n>".
-        ret.put("pushProtocol", 2);
+        // Mark as read); 3: also decrypts end-to-end encrypted previews with
+        // its notification key. The web app registers its token as "android-<n>".
+        ret.put("pushProtocol", 3);
         call.resolve(ret);
     }
 
@@ -251,6 +260,141 @@ public class SerikaNativePlugin extends Plugin {
         } catch (RuntimeException ignored) {
             // Some OEM builds throw here; nothing else to do.
         }
+    }
+
+    // ─── End-to-end encrypted push previews ──────────────────────────────────
+    // Only the SerikaCord web app may touch the notification key, the
+    // trusted senders and the encrypted-conversation list: other origins the
+    // WebView may show (the accounts site) get the bridge too, so every call
+    // checks the page's current URL first. Storage work runs off the UI thread.
+
+    private static final ExecutorService E2EE_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    /** https://serika.chat or https://canary.serika.chat (local dev hosts in debug builds). */
+    boolean isTrustedOrigin(String url) {
+        if (url == null) return false;
+        Uri uri;
+        try {
+            uri = Uri.parse(url);
+        } catch (RuntimeException e) {
+            return false;
+        }
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (host == null) return false;
+        host = host.toLowerCase(Locale.ROOT);
+        if ("https".equals(scheme) && (host.equals("serika.chat") || host.equals("canary.serika.chat"))) return true;
+        boolean debuggable = (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+        return debuggable
+            && ("http".equals(scheme) || "https".equals(scheme))
+            && (host.equals("localhost") || host.equals("127.0.0.1") || host.equals("10.0.2.2"));
+    }
+
+    private void fromTrustedOrigin(PluginCall call, Runnable work) {
+        Activity activity = getActivity();
+        WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+        if (activity == null || webView == null) {
+            call.reject("Unavailable");
+            return;
+        }
+        activity.runOnUiThread(() -> {
+            if (!isTrustedOrigin(webView.getUrl())) {
+                call.reject("Not allowed from this page");
+                return;
+            }
+            E2EE_EXECUTOR.execute(() -> {
+                try {
+                    work.run();
+                } catch (RuntimeException e) {
+                    call.reject("Failed");
+                }
+            });
+        });
+    }
+
+    /**
+     * The stored notification key's public facts ({} when there is none, or
+     * when its private half can't be opened any more, e.g. the Keystore key is
+     * gone: the web app then makes a new one). Never the private key.
+     */
+    @PluginMethod
+    public void getNotificationKey(PluginCall call) {
+        fromTrustedOrigin(call, () -> {
+            JSObject ret = new JSObject();
+            NotificationKeyStore.Info info = NotificationKeyStore.info(getContext());
+            if (info != null && NotificationKeyStore.privateKey(getContext(), info.id) != null) {
+                ret.put("id", info.id);
+                ret.put("userId", info.userId);
+                ret.put("deviceId", info.deviceId);
+                ret.put("publicKey", info.publicKey);
+            }
+            call.resolve(ret);
+        });
+    }
+
+    /**
+     * Take this phone's notification key from the web app (once): PKCS#8
+     * private key in base64, stored under an Android Keystore key.
+     */
+    @PluginMethod
+    public void setNotificationKey(PluginCall call) {
+        fromTrustedOrigin(call, () -> {
+            String id = call.getString("id");
+            String userId = call.getString("userId");
+            String deviceId = call.getString("deviceId");
+            String privateKey = call.getString("privateKey");
+            String publicKey = call.getString("publicKey");
+            JSObject ret = new JSObject();
+            byte[] pkcs8 = null;
+            try {
+                if (privateKey != null && privateKey.length() <= 1024) pkcs8 = E2eeNotifyCrypto.b64(privateKey);
+            } catch (Exception ignored) {
+                pkcs8 = null;
+            }
+            ret.put("ok", pkcs8 != null && NotificationKeyStore.save(getContext(), id, userId, deviceId, pkcs8, publicKey));
+            call.resolve(ret);
+        });
+    }
+
+    /** Sign-out / encryption reset: forget the key, the trusted senders and the encrypted conversations. */
+    @PluginMethod
+    public void clearNotificationKey(PluginCall call) {
+        fromTrustedOrigin(call, () -> {
+            NotificationKeyStore.clear(getContext());
+            call.resolve();
+        });
+    }
+
+    /**
+     * Senders whose signatures may unlock a preview: `users` maps user id →
+     * device id → signing key (base64 raw P-256). `replace` drops every user
+     * not listed.
+     */
+    @PluginMethod
+    public void setTrustedSigners(PluginCall call) {
+        fromTrustedOrigin(call, () -> {
+            JSObject users = call.getObject("users");
+            Boolean replace = call.getBoolean("replace", false);
+            JSObject ret = new JSObject();
+            ret.put("ok", NotificationKeyStore.setSigners(getContext(), users, replace != null && replace));
+            call.resolve(ret);
+        });
+    }
+
+    /**
+     * Encrypted conversations the web app has seen: `conversations` maps
+     * channel id → { kind: "dm", peer } | { kind: "group_dm" }. `replace`
+     * drops the others.
+     */
+    @PluginMethod
+    public void setEncryptedConversations(PluginCall call) {
+        fromTrustedOrigin(call, () -> {
+            JSObject entries = call.getObject("conversations");
+            Boolean replace = call.getBoolean("replace", false);
+            JSObject ret = new JSObject();
+            ret.put("ok", NotificationKeyStore.setConversations(getContext(), entries, replace != null && replace));
+            call.resolve(ret);
+        });
     }
 
     @PluginMethod

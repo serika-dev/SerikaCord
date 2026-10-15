@@ -478,6 +478,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
         group: await groupNotifyInfo(channel),
         silent: prepared.silent,
         encrypted: Boolean(prepared.e2ee),
+        e2ee: prepared.e2ee ?? null,
       });
     })().catch(() => { /* best-effort */ });
 

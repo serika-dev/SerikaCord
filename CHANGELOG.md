@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Real previews for encrypted chats** — notifications, desktop alerts and the mobile DM list show the actual message text of encrypted DMs and group DMs, decrypted on your device. With the next Android app update, push notifications show it too: your phone decrypts them itself and only shows text from a verified sender. Turning off message previews still hides it, and the lock screen never shows encrypted text.
 
 ### Changes
 
@@ -15,6 +16,8 @@
 ### Performance
 
 ### Security
+- The Android app no longer includes its data in phone backups or device transfers, so encryption keys can't be copied off the phone that way.
+- Linking a new device from an existing one now needs your recovery passphrase again after 10 minutes, so a key copy is never kept on the device for long.
 
 ### Removed
 

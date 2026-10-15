@@ -1,5 +1,6 @@
 // Mobile push device registration for the Capacitor app.
-//   POST   /api/users/@me/push-devices        { token, platform }  register / refresh
+//   POST   /api/users/@me/push-devices        { token, platform, notifyKeyId? }  register / refresh
+//                                             (notifyKeyId: this phone's E2EE notification key)
 //   DELETE /api/users/@me/push-devices        { token }            forget (sign-out)
 //   POST   /api/users/@me/push-devices/state  { away }             app backgrounded / foregrounded
 // Only the signed-in user's own devices; tokens are opaque FCM strings.
@@ -36,7 +37,13 @@ export const pushRoutes = new Elysia({ prefix: '/users/@me/push-devices' })
     // 'android-2'+ = the APK draws rich message notifications itself (fcm.ts).
     const platform = normalizePushPlatform(body.platform);
     try {
-      await registerPushDevice(user.id, body.token, platform);
+      // Only the caller's own active notification key (else: keep / clear as registerPushDevice says).
+      let notifyId: string | null = null;
+      if (typeof body.notifyKeyId === 'string' && /^[A-Za-z0-9_-]{22}$/.test(body.notifyKeyId)) {
+        const { isActiveNotifyKeyOf } = await import('@/lib/services/e2ee');
+        if (await isActiveNotifyKeyOf(user.id, body.notifyKeyId).catch(() => false)) notifyId = body.notifyKeyId;
+      }
+      await registerPushDevice(user.id, body.token, platform, notifyId);
       return { success: true };
     } catch (err) {
       console.error('[push] register failed:', (err as Error)?.message ?? err);
@@ -47,6 +54,7 @@ export const pushRoutes = new Elysia({ prefix: '/users/@me/push-devices' })
     body: t.Object({
       token: t.String({ minLength: 20, maxLength: 4096 }),
       platform: t.Optional(t.String({ maxLength: 16 })),
+      notifyKeyId: t.Optional(t.String({ maxLength: 32 })),
     }),
   })
   .delete('/', async ({ headers, cookie, body, set }) => {

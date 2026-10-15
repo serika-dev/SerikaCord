@@ -23,6 +23,10 @@
 //   POST   /e2ee/link/:code/payload            { iv, ct } existing device's sealed key material
 //   POST   /e2ee/link/:code/done               new device stored the keys (the sealed copy is dropped)
 //   DELETE /e2ee/link/:code                    cancel
+//   POST   /e2ee/notify-keys                   { id, deviceId, ecdhPub, sig, pushToken? } register this
+//                                              phone's notification key (signed by the device; Android
+//                                              push previews) and link it to its push token
+//   DELETE /e2ee/notify-keys/:notifyId         revoke own notification key (sign-out)
 //
 // Writes that create keys or encrypted conversations are refused while the
 // E2EE_ENABLED flag is off; reads and device revocation always work.
@@ -47,6 +51,8 @@ import {
   keysVersionOf,
   notifyE2eeKeysChanged,
   publicDevice,
+  registerNotifyKey,
+  revokeNotifyKeys,
   usersHaveKeys,
 } from '@/lib/services/e2ee';
 import {
@@ -57,6 +63,7 @@ import {
   isLinkCommitment,
   isLinkPublicKey,
   isPublicKeyB64,
+  isPublicNotifyKey,
   linkCommitment,
   newLinkCode,
   normalizeLinkCode,
@@ -293,6 +300,9 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       }
       return saved;
     });
+    // Their notification keys go with the devices (bundles only list keys of
+    // active devices anyway; this also unlinks the phones' push tokens).
+    if (existing) await revokeNotifyKeys(userId, { all: true });
     notifyE2eeKeysChanged(userId);
     return { identity: identitySummary(row), reset: Boolean(existing) };
   }, {
@@ -364,6 +374,10 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
           .returning();
         return { device: touched, changed: existing.deviceSig !== device.sig } as const;
       }
+      // Device and notification-key ids share the wrap-recipient namespace: a
+      // device can't take a notification key's id (and crowd it out of envelopes).
+      const [clash] = await tx.select({ id: schema.e2eeNotifyKeys.id }).from(schema.e2eeNotifyKeys).where(eq(schema.e2eeNotifyKeys.id, device.id)).limit(1);
+      if (clash) return { status: 409, error: 'Device id already in use' } as const;
       const [{ value: activeCount }] = await tx
         .select({ value: count() })
         .from(schema.e2eeDevices)
@@ -424,9 +438,69 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       set.status = 404;
       return { error: 'Device not found' };
     }
+    await revokeNotifyKeys(user.id, { deviceIds: [row.id] });
     notifyE2eeKeysChanged(user.id);
     return { success: true };
   }, { params: t.Object({ deviceId: t.String({ maxLength: 32 }) }) })
+
+  // ─── Notification keys (Android push previews, lib/e2ee/notifyKeys.ts) ──────
+  .post('/notify-keys', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    if (!e2eeEnabled()) return disabled(set);
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    const key = { id: body.id, deviceId: body.deviceId, ecdhPub: body.ecdhPub, sig: body.sig };
+    if (!isPublicNotifyKey(key)) {
+      set.status = 400;
+      return { error: 'Invalid notification key' };
+    }
+    await ensureE2eeSchema();
+    const result = await registerNotifyKey(user.id, key);
+    if (!result.ok) {
+      set.status = result.status;
+      return { error: result.error };
+    }
+    // Pushes to this phone's token carry this key's wrap entry from now on.
+    let linked = false;
+    if (typeof body.pushToken === 'string' && body.pushToken) {
+      const { isPlausibleDeviceToken } = await import('@/lib/push/fcm');
+      if (isPlausibleDeviceToken(body.pushToken)) {
+        const { linkPushNotifyKey } = await import('@/lib/services/pushNotifications');
+        linked = await linkPushNotifyKey(user.id, body.pushToken, result.key.id).catch(() => false);
+      }
+    }
+    return { key: result.key, changed: result.changed, linked };
+  }, {
+    body: t.Object({
+      id: t.String({ maxLength: 32 }),
+      deviceId: t.String({ maxLength: 32 }),
+      ecdhPub: t.String({ maxLength: 120 }),
+      sig: t.String({ maxLength: 120 }),
+      pushToken: t.Optional(t.String({ maxLength: 4096 })),
+    }),
+  })
+
+  .delete('/notify-keys/:notifyId', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    if (!isDeviceId(params.notifyId)) {
+      set.status = 400;
+      return { error: 'Invalid notification key id' };
+    }
+    await ensureE2eeSchema();
+    const revoked = await revokeNotifyKeys(user.id, { id: params.notifyId });
+    if (revoked > 0) notifyE2eeKeysChanged(user.id);
+    return { success: true, revoked: revoked > 0 };
+  }, { params: t.Object({ notifyId: t.String({ maxLength: 32 }) }) })
 
   .get('/backup', async ({ headers, cookie, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);

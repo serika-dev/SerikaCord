@@ -21,6 +21,7 @@ import {
   E2eeFormatError,
   E2eeVerifyError,
   backupRecipientId,
+  capRecipients,
   compareGroupMembers,
   computeSafetyNumber,
   conversationKey,
@@ -53,14 +54,17 @@ import {
   publicKeyFromJwk,
   sealBackup,
   sealLinkPayload,
+  selectNotifyRecipients,
   signBackupKey,
   signDevice,
+  signNotifyKey,
   signDtlsFingerprints,
   toB64,
   verifyBackupKey,
   verifyDevice,
   verifyDtlsFingerprints,
   verifyEnvelopeSignature,
+  verifyNotifyKey,
   UUID_RE,
   type BackupSecrets,
   type E2eeTarget,
@@ -68,6 +72,7 @@ import {
   type LinkSecrets,
   type MessagePayload,
   type PublicDevice,
+  type PublicNotifyKey,
   type WrapRecipient,
 } from "@/lib/e2ee";
 import { fromUtf8, randomBytes, utf8 } from "@/lib/e2ee/encoding";
@@ -85,6 +90,7 @@ import {
   forgetPlainMemory,
   getCachedBundles,
   getPlainMany,
+  listCachedBundles,
   peekPlain,
   plainCacheKey,
   putCachedBundles,
@@ -136,11 +142,19 @@ export class E2eeCurrentPassphraseError extends Error {
   }
 }
 
-/** Linking from this device needs the recovery passphrase once (its keys were sealed before linking existed). */
+/** Approving a link needs the recovery passphrase (no recent proof of it on this device). */
 export class E2eeLinkPassphraseError extends Error {
   constructor() {
-    super("Enter your recovery passphrase once to link devices from this one");
+    super("Enter your recovery passphrase to link a device");
     this.name = "E2eeLinkPassphraseError";
+  }
+}
+
+/** Approving a link needs a recovery passphrase, and the account has none yet. */
+export class E2eeLinkNeedsPassphraseError extends Error {
+  constructor() {
+    super("Set a recovery passphrase to link devices from this one");
+    this.name = "E2eeLinkNeedsPassphraseError";
   }
 }
 
@@ -211,6 +225,13 @@ function resetModuleState() {
   frankingKeys.clear();
   verifyCache.clear();
   sentPlaintext.clear();
+  signerBook.clear();
+  signersPrimed = false;
+  revokedSeen.clear();
+  freshSigners.clear();
+  conversationBook.clear();
+  if (escrowTimer) clearTimeout(escrowTimer);
+  escrowTimer = null;
   linkNew = null;
   linkApprove = null;
   linkNewPoll = null;
@@ -372,6 +393,7 @@ async function runInit(markLocal: () => void): Promise<void> {
   store = new KeyStore(uid);
   // This device's keys first, in one transaction: decryption can start now.
   await loadLocalKeys(true);
+  void purgeExpiredEscrow();
   const keysLost = !identity && !device && archived.length === 0 && hadKeysHere(uid);
   markLocal();
   await withSetupLock(async () => {
@@ -500,13 +522,21 @@ async function refreshStatus(): Promise<void> {
   await publishPhase(identity && device ? "ready" : status.identity ? "needs-restore" : "disabled", status);
 }
 
-// ─── Link escrow ──────────────────────────────────────────────────────────────
+// ─── Link escrow (short-lived) ─────────────────────────────────────────────────
 // Once sealed, the identity / backup private keys are non-extractable, so a
-// device couldn't hand them to a device it links. Whenever this device holds
-// them in the clear (sealing, restoring, being linked) it also keeps them as
-// JWK sealed under a separate non-extractable AES-GCM key (keyStore
-// "linkEscrow"). Only the linking flow opens it, after the user compared the
-// codes on both devices. Threat model note in docs/architecture/e2ee.md.
+// device couldn't hand them to a device it links. Right after the user proved
+// the recovery passphrase here (setting it, restoring, "enter your passphrase
+// to link") or this device was linked, it keeps them as JWK sealed under a
+// separate non-extractable AES-GCM key (keyStore "linkEscrow") for at most
+// ESCROW_TTL_MS: the expiry is enforced on every read, expired copies are
+// deleted on start, when the page becomes visible and by a timer, and a
+// successful link approval deletes it at once. Later approvals ask for the
+// passphrase again. Threat model in docs/architecture/e2ee.md.
+
+/** How long a device may hand its keys to a device it links without the passphrase. */
+export const LINK_ESCROW_TTL_MS = 10 * 60_000;
+let escrowTimer: ReturnType<typeof setTimeout> | null = null;
+let escrowWatch = false;
 
 function escrowAad(uid: string, identityPub: string) {
   return utf8(`serika-e2ee-link-escrow-v1|${lower(uid)}|${identityPub}`);
@@ -519,10 +549,42 @@ async function sealEscrow(secrets: BackupSecrets): Promise<void> {
     const iv = randomBytes(12);
     const body = utf8(JSON.stringify({ identity: secrets.identity, backup: secrets.backup }));
     const ct = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: escrowAad(userId, identity.pub) }, key, body);
-    await store.put("linkEscrow", { key, iv, ct, identityPub: identity.pub });
+    const expiresAt = Date.now() + LINK_ESCROW_TTL_MS;
+    await store.put("linkEscrow", { key, iv, ct, identityPub: identity.pub, expiresAt });
+    scheduleEscrowExpiry(expiresAt);
   } catch {
-    /* linking from this device will ask for the passphrase once */
+    /* linking from this device will ask for the passphrase */
   }
+}
+
+function escrowValid(e: { expiresAt?: number } | null | undefined): boolean {
+  const now = Date.now();
+  return Boolean(e && typeof e.expiresAt === "number" && e.expiresAt > now && e.expiresAt <= now + LINK_ESCROW_TTL_MS);
+}
+
+async function dropEscrow(): Promise<void> {
+  if (escrowTimer) clearTimeout(escrowTimer);
+  escrowTimer = null;
+  if (store) await store.delete("linkEscrow").catch(() => {});
+}
+
+function scheduleEscrowExpiry(expiresAt: number) {
+  if (escrowTimer) clearTimeout(escrowTimer);
+  escrowTimer = setTimeout(() => void purgeExpiredEscrow(), Math.max(0, expiresAt - Date.now()) + 1000);
+  if (!escrowWatch && typeof document !== "undefined") {
+    escrowWatch = true;
+    // Timers stop in background tabs / frozen WebViews: re-check when the page comes back.
+    document.addEventListener("visibilitychange", () => void purgeExpiredEscrow());
+  }
+}
+
+/** Delete the link escrow once it expired (or when it predates expiries: stage 1 kept it at rest). */
+async function purgeExpiredEscrow(): Promise<void> {
+  const s = store;
+  if (!s) return;
+  const escrow = await s.get("linkEscrow").catch(() => null);
+  if (escrow && !escrowValid(escrow)) await dropEscrow();
+  else if (escrow?.expiresAt) scheduleEscrowExpiry(escrow.expiresAt);
 }
 
 /** The identity + backup private keys, when this device can produce them without the passphrase. */
@@ -532,7 +594,11 @@ async function currentSecrets(): Promise<BackupSecrets | null> {
     return { identity: await exportPrivateJwk(identity.priv), backup: await exportPrivateJwk(backupKey.priv) };
   }
   const escrow = store ? await store.get("linkEscrow").catch(() => null) : null;
-  if (!escrow || escrow.identityPub !== identity.pub) return null;
+  if (!escrow) return null;
+  if (!escrowValid(escrow) || escrow.identityPub !== identity.pub) {
+    await dropEscrow();
+    return null;
+  }
   try {
     const plain = await globalThis.crypto.subtle.decrypt(
       { name: "AES-GCM", iv: new Uint8Array(escrow.iv), additionalData: escrowAad(userId, identity.pub) },
@@ -572,8 +638,11 @@ export async function setRecoveryPassphrase(passphrase: string, currentPassphras
   if (!identity || !backupKey) throw new E2eeUnavailableError("Encryption isn't set up on this device");
   if (!isStrongRecoveryPassphrase(passphrase)) throw new E2eeFormatError("This passphrase is too easy to guess");
   let secrets: BackupSecrets;
-  if (identity.priv.extractable && backupKey.priv.extractable) {
-    secrets = { identity: await exportPrivateJwk(identity.priv), backup: await exportPrivateJwk(backupKey.priv) };
+  // Extractable (no passphrase yet), or within the short window after this
+  // device was set up / linked: no current passphrase needed.
+  const held = keysExtractable() || !currentPassphrase ? await currentSecrets() : null;
+  if (held) {
+    secrets = held;
   } else {
     if (!currentPassphrase) throw new E2eeCurrentPassphraseError();
     const data = await api<{ backup: { blob: string; salt: string; iters: number } }>("/backup");
@@ -680,6 +749,11 @@ export interface MemberKeys {
   pendingKey: string | null;
   /** Encryption targets: devices + backup key vouched for by the trusted key. */
   recipients: WrapRecipient[];
+  /**
+   * Notification keys (Android push previews) signed by one of those devices:
+   * wrapped to as well while the envelope stays under the recipient limit.
+   */
+  notifyRecipients: WrapRecipient[];
   /** Every known device (incl. revoked): verifies sender signatures. */
   signers: Map<string, { signPub: string; revokedAt: number | null; trusted: boolean }>;
 }
@@ -700,6 +774,8 @@ interface Bundle {
   backupSig: string | null;
   devices: Array<PublicDevice & { revokedAt: string | null }>;
   revokedDevices: Array<PublicDevice & { revokedAt: string | null }>;
+  /** Active notification keys (servers before stage 2 don't send it). */
+  notifyKeys?: PublicNotifyKey[];
 }
 
 interface RawChannelKeys {
@@ -728,6 +804,16 @@ async function cachedVerifyDevice(identityPub: string, uid: string, d: PublicDev
   return ok;
 }
 
+async function cachedVerifyNotifyKey(signPub: string, uid: string, k: PublicNotifyKey): Promise<boolean> {
+  const key = `notify|${signPub}|${lower(uid)}|${k.id}|${k.deviceId}|${k.ecdhPub}|${k.sig}`;
+  const hit = verifyCache.get(key);
+  if (hit !== undefined) return hit;
+  const ok = await verifyNotifyKey(signPub, uid, k);
+  if (verifyCache.size > 2000) verifyCache.clear();
+  verifyCache.set(key, ok);
+  return ok;
+}
+
 async function savePins() {
   if (store) await store.put("pins", pins);
   setE2eeSnapshot({ pinsVersion: getE2eeSnapshot().pinsVersion + 1 });
@@ -744,7 +830,7 @@ function ownIdentityKeys(): string[] {
  * asked for: a bundle for anyone else is refused (the server can't answer a
  * lookup for Alice with Mallory's keys).
  */
-async function processBundle(b: Bundle, expectedUserId?: string): Promise<MemberKeys> {
+async function processBundle(b: Bundle, expectedUserId?: string, opts: { cachedOnly?: boolean } = {}): Promise<MemberKeys> {
   if (!b || typeof b.userId !== "string" || !UUID_RE.test(b.userId)) throw new E2eeFormatError("Malformed key bundle");
   if (expectedUserId !== undefined && lower(b.userId) !== lower(expectedUserId)) {
     throw new E2eeFormatError("The server sent keys for the wrong person");
@@ -765,7 +851,12 @@ async function processBundle(b: Bundle, expectedUserId?: string): Promise<Member
     historyKeys = pins[uid]?.seen ?? [];
   } else {
     const pin = pins[uid];
-    if (!pin) {
+    if (opts.cachedOnly) {
+      // A stale copy (priming the push trust list): never touches pins, and
+      // only keys already accepted count.
+      trust = pin && pin.key === b.identityPub ? (pin.verified ? "verified" : "trusted") : pin ? "changed" : "missing";
+      currentKey = pin && pin.key === b.identityPub ? b.identityPub : null;
+    } else if (!pin) {
       pins[uid] = { key: b.identityPub, seen: [b.identityPub], verified: false, pending: null, updatedAt: Date.now() };
       void savePins();
       trust = "new";
@@ -806,6 +897,11 @@ async function processBundle(b: Bundle, expectedUserId?: string): Promise<Member
       recipients.push({ id: d.id, pub: d.ecdhPub });
     }
   }));
+  // Notification keys: only ones signed by a device we encrypt to (its
+  // signing key vouches for it; the server can't add one).
+  const deviceTargets = new Set(recipients.map((r) => r.id));
+  const trustedDevices = new Map(all.filter((d) => !d.revokedAt && deviceTargets.has(d.id)).map((d) => [d.id, d.signPub] as const));
+  const notifyRecipients = await selectNotifyRecipients(uid, b.notifyKeys, trustedDevices, cachedVerifyNotifyKey);
   if (currentKey && b.backupPub && (await verifyBackupKey(currentKey, uid, b.backupPub, b.backupSig))) {
     recipients.push({ id: backupRecipientId(uid), pub: b.backupPub });
   }
@@ -813,7 +909,151 @@ async function processBundle(b: Bundle, expectedUserId?: string): Promise<Member
   // server's list catches up.
   if (isSelf && device && !recipients.some((r) => r.id === device!.id)) recipients.push({ id: device.id, pub: device.ecdhPub });
   if (isSelf && device && !signers.has(device.id)) signers.set(device.id, { signPub: device.signPub, revokedAt: null, trusted: true });
-  return { userId: uid, identityPub: b.identityPub, trust, pendingKey, recipients, signers };
+  noteSigners(uid, signers, opts.cachedOnly === true);
+  return { userId: uid, identityPub: b.identityPub, trust, pendingKey, recipients, notifyRecipients, signers };
+}
+
+// ─── Trusted senders for native push previews ────────────────────────────────
+// The Android app verifies the sender signature of an encrypted push itself,
+// against the sender devices this device trusts (vouched for by a pinned
+// identity key, not revoked). Every processed key bundle updates that list;
+// listeners (lib/e2ee/client/notifyKey.ts) hand changes to native code.
+
+/** userId → deviceId → signing key (raw P-256, base64). */
+const signerBook = new Map<string, Record<string, string>>();
+const signerListeners = new Set<(changed: Record<string, Record<string, string>>) => void>();
+let signerPending: Record<string, Record<string, string>> = {};
+let signerTimer: ReturnType<typeof setTimeout> | null = null;
+let signersPrimed = false;
+/** Devices this session has seen revoked (a stale copy never brings them back). */
+const revokedSeen = new Map<string, Set<string>>();
+/** Users whose entry came from the server this session (a stale copy never overrides it). */
+const freshSigners = new Set<string>();
+
+function noteSigners(uid: string, signers: MemberKeys["signers"], cachedOnly: boolean) {
+  if (cachedOnly && freshSigners.has(uid)) return;
+  if (!cachedOnly) freshSigners.add(uid);
+  let revoked = revokedSeen.get(uid);
+  for (const [id, s] of signers) {
+    if (!s.revokedAt) continue;
+    if (!revoked) revokedSeen.set(uid, (revoked = new Set()));
+    revoked.add(id);
+  }
+  const next: Record<string, string> = {};
+  for (const [id, s] of signers) if (s.trusted && !s.revokedAt && !revoked?.has(id)) next[id] = s.signPub;
+  const prev = signerBook.get(uid);
+  const same = prev && Object.keys(prev).length === Object.keys(next).length && Object.entries(next).every(([id, k]) => prev[id] === k);
+  if (same) return;
+  signerBook.set(uid, next);
+  if (signerListeners.size === 0) return;
+  signerPending[uid] = next;
+  if (signerTimer) return;
+  signerTimer = setTimeout(() => {
+    signerTimer = null;
+    const batch = signerPending;
+    signerPending = {};
+    signerListeners.forEach((l) => l(batch));
+  }, 300);
+}
+
+/**
+ * Subscribe to trusted-sender changes (per user: the full new device list).
+ * The listener first gets everything known so far.
+ */
+export function onTrustedSignersChanged(listener: (changed: Record<string, Record<string, string>>) => void): () => void {
+  signerListeners.add(listener);
+  if (signerBook.size > 0) listener(Object.fromEntries(signerBook));
+  return () => {
+    signerListeners.delete(listener);
+  };
+}
+
+// ─── Encrypted conversations for native push previews ──────────────────────────
+// The Android app must know which conversations are encrypted (it then never
+// shows the server's text or offers Reply) and what they are (a 1:1 DM with
+// whom, or a group), from this device's own checks: a 1:1 DM is noted once
+// its channel proved to be exactly us + the person in the URL, a group once
+// its page (URL) decrypted it. One-way, like the "seen encrypted" memory.
+
+export type EncryptedConversationInfo = { kind: "dm"; peer: string } | { kind: "group_dm" };
+
+const conversationBook = new Map<string, EncryptedConversationInfo>();
+const conversationListeners = new Set<(changed: Record<string, EncryptedConversationInfo>) => void>();
+let conversationPending: Record<string, EncryptedConversationInfo> = {};
+let conversationTimer: ReturnType<typeof setTimeout> | null = null;
+
+function noteEncryptedConversation(channelId: string, info: EncryptedConversationInfo) {
+  const key = lower(channelId);
+  if (!UUID_RE.test(key) || (info.kind === "dm" && !UUID_RE.test(info.peer))) return;
+  const prev = conversationBook.get(key);
+  if (prev && prev.kind === info.kind && (prev.kind !== "dm" || prev.peer === (info as { peer: string }).peer)) return;
+  conversationBook.set(key, info);
+  if (conversationListeners.size === 0) return;
+  conversationPending[key] = info;
+  if (conversationTimer) return;
+  conversationTimer = setTimeout(() => {
+    conversationTimer = null;
+    const batch = conversationPending;
+    conversationPending = {};
+    conversationListeners.forEach((l) => l(batch));
+  }, 300);
+}
+
+/** Subscribe to newly noted encrypted conversations; the listener first gets everything known. */
+export function onEncryptedConversationsChanged(listener: (changed: Record<string, EncryptedConversationInfo>) => void): () => void {
+  conversationListeners.add(listener);
+  if (conversationBook.size > 0) listener(Object.fromEntries(conversationBook));
+  return () => {
+    conversationListeners.delete(listener);
+  };
+}
+
+/** Every encrypted conversation noted this session. */
+export function encryptedConversationsSnapshot(): Record<string, EncryptedConversationInfo> {
+  return Object.fromEntries(conversationBook);
+}
+
+/** Group DMs this device remembers as encrypted (keyed by the URL's channel: `gdm:<id>`). */
+export async function noteRememberedGroups(): Promise<void> {
+  await whenLocalReady();
+  const list = store ? await store.get("conversations").catch(() => null) : null;
+  for (const key of Object.keys(list ?? {})) {
+    if (key.startsWith("gdm:")) noteEncryptedConversation(key.slice(4), { kind: "group_dm" });
+  }
+}
+
+/** Everything in the trusted-sender list (userId → deviceId → signing key). */
+export function trustedSignersSnapshot(): Record<string, Record<string, string>> {
+  return Object.fromEntries(signerBook);
+}
+
+/**
+ * Fill the trusted-sender list from every key set cached on this device (no
+ * network), so pushes from contacts of conversations not opened yet this
+ * session can be verified too. Once per session.
+ */
+export async function primeTrustedSigners(selfId?: string | null): Promise<void> {
+  if (signersPrimed) return;
+  await whenLocalReady(selfId);
+  if (!userId) return;
+  signersPrimed = true;
+  const cached = await listCachedBundles<RawChannelKeys>(userId, 200);
+  for (const { channelId, data } of cached) {
+    if (channelKeysSettled.has(channelId)) continue;
+    await processChannelKeys(data, channelId, { cachedOnly: true }).catch(() => null);
+  }
+}
+
+/**
+ * Sign this device's notification key (lib/e2ee/notifyKeys.ts) with its
+ * signing key. Null when this device has no keys.
+ */
+export async function signNotificationKey(id: string, ecdhPub: string, selfId?: string | null): Promise<{ userId: string; deviceId: string; sig: string } | null> {
+  await whenLocalReady(selfId);
+  if (!device) await whenE2eeSettled(selfId);
+  if (!device || !userId || getE2eeSnapshot().phase !== "ready") return null;
+  const sig = await signNotifyKey(device.signPriv, userId, { id, deviceId: device.id, ecdhPub });
+  return { userId: lower(userId), deviceId: device.id, sig };
 }
 
 /** A member processed with a conversation's key set doubles as that user's keys (calls, unknown senders). */
@@ -823,13 +1063,13 @@ function seedUserKeys(m: MemberKeys) {
   userKeyCache.set(m.userId, { value: Promise.resolve(m), at: Date.now() });
 }
 
-async function processChannelKeys(data: RawChannelKeys, key: string): Promise<ChannelKeys> {
+async function processChannelKeys(data: RawChannelKeys, key: string, opts: { cachedOnly?: boolean } = {}): Promise<ChannelKeys> {
   if (!data || typeof data.channelId !== "string" || lower(data.channelId) !== key) throw new E2eeFormatError("The server sent keys for another conversation");
   if (!Array.isArray(data.members) || hasDuplicateIds(data.members.map((m) => String(m?.userId ?? "")))) {
     throw new E2eeFormatError("The server sent a malformed member list");
   }
-  const members = await Promise.all(data.members.map((m) => processBundle(m)));
-  for (const m of members) seedUserKeys(m);
+  const members = await Promise.all(data.members.map((m) => processBundle(m, undefined, opts)));
+  if (!opts.cachedOnly) for (const m of members) seedUserKeys(m);
   return { channelId: key, e2ee: data.e2ee === true, members, at: Date.now(), version: typeof data.version === "string" ? data.version : null };
 }
 
@@ -1080,9 +1320,11 @@ export async function encryptForChannel(
     check = checkMembers(keys, target, shownMemberIds);
   }
   if (!check.ok) throw new E2eeSendBlockedError("member_mismatch");
+  noteEncryptedConversation(channelId, target.kind === "dm" ? { kind: "dm", peer: lower(target.recipientId) } : { kind: "group_dm" });
   const changed = check.members.filter((m) => m.trust === "changed").map((m) => m.userId);
   if (changed.length > 0) throw new E2eeSendBlockedError("identity_changed", changed);
-  const recipients = check.members.flatMap((m) => m.recipients);
+  // Readers first; notification keys (push previews) only while under the recipient limit.
+  const recipients = capRecipients(check.members.flatMap((m) => m.recipients), check.members.flatMap((m) => m.notifyRecipients ?? []));
   const others = check.members.filter((m) => m.trust !== "self");
   if (others.length > 0 && !others.some((m) => m.recipients.length > 0)) throw new E2eeSendBlockedError("no_recipients");
   const { envelope, key } = await encryptMessage({
@@ -1394,6 +1636,8 @@ export interface DecryptContext {
   selfId?: string | null;
   /** Live (just arrived) rows: never cached yet, so skip the IndexedDB lookup. */
   live?: boolean;
+  /** `channelId` is the group DM in the URL (not a server-supplied id). */
+  group?: boolean;
 }
 
 /**
@@ -1418,9 +1662,13 @@ export async function decryptRawMessages<T extends Record<string, unknown>>(raw:
       else if (!keys) conversationError = "keys_unavailable";
       else if (!isExactDmMembers(keys.members.map((m) => m.userId), userId, ctx.dmPeer)) conversationError = "wrong_conversation";
       // The first paint may fill this DM's placeholders from memory (chatGlue.hydrateFromMemory).
-      if (!conversationError) rememberValidatedChannel(conversationKey({ kind: "dm", recipientId: ctx.dmPeer }), expected);
+      if (!conversationError) {
+        rememberValidatedChannel(conversationKey({ kind: "dm", recipientId: ctx.dmPeer }), expected);
+        noteEncryptedConversation(expected, { kind: "dm", peer: lower(ctx.dmPeer) });
+      }
     } else {
       rememberValidatedChannel(conversationKey({ kind: "group", channelId: expected }), expected);
+      if (ctx.group) noteEncryptedConversation(expected, { kind: "group_dm" });
     }
   }
 
@@ -1531,6 +1779,7 @@ export async function hydratePlaceholders<M extends { id: string; channelId?: st
     if (keys && isExactDmMembers(keys.members.map((m) => m.userId), uid, target.recipientId)) {
       allowed.add(channelId);
       rememberValidatedChannel(conversationKey(target), channelId);
+      noteEncryptedConversation(channelId, { kind: "dm", peer: lower(target.recipientId) });
     }
   }
   const usable = pending.filter((p) => allowed.has(p.channelId));
@@ -1561,11 +1810,25 @@ export type PreviewResult =
  * reusing every cache. `channelId` is the conversation the message must
  * decrypt under (its AAD binds it). Never throws.
  */
-export async function decryptForPreview(msg: RawMessageLike, channelId: string, selfId?: string | null): Promise<PreviewResult> {
+export async function decryptForPreview(
+  msg: RawMessageLike,
+  channelId: string,
+  selfId?: string | null,
+  opts: { dmPeer?: string | null } = {},
+): Promise<PreviewResult> {
   try {
     await whenLocalReady(selfId);
     if (!envelopeOf(msg.e2ee)) return { ok: false, reason: "malformed" };
+    if (typeof msg.channelId === "string" && msg.channelId && lower(msg.channelId) !== lower(channelId)) return { ok: false, reason: "wrong_conversation" };
     const key = lower(channelId);
+    // A 1:1 DM's preview: the channel must be exactly us + that person (as when it's opened).
+    if (opts.dmPeer) {
+      const keys = await getChannelKeys(key).catch(() => null);
+      if (!keys) return { ok: false, reason: "keys_unavailable" };
+      if (!userId || !isExactDmMembers(keys.members.map((m) => m.userId), userId, opts.dmPeer)) return { ok: false, reason: "wrong_conversation" };
+      // It carries an envelope: this DM is encrypted.
+      noteEncryptedConversation(key, { kind: "dm", peer: lower(opts.dmPeer) });
+    }
     const plainKey = (() => {
       const env = envelopeOf(msg.e2ee);
       const sender = senderOf(msg);
@@ -1936,10 +2199,15 @@ export async function confirmLinkApproval(): Promise<void> {
   const state = linkApprove;
   if (!state?.secrets || !userId) throw new E2eeFormatError("Nothing to approve");
   const secrets = await currentSecrets();
-  if (!secrets) throw new E2eeLinkPassphraseError();
+  if (!secrets) {
+    if (!getE2eeSnapshot().serverHasBackup) throw new E2eeLinkNeedsPassphraseError();
+    throw new E2eeLinkPassphraseError();
+  }
   const payload = await sealLinkPayload(state.secrets.key, userId, state.code, secrets);
   await api(`/link/${encodeURIComponent(state.code)}/payload`, { method: "POST", body: JSON.stringify(payload) });
   state.sent = true;
+  // One approval per proof of the passphrase.
+  await dropEscrow();
 }
 
 /** Existing device whose keys were sealed before linking existed: unlock linking with the passphrase once. */

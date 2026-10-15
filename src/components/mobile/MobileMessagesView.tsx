@@ -21,6 +21,10 @@ import { usePullToRefresh } from "@/hooks/usePullToRefresh";
 import { PullIndicator } from "@/components/mobile/PullIndicator";
 import { useLongPress } from "@/components/mobile/useLongPress";
 import { Bone } from "@/components/mobile/Bone";
+import { useAuth } from "@/contexts/AuthContext";
+import { previewEncryptedMessage, type EncryptedPreviewInput } from "@/lib/e2ee/client/previews";
+import { getRelationships } from "@/lib/social/relationshipsStore";
+import { isBlockedAuthor } from "@/lib/chat/blocked";
 
 const MobileDmSheet = dynamic(() => import("@/components/mobile/MobileDmSheet").then((m) => m.MobileDmSheet), { ssr: false });
 
@@ -46,6 +50,30 @@ interface MobileMessagesViewProps {
   onAddFriend?: () => void;
 }
 
+/** An encrypted last message to decrypt on this device for its row. */
+interface EncryptedRowJob {
+  rowId: string;
+  input: EncryptedPreviewInput;
+  /** 1:1 DM: the other person (the channel must be exactly the two of you). */
+  dmPeer: string | null;
+  names: Record<string, string>;
+}
+
+/** Newest rows first, a few at a time: never a burst of key requests, never blocking the list. */
+async function decryptRowPreviews(
+  jobs: EncryptedRowJob[],
+  selfId: string,
+  labels: { attachment: string; sticker: string; spoiler: string },
+  onResult: (rowId: string, text: string) => void,
+): Promise<void> {
+  for (let i = 0; i < jobs.length; i += 6) {
+    await Promise.all(jobs.slice(i, i + 6).map(async (job) => {
+      const p = await previewEncryptedMessage(job.input, selfId, { dmPeer: job.dmPeer, labels, names: { users: job.names }, max: 120 });
+      if (p) onResult(job.rowId, p.text);
+    }));
+  }
+}
+
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const messageRequests = useMessageRequests();
   const router = useRouter();
@@ -53,6 +81,12 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   // Streamer Mode hides what people wrote.
   const hidePreviews = useStreamerHides("notifications");
   const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels } = useUnread();
+  const { user } = useAuth();
+  const selfId = user?.id ?? null;
+  const selfName = user?.displayName || user?.username || "";
+  // Decrypted previews by `<channel>|<message>` (memory only): a list refresh
+  // shows them at once instead of flashing the placeholder.
+  const decryptedPreviewsRef = useRef(new Map<string, string>());
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -99,8 +133,30 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
           name?: string | null;
           icon?: string | null;
           recipients?: ListRecipient[];
-          lastMessage?: { content?: string } | null;
+          lastMessage?: { id?: string; content?: string; authorId?: string; createdAt?: string; encrypted?: boolean; e2ee?: unknown } | null;
           updatedAt?: string;
+        };
+        // End-to-end encrypted last messages: a placeholder now, the real text
+        // once this device decrypted it (the server never sees it).
+        const encryptedJobs: EncryptedRowJob[] = [];
+        const blocked = getRelationships().blocked;
+        const encryptedPreview = (channel: ListChannel, recipients: ListRecipient[], dmPeer: string | null): string | null => {
+          const last = channel.lastMessage;
+          if (!last?.encrypted) return null;
+          const known = last.id ? decryptedPreviewsRef.current.get(`${channel.id}|${last.id}`) : undefined;
+          if (known) return known;
+          const authorId = String(last.authorId ?? "");
+          if (selfId && last.id && authorId && last.e2ee && !isBlockedAuthor(authorId.toLowerCase(), blocked)) {
+            const names: Record<string, string> = { [selfId]: selfName };
+            for (const r of recipients) names[r.id] = r.displayName || r.username || "";
+            encryptedJobs.push({
+              rowId: channel.id,
+              input: { id: last.id, channelId: channel.id, authorId, createdAt: last.createdAt, e2ee: last.e2ee },
+              dmPeer,
+              names,
+            });
+          }
+          return gt("Encrypted message");
         };
 
         ((data.channels || []) as ListChannel[]).forEach((channel) => {
@@ -115,7 +171,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               username: recipients.map((r) => r.username || "").join(" "),
               avatar: channel.icon ?? undefined,
               avatars: channel.icon ? undefined : recipients.slice(0, 2).map((r) => r.avatar || ""),
-              lastMessage: channel.lastMessage?.content || gt("{count} Members", { count: recipients.length + 1 }),
+              lastMessage: encryptedPreview(channel, recipients, null) ?? (channel.lastMessage?.content || gt("{count} Members", { count: recipients.length + 1 })),
               timestamp: formatTimestamp(channel.updatedAt || ""),
             });
             return;
@@ -138,7 +194,8 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               name: recipient.displayName || recipient.username || gt("Unknown"),
               username: recipient.username || "",
               avatar: recipient.avatar,
-              lastMessage: notificationPreview(channel.lastMessage?.content, 120, data.mentionNames) || gt("Start a conversation"),
+              lastMessage: encryptedPreview(channel, recipients, recipientId)
+                ?? (notificationPreview(channel.lastMessage?.content, 120, data.mentionNames) || gt("Start a conversation")),
               timestamp: formatTimestamp(channel.updatedAt || ""),
               status: recipient.status || "offline",
             });
@@ -149,6 +206,23 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         const order = new Map(((data.channels || []) as ListChannel[]).map((c, i) => [c.id, i]));
         const list = [...seenRecipients.values(), ...groups].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
         setMessages(list);
+        if (selfId && encryptedJobs.length > 0) {
+          const kept = new Set(list.map((m) => m.id));
+          void decryptRowPreviews(
+            encryptedJobs.filter((j) => kept.has(j.rowId)),
+            selfId,
+            { attachment: gt("📎 Attachment"), sticker: gt("Sticker"), spoiler: gt("Spoiler") },
+            (rowId, text) => {
+              const job = encryptedJobs.find((j) => j.rowId === rowId);
+              if (job) {
+                const cache = decryptedPreviewsRef.current;
+                cache.set(`${rowId}|${job.input.id}`, text);
+                if (cache.size > 300) cache.delete(cache.keys().next().value!);
+              }
+              setMessages((prev) => prev.map((m) => (m.id === rowId ? { ...m, lastMessage: text } : m)));
+            },
+          );
+        }
         // Feed the unread engine so DM rows light up cross-device: the newest
         // message (its own time / author) plus the server's unread counts.
         registerChannels(
@@ -168,7 +242,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [formatTimestamp, registerChannels, seedDmChannels]);
+  }, [formatTimestamp, registerChannels, seedDmChannels, selfId, selfName]);
 
   useEffect(() => {
     fetchMessages();

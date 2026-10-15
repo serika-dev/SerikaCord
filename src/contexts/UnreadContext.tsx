@@ -27,6 +27,7 @@ import { getRelationships, refreshRelationships } from "@/lib/social/relationshi
 import { receiveUserNote } from "@/lib/social/notesStore";
 import { refreshMessageRequests } from "@/lib/social/messageRequestsStore";
 import { isBlockedAuthor } from "@/lib/chat/blocked";
+import { previewEncryptedMessage } from "@/lib/e2ee/client/previews";
 import { sharedGet } from "@/lib/bootFetch";
 import {
   createContext,
@@ -225,6 +226,9 @@ interface DmActivityEvent {
   silent?: boolean;
   /** Set for group DMs: notifications name the group and open its page. */
   group?: { channelId: string; name: string; icon?: string | null } | null;
+  /** End-to-end encrypted: no server preview; `e2ee` is the envelope, decrypted here. */
+  encrypted?: boolean;
+  e2ee?: unknown;
 }
 
 // Message ids already alerted. A DM can reach us over both the activity
@@ -306,6 +310,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       newMessage: gt("New message"),
       attachment: gt("📎 Attachment"),
       sticker: gt("Sticker"),
+      encryptedMessage: gt("New encrypted message"),
+      spoiler: gt("Spoiler"),
       view: gt("View"),
       someone: gt("Someone"),
       aChannel: gt("a channel"),
@@ -904,29 +910,53 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         if (outcome.event) dispatchUnread(outcome.event);
         afterRead(channelId);
         if (!outcome.alert || !markAlerted(dm.messageId)) return;
+        const title = group ? channelMetaRef.current[channelId]?.name || group.name : dm.authorName || s.newMessage;
+        const alertWith = (preview: string, mentioned: boolean) => {
+          // Group DMs: titled with the group, "Author: message" as the body.
+          const body = group && showPreview && dm.authorName ? `${dm.authorName}: ${preview}` : preview;
+          notifyIncomingMessage({
+            channelId,
+            isDM: true,
+            // Encrypted messages: the server can't see mentions; this device found one after decrypting.
+            isMentioned: mentioned,
+            isEveryoneMention: false,
+            viewing: outcome.viewing || isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
+            title,
+            body,
+            showPreview,
+            icon: (group?.icon || dm.authorAvatar) ?? null,
+            url: dm.messageId ? `${href}?jump=${encodeURIComponent(dm.messageId)}` : href,
+            formatMany: s.many,
+            toastTitle: title,
+            toastAction: s.view,
+            messageId: dm.messageId,
+            stillUnread: () => !isMessageRead(getUnreadState(), channelId, dm.messageId, dm.createdAt),
+          });
+        };
+        if (dm.encrypted) {
+          // End-to-end encrypted: decrypt on this device (cached keys, a few
+          // ms) before alerting; "New encrypted message" when previews are
+          // off or this device can't decrypt / verify it.
+          if (!showPreview || !dm.e2ee || !dm.messageId) {
+            alertWith(showPreview ? s.encryptedMessage : s.newMessage, false);
+            return;
+          }
+          const self = user.displayName || user.username;
+          void previewEncryptedMessage(
+            { id: dm.messageId, channelId, authorId, createdAt: dm.createdAt, e2ee: dm.e2ee },
+            user.id,
+            {
+              dmPeer: group ? null : authorId,
+              labels: { attachment: s.attachment, sticker: s.sticker, spoiler: s.spoiler },
+              names: { users: { [user.id]: self || "", ...(dm.authorName ? { [authorId]: dm.authorName } : {}) } },
+            },
+          ).then((p) => alertWith(p?.text || s.encryptedMessage, Boolean(p?.mentioned)));
+          return;
+        }
         const preview = !showPreview
           ? s.newMessage
           : notificationPreview(dm.preview, 140, dm.mentionNames) || (dm.hasAttachments ? s.attachment : dm.hasSticker ? s.sticker : s.newMessage);
-        // Group DMs: titled with the group, "Author: message" as the body.
-        const body = group && showPreview && dm.authorName ? `${dm.authorName}: ${preview}` : preview;
-        const title = group ? channelMetaRef.current[channelId]?.name || group.name : dm.authorName || s.newMessage;
-        notifyIncomingMessage({
-          channelId,
-          isDM: true,
-          isMentioned: false,
-          isEveryoneMention: false,
-          viewing: outcome.viewing || isOnScreenIn(activeChannelRef, activePanelChannelRef, channelId),
-          title,
-          body,
-          showPreview,
-          icon: (group?.icon || dm.authorAvatar) ?? null,
-          url: dm.messageId ? `${href}?jump=${encodeURIComponent(dm.messageId)}` : href,
-          formatMany: s.many,
-          toastTitle: title,
-          toastAction: s.view,
-          messageId: dm.messageId,
-          stillUnread: () => !isMessageRead(getUnreadState(), channelId, dm.messageId, dm.createdAt),
-        });
+        alertWith(preview, false);
         return;
       }
 

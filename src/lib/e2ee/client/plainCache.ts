@@ -372,3 +372,30 @@ export async function putCachedBundles<T>(uid: string | null | undefined, channe
     /* best effort */
   }
 }
+
+/**
+ * Every cached key set of this account (up to `limit`), as `{ channelId, data }`.
+ * Used once per session to tell the Android app which senders this device
+ * trusts. Never throws.
+ */
+export async function listCachedBundles<T>(uid: string | null | undefined, limit = 200): Promise<Array<{ channelId: string; data: T }>> {
+  if (!uid) return [];
+  const prefix = storeKey(uid, "");
+  try {
+    const db = await openDb();
+    const store = db.transaction(BUNDLES, "readonly").objectStore(BUNDLES);
+    const range = IDBKeyRange.bound(prefix, `${prefix}\uffff`);
+    const [keys, rows] = await Promise.all([
+      request(store.getAllKeys(range, limit)) as Promise<IDBValidKey[]>,
+      request(store.getAll(range, limit)) as Promise<Array<CachedBundles<T> | undefined>>,
+    ]);
+    const out: Array<{ channelId: string; data: T }> = [];
+    keys.forEach((k, i) => {
+      const row = rows[i];
+      if (typeof k === "string" && row && row.data) out.push({ channelId: k.slice(prefix.length), data: row.data });
+    });
+    return out;
+  } catch {
+    return [];
+  }
+}

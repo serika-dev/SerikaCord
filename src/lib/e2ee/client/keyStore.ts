@@ -68,7 +68,8 @@ export interface ArchivedKeys {
 /**
  * The identity + backup private keys as JWK, AES-GCM sealed under a
  * non-extractable key stored next to it: lets this device hand them to a
- * new device it links (docs/architecture/e2ee.md "Linking a device").
+ * new device it links, for a few minutes after the passphrase was proven
+ * here or this device was linked (docs/architecture/e2ee.md "Linking a device").
  */
 export interface LinkEscrow {
   key: CryptoKey;
@@ -76,6 +77,8 @@ export interface LinkEscrow {
   ct: ArrayBuffer;
   /** The identity public key the sealed keys belong to. */
   identityPub: string;
+  /** Unusable (and deleted) after this time, ms. Missing: from before expiries existed → expired. */
+  expiresAt?: number;
 }
 
 interface Records {
