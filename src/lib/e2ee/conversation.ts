@@ -140,6 +140,77 @@ export function isUnverifiablePlaintextRow(row: RowLike, encryptedSince: number 
   return true;
 }
 
+/**
+ * When a conversation was switched on / off, as far as this device knows:
+ * `on` = "turned on encryption" notice times, `off` = times of "turned off"
+ * notices whose signed record verified (unverified ones are never added).
+ */
+export interface EncryptionTimeline {
+  on: number[];
+  off: number[];
+}
+
+/**
+ * The switch times in a batch of rows: "turned on" notices at their row
+ * time; "turned off" notices only when `offTimeOf` vouches for them, at the
+ * time it returns (the signed record's time, not the server's row time).
+ */
+export function timelineOf(rows: Array<RowLike & { id?: unknown }>, offTimeOf: (row: RowLike & { id?: unknown }) => number | null): EncryptionTimeline {
+  const on: number[] = [];
+  const off: number[] = [];
+  for (const r of rows) {
+    if (r?.type === "e2ee_enabled") {
+      const t = timeOf(r.createdAt);
+      if (t !== null) on.push(t);
+    } else if (r?.type === "e2ee_disabled") {
+      const t = offTimeOf(r);
+      if (t !== null) off.push(t);
+    }
+  }
+  return { on, off };
+}
+
+/** Row time as ms (null when missing / invalid). */
+export function rowTime(value: unknown): number | null {
+  return timeOf(value);
+}
+
+/** Merge two timelines (deduplicated, sorted). */
+export function mergeTimelines(a: EncryptionTimeline, b: EncryptionTimeline): EncryptionTimeline {
+  const uniq = (xs: number[]) => [...new Set(xs)].sort((x, y) => x - y);
+  return { on: uniq([...a.on, ...b.on]), off: uniq([...a.off, ...b.off]) };
+}
+
+/**
+ * Whether a plaintext user row sent at `t` is legitimate history in a
+ * conversation that is encrypted now: the latest known switch at or before
+ * `t` turned encryption off (a verified record), or there was none and the
+ * first known switch turned it on (the plain era before it). With no known
+ * switch at all (created encrypted) nothing plain is legitimate. A "turned
+ * off" notice proves the conversation was encrypted before it, so rows
+ * before a first "off" are not legitimate either.
+ */
+export function isPlainAllowedAt(t: number | null, timeline: EncryptionTimeline): boolean {
+  if (t === null) return false;
+  let lastOn: number | null = null;
+  let lastOff: number | null = null;
+  for (const x of timeline.on) if (x <= t && (lastOn === null || x > lastOn)) lastOn = x;
+  for (const x of timeline.off) if (x <= t && (lastOff === null || x > lastOff)) lastOff = x;
+  if (lastOff !== null && (lastOn === null || lastOff >= lastOn)) return true;
+  if (lastOn !== null) return false;
+  // Before every known switch: plain only if the first one turned encryption on.
+  const firstOn = timeline.on.length ? Math.min(...timeline.on) : null;
+  const firstOff = timeline.off.length ? Math.min(...timeline.off) : null;
+  return firstOn !== null && (firstOff === null || firstOn < firstOff);
+}
+
+/** isUnverifiablePlaintextRow against a full on / off timeline. */
+export function isUnverifiablePlaintextRowIn(row: RowLike, timeline: EncryptionTimeline): boolean {
+  if (!row || (row.e2ee && typeof row.e2ee === "object")) return false;
+  if (!isUserTextRow(row.type)) return false;
+  return !isPlainAllowedAt(timeOf(row.createdAt), timeline);
+}
+
 // ─── URLs inside a decrypted payload ──────────────────────────────────────────
 
 /** `url` is on our CDN (same scheme + host, no credentials), optionally under `pathPrefix`. */

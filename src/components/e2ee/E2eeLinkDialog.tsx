@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { loadE2eeSession, type E2eeDialogRequest } from "@/lib/e2ee/client/state";
 import { formatLinkCode, formatSas } from "@/lib/e2ee/link";
+import { useE2ee } from "@/hooks/useE2ee";
+import { PinInput } from "./PinInput";
 import type { LinkProgress, LinkRequestInfo } from "@/lib/e2ee/client/session";
 
 const POLL_MS = 1500;
@@ -301,6 +303,11 @@ type ApproveState =
 
 function ApproveFlow({ initialInput, onDone }: { initialInput?: string; onDone: () => void }) {
   const gt = useGT();
+  const e2ee = useE2ee();
+  // Accounts with a PIN prove it with the PIN (the passphrase stays an option when set).
+  const [usePassphrase, setUsePassphrase] = useState(!e2ee.hasPin);
+  const [pinValue, setPinValue] = useState("");
+  const [pinAttempt, setPinAttempt] = useState(0);
   const [input, setInput] = useState(initialInput ?? "");
   const [state, setState] = useState<ApproveState>(initialInput ? { kind: "checking" } : { kind: "input" });
   const locale = useLocale();
@@ -384,7 +391,7 @@ function ApproveFlow({ initialInput, onDone }: { initialInput?: string; onDone: 
       }
       if (err instanceof Error && err.name === "E2eeLinkNeedsPassphraseError") {
         void loadE2eeSession().then((s) => s.cancelLinkApproval()).catch(() => {});
-        setState({ kind: "error", message: gt("To link devices from this one, set a recovery passphrase first (Settings → Encryption), then start again on the new device.") });
+        setState({ kind: "error", message: gt("To link devices from this one, create a PIN first (Settings → Encryption), then start again on the new device.") });
         return;
       }
       setState({ kind: "error", message: errorText(err) });
@@ -403,6 +410,36 @@ function ApproveFlow({ initialInput, onDone }: { initialInput?: string; onDone: 
     } catch (err) {
       setState({ kind: "passphrase", sas });
       setPassphraseError(err instanceof Error && err.name === "E2eeVerifyError" ? gt("That passphrase isn't right.") : errorText(err));
+    }
+  };
+
+  const unlockWithPin = async (sas: string, value: string) => {
+    if (value.length !== 6) return;
+    setPassphraseError(null);
+    setState({ kind: "sending", sas });
+    try {
+      const session = await loadE2eeSession();
+      await session.unlockLinkingWithPin(value);
+      setPinValue("");
+      await send(sas);
+    } catch (err) {
+      setPinValue("");
+      setPinAttempt((n) => n + 1);
+      setState({ kind: "passphrase", sas });
+      const name = err instanceof Error ? err.name : "";
+      const reason = (err as { reason?: string } | null)?.reason;
+      const left = (err as { attemptsLeft?: number | null } | null)?.attemptsLeft;
+      setPassphraseError(
+        name === "E2eePinError"
+          ? reason === "wrong" && typeof left === "number"
+            ? left <= 3
+              ? gt("Wrong PIN. {count} tries left before your encrypted messages are reset.", { count: left })
+              : gt("Wrong PIN. {count} tries left.", { count: left })
+            : reason === "locked"
+              ? gt("Too many wrong PINs, so your PIN backup was reset. Use another device or your recovery passphrase, or reset encryption.")
+              : gt("Something went wrong. Check your connection and try again.")
+          : errorText(err),
+      );
     }
   };
 
@@ -488,6 +525,40 @@ function ApproveFlow({ initialInput, onDone }: { initialInput?: string; onDone: 
       <div className="flex flex-col items-center gap-3 py-6 text-sm text-[var(--text-secondary)]">
         <Loader2 className="h-6 w-6 animate-spin text-[var(--app-accent)]" />
         {gt("Waiting for the new device…")}
+      </div>
+    );
+  }
+
+  if (state.kind === "passphrase" && !usePassphrase) {
+    return (
+      <div className="flex flex-col gap-3">
+        <SasCode sas={state.sas} />
+        <p className="text-sm text-[var(--text-secondary)]">
+          {gt("Enter your PIN to send your keys to the new device.")}
+        </p>
+        <PinInput
+          key={pinAttempt}
+          value={pinValue}
+          onChange={setPinValue}
+          onComplete={(v) => void unlockWithPin(state.sas, v)}
+          label={gt("Enter your PIN")}
+          invalid={Boolean(passphraseError)}
+          autoFocus
+          purpose="current"
+        />
+        {passphraseError && <p className="text-sm text-destructive text-center" role="alert">{passphraseError}</p>}
+        {e2ee.serverHasBackup && (
+          <button
+            type="button"
+            className="text-sm font-medium text-[var(--app-accent)] hover:underline"
+            onClick={() => {
+              setPassphraseError(null);
+              setUsePassphrase(true);
+            }}
+          >
+            {gt("Use recovery passphrase")}
+          </button>
+        )}
       </div>
     );
   }

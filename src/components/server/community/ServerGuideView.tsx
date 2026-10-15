@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useState } from "react";
-import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { T, useGT } from "gt-next";
 import {
@@ -17,7 +16,6 @@ import {
   UserPlus,
   UserRound,
 } from "lucide-react";
-import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import {
   useServerOnboarding,
   type GuideResourceView,
@@ -35,8 +33,7 @@ import {
   ServerStats,
   useEstablishedLabel,
 } from "./serverProfileBits";
-
-const ServerWelcomeModal = dynamic(() => import("./ServerWelcomeModal"), { ssr: false });
+import { onboardingHref } from "./joinFlowPlan";
 
 export interface ServerGuideViewProps {
   serverId: string;
@@ -45,7 +42,7 @@ export interface ServerGuideViewProps {
   preview?: boolean;
   /** Open a channel (defaults to routing to it; preview: no-op unless given). */
   onNavigate?: (channelId: string) => void;
-  /** "Pick your roles" to-do; defaults to opening the join flow at the questions. */
+  /** "Pick your roles" to-do; defaults to opening the join flow page at the questions. */
   onOpenQuestions?: () => void;
 }
 
@@ -69,7 +66,6 @@ export function ServerGuideView({ serverId, data, preview = false, onNavigate, o
   const router = useRouter();
   const { completeTodo } = useServerOnboarding(preview ? null : serverId);
   const [previewDone, setPreviewDone] = useState<string[]>([]);
-  const [questionsOpen, setQuestionsOpen] = useState(false);
   const established = useEstablishedLabel(data.server.createdAt);
   const uid = useId();
 
@@ -103,7 +99,7 @@ export function ServerGuideView({ serverId, data, preview = false, onNavigate, o
       navigate(todo.channelId);
     } else if (todo.kind === "roles") {
       if (onOpenQuestions) onOpenQuestions();
-      else if (!preview && data.onboarding?.questions.length) setQuestionsOpen(true);
+      else if (!preview && data.onboarding?.questions.length) router.push(onboardingHref(serverId, "questions"));
     } else if (todo.kind === "profile" && !preview) {
       window.dispatchEvent(new CustomEvent("openUserSettings", { detail: { tab: "profiles" } }));
     }
@@ -322,16 +318,6 @@ export function ServerGuideView({ serverId, data, preview = false, onNavigate, o
         </div>
       </div>
 
-      {!preview && !onOpenQuestions && (
-        <MountWhenOpened open={questionsOpen}>
-          <ServerWelcomeModal
-            serverId={serverId}
-            open={questionsOpen}
-            onOpenChange={setQuestionsOpen}
-            initialStep="questions"
-          />
-        </MountWhenOpened>
-      )}
     </div>
   );
 }

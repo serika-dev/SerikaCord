@@ -38,6 +38,8 @@ import {
   devicesOf,
   initialConversationE2ee,
   isE2eeNotice,
+  e2eeNoticeKind,
+  offNoticeRecord,
   parseEncryptedBody,
   storedEnvelope,
 } from '@/lib/services/e2ee';
@@ -529,6 +531,10 @@ export async function loadDmMessagesPage(
 /** `e2ee` envelope / notice fields of a message DTO. */
 export function e2eeDtoFields(msg: { type?: string | null; e2ee?: unknown }) {
   if (msg.type === 'system' && isE2eeNotice(msg.e2ee)) return { type: 'e2ee_enabled' as const, content: '' };
+  // "Turned off encryption": clients verify the member-signed record it carries.
+  if (msg.type === 'system' && e2eeNoticeKind(msg.e2ee) === 'disabled') {
+    return { type: 'e2ee_disabled' as const, content: '', e2eeRecord: offNoticeRecord(msg.e2ee) };
+  }
   const envelope = storedEnvelope(msg.e2ee);
   return envelope ? { e2ee: envelope } : {};
 }
@@ -809,6 +815,9 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
   }
   const gate = await checkE2eeChannelSend(user.id, channel, envelope);
   if (gate) return fail(gate.status, gate.error);
+  // Encryption was turned off since: an encrypted message can't get a plaintext edit
+  // (clients would keep showing the encrypted version).
+  if (!envelope && storedEnvelope(message.e2ee)) return fail(400, "Encrypted messages can't be edited while encryption is off");
   if (envelope) {
     const editedTimestamp = new Date();
     // Keep the replaced envelope: a report can still prove the version it saw.
@@ -1186,7 +1195,10 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
                 if (msg.e2ee) {
                   // End-to-end encrypted (or the "encryption on" notice): the
                   // server can't preview it.
-                  displayContent = isE2eeNotice(msg.e2ee) ? 'End-to-end encryption turned on' : ENCRYPTED_PREVIEW;
+                  const notice = e2eeNoticeKind(msg.e2ee);
+                  displayContent = notice === 'enabled'
+                    ? 'End-to-end encryption turned on'
+                    : notice === 'disabled' ? 'End-to-end encryption turned off' : ENCRYPTED_PREVIEW;
                 } else if (msg.type === 'call') {
                   displayContent = callPreviewText(parseCallData(msg.call), user.id);
                 } else if (isGroupDmEventType(msg.type)) {

@@ -3590,6 +3590,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 400;
       return { error: 'Edit encrypted messages through the direct message endpoints' };
     }
+    // Encryption was turned off since: an encrypted message never gets a plaintext edit.
+    if (storedEnvelope((message as { e2ee?: unknown }).e2ee)) {
+      set.status = 400;
+      return { error: "Encrypted messages can't be edited while encryption is off" };
+    }
 
     // A platform chat restriction stops edits everywhere (servers, DMs, groups).
     const restrictedEdit = await chatRestrictionDenial(user.id);

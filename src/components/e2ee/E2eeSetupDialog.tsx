@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { loadE2eeSession, type E2eeDialogRequest } from "@/lib/e2ee/client/state";
 import { MIN_RECOVERY_PASSPHRASE_STRENGTH, passphraseStrength } from "@/lib/e2ee/passphrase";
 import { useE2ee } from "@/hooks/useE2ee";
+import { PinInput } from "./PinInput";
 
 interface E2eeSetupDialogProps {
   mode: E2eeDialogRequest | null;
@@ -32,6 +33,8 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
   const [currentPassphrase, setCurrentPassphrase] = useState("");
   // Reset: the account password (step-up check on the server).
   const [password, setPassword] = useState("");
+  // Adding a passphrase to a PIN-only account: the PIN unlocks the keys to seal.
+  const [currentPin, setCurrentPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,6 +43,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
     setConfirmation("");
     setCurrentPassphrase("");
     setPassword("");
+    setCurrentPin("");
     setError(null);
     setBusy(false);
   };
@@ -52,7 +56,11 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
   const strengthLabel = [gt("Too short"), gt("Weak"), gt("Okay"), gt("Good"), gt("Strong")][strength];
   const settingPassphrase = mode === "onboard" || mode === "change-passphrase";
   const needsCurrent = settingPassphrase && !e2ee.keysExtractable && e2ee.serverHasBackup;
-  const canSave = strength >= MIN_RECOVERY_PASSPHRASE_STRENGTH && passphrase === confirmation && (!needsCurrent || currentPassphrase.length > 0);
+  // A PIN-only account whose keys here are sealed: the PIN opens them (unless just proven here).
+  const needsPin = settingPassphrase && !e2ee.keysExtractable && !e2ee.serverHasBackup && e2ee.hasPin;
+  const canSave = strength >= MIN_RECOVERY_PASSPHRASE_STRENGTH && passphrase === confirmation
+    && (!needsCurrent || currentPassphrase.length > 0)
+    && (!needsPin || currentPin.length === 6);
 
   const savePassphrase = async () => {
     if (!canSave) return;
@@ -60,15 +68,24 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
     setError(null);
     try {
       const session = await loadE2eeSession();
-      await session.setRecoveryPassphrase(passphrase, needsCurrent ? currentPassphrase : undefined);
+      await session.setRecoveryPassphrase(passphrase, needsCurrent ? currentPassphrase : undefined, needsPin ? currentPin : undefined);
       toast.success(gt("Recovery passphrase saved"));
       close();
     } catch (err) {
       const name = err instanceof Error ? err.name : "";
+      const reason = (err as { reason?: string } | null)?.reason;
+      const left = (err as { attemptsLeft?: number | null } | null)?.attemptsLeft;
+      setCurrentPin("");
       setError(
-        name === "E2eeVerifyError" || name === "E2eeCurrentPassphraseError"
-          ? gt("Your current passphrase isn't right.")
-          : gt("Couldn't save the passphrase. Try again."),
+        name === "E2eePinError"
+          ? reason === "wrong" && typeof left === "number"
+            ? gt("Wrong PIN. {count} tries left.", { count: left })
+            : reason === "locked"
+              ? gt("Too many wrong PINs, so your PIN backup was reset. Use another device or your recovery passphrase, or reset encryption.")
+              : gt("Something went wrong. Check your connection and try again.")
+          : name === "E2eeVerifyError" || name === "E2eeCurrentPassphraseError"
+            ? gt("Your current passphrase isn't right.")
+            : gt("Couldn't save the passphrase. Try again."),
       );
       setBusy(false);
     }
@@ -116,9 +133,10 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
     try {
       const session = await loadE2eeSession();
       await session.resetEncryption(password);
-      toast.success(gt("Encryption was reset. Set a recovery passphrase for your new keys."));
+      const pinNext = e2ee.pinAvailable;
+      toast.success(pinNext ? gt("Encryption was reset. Create a PIN for your new keys.") : gt("Encryption was reset. Set a recovery passphrase for your new keys."));
       reset();
-      onModeChange("onboard");
+      onModeChange(pinNext ? "pin-setup" : "onboard");
     } catch (err) {
       const status = err instanceof Error && err.name === "E2eeApiError" ? (err as Error & { status?: number }).status : null;
       setError(
@@ -139,7 +157,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           <DialogTitle className="flex items-center gap-2">
             {mode === "reset" ? <ShieldAlert className="h-5 w-5 text-red-500" /> : mode === "restore" ? <KeyRound className="h-5 w-5 text-[var(--app-accent)]" /> : <Lock className="h-5 w-5 text-[var(--app-accent)]" />}
             {mode === "onboard"
-              ? gt("Protect your encrypted messages")
+              ? e2ee.hasPin ? gt("Add a recovery passphrase") : gt("Protect your encrypted messages")
               : mode === "change-passphrase"
                 ? gt("Change recovery passphrase")
                 : mode === "restore"
@@ -148,7 +166,9 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           </DialogTitle>
           <DialogDescription className="text-[var(--text-secondary)]">
             {mode === "onboard"
-              ? gt("Your direct messages and calls are end-to-end encrypted. Choose a recovery passphrase so you can read them on a new device. We never see it, and we can't recover it for you.")
+              ? e2ee.hasPin
+                ? gt("A long passphrase is another way to unlock your encrypted messages on a new device, and doesn't depend on our servers limiting PIN guesses. We never see it, and we can't recover it for you.")
+                : gt("Your direct messages and calls are end-to-end encrypted. Choose a recovery passphrase so you can read them on a new device. We never see it, and we can't recover it for you.")
               : mode === "change-passphrase"
                 ? gt("Your keys are sealed again with the new passphrase. The old one stops working.")
                 : mode === "restore"
@@ -161,6 +181,12 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
 
         {settingPassphrase && (
           <div className="flex flex-col gap-2">
+            {needsPin && (
+              <div className="flex flex-col gap-1 pb-1">
+                <p className="text-xs text-[var(--text-secondary)]">{gt("Enter your PIN first")}</p>
+                <PinInput value={currentPin} onChange={setCurrentPin} label={gt("Enter your PIN first")} disabled={busy} purpose="current" />
+              </div>
+            )}
             {needsCurrent && (
               <Input
                 type="password"
@@ -211,12 +237,19 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
             {confirmation && passphrase !== confirmation && (
               <p className="text-xs text-red-400">{gt("The passphrases don't match.")}</p>
             )}
-            {mode === "onboard" && (
+            {mode === "onboard" && !e2ee.hasPin && (
               <p className="text-xs text-[var(--app-muted)]">
                 {gt("If you skip this and lose this device, you lose your encrypted message history.")}
               </p>
             )}
           </div>
+        )}
+
+        {mode === "restore" && e2ee.hasPin && (
+          <Button onClick={() => { reset(); onModeChange("pin-unlock"); }} disabled={busy}>
+            <KeyRound className="h-4 w-4 mr-1" />
+            {gt("Enter your PIN")}
+          </Button>
         )}
 
         {mode === "restore" && (
@@ -275,8 +308,8 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
 
         <DialogFooter className="gap-2 sm:justify-between">
           {mode === "onboard" && (
-            <Button variant="ghost" onClick={() => void snooze()} disabled={busy}>
-              {gt("Not now")}
+            <Button variant="ghost" onClick={() => (e2ee.hasPin ? close() : void snooze())} disabled={busy}>
+              {e2ee.hasPin ? gt("Cancel") : gt("Not now")}
             </Button>
           )}
           {mode === "restore" && (

@@ -7550,5 +7550,12 @@
   "fc56d3972e330a35": "Opening SerikaCord…",
   "aa51c062888c7f10": "New encrypted message",
   "5fcfb43a466467ff": "To link devices from this one, set a recovery passphrase first (Settings → Encryption), then start again on the new device.",
-  "5f3bfbc94d2d4c01": "Enter your recovery passphrase to send your keys to the new device. It's asked again for every link made more than 10 minutes after you last entered it here."
+  "5f3bfbc94d2d4c01": "Enter your recovery passphrase to send your keys to the new device. It's asked again for every link made more than 10 minutes after you last entered it here.",
+  "23ec0110d2170502": "Welcome",
+  "345382e4530a53ef": "Customize",
+  "88429bc9732d7025": "Rules",
+  "b2876813d13aea09": "Step {current} of {total}: {name}",
+  "108ac8946ef5c596": "Step {current} of {total}: {name}, question {question} of {questions}",
+  "65e4111d257dc518": "Join steps",
+  "cd7d99058a99335a": "Couldn't load this server's welcome steps."
 }

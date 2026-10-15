@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
-import { AlertTriangle, Lock, LockOpen, ShieldCheck } from "lucide-react";
+import { AlertTriangle, LockOpen } from "lucide-react";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { loadE2eeSession, openE2eeDialog } from "@/lib/e2ee/client/state";
 import type { ConversationMeta } from "@/lib/e2ee/client/chatGlue";
@@ -31,15 +31,21 @@ interface E2eeConversationBannerProps {
   target?: E2eeTarget | null;
   /** Group DMs: ids of the members the group shows (null while loading). */
   memberIds?: string[] | null;
+  /** A member turned encryption off (verified on this device). */
+  off?: { by: string; at: number } | null;
+  /** The server says it's off, but no valid member-signed record: stays encrypted here. */
+  unverifiedOff?: boolean;
 }
 
 /**
- * The encryption strip above a DM / group DM composer: "Messages are end-to-
- * end encrypted" (with safety numbers), and the things that need the user —
- * a contact's security code changed (acknowledge / verify), someone without
- * keys, this device not set up, or the "Turn on encryption" button.
+ * Compact strips above a DM / group DM composer, only when something needs
+ * the user: a contact's security code changed (acknowledge / verify),
+ * someone without keys, keys that don't match the conversation, this device
+ * not set up, an unverifiable "turned off", or encryption being off ("Turn
+ * on encryption"). That everything is encrypted is shown by the lock next to
+ * the conversation's name (E2eeConversationLock), not by a permanent strip.
  */
-export function E2eeConversationBanner({ conversation, active, members, unsupported = false, target = null, memberIds = null }: E2eeConversationBannerProps) {
+export function E2eeConversationBanner({ conversation, active, members, unsupported = false, target = null, memberIds = null, off = null, unverifiedOff = false }: E2eeConversationBannerProps) {
   const gt = useGT();
   const e2ee = useE2ee();
   const channelId = conversation?.channelId ?? null;
@@ -157,8 +163,8 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
                   : gt("This device doesn't have your encryption keys yet.")}
               </span>
               {e2ee.phase === "needs-restore" && (
-                <button type="button" className={linkButton} onClick={() => openE2eeDialog("restore")}>
-                  {gt("Set up")}
+                <button type="button" className={linkButton} onClick={() => openE2eeDialog(e2ee.hasPin ? "pin-unlock" : "restore")}>
+                  {e2ee.hasPin ? gt("Enter PIN") : gt("Set up")}
                 </button>
               )}
             </div>
@@ -199,27 +205,36 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
               )}
             </>
           )}
-          <div className={`${strip} text-[var(--app-muted)]`}>
-            <Lock className="h-3 w-3 shrink-0" />
-            <span>{gt("Messages and calls are end-to-end encrypted.")}</span>
-            {members.length === 1 ? (
-              <button type="button" className={linkButton} onClick={() => setSafetyUser(members[0])}>
-                {gt("Verify safety number")}
-              </button>
-            ) : (
-              members.slice(0, 9).map((m) => (
-                <button key={m.id} type="button" className={`${linkButton} inline-flex items-center gap-0.5`} onClick={() => setSafetyUser(m)}>
-                  <ShieldCheck className="h-3 w-3" />
-                  {m.name}
+          {e2ee.phase === "ready" && e2ee.pinSetupElsewhere && (
+            <div className={`${strip} border border-[var(--border-subtle)] bg-[var(--app-surface-alt)] text-[var(--text-secondary)]`} role="status">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+              <span className="flex-1">
+                {gt("Create your 6-digit PIN on the device where you first set up encryption, so new devices can unlock your messages.")}
+              </span>
+            </div>
+          )}
+          {unverifiedOff && (
+            <div className={`${strip} border border-red-500/40 bg-red-500/10 text-[var(--text-primary)]`} role="alert">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
+              <span className="flex-1">
+                {gt("The server says encryption was turned off here, but no one in this conversation confirmed it, so it stays encrypted on this device.")}
+              </span>
+              {e2ee.enabled && e2ee.phase === "ready" && (
+                <button type="button" className={linkButton} disabled={enabling} onClick={() => void enable()}>
+                  {gt("Turn on encryption")}
                 </button>
-              ))
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       ) : e2ee.enabled && e2ee.phase === "ready" && !conversation.e2eeAuto ? (
         <div className={`${strip} text-[var(--app-muted)]`}>
           <LockOpen className="h-3 w-3 shrink-0" />
-          <span>{gt("This conversation isn't end-to-end encrypted.")}</span>
+          <span>
+            {off
+              ? gt("End-to-end encryption is off here. New messages aren't end-to-end encrypted.")
+              : gt("This conversation isn't end-to-end encrypted.")}
+          </span>
           <button type="button" className={linkButton} disabled={enabling} onClick={() => void enable()}>
             {gt("Turn on encryption")}
           </button>

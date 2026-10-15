@@ -43,8 +43,10 @@ import {
   hasEnvelope,
   hasPendingPlaceholders,
   hydrateFromMemory,
-  isRememberedEncrypted,
+  conversationEncryptionHere,
+  forgetConversationEncryption,
   rememberEncrypted,
+  type ConversationEncryption,
   type ConversationMeta,
   type EncryptedAttachmentUpload,
 } from "@/lib/e2ee/client/chatGlue";
@@ -101,11 +103,11 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
       // the URL's person / group), so opening it paints text at once. The
       // persisted copy keeps envelopes only (messageCache).
       const meta = conversationMetaOf(data);
-      if (meta && (meta.e2ee || raw.some(hasEnvelope) || (await mayBeEncryptedHere(apiBase)))) {
+      if (meta && (meta.e2ee || raw.some(hasEnvelope) || (await mayBeEncryptedHere(apiBase, meta)))) {
         const target = e2eeTargetForApiBase(apiBase);
         const selfId = getE2eeSnapshot().userId;
         if (!target || !selfId) return;
-        const encrypted = meta.e2ee || (await isRememberedEncrypted(selfId, target).catch(() => true));
+        const { encrypted } = await conversationEncryptionHere(selfId, target, meta);
         raw = await decodeConversationRows(raw, { target, meta, encrypted, selfId });
         // The conversation was opened (or prefetched again) meanwhile: its own
         // fetch wins. Never warm with failures (keys still loading, …).
@@ -132,13 +134,13 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
   return task;
 }
 
-/** Whether a DM / group DM was seen encrypted on this device (unknown → yes). */
-async function mayBeEncryptedHere(apiBase: string): Promise<boolean> {
+/** Whether a DM / group DM must be treated as encrypted on this device (unknown → yes). */
+async function mayBeEncryptedHere(apiBase: string, meta: ConversationMeta | null): Promise<boolean> {
   const target = e2eeTargetForApiBase(apiBase);
   if (!target) return false;
   const uid = getE2eeSnapshot().userId;
   if (!uid) return true;
-  return isRememberedEncrypted(uid, target).catch(() => true);
+  return (await conversationEncryptionHere(uid, target, meta)).encrypted;
 }
 
 export interface ChatSessionUser {
@@ -226,44 +228,43 @@ export function useChatSession<M extends ChatMessage>({
   useEffect(() => { memberIdsRef.current = e2eeMemberIds; }, [e2eeMemberIds]);
   const e2eeUid = user?.id ?? null;
   // Conversations this device has seen encrypted stay encrypted locally (the
-  // server can't downgrade them). Keyed by the URL's conversation and read
-  // from IndexedDB (async): until it is known, sends wait for it.
-  const rememberedKey = e2eeTarget && e2eeUid ? `${e2eeUid.toLowerCase()}|${conversationKey(e2eeTarget)}` : null;
-  const rememberedRef = useRef<{ key: string; promise: Promise<boolean> } | null>(null);
-  const checkRemembered = useCallback((target: E2eeTarget | null): Promise<boolean> => {
-    if (!target || !e2eeUid) return Promise.resolve(false);
-    const key = `${e2eeUid.toLowerCase()}|${conversationKey(target)}`;
-    if (rememberedRef.current?.key === key) return rememberedRef.current.promise;
-    // Storage failing is treated as "encrypted" (fail closed).
-    const promise = isRememberedEncrypted(e2eeUid, target).catch(() => true);
-    rememberedRef.current = { key, promise };
-    return promise;
-  }, [e2eeUid]);
-  const [remembered, setRemembered] = useState<{ key: string; value: boolean } | null>(null);
-  const rememberedNow = remembered && remembered.key === rememberedKey ? remembered.value : null;
-  const e2eeActive = encryptedChat && Boolean(conversation?.e2ee || rememberedNow === true);
-  const e2eeActiveRef = useRef(e2eeActive);
-  useEffect(() => { e2eeActiveRef.current = e2eeActive; }, [e2eeActive]);
+  // server can't downgrade them), unless a member's signed "turned off"
+  // record verifies here (lib/e2ee/conversationState.ts). Keyed by the URL's
+  // conversation and read from IndexedDB (async): until it is known, sends
+  // wait for it.
+  const encryptionKey = e2eeTarget && e2eeUid ? `${e2eeUid.toLowerCase()}|${conversationKey(e2eeTarget)}` : null;
+  const checkEncryption = useCallback(
+    (target: E2eeTarget | null, meta: ConversationMeta | null): Promise<ConversationEncryption> =>
+      conversationEncryptionHere(e2eeUid, target, meta),
+    [e2eeUid],
+  );
+  /** Whether sends / rows of this conversation must be encrypted here right now. */
+  const checkRemembered = useCallback(
+    async (target: E2eeTarget | null, meta: ConversationMeta | null = conversationRef.current): Promise<boolean> =>
+      (await checkEncryption(target, meta)).encrypted,
+    [checkEncryption],
+  );
+  const [encryption, setEncryption] = useState<{ key: string; e2ee: boolean; value: ConversationEncryption } | null>(null);
+  const encryptionNow = encryption && encryption.key === encryptionKey ? encryption.value : null;
+  const e2eeActive = encryptedChat && Boolean(conversation?.e2ee || encryptionNow?.encrypted === true);
   useEffect(() => {
-    if (!encryptedChat || !e2eeTarget || !e2eeUid || !rememberedKey) return;
+    if (!encryptedChat || !e2eeTarget || !e2eeUid || !encryptionKey) return;
     let cancelled = false;
-    const key = rememberedKey;
-    if (conversation?.e2ee) {
-      rememberedRef.current = { key, promise: Promise.resolve(true) };
-      void rememberEncrypted(e2eeUid, e2eeTarget).catch(() => {});
-    }
-    void checkRemembered(e2eeTarget).then((value) => {
-      if (!cancelled) setRemembered({ key, value });
+    const key = encryptionKey;
+    const meta = conversation;
+    if (meta?.e2ee) void rememberEncrypted(e2eeUid, e2eeTarget).catch(() => {});
+    void checkEncryption(e2eeTarget, meta).then((value) => {
+      if (!cancelled) setEncryption({ key, e2ee: Boolean(meta?.e2ee), value });
     });
     return () => { cancelled = true; };
-  }, [encryptedChat, e2eeTarget, e2eeUid, rememberedKey, conversation?.e2ee, e2ee.phase, checkRemembered]);
+  }, [encryptedChat, e2eeTarget, e2eeUid, encryptionKey, conversation, e2ee.phase, e2ee.keysVersion, checkEncryption]);
   /** DMs / group DMs: flag plaintext rows of an encrypted conversation and decrypt envelopes (no-op otherwise). */
   const decodeRaw = useCallback(
     async (raw: RawMessagePayload[], data?: unknown): Promise<RawMessagePayload[]> => {
       if (!encryptedChat) return raw;
       const target = e2eeTargetForApiBase(apiBase);
       const meta = conversationMetaOf(data) ?? conversationRef.current;
-      const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target));
+      const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target, meta));
       return decodeConversationRows(raw, { target, meta, encrypted, selfId: e2eeUid });
     },
     [encryptedChat, apiBase, checkRemembered, e2eeUid],
@@ -809,8 +810,9 @@ export function useChatSession<M extends ChatMessage>({
     const target = e2eeTargetForApiBase(apiBase);
     const meta = conversationRef.current;
     if (event.type === "message") {
-      const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target));
-      if (!encrypted && !hasEnvelope(event.message)) return event;
+      const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target, meta));
+      // "Turned off" notices are checked (their record) even in a plain conversation.
+      if (!encrypted && !hasEnvelope(event.message) && event.message?.type !== "e2ee_disabled") return event;
       // Decrypted before it is inserted (about a millisecond): never a placeholder.
       const [message] = await decodeConversationRows([event.message], { target, meta, encrypted, selfId: e2eeUid, live: true });
       return { ...event, message };
@@ -854,7 +856,25 @@ export function useChatSession<M extends ChatMessage>({
     }
     if (event.type === "e2ee_enabled") {
       // Someone turned encryption on: from now on sends are encrypted here.
+      forgetConversationEncryption(e2eeUid, e2eeTarget);
+      void loadE2eeSession().then((m) => m.forgetOffChecks()).catch(() => {});
       setConversation((c) => (c ? { ...c, e2ee: true, e2eeAuto: false } : c));
+    } else if (event.type === "e2ee_disabled") {
+      // A member turned it off: the local state follows only once their
+      // signed record verifies here (else the next page load shows the
+      // server's claim as an unverifiable "off", still encrypted).
+      forgetConversationEncryption(e2eeUid, e2eeTarget);
+      const target = e2eeTarget;
+      const record = (event as { record?: unknown }).record;
+      const channelId = conversationRef.current?.channelId;
+      if (target && channelId) {
+        void loadE2eeSession()
+          .then((m) => m.verifyConversationOff(target, channelId, record))
+          .then((check) => {
+            if (check.ok) setConversation((c) => (c ? { ...c, e2ee: false, e2eeAuto: false } : c));
+          })
+          .catch(() => {});
+      }
     }
     streamChainRef.current = streamChainRef.current
       .then(async () => {
@@ -1113,7 +1133,7 @@ export function useChatSession<M extends ChatMessage>({
       // conversation encrypted (the server can't downgrade it).
       const sendTarget = encryptedChat ? e2eeTargetForApiBase(apiBase) : null;
       const encryptSend = encryptedChat && (
-        e2eeActiveRef.current || Boolean(conversationRef.current?.e2ee) || (await checkRemembered(sendTarget))
+        Boolean(conversationRef.current?.e2ee) || (await checkRemembered(sendTarget, conversationRef.current))
       );
       const encryptChannelId = encryptChannelIdFor(sendTarget, conversationRef.current);
       if (encryptSend && voice) {
@@ -1425,6 +1445,13 @@ export function useChatSession<M extends ChatMessage>({
     conversation,
     /** Sends and edits in this conversation are end-to-end encrypted. */
     e2eeActive,
+    /**
+     * A member turned encryption off (verified here), or the server reports
+     * it off without a valid member-signed record (`unverifiedOff`: stays
+     * encrypted here).
+     */
+    e2eeOff: encryptedChat && !e2eeActive ? encryptionNow?.off ?? null : null,
+    e2eeUnverifiedOff: encryptedChat && encryptionNow?.unverifiedOff === true,
     isLoading,
     isSending,
     hasMoreOlder,

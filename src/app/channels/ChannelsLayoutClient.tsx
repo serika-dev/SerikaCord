@@ -25,6 +25,7 @@ import { Loader } from "@/components/ui/Loader";
 import { Logo } from "@/components/ui/Logo";
 import { toast } from "sonner";
 import { parseServerLinkReturn } from "@/lib/connections/serverOwned";
+import { ServerOnboardingAutoRoute } from "@/components/server/community/ServerOnboardingAutoRoute";
 import type { ServerSettingsTab } from "@/components/dialogs/ServerSettingsDialog";
 
 const dialogFallback = () => <div className="hidden" />;
@@ -311,8 +312,10 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Check if we're in a specific channel
   const isInChannel = pathname?.match(/\/channels\/[^/]+\/[^/]+$/);
   const isSettingsRoute = pathname?.startsWith("/channels/settings");
+  // The full-page server join flow (/channels/:serverId/onboarding).
+  const isOnboardingRoute = /^\/channels\/[^/]+\/onboarding$/.test(pathname || "");
   // Voice channel pages show full controls in the main area.
-  const showInFlowVoiceBar = !!isInChannel && !!voiceRoomId && currentChannel?.type !== "voice";
+  const showInFlowVoiceBar = !!isInChannel && !isOnboardingRoute && !!voiceRoomId && currentChannel?.type !== "voice";
 
   // Transition key: only animate server switches/explore/settings, bypass channel switching within the same server to prevent snapping.
   const contentKey = useMemo(() => {
@@ -352,6 +355,11 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
               key={contentKey}
               className="mobile-screen-enter flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe pb-[var(--mobile-content-pb)]"
             >
+              {children}
+            </main>
+          ) : isOnboardingRoute ? (
+            // The join flow is edge to edge: it pads the safe areas itself.
+            <main key={contentKey} className="mobile-screen-push flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
               {children}
             </main>
           ) : isInChannel ? (
@@ -412,6 +420,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         )}
         <VoiceAudioSink />
         <IncomingCall />
+        {currentServer && <ServerOnboardingAutoRoute key={currentServer.id} serverId={currentServer.id} />}
 
         {/* Bottom Navigation */}
         <BottomNavigation />
@@ -476,7 +485,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           onCreateServer={() => setShowCreateServer(true)}
           onInvitePeople={(serverId?: string) => { setInviteServerId(serverId ?? null); setShowInvite(true); }}
         />
-        {pathname !== "/channels/explore" && (
+        {pathname !== "/channels/explore" && !isOnboardingRoute && (
           <ChannelSidebar
             onCreateChannel={(defaultType, defaultParentId) =>
               setCreateChannelOptions({ open: true, defaultType, defaultParentId })
@@ -543,6 +552,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
       </MountWhenOpened>
       <VoiceAudioSink />
       <IncomingCall />
+      {currentServer && <ServerOnboardingAutoRoute key={currentServer.id} serverId={currentServer.id} />}
     </div>
   );
 }

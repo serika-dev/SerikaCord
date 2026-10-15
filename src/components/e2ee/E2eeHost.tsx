@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { usePathname } from "next/navigation";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +21,7 @@ import {
 
 const E2eeSetupDialog = dynamic(() => import("./E2eeSetupDialog").then((m) => m.E2eeSetupDialog), { ssr: false });
 const E2eeLinkDialog = dynamic(() => import("./E2eeLinkDialog").then((m) => m.E2eeLinkDialog), { ssr: false });
+const E2eePinDialog = dynamic(() => import("./E2eePinDialog").then((m) => m.E2eePinDialog), { ssr: false });
 
 type IdleWindow = Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
 
@@ -39,6 +41,9 @@ export function E2eeHost() {
   const [dialog, setDialog] = useState<{ mode: E2eeDialogRequest; options?: E2eeDialogOptions; seq: number } | null>(null);
   const seqRef = useRef(0);
   const promptedRef = useRef<string | null>(null);
+  const pinPromptedRef = useRef<string | null>(null);
+  const pathname = usePathname() || "";
+  const onDmPage = pathname.startsWith("/dm/");
 
   useEffect(
     () => onE2eeDialogRequest((mode, options) => {
@@ -133,10 +138,18 @@ export function E2eeHost() {
     queueMicrotask(() => openE2eeDialog("link-approve", { linkInput }));
   }, [userId, e2ee.phase]);
 
-  // One prompt per session: set a recovery passphrase, or set this device up.
+  // One prompt per session: create (or upgrade to) a 6-digit PIN, set a
+  // recovery passphrase (servers without PIN backups), or set this device up.
   useEffect(() => {
     if (!userId || promptedRef.current === `${userId}:${e2ee.phase}`) return;
-    if (e2ee.phase === "ready" && e2ee.remindPassphrase) {
+    if (e2ee.phase === "ready" && e2ee.requirePinSetup) {
+      promptedRef.current = `${userId}:${e2ee.phase}`;
+      // DM pages show the same setup inline instead of the conversation.
+      if (!onDmPage) queueMicrotask(() => openE2eeDialog("pin-setup"));
+    } else if (e2ee.phase === "needs-restore" && e2ee.hasPin && !e2ee.resetElsewhere) {
+      // "Enter your PIN" comes up where encrypted messages are (DM list, DM pages).
+      return;
+    } else if (e2ee.phase === "ready" && e2ee.remindPassphrase) {
       promptedRef.current = `${userId}:${e2ee.phase}`;
       queueMicrotask(() => openE2eeDialog("onboard"));
     } else if (e2ee.phase === "needs-restore" && e2ee.resetElsewhere) {
@@ -156,10 +169,23 @@ export function E2eeHost() {
         duration: 15_000,
       });
     }
-  }, [userId, e2ee.phase, e2ee.remindPassphrase, e2ee.enabled, e2ee.resetElsewhere, e2ee.keysLost, gt]);
+    // Decided when the state changes, not on every navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, e2ee.phase, e2ee.remindPassphrase, e2ee.requirePinSetup, e2ee.hasPin, e2ee.enabled, e2ee.resetElsewhere, e2ee.keysLost, gt]);
+
+  // New device whose account has a PIN: "Enter your PIN" the first time the
+  // DM list opens this session (DM pages show it inline).
+  const onDmList = pathname === "/channels/me" || pathname === "/channels/messages";
+  useEffect(() => {
+    if (!userId || !onDmList || e2ee.phase !== "needs-restore" || !e2ee.hasPin || !e2ee.enabled || e2ee.unlockGateDeferred) return;
+    if (pinPromptedRef.current === userId) return;
+    pinPromptedRef.current = userId;
+    queueMicrotask(() => openE2eeDialog("pin-unlock"));
+  }, [userId, onDmList, e2ee.phase, e2ee.hasPin, e2ee.enabled, e2ee.unlockGateDeferred]);
 
   const linkMode = dialog && (dialog.mode === "link-new" || dialog.mode === "link-approve") ? dialog.mode : null;
-  const setupMode = dialog && !linkMode ? dialog.mode : null;
+  const pinMode = dialog && (dialog.mode === "pin-setup" || dialog.mode === "pin-unlock" || dialog.mode === "pin-change") ? dialog.mode : null;
+  const setupMode = dialog && !linkMode && !pinMode ? dialog.mode : null;
 
   return (
     <>
@@ -169,6 +195,9 @@ export function E2eeHost() {
           onClose={() => setDialog(null)}
           onModeChange={(mode) => openE2eeDialog(mode)}
         />
+      </MountWhenOpened>
+      <MountWhenOpened open={pinMode !== null}>
+        <E2eePinDialog key={dialog?.seq} mode={pinMode} onClose={() => setDialog((d) => (d && d.seq === dialog?.seq ? null : d))} />
       </MountWhenOpened>
       {linkMode && dialog && (
         <E2eeLinkDialog

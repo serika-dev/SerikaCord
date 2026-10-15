@@ -282,9 +282,11 @@ final class NotificationKeyStore {
 
     /**
      * Merge encrypted conversations from the web app (`entries`: channel id →
-     * { kind: "dm", peer } | { kind: "group_dm" }); `replace` drops the rest.
-     * A conversation never goes back to plain here (one-way, like the web app's
-     * memory), only a sign-out (clear) forgets them.
+     * { kind: "dm", peer } | { kind: "group_dm" } | { kind: "plain" });
+     * `replace` drops the rest. `plain` forgets a conversation: the web app
+     * only sends it after verifying a member's signed "turned off encryption"
+     * record (the server alone can't make a conversation plain here). A
+     * sign-out (clear) forgets everything.
      */
     static boolean setConversations(Context ctx, JSONObject entries, boolean replace) {
         if (entries == null) return false;
@@ -298,6 +300,10 @@ final class NotificationKeyStore {
                     JSONObject entry = entries.optJSONObject(channel);
                     if (entry == null) continue;
                     String kind = entry.optString("kind", "");
+                    if ("plain".equals(kind)) {
+                        current.remove(channel.toLowerCase(Locale.ROOT));
+                        continue;
+                    }
                     JSONObject clean = new JSONObject();
                     if ("dm".equals(kind)) {
                         String peer = entry.optString("peer", "");

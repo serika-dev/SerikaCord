@@ -8,7 +8,7 @@ import { Loader } from "@/components/ui/Loader";
 import { fetchOnboardingPreview, type ServerOnboarding } from "@/hooks/useServerOnboarding";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { cdnImage, cn } from "@/lib/utils";
-import { ServerOnboardingFlow, type OnboardingFlowStep } from "./ServerWelcomeModal";
+import { ServerJoinFlow, type OnboardingFlowStep } from "./ServerJoinFlow";
 import { ServerGuideView } from "./ServerGuideView";
 import { ServerConnectionsList, ServerIconTile, ServerStats, useEstablishedLabel } from "./serverProfileBits";
 
@@ -197,19 +197,17 @@ function PreviewBody({
             <InviteCardReplica data={data} onAccept={() => openFlow()} />
           </div>
         ) : step === "flow" ? (
-          <div className="flex-1 min-h-0 flex items-stretch sm:items-center justify-center sm:p-6 bg-[var(--app-surface-alt)]/40">
-            <div className="w-full sm:max-w-[540px] h-full sm:h-auto sm:max-h-full flex flex-col sm:rounded-2xl overflow-hidden sm:border border-[var(--border-subtle)] sm:shadow-2xl bg-[var(--bg-app)] animate-in fade-in-0 zoom-in-95 duration-200 motion-reduce:animate-none">
-              <ServerOnboardingFlow
-                key={flowRun.seq}
-                serverId={serverId}
-                data={data}
-                preview
-                initialStep={flowRun.initialStep}
-                hideClose
-                onClose={() => setStep("guide")}
-                onFinish={() => setStep("guide")}
-              />
-            </div>
+          // The member's full-page join flow, framed by the preview (nothing is saved).
+          <div className="flex-1 min-h-0 flex flex-col animate-in fade-in-0 duration-200 motion-reduce:animate-none">
+            <ServerJoinFlow
+              key={flowRun.seq}
+              serverId={serverId}
+              data={data}
+              preview
+              initialStep={flowRun.initialStep}
+              onExit={() => setStep("guide")}
+              onFinish={() => setStep("guide")}
+            />
           </div>
         ) : data.guide ? (
           <div className="flex-1 min-h-0 overflow-y-auto animate-in fade-in-0 duration-200 motion-reduce:animate-none">

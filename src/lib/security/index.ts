@@ -131,6 +131,9 @@ export const rateLimiters_config = {
   e2eeBlob: { points: 600, duration: 60 }, // encrypted attachment relay (viewing media)
   // Device linking sessions (create / join / reveal / send / finish), per user
   e2eeLink: { points: 60, duration: 600 },
+  // PIN unlock attempts (per user and per IP; the server also destroys the PIN
+  // backup after 10 wrong PINs in total)
+  e2eePin: { points: 5, duration: 60 },
 } as const;
 
 export async function checkRateLimit(

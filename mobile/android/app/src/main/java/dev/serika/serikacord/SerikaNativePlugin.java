@@ -383,8 +383,8 @@ public class SerikaNativePlugin extends Plugin {
 
     /**
      * Encrypted conversations the web app has seen: `conversations` maps
-     * channel id → { kind: "dm", peer } | { kind: "group_dm" }. `replace`
-     * drops the others.
+     * channel id → { kind: "dm", peer } | { kind: "group_dm" } | { kind: "plain" }
+     * (turned off, verified by the web app: forget it). `replace` drops the others.
      */
     @PluginMethod
     public void setEncryptedConversations(PluginCall call) {

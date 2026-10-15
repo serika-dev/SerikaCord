@@ -6,6 +6,7 @@ import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { ATTACHMENT_BLOB_NAME_RE, ATTACHMENT_BLOB_TYPE } from './constants';
 import { E2eeFormatError } from './encoding';
 import { validateEnvelope, type Envelope } from './envelope';
+import { parseConversationState, type ConversationStateRecord } from './conversationState';
 
 export type ChannelLike = { e2ee?: boolean | null };
 
@@ -21,9 +22,30 @@ export function isE2eeNotice(value: unknown): boolean {
   return Boolean(v && typeof v === 'object' && v.notice === 'enabled');
 }
 
+/** The "turned off encryption" row marker: carries the member's signed record (conversationState.ts). */
+export function e2eeOffNotice(record: ConversationStateRecord) {
+  return { v: 1, notice: 'disabled', record } as const;
+}
+
+export function isE2eeOffNotice(value: unknown): boolean {
+  const v = value as { notice?: unknown } | null;
+  return Boolean(v && typeof v === 'object' && v.notice === 'disabled');
+}
+
+/** Which notice a stored messages.e2ee value is, if any. */
+export function e2eeNoticeKind(value: unknown): 'enabled' | 'disabled' | null {
+  return isE2eeNotice(value) ? 'enabled' : isE2eeOffNotice(value) ? 'disabled' : null;
+}
+
+/** The signed record on a "turned off" notice row (null when missing / malformed). */
+export function offNoticeRecord(value: unknown): ConversationStateRecord | null {
+  if (!isE2eeOffNotice(value)) return null;
+  return parseConversationState((value as { record?: unknown }).record);
+}
+
 /** The envelope stored on a message row, if it is a (well-formed) envelope. */
 export function storedEnvelope(value: unknown): Envelope | null {
-  if (!value || typeof value !== 'object' || isE2eeNotice(value)) return null;
+  if (!value || typeof value !== 'object' || e2eeNoticeKind(value)) return null;
   try {
     return validateEnvelope(value);
   } catch {

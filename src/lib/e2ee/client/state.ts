@@ -56,6 +56,26 @@ export interface E2eeSnapshot {
    * gone (cleared site data, storage eviction): guide to linking / restoring.
    */
   keysLost: boolean;
+  /** The server can keep PIN backups (E2EE on and its pepper configured). */
+  pinAvailable: boolean;
+  /** A 6-digit PIN backup exists for the current keys. */
+  hasPin: boolean;
+  /** Wrong PIN tries left before the PIN backup is destroyed (null: no PIN). */
+  pinAttemptsLeft: number | null;
+  /** The PIN backup was destroyed after too many wrong attempts (and no new one set yet). */
+  pinLocked: boolean;
+  /**
+   * The account has no PIN yet and this device can set one: DM pages show
+   * "Create a 6-digit PIN" (or, with a recovery passphrase, "Upgrade to a
+   * 6-digit PIN") until it's done.
+   */
+  requirePinSetup: boolean;
+  /** The account has a recovery passphrase but no PIN: the setup starts by entering the passphrase. */
+  pinUpgrade: boolean;
+  /** No PIN, no passphrase, and the keys here are sealed: the PIN must be set on the first device. */
+  pinSetupElsewhere: boolean;
+  /** "Not now" on the unlock screen of DM pages (this session only). */
+  unlockGateDeferred: boolean;
 }
 
 const INITIAL: E2eeSnapshot = {
@@ -73,6 +93,14 @@ const INITIAL: E2eeSnapshot = {
   keysExtractable: false,
   keysVersion: 0,
   keysLost: false,
+  pinAvailable: false,
+  hasPin: false,
+  pinAttemptsLeft: null,
+  pinLocked: false,
+  requirePinSetup: false,
+  pinUpgrade: false,
+  pinSetupElsewhere: false,
+  unlockGateDeferred: false,
 };
 
 let snapshot: E2eeSnapshot = INITIAL;
@@ -104,6 +132,18 @@ export function resetE2eeSnapshot(): void {
   listeners.forEach((l) => l());
 }
 
+/**
+ * What a DM / group DM page shows instead of the conversation: the PIN setup
+ * (required once per account), or the unlock screen on a device without keys
+ * (until "Not now"). Bots / system accounts are never gated.
+ */
+export function e2eeGateFor(snap: E2eeSnapshot, unsupported: boolean): "setup" | "unlock" | null {
+  if (unsupported) return null;
+  if (snap.phase === "ready" && snap.requirePinSetup) return "setup";
+  if (snap.phase === "needs-restore" && snap.enabled && !snap.unlockGateDeferred) return "unlock";
+  return null;
+}
+
 /** Lazy-load the crypto-bearing session module. */
 export function loadE2eeSession() {
   return import("./session");
@@ -118,7 +158,13 @@ export type E2eeDialogRequest =
   /** This (new) device: show a code / QR for another device to approve. */
   | "link-new"
   /** This (existing) device: approve a new device by its code / QR. */
-  | "link-approve";
+  | "link-approve"
+  /** Create a 6-digit PIN (first setup, after a reset, or upgrading an account with a passphrase). */
+  | "pin-setup"
+  /** New device: enter the PIN to get the keys. */
+  | "pin-unlock"
+  /** Change the PIN (needs the current one). */
+  | "pin-change";
 /** sessionStorage key: a link code opened from a scanned QR (/e2ee/link), picked up by E2eeHost. */
 export const E2EE_LINK_INPUT_KEY = "serika-e2ee:link-input";
 

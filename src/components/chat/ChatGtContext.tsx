@@ -199,6 +199,9 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "quoted by the sender": gt("quoted by the sender"),
       "Not encrypted – can't verify sender": gt("Not encrypted – can't verify sender"),
       "{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.": gt("{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.", { actor: "{actor}" }),
+      "Not verified": gt("Not verified"),
+      "Someone": gt("Someone"),
+      "{actor} turned off end-to-end encryption. New messages here aren't end-to-end encrypted.": gt("{actor} turned off end-to-end encryption. New messages here aren't end-to-end encrypted.", { actor: "{actor}" }),
     };
 
     return (str, params) => {

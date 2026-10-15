@@ -24,3 +24,5 @@ export * from "./link";
 export * from "./keysVersion";
 export * from "./notifyKeys";
 export * from "./previewText";
+export * from "./pin";
+export * from "./conversationState";

@@ -10,8 +10,13 @@ import { normalizeId } from '@/lib/db/normalizeId';
 import { cache, getRedis } from '@/lib/db/redis';
 import { config } from '@/lib/config';
 import {
+  CONVERSATION_STATE_MAX_SKEW_MS,
   E2eeVerifyError,
   canonicalKeySet,
+  dmPair,
+  parseConversationState,
+  verifyConversationStateSig,
+  type ConversationStateRecord,
   decryptAttachment,
   isFrankingDisclosure,
   isKeysVersion,
@@ -26,8 +31,11 @@ import {
   E2EE_NOTICE,
   ENCRYPTED_PREVIEW,
   e2eeMismatch,
+  e2eeNoticeKind,
+  e2eeOffNotice,
   isE2eeChannel,
   isE2eeNotice,
+  offNoticeRecord,
   parseEncryptedBody as parseEncryptedBodyFor,
   storedEnvelope,
 } from '@/lib/e2ee/policy';
@@ -104,6 +112,29 @@ export function ensureE2eeSchema(): Promise<void> {
             revoked_at timestamp
           )`);
           await tx.execute(sql`CREATE INDEX IF NOT EXISTS e2ee_notify_keys_user_id_idx ON e2ee_notify_keys (user_id)`);
+          // PIN backups and "turned off" records (drizzle/manual_e2ee_pin.sql).
+          await tx.execute(sql`CREATE TABLE IF NOT EXISTS e2ee_pin_backups (
+            user_id uuid PRIMARY KEY,
+            identity_pub text,
+            salt text,
+            iterations integer,
+            bundle text,
+            verifier_hash text,
+            secret_enc text,
+            pending_secret_enc text,
+            pending_expires_at timestamp,
+            attempts integer NOT NULL DEFAULT 0,
+            locked_at timestamp,
+            created_at timestamp DEFAULT now(),
+            updated_at timestamp DEFAULT now()
+          )`);
+          await tx.execute(sql`CREATE TABLE IF NOT EXISTS e2ee_conversation_states (
+            channel_id uuid PRIMARY KEY,
+            state text NOT NULL,
+            record jsonb,
+            updated_by uuid,
+            updated_at timestamp DEFAULT now()
+          )`);
         });
         return;
       } catch (err) {
@@ -476,7 +507,7 @@ export function conversationE2eeFlags(channel: { e2ee?: boolean | null }) {
 
 // ─── Encrypted sends / edits ──────────────────────────────────────────────────
 
-export { E2EE_NOTICE, ENCRYPTED_PREVIEW, e2eeMismatch, isE2eeChannel, isE2eeNotice, storedEnvelope };
+export { E2EE_NOTICE, ENCRYPTED_PREVIEW, e2eeMismatch, e2eeNoticeKind, e2eeOffNotice, isE2eeChannel, isE2eeNotice, offNoticeRecord, storedEnvelope };
 
 /** parseEncryptedBody against our CDN (attachments must be this user's uploads there). */
 export function parseEncryptedBody(userId: string, body: Parameters<typeof parseEncryptedBodyFor>[2]): ParsedEncryptedBody {
@@ -504,6 +535,56 @@ export async function checkE2eeChannelSend(
 }
 
 
+
+// ─── Turning encryption off (lib/e2ee/conversationState.ts) ──────────────────
+
+export type ConversationStateRow = typeof schema.e2eeConversationStates.$inferSelect;
+
+/** The stored on / off state of a conversation (null: never turned off). Never throws. */
+export async function getConversationState(channelId: string): Promise<ConversationStateRow | null> {
+  const [row] = await db
+    .select()
+    .from(schema.e2eeConversationStates)
+    .where(eq(schema.e2eeConversationStates.channelId, normalizeId(channelId)))
+    .limit(1)
+    .catch(() => [] as ConversationStateRow[]);
+  return row ?? null;
+}
+
+/**
+ * Check a member's signed "turn encryption off" record before acting on it:
+ * the shape, that it names this conversation and this user, that it was made
+ * just now (signer clock within the skew), and that one of the user's active
+ * devices signed it. Clients verify it again against the devices they trust.
+ */
+export async function checkOffRecordFrom(
+  userId: string,
+  channel: { id: string; type?: string | null; recipientIds?: string[] | null },
+  input: unknown,
+): Promise<{ ok: true; record: ConversationStateRecord } | { ok: false; status: number; error: string }> {
+  const record = parseConversationState(input);
+  if (!record) return { ok: false, status: 400, error: 'Invalid record' };
+  if (record.channelId !== normalizeId(channel.id) || record.userId !== normalizeId(userId)) {
+    return { ok: false, status: 400, error: 'The record names another conversation or person' };
+  }
+  // Bound to the kind of conversation (and a 1:1 DM's two people).
+  const kind = channel.type === 'dm' ? 'dm' : channel.type === 'group_dm' ? 'group_dm' : null;
+  const ids = (channel.recipientIds ?? []).map((id) => normalizeId(id));
+  if (record.kind !== kind) return { ok: false, status: 400, error: 'The record names another kind of conversation' };
+  if (kind === 'dm') {
+    const pair = ids.length === 2 ? dmPair(ids[0], ids[1]) : null;
+    if (!pair || !record.members || record.members[0] !== pair[0] || record.members[1] !== pair[1]) {
+      return { ok: false, status: 400, error: 'The record names other people' };
+    }
+  }
+  if (Math.abs(Date.now() - record.ts) > CONVERSATION_STATE_MAX_SKEW_MS) {
+    return { ok: false, status: 400, error: "Your device's clock is off. Fix the date and time, then try again." };
+  }
+  const device = await findUserDevice(userId, record.deviceId).catch(() => null);
+  if (!device || device.revokedAt) return { ok: false, status: 403, error: 'This device is not registered for end-to-end encryption' };
+  if (!(await verifyConversationStateSig(device.signPub, record))) return { ok: false, status: 400, error: 'The record signature does not match this device' };
+  return { ok: true, record };
+}
 
 // ─── Trust & Safety: franking reports ─────────────────────────────────────────
 

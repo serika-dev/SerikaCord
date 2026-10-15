@@ -22,7 +22,6 @@ import {
 import { ServerBadge } from "@/components/ui/badges";
 import { ShareInviteButton } from "@/components/invite/ShareInviteButton";
 import { useGT } from "gt-next";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { ApplicationQuestionView, ServerConnectionView } from "@/hooks/useServerOnboarding";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import {
@@ -91,7 +90,7 @@ export default function InvitePage() {
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const [showApplyDialog, setShowApplyDialog] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
   const [applyAnswer, setApplyAnswer] = useState("");
   const [isSubmittingApply, setIsSubmittingApply] = useState(false);
   // Apply to Join form: the server's rules + application questions.
@@ -102,6 +101,7 @@ export default function InvitePage() {
   const [applyAgreed, setApplyAgreed] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   const applyFormRef = useRef<HTMLDivElement>(null);
+  const applyHeadingRef = useRef<HTMLHeadingElement>(null);
   const applyId = useId();
   const established = useEstablishedLabel(invite?.server.createdAt);
 
@@ -139,6 +139,11 @@ export default function InvitePage() {
   useEffect(() => {
     handleJoinRef.current = handleJoin;
   });
+
+  // The Apply to Join page takes over the screen: start reading at its heading.
+  useEffect(() => {
+    if (applyOpen) applyHeadingRef.current?.focus({ preventScroll: true });
+  }, [applyOpen]);
 
   const navigateTo = useCallback((target: string) => {
     if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
@@ -180,7 +185,7 @@ export default function InvitePage() {
     }
 
     if (invite?.server.joinMode === "apply_to_join") {
-      void openApplyDialog(invite.server.id);
+      void openApplyForm(invite.server.id);
       return;
     }
 
@@ -204,7 +209,9 @@ export default function InvitePage() {
       // newly joined server shows up instantly (esp. same-host client nav).
       notifyServersChanged();
 
-      const target = data.server?.id ? `/channels/${data.server.id}` : "/channels/me";
+      // Straight into the server's join flow (welcome, questions, rules); it
+      // goes on to the server by itself when there is nothing to do.
+      const target = data.server?.id ? `/channels/${data.server.id}/onboarding` : "/channels/me";
       navigateTo(target);
     } catch {
       setError(gt("Something went wrong. Please try again."));
@@ -213,8 +220,8 @@ export default function InvitePage() {
     }
   };
 
-  const openApplyDialog = async (serverId: string) => {
-    setShowApplyDialog(true);
+  const openApplyForm = async (serverId: string) => {
+    setApplyOpen(true);
     setApplyAnswer("");
     setApplyAnswers({});
     setApplyErrors({});
@@ -275,7 +282,7 @@ export default function InvitePage() {
         body: JSON.stringify({ answers, acceptRules: true }),
       });
       if (res.ok) {
-        setShowApplyDialog(false);
+        setApplyOpen(false);
         setApplyAnswer("");
         setApplyAnswers({});
         setError(gt("Application submitted! You will be notified when it is reviewed."));
@@ -356,7 +363,7 @@ export default function InvitePage() {
       </div>
 
       {/* Back to home */}
-      <div className="absolute top-6 left-6 z-10">
+      <div className={`absolute top-6 left-6 z-10${applyOpen ? " hidden" : ""}`}>
         <Link
           href="/"
           className="flex items-center gap-2 text-sm text-[var(--app-muted)] hover:text-[var(--app-text)] transition-colors"
@@ -404,7 +411,7 @@ export default function InvitePage() {
               {gt("Open SerikaCord")}
             </Link>
           </motion.div>
-        ) : invite ? (
+        ) : invite && !applyOpen ? (
           <motion.div
             key="invite"
             initial={{ opacity: 0, y: 24 }}
@@ -623,103 +630,145 @@ export default function InvitePage() {
         ) : null}
       </AnimatePresence>
 
-      {invite && (
-        <Dialog open={showApplyDialog} onOpenChange={(next) => { if (!isSubmittingApply) setShowApplyDialog(next); }}>
-          <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-lg max-h-[90dvh] flex flex-col bg-[var(--app-surface)] border-[var(--app-border)] max-sm:overflow-hidden">
-            <div className="px-6 pt-6 pb-3 shrink-0">
-              <DialogTitle className="text-xl font-bold text-[var(--app-text)] pr-8">
-                {gt("Apply to join {name}", { name: invite.server.name })}
-              </DialogTitle>
-              <DialogDescription className="text-sm text-[var(--app-muted)] mt-1 whitespace-pre-wrap">
+      {/* Apply to Join: a full page over the invite (rules, questions, submit). */}
+      {invite && applyOpen && (
+        <section
+          aria-labelledby={`${applyId}-title`}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !isSubmittingApply) setApplyOpen(false);
+          }}
+          className="fixed inset-0 z-20 flex flex-col animate-in fade-in-0 duration-200 motion-reduce:animate-none"
+        >
+          <header className="shrink-0 pt-safe border-b border-[var(--app-border)]/60 bg-[var(--app-bg)]/55 backdrop-blur-xl">
+            <div className="mx-auto w-full max-w-[720px] h-14 px-4 sm:px-6 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setApplyOpen(false)}
+                disabled={isSubmittingApply}
+                aria-label={gt("Back")}
+                className="w-10 h-10 -ml-2 rounded-full flex items-center justify-center text-[var(--app-muted)] hover:text-[var(--app-text)] hover:bg-[var(--app-surface-alt)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/60"
+              >
+                <ChevronLeft className="w-5 h-5" aria-hidden />
+              </button>
+              <div className="w-8 h-8 rounded-lg overflow-hidden bg-[var(--app-surface-alt)] flex items-center justify-center shrink-0 text-xs font-bold text-[var(--app-text)]">
+                {invite.server.icon ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={cdnImage(invite.server.icon)} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span aria-hidden>{invite.server.name.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              <span className="flex-1 min-w-0 text-sm font-semibold text-[var(--app-text)] truncate">{decodeHtmlEntities(invite.server.name)}</span>
+            </div>
+          </header>
+
+          <div ref={applyFormRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6 pt-6 sm:pt-10 pb-10">
+              <h1
+                id={`${applyId}-title`}
+                ref={applyHeadingRef}
+                tabIndex={-1}
+                className="text-2xl sm:text-3xl font-extrabold tracking-tight text-[var(--app-text)] outline-none break-words"
+              >
+                {gt("Apply to join {name}", { name: decodeHtmlEntities(invite.server.name) })}
+              </h1>
+              <p className="text-[15px] text-[var(--app-muted)] mt-2 whitespace-pre-wrap break-words">
                 {applyForm?.description
                   ? decodeHtmlEntities(applyForm.description)
                   : gt("This server requires an application. Tell them a bit about yourself.")}
-              </DialogDescription>
-            </div>
+              </p>
 
-            <div ref={applyFormRef} className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-4">
-              {applyFormLoading || !applyForm ? (
-                <div className="flex justify-center py-10">
-                  <Loader size={28} />
-                </div>
-              ) : (
-                <>
-                  {applyRules.length > 0 && (
-                    <section className="rounded-xl bg-[var(--app-surface-alt)] border border-[var(--app-border)] p-4" aria-labelledby={`${applyId}-rules`}>
-                      <h4 id={`${applyId}-rules`} className="flex items-center gap-2 text-sm font-semibold text-[var(--app-text)] mb-3">
-                        <ScrollText className="w-4 h-4 text-[var(--app-accent)]" />
-                        {gt("Server Rules")}
-                      </h4>
-                      <RulesList rules={applyRules} />
+              <div className="mt-6 space-y-4">
+                {applyFormLoading || !applyForm ? (
+                  <div className="flex justify-center py-12">
+                    <Loader size={28} />
+                  </div>
+                ) : (
+                  <>
+                    {applyRules.length > 0 && (
+                      <section className="rounded-2xl bg-[var(--app-surface)]/90 border border-[var(--app-border)] p-5" aria-labelledby={`${applyId}-rules`}>
+                        <h2 id={`${applyId}-rules`} className="flex items-center gap-2 text-base font-semibold text-[var(--app-text)] mb-4">
+                          <ScrollText className="w-5 h-5 text-[var(--app-accent)]" aria-hidden />
+                          {gt("Server Rules")}
+                        </h2>
+                        <RulesList rules={applyRules} />
+                      </section>
+                    )}
+                    <section className="rounded-2xl bg-[var(--app-surface)]/90 border border-[var(--app-border)] p-5">
+                      {applyQuestions.length > 0 ? (
+                        <ApplicationQuestionFields
+                          questions={applyQuestions}
+                          answers={applyAnswers}
+                          onChange={setApplyQuestionAnswer}
+                          errors={applyErrors}
+                          idPrefix={applyId}
+                          disabled={isSubmittingApply}
+                        />
+                      ) : (
+                        <div>
+                          <label htmlFor={`${applyId}-why`} className="mb-2 block text-sm font-semibold text-[var(--app-text)]">
+                            {gt("Why would you like to join?")}
+                          </label>
+                          <textarea
+                            id={`${applyId}-why`}
+                            value={applyAnswer}
+                            onChange={(e) => setApplyAnswer(e.target.value)}
+                            placeholder={gt("Tell the moderators a bit about yourself.")}
+                            rows={5}
+                            maxLength={2000}
+                            disabled={isSubmittingApply}
+                            className="w-full p-3 rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[15px] text-[var(--app-text)] placeholder:text-[var(--app-muted)] outline-none focus:border-[var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40 resize-y min-h-[120px]"
+                          />
+                        </div>
+                      )}
                     </section>
-                  )}
-                  {applyQuestions.length > 0 ? (
-                    <ApplicationQuestionFields
-                      questions={applyQuestions}
-                      answers={applyAnswers}
-                      onChange={setApplyQuestionAnswer}
-                      errors={applyErrors}
-                      idPrefix={applyId}
-                      disabled={isSubmittingApply}
-                    />
-                  ) : (
-                    <div>
-                      <label htmlFor={`${applyId}-why`} className="mb-2 block text-sm font-semibold text-[var(--app-text)]">
-                        {gt("Why would you like to join?")}
+                    {applyRules.length > 0 && (
+                      <label className="flex items-center gap-3.5 p-4 min-h-[60px] rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)]/90 text-[15px] font-medium text-[var(--app-text)] cursor-pointer select-none has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--app-accent)]/50">
+                        <input
+                          type="checkbox"
+                          checked={applyAgreed}
+                          onChange={(e) => setApplyAgreed(e.target.checked)}
+                          disabled={isSubmittingApply}
+                          className="w-5 h-5 shrink-0 accent-[var(--app-accent)]"
+                        />
+                        <span>{gt("I have read and agree to the rules")}</span>
                       </label>
-                      <textarea
-                        id={`${applyId}-why`}
-                        value={applyAnswer}
-                        onChange={(e) => setApplyAnswer(e.target.value)}
-                        placeholder={gt("Tell the moderators a bit about yourself.")}
-                        rows={4}
-                        maxLength={2000}
-                        disabled={isSubmittingApply}
-                        className="w-full p-3 rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-sm text-[var(--app-text)] placeholder:text-[var(--app-muted)] outline-none focus:border-[var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40 resize-none"
-                      />
-                    </div>
-                  )}
-                  {applyRules.length > 0 && (
-                    <label className="flex items-start gap-3 p-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-alt)] text-sm text-[var(--app-text)] cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={applyAgreed}
-                        onChange={(e) => setApplyAgreed(e.target.checked)}
-                        className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--app-accent)]"
-                      />
-                      <span>{gt("I have read and agree to the rules")}</span>
-                    </label>
-                  )}
-                  {applyError && (
-                    <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-500">
-                      <AlertCircle className="w-4 h-4 shrink-0" />
-                      <span>{applyError}</span>
-                    </div>
-                  )}
-                </>
-              )}
+                    )}
+                    {applyError && (
+                      <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-500">
+                        <AlertCircle className="w-4 h-4 shrink-0" aria-hidden />
+                        <span>{applyError}</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
+          </div>
 
-            <div className="shrink-0 flex justify-end gap-3 px-6 py-4 pb-[max(1rem,var(--safe-area-bottom,0px))] border-t border-[var(--app-border)] bg-[var(--app-surface-alt)]">
+          <footer className="shrink-0 border-t border-[var(--app-border)] bg-[var(--app-surface)]/85 backdrop-blur-xl">
+            <div className="mx-auto w-full max-w-[720px] px-4 sm:px-6 pt-3 pb-[max(0.75rem,var(--safe-area-bottom,0px))] flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setShowApplyDialog(false)}
+                onClick={() => setApplyOpen(false)}
                 disabled={isSubmittingApply}
-                className="h-10 px-4 text-sm text-[var(--app-text)] hover:bg-[var(--app-surface)] rounded-lg transition-colors"
+                className="h-12 px-4 rounded-xl text-[15px] font-medium text-[var(--app-muted)] hover:text-[var(--app-text)] hover:bg-[var(--app-surface-alt)] transition-colors disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/60"
               >
                 {gt("Cancel")}
               </button>
+              <div className="hidden sm:block flex-1" />
               <button
                 type="button"
                 onClick={() => void handleSubmitApplication()}
                 disabled={!applyReady || isSubmittingApply}
-                className="h-10 px-4 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-all"
+                aria-busy={isSubmittingApply || undefined}
+                className="flex-1 sm:flex-none sm:min-w-[200px] h-12 px-6 rounded-xl bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed text-[var(--text-on-accent)] text-[15px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/60"
               >
                 {isSubmittingApply ? gt("Submitting...") : gt("Submit Application")}
               </button>
             </div>
-          </DialogContent>
-        </Dialog>
+          </footer>
+        </section>
       )}
     </div>
   );

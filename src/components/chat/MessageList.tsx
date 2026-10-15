@@ -908,7 +908,7 @@ function MessageListInner<M extends ChatMessage>(
       formattedTimestamp={formattedTimestamps[idx]}
       onJumpToMessage={jumpToMessage}
     />
-    ) : group.messages[0].type === "e2ee_enabled" ? (
+    ) : group.messages[0].type === "e2ee_enabled" || group.messages[0].type === "e2ee_disabled" ? (
     <E2eeSystemRow
       message={group.messages[0]}
       formattedTimestamp={formattedTimestamps[idx]}

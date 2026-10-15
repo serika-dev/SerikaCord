@@ -1396,6 +1396,40 @@ export const e2eeNotifyKeys = pgTable('e2ee_notify_keys', {
   userIdx: index('e2ee_notify_keys_user_id_idx').on(t.userId),
 }));
 
+// 6-digit PIN key backup (lib/e2ee/pin.ts, pinVault.ts; drizzle/manual_e2ee_pin.sql,
+// ensureE2eeSchema). The bundle needs the PIN AND the server secret S; S and
+// the verifier are only stored in pepper-protected form (E2EE_PIN_PEPPER is
+// an environment secret, never in the database). One row per user; a wiped
+// backup (too many wrong PINs, reset, removal) keeps the row with NULLs.
+export const e2eePinBackups = pgTable('e2ee_pin_backups', {
+  userId: uuid('user_id').primaryKey(),
+  // The identity key the bundle belongs to (a reset invalidates it).
+  identityPub: text('identity_pub'),
+  salt: text('salt'),
+  iterations: integer('iterations'),
+  bundle: text('bundle'),
+  verifierHash: text('verifier_hash'),
+  secretEnc: text('secret_enc'),
+  // Secret handed out by /pin/begin, waiting for /pin/commit (short TTL).
+  pendingSecretEnc: text('pending_secret_enc'),
+  pendingExpiresAt: timestamp('pending_expires_at'),
+  attempts: integer('attempts').notNull().default(0),
+  lockedAt: timestamp('locked_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Per-conversation "encryption turned off" state (lib/e2ee/conversationState.ts):
+// the member-signed record clients verify before accepting plaintext there.
+// state = 'off' (record set) or 'on' (turned on again; record kept for history).
+export const e2eeConversationStates = pgTable('e2ee_conversation_states', {
+  channelId: uuid('channel_id').primaryKey(),
+  state: text('state').notNull(),
+  record: jsonb('record'),
+  updatedBy: uuid('updated_by'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const e2eeEnvelopeHistory = pgTable('e2ee_envelope_history', {
   messageId: uuid('message_id').notNull(),
   sig: text('sig').notNull(),

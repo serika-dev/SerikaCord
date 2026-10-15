@@ -7,11 +7,15 @@ import type { ChatMessage, MessageAttachment, MessageSticker } from "@/lib/chat/
 import type { RawMessagePayload } from "@/lib/chat/messages";
 import {
   conversationKey,
-  encryptionNoticeTime,
-  isUnverifiablePlaintextRow,
+  isUnverifiablePlaintextRowIn,
+  mergeTimelines,
+  rowTime,
+  timelineOf,
   type E2eeTarget,
+  type EncryptionTimeline,
 } from "@/lib/e2ee/conversation";
-import { isConversationRememberedEncrypted, rememberConversationEncrypted } from "./keyStore";
+import { noticeTimeMatches } from "@/lib/e2ee/conversationState";
+import { getConversationStateMemory, isConversationRememberedEncrypted, rememberConversationEncrypted } from "./keyStore";
 import { loadE2eeSession } from "./state";
 import type { DecryptContext } from "./session";
 import { peekPlain, plainCacheKey, validatedChannelOf } from "./plainCache";
@@ -26,9 +30,79 @@ export function isRememberedEncrypted(userId: string, target: E2eeTarget): Promi
   return isConversationRememberedEncrypted(userId, conversationKey(target));
 }
 
-/** Remember the conversation as encrypted on this device (one-way). */
+/** Remember the conversation as encrypted on this device (seen now; clears an accepted "turned off"). */
 export function rememberEncrypted(userId: string, target: E2eeTarget): Promise<void> {
+  resolutions.delete(`${userId.toLowerCase()}|${conversationKey(target)}`);
+  // "Off" checks still running were made against the old memory.
+  void loadE2eeSession().then((m) => m.forgetOffChecks()).catch(() => {});
   return rememberConversationEncrypted(userId, conversationKey(target));
+}
+
+/** Whether this device must treat a conversation as encrypted right now, and why not when it doesn't. */
+export interface ConversationEncryption {
+  encrypted: boolean;
+  /** A member turned encryption off (signature verified on this device). */
+  off: { by: string; at: number } | null;
+  /**
+   * The server reports the conversation unencrypted, but this device saw it
+   * encrypted and no valid member-signed "turned off" record was found: it
+   * stays encrypted here (sends are refused by the server) — show a warning.
+   */
+  unverifiedOff: boolean;
+}
+
+const resolutions = new Map<string, { channelId: string | null; serverE2ee: boolean; value: Promise<ConversationEncryption> }>();
+
+/** Forget cached answers for a conversation (live on / off events). */
+export function forgetConversationEncryption(userId: string | null | undefined, target: E2eeTarget | null): void {
+  if (!userId || !target) return;
+  resolutions.delete(`${userId.toLowerCase()}|${conversationKey(target)}`);
+}
+
+/**
+ * Downgrade protection with member-controlled "off": a conversation the
+ * server flags encrypted is encrypted (and remembered); one this device saw
+ * encrypted stays encrypted unless a member's signed "turned off" record
+ * verifies here (lib/e2ee/conversationState.ts); a storage error counts as
+ * encrypted. `meta` null (not loaded yet) never downgrades.
+ */
+export function conversationEncryptionHere(userId: string | null | undefined, target: E2eeTarget | null, meta: ConversationMeta | null): Promise<ConversationEncryption> {
+  if (!userId || !target) return Promise.resolve({ encrypted: false, off: null, unverifiedOff: false });
+  const key = `${userId.toLowerCase()}|${conversationKey(target)}`;
+  if (meta?.e2ee) {
+    resolutions.delete(key);
+    return Promise.resolve({ encrypted: true, off: null, unverifiedOff: false });
+  }
+  const channelId = meta?.channelId ?? null;
+  const cached = resolutions.get(key);
+  if (cached && cached.channelId === channelId && cached.serverE2ee === Boolean(meta?.e2ee)) return cached.value;
+  const value = resolveEncryption(userId, target, meta).catch((): ConversationEncryption => ({ encrypted: true, off: null, unverifiedOff: false }));
+  resolutions.set(key, { channelId, serverE2ee: Boolean(meta?.e2ee), value });
+  // Only "stay encrypted" answers outlive the request (never a downgrade: an
+  // "off" is re-checked against the current memory every time, which is a
+  // local read once accepted). "Unknown yet" (no meta) is retried at once,
+  // an unverifiable "off" after 30 s.
+  void value.then((r) => {
+    if (resolutions.get(key)?.value !== value) return;
+    if (!r.encrypted || !meta) resolutions.delete(key);
+    else setTimeout(() => {
+      if (resolutions.get(key)?.value === value) resolutions.delete(key);
+    }, 30_000);
+  });
+  return value;
+}
+
+async function resolveEncryption(userId: string, target: E2eeTarget, meta: ConversationMeta | null): Promise<ConversationEncryption> {
+  const remembered = await isRememberedEncrypted(userId, target).catch(() => true);
+  if (!remembered) {
+    const memory = await getConversationStateMemory(userId, conversationKey(target)).catch(() => null);
+    return { encrypted: false, off: memory?.off ? { by: memory.off.by, at: memory.off.ts } : null, unverifiedOff: false };
+  }
+  if (!meta?.channelId) return { encrypted: true, off: null, unverifiedOff: false };
+  const session = await loadE2eeSession();
+  const check = await session.verifyConversationOff(target, meta.channelId);
+  if (check.ok) return { encrypted: false, off: { by: check.record.userId, at: check.record.ts }, unverifiedOff: false };
+  return { encrypted: true, off: null, unverifiedOff: check.reason !== "keys_unavailable" && check.reason !== "not_ready" };
 }
 
 /** A raw API / SSE message still carrying its envelope (not yet decrypted). */
@@ -89,21 +163,60 @@ export function encryptChannelIdFor(target: E2eeTarget | null, meta: Conversatio
   return meta?.channelId ?? null;
 }
 
-// Earliest "turned on encryption" notice seen per conversation (memory only):
-// plain rows before it are legitimate history.
-const encryptedSince = new Map<string, number>();
+// On / off switches seen per conversation (memory only): plain rows from the
+// plain era before encryption was first turned on, or from a period a
+// member turned it off (verified record), are legitimate history.
+const timelines = new Map<string, EncryptionTimeline>();
+
+type NoticeRow = { id?: unknown; type?: unknown; e2ee?: unknown; createdAt?: unknown; e2eeRecord?: unknown; channelId?: unknown; e2eeNoticeVerified?: unknown };
+
+/**
+ * "Turned off" notice rows: mark each with whether its member-signed record
+ * verifies here (the system row says so), and return the signed time of the
+ * verified ones. A row whose server time is more than the clock skew away
+ * from its record's time is ignored, and each record counts once.
+ */
+async function checkOffNotices(rows: RawMessagePayload[], target: E2eeTarget | null, meta: ConversationMeta | null): Promise<{ rows: RawMessagePayload[]; offAt: Map<unknown, number> }> {
+  const offAt = new Map<unknown, number>();
+  const typed = rows as unknown as NoticeRow[];
+  if (!target || !typed.some((r) => r?.type === "e2ee_disabled")) return { rows, offAt };
+  const session = await loadE2eeSession();
+  const seen = new Set<string>();
+  const out = await Promise.all(typed.map(async (r, i) => {
+    if (r?.type !== "e2ee_disabled") return rows[i];
+    const channelId = typeof r.channelId === "string" ? r.channelId : meta?.channelId ?? null;
+    const record = channelId ? await session.verifiedOffNotice(target, channelId, r.e2eeRecord).catch(() => null) : null;
+    const ok = Boolean(record && noticeTimeMatches(rowTime(r.createdAt), record));
+    if (ok && record && !seen.has(record.sig)) {
+      seen.add(record.sig);
+      offAt.set(r, record.ts);
+    }
+    return { ...rows[i], e2eeNoticeVerified: ok } as RawMessagePayload;
+  }));
+  return { rows: out, offAt };
+}
 
 /** Mark rows without an envelope in an encrypted conversation: nobody vouches for their sender. */
-function flagPlaintextRows(rows: RawMessagePayload[], target: E2eeTarget | null): RawMessagePayload[] {
+async function flagPlaintextRows(
+  rows: RawMessagePayload[],
+  target: E2eeTarget | null,
+  offAt: Map<unknown, number>,
+  selfId: string | null | undefined,
+): Promise<RawMessagePayload[]> {
   const key = target ? conversationKey(target) : null;
-  const notice = encryptionNoticeTime(rows as Array<{ type?: unknown; e2ee?: unknown; createdAt?: unknown }>);
-  if (key && notice !== null) {
-    const prev = encryptedSince.get(key);
-    if (prev === undefined || notice < prev) encryptedSince.set(key, notice);
+  const original = rows as unknown as NoticeRow[];
+  const batch = timelineOf(original, (r) => offAt.get(r) ?? null);
+  let timeline = key ? mergeTimelines(timelines.get(key) ?? { on: [], off: [] }, batch) : batch;
+  if (key) timelines.set(key, timeline);
+  // An off window also ends where this device itself last saw the conversation
+  // encrypted (a replayed "turned off" notice can't cover later plaintext).
+  if (selfId && key && timeline.off.length > 0) {
+    const memory = await getConversationStateMemory(selfId, key).catch(() => null);
+    const seenAt = memory?.seenEncryptedAt ?? null;
+    if (seenAt !== null && timeline.off.some((t) => t < seenAt)) timeline = mergeTimelines(timeline, { on: [seenAt], off: [] });
   }
-  const since = key ? encryptedSince.get(key) ?? null : notice;
   return rows.map((r) => (
-    isUnverifiablePlaintextRow(r as { type?: unknown; e2ee?: unknown; createdAt?: unknown }, since)
+    isUnverifiablePlaintextRowIn(r as { type?: unknown; e2ee?: unknown; createdAt?: unknown }, timeline)
       ? ({ ...r, e2eePlaintext: true } as RawMessagePayload)
       : r
   ));
@@ -128,7 +241,9 @@ export interface DecodeOptions {
  * conversation). No crypto import when there are no envelopes.
  */
 export async function decodeConversationRows(raw: RawMessagePayload[], opts: DecodeOptions): Promise<RawMessagePayload[]> {
-  const rows = opts.encrypted ? flagPlaintextRows(raw, opts.target) : raw;
+  const notices = await checkOffNotices(raw, opts.target, opts.meta);
+  const rows = opts.encrypted ? await flagPlaintextRows(raw, opts.target, notices.offAt, opts.selfId).then((flagged) =>
+    flagged.map((r, i) => (notices.rows[i] !== raw[i] ? { ...r, e2eeNoticeVerified: (notices.rows[i] as { e2eeNoticeVerified?: boolean }).e2eeNoticeVerified } as RawMessagePayload : r))) : notices.rows;
   if (!rows.some(hasEnvelope)) return rows;
   const session = await loadE2eeSession();
   return session.decryptRawMessages(rows as Array<Record<string, unknown>>, {

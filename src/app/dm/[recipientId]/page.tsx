@@ -10,7 +10,7 @@ import { readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon, Search, Lock } from "lucide-react";
+import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon, Search } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
@@ -48,6 +48,12 @@ import dynamic from "next/dynamic";
 import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
 import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
 import { E2eeConversationBanner } from "@/components/e2ee/E2eeConversationBanner";
+import { E2eeConversationLock } from "@/components/e2ee/E2eeConversationLock";
+import { useE2ee } from "@/hooks/useE2ee";
+import { e2eeGateFor } from "@/lib/e2ee/client/state";
+
+// Shown instead of the conversation until this account has a PIN / this device has keys.
+const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((m) => m.E2eePinGate), { ssr: false });
 
 const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 
@@ -311,6 +317,10 @@ export default function DMConversationPage() {
   );
   // The person in the URL: this DM's keys must be exactly us + them (lib/e2ee).
   const e2eeTarget = useMemo(() => (recipientId ? { kind: "dm" as const, recipientId } : null), [recipientId]);
+  const e2eeState = useE2ee();
+  const e2eeUnsupported = Boolean(recipient?.isSystem || recipient?.isBot);
+  // No PIN yet / no keys on this device: the setup or unlock screen replaces the conversation.
+  const e2eeGate = recipient ? e2eeGateFor(e2eeState, e2eeUnsupported) : null;
   const recipientName = recipient?.displayName || recipient?.username;
   // Latest profile for the call handlers below without re-running them on
   // every profile refresh.
@@ -622,15 +632,14 @@ export default function DMConversationPage() {
               </span>
               <SystemPill isSystem={recipient?.isSystem} />
               <StaffPill badges={recipient?.badges} />
-              {chat.e2eeActive && (
-                <span
-                  className="inline-flex text-[var(--text-secondary)]"
-                  title={gt("Messages are end-to-end encrypted")}
-                  aria-label={gt("Messages are end-to-end encrypted")}
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                </span>
-              )}
+              <E2eeConversationLock
+                conversation={chat.conversation}
+                active={chat.e2eeActive}
+                off={chat.e2eeOff}
+                members={e2eeMembers}
+                target={e2eeTarget}
+                unsupported={e2eeUnsupported}
+              />
             </div>
           </div>
 
@@ -735,6 +744,13 @@ export default function DMConversationPage() {
           />
         )}
 
+        {e2eeGate ? (
+          <>
+            <E2eePinGate mode={e2eeGate} />
+            <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
+          </>
+        ) : (
+        <>
         {/* Messages */}
         <MessageList
           ref={messageListRef}
@@ -778,8 +794,10 @@ export default function DMConversationPage() {
             conversation={chat.conversation}
             active={chat.e2eeActive}
             members={e2eeMembers}
-            unsupported={Boolean(recipient?.isSystem || recipient?.isBot)}
+            unsupported={e2eeUnsupported}
             target={e2eeTarget}
+            off={chat.e2eeOff}
+            unverifiedOff={chat.e2eeUnverifiedOff}
           />
           {pendingRequest ? (
             <MessageRequestBar channelId={pendingRequest.channelId} userId={pendingRequest.user.id} name={recipientName || pendingRequest.user.username} />
@@ -820,6 +838,8 @@ export default function DMConversationPage() {
               (this DM's own call has the panel above). */}
           <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
         </div>
+        </>
+        )}
       </div>
 
       {/* Search results replace the profile panel while open (Discord). */}

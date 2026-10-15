@@ -7,8 +7,11 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
-import { ArrowLeft, Bell, BellOff, Inbox as InboxIcon, Lock, Phone, Pin, Search, UserPlus, Users, Video } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, Inbox as InboxIcon, Phone, Pin, Search, UserPlus, Users, Video } from "lucide-react";
 import { E2eeConversationBanner } from "@/components/e2ee/E2eeConversationBanner";
+import { E2eeConversationLock } from "@/components/e2ee/E2eeConversationLock";
+import { useE2ee } from "@/hooks/useE2ee";
+import { e2eeGateFor } from "@/lib/e2ee/client/state";
 import { useAuth } from "@/contexts/AuthContext";
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
@@ -58,6 +61,8 @@ import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat
 const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 const EditGroupDmDialog = dynamic(() => import("@/components/dm/EditGroupDmDialog").then((m) => m.EditGroupDmDialog), { ssr: false });
+// Shown instead of the conversation until this account has a PIN / this device has keys.
+const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((m) => m.E2eePinGate), { ssr: false });
 
 /**
  * A group DM conversation (/dm/group/<channelId>): the same chat engine as
@@ -307,6 +312,9 @@ export default function GroupDMPage() {
   const e2eeMembers = useMemo(() => others.map((m) => ({ id: m.id, name: m.displayName || m.username })), [others]);
   const e2eeUnsupported = useMemo(() => members.some((m) => m.isBot || m.isSystem), [members]);
   const e2eeTarget = useMemo(() => (channelId ? { kind: "group" as const, channelId } : null), [channelId]);
+  const e2eeState = useE2ee();
+  // No PIN yet / no keys on this device: the setup or unlock screen replaces the conversation.
+  const e2eeGate = group ? e2eeGateFor(e2eeState, e2eeUnsupported) : null;
   const groupIcon = group?.icon ?? null;
   const callGroup = useMemo<CallGroup | undefined>(
     () => (channelId ? { channelId, name: title || gt("Group"), icon: groupIcon, memberCount: members.length } : undefined),
@@ -563,15 +571,14 @@ export default function GroupDMPage() {
                 >
                   {title}
                 </button>
-                {chat.e2eeActive && (
-                  <span
-                    className="inline-flex shrink-0 text-[var(--text-secondary)]"
-                    title={gt("Messages are end-to-end encrypted")}
-                    aria-label={gt("Messages are end-to-end encrypted")}
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                  </span>
-                )}
+                <E2eeConversationLock
+                  conversation={chat.conversation}
+                  active={chat.e2eeActive}
+                  off={chat.e2eeOff}
+                  members={e2eeMembers}
+                  target={e2eeTarget}
+                  unsupported={e2eeUnsupported}
+                />
                 <span className="hidden sm:inline shrink-0 text-xs text-[var(--text-muted)]">
                   {gt("{count} Members", { count: members.length })}
                 </span>
@@ -643,6 +650,13 @@ export default function GroupDMPage() {
           />
         )}
 
+        {e2eeGate ? (
+          <>
+            <E2eePinGate mode={e2eeGate} />
+            <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
+          </>
+        ) : (
+        <>
         <MessageList
           ref={messageListRef}
           onJumpToMessage={jumpToMessage}
@@ -687,6 +701,8 @@ export default function GroupDMPage() {
             unsupported={e2eeUnsupported}
             target={e2eeTarget}
             memberIds={e2eeMemberIds}
+            off={chat.e2eeOff}
+            unverifiedOff={chat.e2eeUnverifiedOff}
           />
           <MessageBar
             ref={messageBarRef}
@@ -715,6 +731,8 @@ export default function GroupDMPage() {
           />
           <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
         </div>
+        </>
+        )}
       </div>
 
       {/* Search results replace the member list while open (Discord). */}

@@ -132,7 +132,7 @@ export interface ReferencedMessage {
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | "e2ee_enabled" | GroupDmEventType;
+  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | "e2ee_enabled" | "e2ee_disabled" | GroupDmEventType;
   authorId: string;
   author: MessageAuthor;
   channelId: string;
@@ -185,6 +185,10 @@ export interface ChatMessage {
    * (after encryption was turned on): nobody can vouch for its sender.
    */
   e2eePlaintext?: boolean;
+  /** "Turned off encryption" rows: the member-signed record (lib/e2ee/conversationState). */
+  e2eeRecord?: unknown;
+  /** "Turned off encryption" rows: whether that record verified on this device. */
+  e2eeNoticeVerified?: boolean;
 }
 
 /** Details of a group DM system row (the actor is the message author). */

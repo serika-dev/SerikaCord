@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useGT, useLocale } from "gt-next";
 import { toast } from "sonner";
-import { AlertTriangle, KeyRound, Lock, MonitorSmartphone, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Grid3x3, KeyRound, Lock, MonitorSmartphone, ShieldAlert, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
@@ -23,10 +23,11 @@ interface Contact {
 }
 
 /**
- * Settings → Encryption: this device's status, the recovery passphrase, the
- * account's encrypted devices (revoke), contacts' safety numbers, and
- * "Reset encryption". Used by the desktop settings dialog and the mobile
- * settings page.
+ * Settings → Encryption: this device's status, the 6-digit PIN (change /
+ * remove), the recovery passphrase as an optional extra method, linking a
+ * device, the account's encrypted devices (revoke), contacts' safety
+ * numbers, and "Reset encryption". Used by the desktop settings dialog and
+ * the mobile settings page.
  */
 export function E2eeSettingsPanel() {
   const gt = useGT();
@@ -95,6 +96,38 @@ export function E2eeSettingsPanel() {
     }
   };
 
+  const removePin = async () => {
+    const ok = await confirm({
+      title: gt("Remove your PIN?"),
+      description: gt("New devices will then need your recovery passphrase or another device to unlock your encrypted messages."),
+      confirmLabel: gt("Remove"),
+    });
+    if (!ok) return;
+    try {
+      const session = await loadE2eeSession();
+      await session.removePin();
+      toast.success(gt("PIN removed"));
+    } catch {
+      toast.error(gt("Couldn't remove the PIN"));
+    }
+  };
+
+  const removePassphrase = async () => {
+    const ok = await confirm({
+      title: gt("Turn off the recovery passphrase?"),
+      description: gt("Your old passphrase stops working. New devices will unlock your encrypted messages with your PIN or another device."),
+      confirmLabel: gt("Turn off"),
+    });
+    if (!ok) return;
+    try {
+      const session = await loadE2eeSession();
+      await session.removeRecoveryPassphrase();
+      toast.success(gt("Recovery passphrase turned off"));
+    } catch {
+      toast.error(gt("Couldn't turn off the recovery passphrase"));
+    }
+  };
+
   const card = "rounded-lg bg-[var(--bg-app)] p-4";
   const dateOf = (value: string | null) => (value ? new Date(value).toLocaleDateString(locale) : "");
 
@@ -129,13 +162,44 @@ export function E2eeSettingsPanel() {
           </p>
           {e2ee.phase === "needs-restore" && (
             <div className="flex flex-wrap gap-2 pt-2">
-              <Button size="sm" onClick={() => openE2eeDialog("link-new")}>{gt("Use another device")}</Button>
-              <Button size="sm" variant="secondary" onClick={() => openE2eeDialog("restore")}>{gt("Use recovery passphrase")}</Button>
+              {e2ee.hasPin && <Button size="sm" onClick={() => openE2eeDialog("pin-unlock")}>{gt("Enter your PIN")}</Button>}
+              <Button size="sm" variant={e2ee.hasPin ? "secondary" : "default"} onClick={() => openE2eeDialog("link-new")}>{gt("Use another device")}</Button>
+              {e2ee.serverHasBackup && <Button size="sm" variant="secondary" onClick={() => openE2eeDialog("restore")}>{gt("Use recovery passphrase")}</Button>}
               <Button size="sm" variant="ghost" onClick={() => openE2eeDialog("reset")}>{gt("Reset encryption")}</Button>
             </div>
           )}
         </div>
       </div>
+
+      {ready && e2ee.pinAvailable && (
+        <div className={cn(card, "flex items-start gap-3")}>
+          <div className="w-10 h-10 rounded-lg bg-[var(--bg-card)] flex items-center justify-center flex-shrink-0">
+            <Grid3x3 className="w-5 h-5 text-[var(--app-accent)]" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("6-digit PIN")}</p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              {e2ee.hasPin
+                ? gt("On. Enter it on a new device to unlock your encrypted messages there.")
+                : e2ee.pinLocked
+                  ? gt("Your PIN backup was reset after too many wrong attempts. Create a new PIN.")
+                  : gt("Not set. Create a PIN so new devices can unlock your encrypted messages.")}
+            </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              {e2ee.hasPin ? (
+                <>
+                  <Button size="sm" onClick={() => openE2eeDialog("pin-change")}>{gt("Change PIN")}</Button>
+                  {e2ee.hasPassphrase && (
+                    <Button size="sm" variant="ghost" onClick={() => void removePin()}>{gt("Remove PIN")}</Button>
+                  )}
+                </>
+              ) : (
+                <Button size="sm" onClick={() => openE2eeDialog("pin-setup")}>{gt("Create PIN")}</Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {ready && (
         <div className={cn(card, "flex items-start gap-3")}>
@@ -143,19 +207,23 @@ export function E2eeSettingsPanel() {
             <KeyRound className="w-5 h-5 text-[var(--app-accent)]" />
           </div>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Recovery passphrase")}</p>
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {e2ee.pinAvailable ? gt("Recovery passphrase (optional)") : gt("Recovery passphrase")}
+            </p>
             <p className="text-xs text-[var(--text-secondary)]">
               {e2ee.hasPassphrase
-                ? gt("Set. Use it to read your encrypted messages on a new device.")
-                : gt("Not set. If you lose this device, you lose your encrypted message history.")}
+                ? gt("On. A long passphrase also unlocks your encrypted messages on a new device.")
+                : e2ee.pinAvailable
+                  ? gt("Off. For the strongest protection, also set a long recovery passphrase and remove the PIN: a PIN relies on our servers to limit guesses, a long passphrase doesn't.")
+                  : gt("Not set. If you lose this device, you lose your encrypted message history.")}
             </p>
             <div className="flex flex-wrap gap-2 pt-2">
-              <Button size="sm" onClick={() => openE2eeDialog(e2ee.hasPassphrase ? "change-passphrase" : "onboard")}>
+              <Button size="sm" variant={e2ee.pinAvailable ? "secondary" : "default"} onClick={() => openE2eeDialog(e2ee.hasPassphrase ? "change-passphrase" : "onboard")}>
                 {e2ee.hasPassphrase ? gt("Change passphrase") : gt("Set passphrase")}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => openE2eeDialog("reset")}>
-                {gt("Reset encryption")}
-              </Button>
+              {e2ee.hasPassphrase && e2ee.hasPin && (
+                <Button size="sm" variant="ghost" onClick={() => void removePassphrase()}>{gt("Turn off")}</Button>
+              )}
             </div>
           </div>
         </div>
@@ -169,7 +237,7 @@ export function E2eeSettingsPanel() {
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Link a new device")}</p>
             <p className="text-xs text-[var(--text-secondary)]">
-              {gt("Signed in on a new phone or computer? It shows a code while setting up encryption: scan or type it here. No passphrase needed.")}
+              {gt("Signed in on a new phone or computer? It shows a code while setting up encryption: scan or type it here. No PIN or passphrase needed there.")}
             </p>
             <div className="flex flex-wrap gap-2 pt-2">
               <Button size="sm" onClick={() => openE2eeDialog("link-approve")}>{gt("Link a new device")}</Button>
@@ -232,6 +300,25 @@ export function E2eeSettingsPanel() {
             </button>
           ))}
         </section>
+      )}
+
+      {ready && (
+        <div className={cn(card, "flex items-start gap-3")}>
+          <div className="w-10 h-10 rounded-lg bg-[var(--bg-card)] flex items-center justify-center flex-shrink-0">
+            <ShieldAlert className="w-5 h-5 text-red-500" />
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Reset encryption")}</p>
+            <p className="text-xs text-[var(--text-secondary)]">
+              {gt("Creates new keys. Use it only if you lost your PIN, passphrase and devices: older encrypted messages stay readable on this device only.")}
+            </p>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-500" onClick={() => openE2eeDialog("reset")}>
+                {gt("Reset encryption")}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       <MountWhenOpened open={safetyUser !== null}>

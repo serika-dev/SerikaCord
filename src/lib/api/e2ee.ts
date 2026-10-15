@@ -27,6 +27,17 @@
 //                                              phone's notification key (signed by the device; Android
 //                                              push previews) and link it to its push token
 //   DELETE /e2ee/notify-keys/:notifyId         revoke own notification key (sign-out)
+//   GET    /e2ee/pin                           own PIN backup parameters (salt, iterations, attempts left)
+//   POST   /e2ee/pin/begin                     fresh server secret S for a new / changed PIN (10 min)
+//   POST   /e2ee/pin/commit                    { identityPub, salt, iterations, verifier, bundle, secretCheck, sig }
+//                                              store the PIN backup (identity-key signed)
+//   POST   /e2ee/pin/unlock                    { verifier } → S + bundle on the right PIN; 10 wrong in total
+//                                              destroy the PIN backup
+//   POST   /e2ee/pin/remove                    { identityPub, ts, sig } drop the PIN backup (identity-key signed)
+//   POST   /e2ee/backup/remove                 { identityPub, ts, sig } drop the passphrase backup (identity-key signed)
+//   POST   /e2ee/reauth                        { password } account password step-up (forgotten passphrase → PIN)
+//   POST   /e2ee/channels/:channelId/disable   { record } turn encryption off (member device-signed record)
+//   GET    /e2ee/channels/:channelId/state     { e2ee, state, record } the signed "turned off" record
 //
 // Writes that create keys or encrypted conversations are refused while the
 // E2EE_ENABLED flag is off; reads and device revocation always work.
@@ -41,6 +52,9 @@ import { Channel, Message, User } from '@/lib/models';
 import {
   E2EE_DISABLED_ERROR,
   E2EE_NOTICE,
+  checkOffRecordFrom,
+  e2eeOffNotice,
+  getConversationState,
   canJoinEncrypted,
   canLookUpKeys,
   devicesOf,
@@ -74,6 +88,8 @@ import {
 } from '@/lib/e2ee';
 import { config } from '@/lib/config';
 import { getRedis } from '@/lib/db/redis';
+import { PIN_PBKDF2_ITERATIONS, verifyRecoveryRemoval } from '@/lib/e2ee/pin';
+import { beginPin, clearPinBackup, commitPin, getPinRow, pinParams, pinSummary, unlockPin } from '@/lib/services/e2eePin';
 
 type Cookie = Record<string, { value?: unknown }>;
 
@@ -87,7 +103,7 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Cook
 
 type Setter = { status?: number | string };
 
-async function limited(kind: 'e2eeRead' | 'e2eeWrite' | 'e2eeEnable' | 'e2eeLink', userId: string, set: Setter) {
+async function limited(kind: 'e2eeRead' | 'e2eeWrite' | 'e2eeEnable' | 'e2eeLink' | 'e2eePin', userId: string, set: Setter) {
   const rl = await checkRateLimit(kind, userId);
   if (rl.success) return null;
   set.status = 429;
@@ -239,7 +255,8 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
           .catch(() => {});
       }
     }
-    return { enabled: e2eeEnabled(), identity: identitySummary(identity), device };
+    const pinRow = identity ? await getPinRow(user.id) : null;
+    return { enabled: e2eeEnabled(), identity: identitySummary(identity), device, pin: pinSummary(pinRow, identity?.identityPub) };
   }, { query: t.Object({ device: t.Optional(t.String({ maxLength: 64 })) }) })
 
   .put('/identity', async ({ headers, cookie, body, set, request }) => {
@@ -303,6 +320,8 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     // Their notification keys go with the devices (bundles only list keys of
     // active devices anyway; this also unlinks the phones' push tokens).
     if (existing) await revokeNotifyKeys(userId, { all: true });
+    // A PIN backup holds the old keys: useless now (and bound to the old identity anyway).
+    if (existing) await clearPinBackup(userId);
     notifyE2eeKeysChanged(userId);
     return { identity: identitySummary(row), reset: Boolean(existing) };
   }, {
@@ -563,6 +582,158 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     }),
   })
 
+  // Remove the passphrase backup (keeping the PIN, or none): identity-key signed.
+  .post('/backup/remove', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    await ensureE2eeSchema();
+    const userId = normalizeId(user.id);
+    const identity = await getIdentity(userId);
+    if (!identity || identity.identityPub !== body.identityPub) {
+      set.status = 409;
+      return { error: 'Your encryption keys changed. Reload and try again.' };
+    }
+    if (!(await verifyRecoveryRemoval(identity.identityPub, userId, 'passphrase', body.ts, body.sig))) {
+      set.status = 403;
+      return { error: 'This request was not signed by your encryption keys' };
+    }
+    await db.update(schema.e2eeIdentities)
+      .set({ backupBlob: null, backupSalt: null, backupIters: null, updatedAt: new Date() })
+      .where(and(eq(schema.e2eeIdentities.userId, userId), eq(schema.e2eeIdentities.identityPub, body.identityPub)));
+    return { success: true };
+  }, { body: t.Object({ identityPub: t.String({ maxLength: 120 }), ts: t.Number(), sig: t.String({ maxLength: 120 }) }) })
+
+  // Account password check (the same step-up as "Reset encryption"): stands in
+  // for a forgotten recovery passphrase when upgrading to a PIN on a device
+  // that still holds the keys. Nothing changes on the server.
+  .post('/reauth', async ({ headers, cookie, body, set, request }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    const denied = await verifyAccountPassword(user, body.password, request);
+    if (denied) {
+      set.status = denied.status;
+      return { error: denied.error };
+    }
+    return { success: true };
+  }, { body: t.Object({ password: t.String({ maxLength: 256 }) }) })
+
+  // ── 6-digit PIN backup (lib/e2ee/pin.ts, services/e2eePin.ts) ──────────────
+  .get('/pin', async ({ headers, cookie, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeRead', user.id, set);
+    if (rl) return rl;
+    const result = await pinParams(user.id);
+    if (!result.ok) {
+      set.status = result.status;
+      return { error: result.error, code: result.code };
+    }
+    return { salt: result.salt, iterations: result.iterations, attemptsLeft: result.attemptsLeft, identityPub: result.identityPub };
+  })
+
+  .post('/pin/begin', async ({ headers, cookie, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    const result = await beginPin(user.id);
+    if (!result.ok) {
+      set.status = result.status;
+      return { error: result.error, code: result.code };
+    }
+    // The client seals its bundle with this; it's useless without the PIN.
+    set.headers['Cache-Control'] = 'no-store';
+    return { secret: result.secret, expiresAt: result.expiresAt, iterations: PIN_PBKDF2_ITERATIONS };
+  })
+
+  .post('/pin/commit', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    const result = await commitPin(user.id, body);
+    if (!result.ok) {
+      set.status = result.status;
+      return { error: result.error, code: result.code };
+    }
+    return { success: true, attemptsLeft: result.attemptsLeft };
+  }, {
+    body: t.Object({
+      identityPub: t.String({ maxLength: 120 }),
+      salt: t.String({ maxLength: 64 }),
+      iterations: t.Number(),
+      verifier: t.String({ maxLength: 64 }),
+      bundle: t.String({ maxLength: LIMITS.maxBackupBlobB64 }),
+      secretCheck: t.String({ maxLength: 64 }),
+      sig: t.String({ maxLength: 120 }),
+    }),
+  })
+
+  .post('/pin/unlock', async ({ headers, cookie, body, set, request }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    // Per user and per IP, on top of the 10-attempt limit of the backup itself.
+    const rl = await limited('e2eePin', user.id, set);
+    if (rl) return rl;
+    const ipLimit = await checkRateLimit('e2eePin', `ip:${getClientIP(request)}`);
+    if (!ipLimit.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: ipLimit.retryAfter };
+    }
+    const result = await unlockPin(user.id, body.verifier);
+    set.headers['Cache-Control'] = 'no-store';
+    if (!result.ok) {
+      set.status = result.status;
+      return { error: result.error, code: result.code, ...(typeof result.attemptsLeft === 'number' ? { attemptsLeft: result.attemptsLeft } : {}) };
+    }
+    return { secret: result.secret, bundle: result.bundle, salt: result.salt, iterations: result.iterations, identityPub: result.identityPub };
+  }, { body: t.Object({ verifier: t.String({ maxLength: 64 }) }) })
+
+  .post('/pin/remove', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeWrite', user.id, set);
+    if (rl) return rl;
+    await ensureE2eeSchema();
+    const userId = normalizeId(user.id);
+    const identity = await getIdentity(userId);
+    if (!identity || identity.identityPub !== body.identityPub) {
+      set.status = 409;
+      return { error: 'Your encryption keys changed. Reload and try again.' };
+    }
+    if (!(await verifyRecoveryRemoval(identity.identityPub, userId, 'pin', body.ts, body.sig))) {
+      set.status = 403;
+      return { error: 'This request was not signed by your encryption keys' };
+    }
+    await clearPinBackup(userId);
+    return { success: true };
+  }, { body: t.Object({ identityPub: t.String({ maxLength: 120 }), ts: t.Number(), sig: t.String({ maxLength: 120 }) }) })
+
   .get('/users/:userId/keys', async ({ headers, cookie, params, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) {
@@ -653,6 +824,11 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       .where(and(eq(schema.channels.id, channel.id), sql`${schema.channels.e2ee} IS DISTINCT FROM true`))
       .returning({ id: schema.channels.id });
     if (!flipped) return { success: true, e2ee: true, changed: false };
+    // A conversation turned off earlier is on again (the off record stays for history).
+    await db.update(schema.e2eeConversationStates)
+      .set({ state: 'on', updatedBy: normalizeId(user.id), updatedAt: new Date() })
+      .where(eq(schema.e2eeConversationStates.channelId, normalizeId(channel.id)))
+      .catch(() => {});
 
     const notice = await Message.create({
       channelId: channel.id,
@@ -691,6 +867,112 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       .map((m) => m.displayName || m.username)
       .slice(0, 5);
     return { success: true, e2ee: true, changed: true, message: messageData, withoutRecovery: names };
+  }, { params: t.Object({ channelId: t.String() }) })
+
+  // Turn encryption off for one conversation. Only with a member device's
+  // signed record (lib/e2ee/conversationState.ts): other members' devices keep
+  // treating the conversation as encrypted until that signature verifies.
+  .post('/channels/:channelId/disable', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeEnable', user.id, set);
+    if (rl) return rl;
+    if (!isValidObjectId(params.channelId)) {
+      set.status = 400;
+      return { error: 'Invalid channel id' };
+    }
+    const channel = await Channel.findById(params.channelId);
+    const memberIds = channel?.recipientIds || [];
+    const isMember = memberIds.some((id) => normalizeId(id) === normalizeId(user.id));
+    if (!channel || (channel.type !== 'dm' && channel.type !== 'group_dm') || !isMember) {
+      set.status = 404;
+      return { error: 'Conversation not found' };
+    }
+    if (channel.e2ee !== true) return { success: true, e2ee: false, changed: false };
+    await ensureE2eeSchema();
+    const checked = await checkOffRecordFrom(user.id, channel, body.record);
+    if (!checked.ok) {
+      set.status = checked.status;
+      return { error: checked.error };
+    }
+    const record = checked.record;
+    const [flipped] = await db.update(schema.channels)
+      .set({ e2ee: false })
+      .where(and(eq(schema.channels.id, channel.id), eq(schema.channels.e2ee, true)))
+      .returning({ id: schema.channels.id });
+    if (!flipped) return { success: true, e2ee: false, changed: false };
+    const now = new Date();
+    await db.insert(schema.e2eeConversationStates)
+      .values({ channelId: normalizeId(channel.id), state: 'off', record, updatedBy: normalizeId(user.id), updatedAt: now })
+      .onConflictDoUpdate({
+        target: schema.e2eeConversationStates.channelId,
+        set: { state: 'off', record, updatedBy: normalizeId(user.id), updatedAt: now },
+      });
+
+    const notice = await Message.create({
+      channelId: channel.id,
+      authorId: user.id,
+      content: '',
+      type: 'system',
+      e2ee: e2eeOffNotice(record),
+    });
+    await Channel.updateById(channel.id, { lastMessageId: notice.id, updatedAt: now }).catch(() => {});
+    const messageData = {
+      id: notice.id,
+      type: 'e2ee_disabled',
+      content: '',
+      e2eeRecord: record,
+      authorId: user.id,
+      author: {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName || user.username,
+        avatar: user.avatar ?? undefined,
+        badges: user.badges || [],
+        customization: user.customization || null,
+      },
+      channelId: channel.id,
+      createdAt: notice.createdAt,
+      attachments: [],
+    };
+    const { publishToDm, emitDmListUpdate } = await import('@/lib/api/dms');
+    publishToDm(channel.id, { type: 'e2ee_disabled', channelId: channel.id, record });
+    publishToDm(channel.id, { type: 'message', message: messageData });
+    emitDmListUpdate(memberIds, { type: 'dm:e2ee', channelId: channel.id, e2ee: false });
+    return { success: true, e2ee: false, changed: true, message: messageData };
+  }, { params: t.Object({ channelId: t.String() }), body: t.Object({ record: t.Unknown() }) })
+
+  // The signed "turned off" record of a conversation (clients that remember it
+  // encrypted verify it before accepting plaintext there).
+  .get('/channels/:channelId/state', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await limited('e2eeRead', user.id, set);
+    if (rl) return rl;
+    if (!isValidObjectId(params.channelId)) {
+      set.status = 400;
+      return { error: 'Invalid channel id' };
+    }
+    const channel = await Channel.findById(params.channelId);
+    const isMember = Boolean(channel?.recipientIds?.some((id) => normalizeId(id) === normalizeId(user.id)));
+    if (!channel || (channel.type !== 'dm' && channel.type !== 'group_dm') || !isMember) {
+      set.status = 404;
+      return { error: 'Conversation not found' };
+    }
+    await ensureE2eeSchema();
+    const state = await getConversationState(channel.id);
+    return {
+      channelId: channel.id,
+      e2ee: channel.e2ee === true,
+      state: state?.state === 'off' && channel.e2ee !== true ? 'off' : channel.e2ee === true ? 'on' : 'plain',
+      record: state?.state === 'off' && channel.e2ee !== true ? state.record ?? null : null,
+    };
   }, { params: t.Object({ channelId: t.String() }) })
 
   // ── Device linking (lib/e2ee/link.ts) ──────────────────────────────────────

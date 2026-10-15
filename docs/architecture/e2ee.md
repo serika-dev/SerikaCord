@@ -2,11 +2,13 @@
 
 Status: implemented October 2026, behind the `E2EE_ENABLED` flag (see
 Rollout). Scope chosen by the owner: DMs, group DMs and their voice/video
-calls are end-to-end encrypted; new DMs are encrypted by default; keys survive
-new devices through a recovery passphrase; reported messages are revealed to
-Trust & Safety with a cryptographic proof (message franking). Server channels
-stay server-side encrypted at rest (bots, search, AutoMod, history for new
-members).
+calls are end-to-end encrypted; new DMs are encrypted by default (any member
+can turn it off per conversation with a signed record, and on again); keys
+survive new devices through a **6-digit PIN** (the default, required once per
+account; X-style), device linking by QR, or an optional long recovery
+passphrase; reported messages are revealed to Trust & Safety with a
+cryptographic proof (message franking). Server channels stay server-side
+encrypted at rest (bots, search, AutoMod, history for new members).
 
 Only WebCrypto primitives available in every supported browser, the Qt
 WebEngine shell (Chromium 102+) and Android WebView are used: ECDH P-256,
@@ -18,11 +20,12 @@ Code map:
 
 | Path | What |
 |------|------|
-| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `constants`, `encoding` |
+| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows and the on / off timeline, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `pin` (PIN derivation, bundle seal / open, commit + removal signatures, easy-PIN rules), `pinVault` (server half with the pepper: verifier hash, sealed server secret, attempt rules), `conversationState` (signed "turned off" records and the downgrade rules), `constants`, `encoding` |
 | `src/lib/e2ee/client/` | Browser only: `keyStore` (IndexedDB, incl. "seen encrypted" memory, archived keys, link escrow), `session` (setup, linking, trust, encrypt/decrypt, caches; lazy-loaded), `plainCache` (decrypted-message cache: memory + encrypted IndexedDB; cached key bundles), `view` (payload → rendered message, crypto-free), `fileCrypto` + `fileWorker` (attachments in a module Web Worker), `state` (crypto-free snapshot for React), `chatGlue` (useChatSession helpers), `callGuard` (does a call room need verified signatures), `previews` (notification / DM-list previews), `notifyKey` (Android: notification key + trusted senders for native code) |
-| `src/lib/services/e2ee.ts` | Server: flag, boot DDL, key lookups, key-set versions, key-change notifications, send gate, franking reports |
+| `src/lib/services/e2ee.ts` | Server: flag, boot DDL, key lookups, key-set versions, key-change notifications, send gate, franking reports, "turned off" record checks |
+| `src/lib/services/e2eePin.ts` | Server: PIN backups (pepper, begin / commit, unlock with atomic attempt counting, lockout + system DM, removal) |
 | `src/lib/api/e2ee.ts` | `/api/e2ee` routes (incl. the device-linking relay) |
-| `src/components/e2ee/` | Host (starts E2EE right after sign-in, dialogs, realtime key changes), setup/restore/reset dialog, device-linking dialog, conversation banner, safety numbers, settings panel |
+| `src/components/e2ee/` | Host (starts E2EE right after sign-in, dialogs, realtime key changes), `PinInput` (6 boxes) + `PinFlows` (create / upgrade / change / unlock) shown by `E2eePinDialog` and inline by `E2eePinGate` (DM pages), setup/restore/reset dialog, device-linking dialog, `E2eeConversationLock` (header lock + panel), conversation banner (warnings only), safety numbers, settings panel |
 | `src/app/e2ee/link` | Where a linking QR code points (a phone camera opens the app's approve dialog) |
 | `src/lib/push/fcm.ts`, `src/lib/services/pushNotifications.ts` | Push builder: the per-device `e2ee` block for protocol 3 phones |
 | `mobile/android/.../serikacord/` `E2eeNotifyCrypto`, `EncryptedPreviewText`, `EncryptedPushPreview`, `NotificationKeyStore` | Android: open + verify encrypted pushes, preview text, Keystore-wrapped notification key and trusted senders |
@@ -44,6 +47,7 @@ lower-cased UUIDs.
 | Identity key (per user) | ECDSA P-256 | IndexedDB on the user's devices + passphrase backup | `e2ee_identities.identity_pub` |
 | Backup key (per user) | ECDH P-256 | IndexedDB + passphrase backup | `e2ee_identities.backup_pub` + `backup_sig` |
 | Device keys (per device) | ECDH P-256 (encryption) + ECDSA P-256 (signing), non-extractable | IndexedDB of that device only | `e2ee_devices` |
+| PIN backup (per user) | identity + backup private JWK, AES-256-GCM under a key needing the PIN **and** a server secret S | server: bundle ciphertext; S only encrypted under a key derived from the `E2EE_PIN_PEPPER` env secret | none (see "6-digit PIN") |
 | Link escrow (per device, ≤ 10 min) | identity + backup private JWK, AES-256-GCM under a per-device non-extractable key | IndexedDB (`linkEscrow`) for 10 minutes after the passphrase was proven here or the device was linked | none (see "Linking a device") |
 | Notification key (per Android install, protocol 3) | ECDH P-256 | the APK's native storage, AES-256-GCM under a non-exportable Android Keystore key | `e2ee_notify_keys`, signed by the owning device's signing key |
 
@@ -188,6 +192,8 @@ gallery's URL list.
   keys or is a bot / system account) and a "X turned on end-to-end encryption"
   row is posted (`type 'system'`, `messages.e2ee = { v: 1, notice: 'enabled' }`,
   shown as `type: 'e2ee_enabled'`).
+- Any member can **turn encryption off** for a conversation (and anyone back
+  on): see "Turning encryption off" below.
 - In an encrypted conversation the DM / group DM routes reject plaintext and
   only take envelopes; plain conversations reject envelopes.
   `POST/PATCH /api/channels/:id/messages` never takes envelopes and refuses
@@ -201,6 +207,85 @@ gallery's URL list.
   DM list / notification / push previews: the server only ever sends the
   envelope; devices decrypt previews themselves (see "Previews and push
   notifications"). Pushes carry no picture and no inline reply.
+
+## Turning encryption off (per conversation)
+
+Encrypted by default; any member may turn it off (confirmation: new messages
+won't be end-to-end encrypted, older encrypted ones stay encrypted and
+readable) and anyone may turn it on again (the existing enable path, with its
+"turned on" notice). The server must not be able to do it silently, so "off"
+needs a member device's signature (`lib/e2ee/conversationState.ts`):
+
+```
+record = { v: 1, channelId, kind: "dm" | "group_dm", members?: [a, b], userId, deviceId, state: "off", ts, sig }
+sig    = ECDSA(deviceSignKey, frame("serika-e2ee-conv-state-v1", channelId, kind, a | "", b | "", userId, deviceId, "off", ts))
+```
+
+`members` (1:1 DMs only) are the two people, lower-cased and sorted, and the
+signer must be one of them: a 2-person group's genuine record can't be served
+as a 1:1 DM's.
+
+- `POST /e2ee/channels/:id/disable {record}`: the server checks shape, that
+  it names this conversation, its kind (and a DM's two people) and the
+  caller, ts within ±10 min, and the
+  signature under the caller's active device; then sets `channels.e2ee =
+  false`, stores the record (`e2ee_conversation_states`), posts a system row
+  (`messages.e2ee = {v: 1, notice: "disabled", record}`, sent to clients as
+  `type: "e2ee_disabled"` with `e2eeRecord`: "X turned off end-to-end
+  encryption. New messages here aren't end-to-end encrypted.") and publishes
+  `e2ee_disabled` (with the record) on the conversation stream.
+  `GET /e2ee/channels/:id/state` returns the current record.
+- **Clients** that remember the conversation encrypted keep it encrypted
+  until the record verifies (`session.verifyConversationOff`, used by
+  `chatGlue.conversationEncryptionHere`): the record must name the kind of
+  conversation the user opened (and, for a 1:1 DM, exactly us + the URL's
+  person; a DM channel this device already proved to be another one is
+  refused), the signer must be a member of the conversation bound to the URL
+  (a 1:1 DM's channel must be exactly us + the URL's person), the device must
+  be vouched for by an identity key this
+  device trusts for that member and not revoked before `ts` (+1 min), the
+  signature must verify, `ts` must not be more than 10 minutes ahead, and it
+  must be newer than the last time this device saw the conversation
+  encrypted (minus 10 minutes of clock skew) and than any off record it
+  accepted before; a record this device accepted and then saw superseded
+  (the conversation encrypted again) is never accepted again, whatever the
+  clocks say — so an old record can't be replayed after the conversation
+  was turned on again. Verdicts are never cached: only checks still in
+  flight are shared, and "stay encrypted" answers are kept for 30 s at most,
+  so every downgrade is re-checked against the current memory (cheap once
+  accepted: a local read). A live `e2ee_disabled` event changes the local
+  state only once its record verifies. `seenEncryptedAt` is written at most
+  once a minute per tab (immediately after an accepted "off"). Accepted → stored per conversation in
+  IndexedDB (`conversationStates`), plaintext sends allowed, no
+  "Not encrypted – can't verify sender" flags. Anything else (no record,
+  unknown device, bad signature, replay) → the conversation stays encrypted
+  here (the server then refuses this device's envelopes) and a red strip says
+  "The server says encryption was turned off here, but no one in this
+  conversation confirmed it…" with "Turn on encryption". Seeing the
+  conversation encrypted again (server flag, `e2ee_enabled`) clears the off
+  state and moves `seenEncryptedAt` forward.
+- **History**: plain rows are judged against the on / off timeline of the
+  notices seen (`isPlainAllowedAt`): legitimate in the plain era before the
+  first "turned on" notice and after a *verified* "turned off" notice until
+  the next "turned on" — or until the last time this device itself saw the
+  conversation encrypted, whichever comes first; a "turned off" proves the
+  conversation was encrypted before it. An off point sits at the record's
+  signed time (not the server's row time); a notice whose row time is more
+  than 10 minutes from it is ignored, and each record counts once.
+  Unverified "turned off" rows never open a plain window.
+- The "turned off" system row names the member who signed the record (the
+  row's author only when it is that member, else "Someone") and is marked
+  "Not verified" when the record doesn't verify on this device.
+- Encrypted messages can't get a plaintext edit while it's off (the DM /
+  group routes and `PATCH /api/channels/:id/messages/:mid` refuse: clients
+  would keep showing the encrypted version).
+- **Android**: when a device verifies an "off", it sends
+  `{ <channel>: { kind: "plain" } }` to `setEncryptedConversations`; newer
+  APKs drop that conversation from the native encrypted list (so plain
+  pushes show their text), older APKs ignore the entry and keep showing
+  "New encrypted message" (fails safe). Turning it on again re-adds it.
+- Calls follow the conversation state (`callGuard` uses the same memory);
+  `voiceService.setRoomE2ee` still never switches a room off mid-session.
 
 ## Recovery passphrase (key backup)
 
@@ -217,6 +302,9 @@ gallery's URL list.
   stored in `e2ee_identities.backup_blob / backup_salt / backup_iters`
   (≤ 16 KiB, iterations 600 000–5 000 000). A PUT is bound to the current
   identity key so a stale tab can't overwrite the backup after a reset.
+- Since the PIN backup the passphrase is an **optional extra** method
+  (Settings: "Recovery passphrase (optional)", Turn off / Change); accounts
+  that had one are upgraded to a PIN by entering it once (see "6-digit PIN").
 - New device: download the blob, enter the passphrase, check the restored
   keys match the published ones, create + sign + publish a device key. All
   history wrapped to `backup:<user>` becomes readable. Linking from another
@@ -236,6 +324,130 @@ gallery's URL list.
   reset elsewhere, or a server claiming one), the device archives its keys
   instead of deleting them and shows "Encryption was reset on another device"
   with a Restore action.
+
+## 6-digit PIN (default key backup)
+
+What a passphrase restore or a device link yields (the identity + backup
+private keys) is also sealed in a **PIN backup**: on a new device the user
+types six digits and everything decrypts (like X's encrypted DMs). Code:
+`lib/e2ee/pin.ts` (client + shared, tested), `lib/e2ee/pinVault.ts` (server,
+pure, tested), `services/e2eePin.ts`, `session.ts` (flows), `PinFlows.tsx`.
+
+**Crypto.**
+
+```
+master   = PBKDF2-SHA-256(utf8(PIN ‖ ":" ‖ userId), salt 16 B, 600 000)       (32 B; in the attachment worker when it runs)
+verifier = HKDF-SHA-256(master, 0^32, frame("serika-e2ee-pin-verifier-v1", userId))
+wrap     = HKDF-SHA-256(master, 0^32, frame("serika-e2ee-pin-wrap-v1", userId))
+K        = HKDF-SHA-256(wrap ‖ S, 0^32, frame("serika-e2ee-pin-v1", userId))   → AES-256-GCM
+bundle   = base64(iv ‖ AES-GCM(K, iv, {v, identity JWK, backup JWK}, aad = frame("serika-e2ee-pin-bundle-v1", userId, identityPub)))
+```
+
+S is 32 random bytes made by the server. The server stores per user
+(`e2ee_pin_backups`): salt, iterations, the bundle, the identity key it
+belongs to, `verifier_hash = HMAC-SHA-256(macKey, frame("serika-e2ee-pin-verifier-hash-v1", userId, verifier))`
+and `secret_enc = AES-256-GCM(encKey, S, aad = frame("serika-e2ee-pin-secret-v1", userId))`,
+where `macKey` / `encKey` are HKDF-derived (separate labels) from
+`E2EE_PIN_PEPPER`, an environment secret that is never in the database. A
+database dump alone therefore can neither test PIN guesses (no pepper → no
+HMAC) nor open S (and without S the bundle doesn't open even with the right
+PIN).
+
+**Set / change** (two steps, so the client never sends S back):
+`POST /pin/begin` → a fresh S (kept pending, encrypted, 10 minutes; a new
+begin replaces it). The client seals the bundle with it and posts
+`POST /pin/commit {identityPub, salt, iterations, verifier, bundle, secretCheck, sig}`:
+`secretCheck = SHA-256(frame("serika-e2ee-pin-secret-check-v1", S))` binds the
+commit to the pending S (a second tab's begin makes the first commit fail
+instead of storing a bundle nobody can open), and
+`sig = Sign(identity, frame("serika-e2ee-pin-commit-v1", userId, identityPub, salt, iterations, SHA-256(bundle), secretCheck))`
+proves a device holding the account's identity key made it: a stolen session
+alone can't swap the backup for one whose PIN it knows (the verifier is not
+signed: a signature over it would be an offline oracle). So the verifier is
+not cryptographically bound to the bundle: whoever can rewrite the commit in
+transit (TLS broken) or the server itself could store a different verifier,
+which only makes later unlocks fail (a denial of service the server could
+cause anyway: it holds S and the bundle). The server checks
+the identity is the current one. *Deviation from the original brief* (which
+asked for the current verifier on change): the identity-key signature is a
+stronger proof and also lets a device that still holds the keys set a new PIN
+when the old one is forgotten; the UI still asks for the current PIN to
+change it (that's what opens the keys on a device whose keys are sealed).
+After a commit the keys on the device are re-imported non-extractable (as
+after a passphrase) and the 10-minute link escrow is opened. PINs that are
+all one digit, straight runs, repeated pairs / triples, mirrored halves and a
+few very common ones are refused (`isEasyPin`).
+
+**Unlock** (`POST /pin/unlock {verifier}`, needs the account's session): the
+route first **reserves an attempt atomically**
+(`UPDATE … SET attempts = attempts + 1 WHERE attempts < 10 AND bundle IS NOT NULL … RETURNING`),
+then compares `HMAC(verifier)` in constant time. Right → attempts reset to 0,
+returns S, the bundle, salt and iterations; the client opens the bundle,
+checks the keys equal the published ones and registers the device. Wrong →
+403 with `attemptsLeft`. The attempt that reaches 10 (in total, across devices
+and time; only a right PIN resets the count) **wipes S and the bundle**
+(`locked_at` set) and the user gets a system DM ("Too many wrong PIN
+attempts: your encrypted-message PIN backup was reset…"); their devices, the
+passphrase backup and QR linking keep working. Because the attempt is
+reserved before the check, parallel requests can never evaluate more than 10
+guesses. Rate limits on top: `e2eePin` 5 / minute per user **and** per IP.
+
+**Remove** (`POST /pin/remove`, identity-signed `frame("serika-e2ee-pin-remove-v1", userId, identityPub, "pin", ts)`,
+±10 min) and "Reset encryption" (and any identity change) drop the PIN
+backup. The passphrase backup can be removed the same way
+(`POST /backup/remove`, method `"passphrase"`); Settings only offers it while a
+PIN exists, and removing the PIN only while a passphrase exists.
+
+**Required setup / upgrade (UX).**
+- Every account converts to a PIN (`snapshot.requirePinSetup`): an account
+  without E2EE gets "Create a 6-digit PIN" right after its keys are made
+  (PIN + confirm, ~5 s); an account that already has a recovery passphrase
+  gets "Upgrade to a 6-digit PIN": enter the passphrase once (it opens the
+  backup — so the keys are at hand even though they're sealed here), then
+  create + confirm the PIN. "Forgot your passphrase?": when this device can
+  still produce the keys (never sealed here, or within the escrow window) the
+  **account password** (`POST /reauth`, the same accounts-service step-up as
+  "Reset encryption") stands in for it; when the keys here are sealed it
+  can't work (non-extractable keys can't be exported) and the only ways are
+  another device / a reset. A device that just restored with the passphrase
+  goes straight to creating the PIN. The PIN dialog opens once per session;
+  DM / group DM pages show the same setup inline instead of the conversation
+  until it's done (bots / system DMs, e.g. the lockout notice, stay readable;
+  server channels are unaffected). A linked device of an account with
+  neither PIN nor passphrase and sealed keys can't make the bundle: it shows
+  "Create your PIN on the device where you first set up encryption".
+- New device (`needs-restore`) of an account with a PIN: "Enter your PIN"
+  (6 boxes, numeric keypad, auto-advance, paste, the sixth digit submits)
+  inline on DM pages and as a dialog the first time the DM list opens;
+  "2 tries left before your encrypted messages are reset" when low; links to
+  "Use another device instead", "Use recovery passphrase" (when set) and
+  "Forgot PIN? Reset encryption"; "Not now" shows the conversation for the
+  session. Without a PIN: passphrase (then the PIN is created) / another
+  device / reset.
+- Approving a device link from a device whose keys are sealed asks for the
+  PIN (or the passphrase) once, like the passphrase did.
+- Without `E2EE_PIN_PEPPER` every PIN route answers 503, `/status` reports
+  `pin.available: false`, and the apps behave as before (passphrase
+  onboarding, QR linking): never a weaker PIN.
+
+**Threat model of the PIN** (honest version, also in Settings: "For the
+strongest protection, also set a long recovery passphrase and remove the
+PIN"):
+- Protects against a **database leak** (pepper + encrypted S: no offline
+  guessing), **online guessing** (10 tries in total, then the backup is
+  destroyed; 10 / 10^6 minus refused easy PINs) and **network attackers**
+  (TLS; S and the bundle are useless without the PIN's wrap key).
+- Does **not** protect against **whoever operates the server with the
+  pepper** (or anyone who obtains database + pepper): they hold S and the
+  verifier hash and can try all 10^6 PINs offline (10^6 × 600 000 PBKDF2
+  iterations: hours on one GPU), or simply log verifiers sent to
+  `/pin/unlock`. A long recovery passphrase has no such server-side dependency.
+- Someone with the user's session (stolen cookie) can burn the 10 attempts
+  and destroy the PIN backup (DoS, the user is told by system DM), with a
+  10 / 10^6 chance of guessing right.
+- Future option: distributed guess-limiting (Juicebox / Signal SVR style:
+  secret shares across independent realms or an enclave) would remove the
+  "operator with the pepper" case.
 
 ## Linking a device (no passphrase)
 
@@ -363,6 +575,10 @@ valid disclosure is refused.
   `user_id`, and `push_devices.e2ee_notify_id text` (nullable): notification keys and which phone
   holds one (stage 2: `drizzle/manual_e2ee_notify.sql`, also ensured at boot by
   `ensureE2eeSchema()` / `ensurePushSchema()`)
+- `e2ee_pin_backups (user_id pk, identity_pub, salt, iterations, bundle, verifier_hash, secret_enc, pending_secret_enc, pending_expires_at, attempts, locked_at, created_at, updated_at)`
+  and `e2ee_conversation_states (channel_id pk, state, record jsonb, updated_by, updated_at)`:
+  PIN backups and "turned off" records (`drizzle/manual_e2ee_pin.sql`, also
+  ensured at boot). New tables only.
 - `e2ee_envelope_history (message_id, sig, envelope jsonb, replaced_at, pk (message_id, sig))`:
   envelopes replaced by edits (a separate table rather than a column on
   `messages`, so no existing `SELECT *` on the big table depends on it)
@@ -371,14 +587,18 @@ valid disclosure is refused.
 
 | Route | Purpose |
 |-------|---------|
-| `GET /status` | `{ enabled, identity, device }`; `?device=<id>` touches last-seen |
+| `GET /status` | `{ enabled, identity, device, pin: { available, set, attemptsLeft, lockedAt } }`; `?device=<id>` touches last-seen |
 | `PUT /identity` | publish own identity + signed backup key (`reset` + account `password` for "Reset encryption") |
 | `GET/POST /devices`, `DELETE /devices/:deviceId` | list, register (signature checked, max 10 active), revoke own devices |
 | `GET/PUT /backup` | own passphrase-sealed backup |
 | `GET /users/:userId/keys` | one user's public key bundle (calls, unknown senders); only for yourself, friends, people you share a DM / group DM or server with; other people's device names and activity times are never returned |
 | `GET /channels/:channelId/keys` | members' bundles of a DM / group DM (members only) + `version`; `?v=<version>` → `{ unchanged: true }` when still current |
 | `POST /link`, `GET /link/:code`, `POST /link/:code/{join,reveal,payload,done}`, `DELETE /link/:code` | device-linking relay (Redis, 5 min, single use, own account only) |
-| `POST /channels/:channelId/enable` | turn encryption on |
+| `POST /channels/:channelId/enable` | turn encryption on (also after it was turned off) |
+| `POST /channels/:channelId/disable`, `GET /channels/:channelId/state` | turn encryption off with a member device-signed record; the current record |
+| `GET /pin`, `POST /pin/begin`, `POST /pin/commit`, `POST /pin/unlock`, `POST /pin/remove` | PIN backup: parameters, fresh server secret, store (identity-signed), unlock (10 tries in total), remove (identity-signed) |
+| `POST /backup/remove` | remove the passphrase backup (identity-signed) |
+| `POST /reauth` | account password step-up (forgotten passphrase while upgrading to a PIN) |
 | `GET /blob?url=` | same-origin relay of an encrypted attachment blob from our CDN |
 | `POST /notify-keys`, `DELETE /notify-keys/:id` | register (device-signed; optional `pushToken` link) / revoke this phone's notification key |
 
@@ -392,7 +612,8 @@ conversation switches. Encrypted DM / group sends may carry `e2eeKeys`
 clients show a translated message. Activity-stream events: `e2ee_keys`
 (`{ userId }`) and `e2ee_link` (`{ code, status }`, own sessions only). Rate
 limits: `e2eeRead`, `e2eeWrite`, `e2eeEnable`, `e2eeBlob`, `e2eeLink`
-(`src/lib/security/index.ts`). Link sessions live in Redis, caches on the
+(`src/lib/security/index.ts`), plus `e2eePin` (unlock attempts, per user and
+per IP). Link sessions live in Redis, caches on the
 client. Stage 2 added notification keys (see Storage) and the `e2ee` field
 on `dm_activity`, `dm:list:update` and DM-list last messages.
 
@@ -411,7 +632,19 @@ on `dm_activity`, `dm:list:update` and DM-list last messages.
   encrypted, in IndexedDB (see "Performance and caches"); the localStorage
   message cache stores encrypted messages as envelope-only placeholders.
 - Settings → Encryption (desktop dialog + mobile settings page): status,
-  passphrase, devices with revoke, contacts' safety numbers, reset.
+  6-digit PIN (create / change / remove), recovery passphrase (optional:
+  set / change / turn off), link a device, devices with revoke, contacts'
+  safety numbers, reset.
+- Conversation header: a lock next to the DM / group name ("End-to-end
+  encrypted"; an open lock when a member turned it off). It opens a popover
+  (desktop) / bottom sheet (phones): "Messages and calls are end-to-end
+  encrypted.", each member with "Verify safety number", and "Turn off
+  encryption" (or "Turn on encryption"). There is no permanent "encrypted"
+  strip above the composer any more: only actionable / warning strips
+  (security code changed, key / member mismatch, someone without keys, this
+  device not set up, unverifiable "off", encryption off with "Turn on
+  encryption", PIN to be set on another device). The "turned on / off"
+  system rows stay as the in-history explanation.
 
 ## Performance and caches
 
@@ -720,7 +953,19 @@ same way (signed by the device, wrapped like the Android one) and decrypt in
 the service worker with a non-extractable key from IndexedDB, checking
 signatures against the pins the page keeps there.
 
-## Rollout: `E2EE_ENABLED`
+## Rollout: `E2EE_ENABLED`, `E2EE_PIN_PEPPER`
+
+`E2EE_PIN_PEPPER` (32+ random bytes, base64, e.g. `openssl rand -base64 32`)
+enables PIN backups. Set the **same value on canary and production** (they
+share the database) and **never change it once set**: every stored PIN
+backup becomes unusable (users fall back to their devices / passphrase and
+have to create a new PIN). Missing / too short → PIN routes 503, apps use
+the passphrase / linking as before. The new tables are created at boot; the
+off / PIN routes are new, so older production code ignores them (a
+"turned off" row shows there as an empty system row until the release;
+older clients that remember such a conversation encrypted keep sending
+envelopes, which the server refuses).
+
 
 Canary and production share one database and production runs older code
 until a release. E2EE is off unless the server has `E2EE_ENABLED=1`. While
@@ -797,3 +1042,29 @@ messages as blank.
   titles are server data (only 1:1 DMs bind the sender).
 - Google (FCM) sees, per push, the ciphertext length (≈ message length) and
   the sender device id, besides the names / ids it saw before.
+- **PIN backup**: whoever runs the server *with* `E2EE_PIN_PEPPER` (or
+  obtains database + pepper) can brute-force a 6-digit PIN offline
+  (10^6 × PBKDF2) or log verifiers, and so read everything wrapped to the
+  backup key. That's the price of a 6-digit PIN; the strongest setup is a
+  long recovery passphrase with the PIN removed (Settings says so). Future:
+  distributed guess-limiting (Juicebox / SVR). A stolen session can burn the
+  10 attempts and destroy the PIN backup (the user is told). Easy-PIN rules
+  and the "required PIN" are enforced by clients only. A device whose keys
+  are sealed (non-extractable) can't create a PIN without the current PIN /
+  passphrase (or escrow): forgetting both there means a reset. The
+  "account password instead of a forgotten passphrase" step is a client-side
+  gate (the device already holds the keys; the server can't tell), and
+  passkey-only accounts can't use it (same as "Reset encryption").
+- **Turning encryption off**: a record a device never saw before can be
+  replayed by the server only if it is at most ~11 minutes (10-minute
+  clock-skew allowance + the 1-minute `seenEncryptedAt` write interval)
+  older than the last time that device saw the conversation encrypted;
+  records a device already saw superseded are never accepted again. A live
+  "turned off" event whose record doesn't verify leaves the open chat
+  encrypted without a warning until the next page load shows the server's
+  unverifiable claim. Devices that never saw a
+  conversation encrypted have nothing to protect (as before). The Android
+  app learns that a conversation was turned off only once the web app on
+  that phone verified it (opened or received the live event); until then
+  its pushes say "New encrypted message". The "turned off" notice's author
+  and time are server data (what's verified is the signed record).

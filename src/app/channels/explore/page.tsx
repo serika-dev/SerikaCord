@@ -419,7 +419,8 @@ export default function ExplorePage() {
         // Optimistically mark as joined
         setJoinedServerIds((prev) => new Set(prev).add(serverId));
         toast.success(gt("Joined") + " " + server.name);
-        router.push(`/channels/${serverId}`);
+        // The full-page join flow; it goes on to the server when there's nothing to do.
+        router.push(`/channels/${serverId}/onboarding`);
       } else if (response.status === 400 && data.error?.includes("Already a member")) {
         // Already a member — navigate to server
         setJoinedServerIds((prev) => new Set(prev).add(serverId));

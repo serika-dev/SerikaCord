@@ -81,6 +81,24 @@ export interface LinkEscrow {
   expiresAt?: number;
 }
 
+/**
+ * What this device knows about one conversation's on / off switches
+ * (lib/e2ee/conversationState.ts), keyed like `conversations`.
+ */
+export interface ConversationStateMemory {
+  /** Last time (local clock, ms) this device saw the conversation encrypted. */
+  seenEncryptedAt?: number;
+  /**
+   * A member-signed "turned off" record this device verified and accepted:
+   * plaintext is allowed there until the conversation is seen encrypted again.
+   */
+  off?: { ts: number; by: string; deviceId: string; channelId: string } | null;
+  /** The newest "turned off" record ever accepted here (an older one never wins). */
+  lastOffTs?: number;
+  /** Accepted "turned off" records up to this time were superseded (seen encrypted again): never accepted again. */
+  consumedOffTs?: number;
+}
+
 interface Records {
   identity: StoredIdentity;
   backup: StoredIdentity;
@@ -92,6 +110,8 @@ interface Records {
    * local. Never keyed by a server-supplied channel id.
    */
   conversations: Record<string, true>;
+  /** On / off switches seen per conversation (same keys as `conversations`). */
+  conversationStates: Record<string, ConversationStateMemory>;
   backupState: BackupState;
   archive: ArchivedKeys[];
   linkEscrow: LinkEscrow;
@@ -231,28 +251,81 @@ export async function isKeyStoreAvailable(): Promise<boolean> {
 
 /**
  * "Seen encrypted" answers already known in this tab. Only positives are
- * kept (the memory is one-way); a negative is always re-read, since another
- * tab may have remembered the conversation meanwhile.
+ * kept; a negative is always re-read, since another tab may have remembered
+ * the conversation meanwhile. Accepting a verified "turned off" record drops
+ * the positive (lib/e2ee/conversationState.ts).
  */
 const rememberedHere = new Set<string>();
+/** When this tab last wrote `seenEncryptedAt` per conversation (writes are throttled). */
+const seenWrittenAt = new Map<string, number>();
+// Short: an older sighting widens the window in which a replayed "turned off" record passes.
+const SEEN_WRITE_INTERVAL_MS = 60_000;
 
-/** Whether this device has seen the conversation `key` encrypted (false when storage is unavailable). */
-export async function isConversationRememberedEncrypted(userId: string, key: string): Promise<boolean> {
-  if (!userId || !key) return false;
-  const id = `${userId.toLowerCase()}|${key.toLowerCase()}`;
-  if (rememberedHere.has(id)) return true;
-  if (!(await isKeyStoreAvailable())) return false;
-  const list = await new KeyStore(userId).get("conversations");
-  for (const k of Object.keys(list ?? {})) rememberedHere.add(`${userId.toLowerCase()}|${k}`);
-  return rememberedHere.has(id);
+function memoryId(userId: string, key: string) {
+  return `${userId.toLowerCase()}|${key.toLowerCase()}`;
 }
 
-/** Remember that the conversation `key` is encrypted (one-way). */
+/**
+ * Whether this device has seen the conversation `key` encrypted and hasn't
+ * since accepted a verified "turned off" record for it (false when storage is
+ * unavailable).
+ */
+export async function isConversationRememberedEncrypted(userId: string, key: string): Promise<boolean> {
+  if (!userId || !key) return false;
+  const id = memoryId(userId, key);
+  if (rememberedHere.has(id)) return true;
+  if (!(await isKeyStoreAvailable())) return false;
+  const { conversations, conversationStates } = await new KeyStore(userId).getMany(["conversations", "conversationStates"]);
+  const k = key.toLowerCase();
+  if (!conversations?.[k] || conversationStates?.[k]?.off) return false;
+  rememberedHere.add(id);
+  return true;
+}
+
+/**
+ * Remember that the conversation `key` is encrypted (seen now): clears an
+ * accepted "turned off" state (it was turned on again) and moves
+ * `seenEncryptedAt` forward, so an older "turned off" record can't be
+ * replayed later.
+ */
 export async function rememberConversationEncrypted(userId: string, key: string): Promise<void> {
   if (!userId || !key) return;
-  const id = `${userId.toLowerCase()}|${key.toLowerCase()}`;
-  if (rememberedHere.has(id)) return;
+  const id = memoryId(userId, key);
+  const now = Date.now();
+  if (rememberedHere.has(id) && now - (seenWrittenAt.get(id) ?? 0) < SEEN_WRITE_INTERVAL_MS) return;
   if (!(await isKeyStoreAvailable())) return;
-  await new KeyStore(userId).update("conversations", (current) => ({ ...(current ?? {}), [key.toLowerCase()]: true }));
+  const k = key.toLowerCase();
+  const store = new KeyStore(userId);
+  await store.update("conversations", (current) => ({ ...(current ?? {}), [k]: true }));
+  await store.update("conversationStates", (current) => {
+    const prev = current?.[k] ?? {};
+    const consumed = Math.max(prev.consumedOffTs ?? 0, prev.lastOffTs ?? 0);
+    return {
+      ...(current ?? {}),
+      [k]: { ...prev, seenEncryptedAt: Math.max(prev.seenEncryptedAt ?? 0, now), off: null, ...(consumed ? { consumedOffTs: consumed } : {}) },
+    };
+  });
+  seenWrittenAt.set(id, now);
   rememberedHere.add(id);
+}
+
+/** This device's memory of a conversation's switches (null when none / storage unavailable). */
+export async function getConversationStateMemory(userId: string, key: string): Promise<ConversationStateMemory | null> {
+  if (!userId || !key || !(await isKeyStoreAvailable())) return null;
+  const states = await new KeyStore(userId).get("conversationStates");
+  return states?.[key.toLowerCase()] ?? null;
+}
+
+/** Accept a verified "turned off" record: plaintext is allowed in `key` until it is seen encrypted again. */
+export async function acceptConversationOff(userId: string, key: string, off: NonNullable<ConversationStateMemory["off"]>): Promise<void> {
+  if (!userId || !key) return;
+  const id = memoryId(userId, key);
+  rememberedHere.delete(id);
+  seenWrittenAt.delete(id);
+  if (!(await isKeyStoreAvailable())) return;
+  const k = key.toLowerCase();
+  await new KeyStore(userId).update("conversationStates", (current) => {
+    const prev = current?.[k] ?? {};
+    return { ...(current ?? {}), [k]: { ...prev, off, lastOffTs: Math.max(prev.lastOffTs ?? 0, off.ts) } };
+  });
 }

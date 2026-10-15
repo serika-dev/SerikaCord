@@ -75,10 +75,33 @@ import {
   type PublicNotifyKey,
   type WrapRecipient,
 } from "@/lib/e2ee";
-import { fromUtf8, randomBytes, utf8 } from "@/lib/e2ee/encoding";
+import { fromB64, fromUtf8, randomBytes, utf8 } from "@/lib/e2ee/encoding";
+import {
+  PIN_MAX_ATTEMPTS,
+  PIN_PBKDF2_ITERATIONS,
+  isEasyPin,
+  isValidPin,
+  openPinBundle,
+  pinSecretCheck,
+  sealPinBundle,
+  signPinCommit,
+  signRecoveryRemoval,
+} from "@/lib/e2ee/pin";
+import { PBKDF2_SALT_BYTES } from "@/lib/e2ee/constants";
+import {
+  checkOffRecord,
+  dmPair,
+  parseConversationState,
+  signConversationOff,
+  verifyConversationStateSig,
+  type ConversationStateRecord,
+  type OffRejection,
+} from "@/lib/e2ee/conversationState";
 import {
   E2eeUnavailableError,
   KeyStore,
+  acceptConversationOff,
+  getConversationStateMemory,
   isKeyStoreAvailable,
   type ArchivedKeys,
   type IdentityPin,
@@ -98,10 +121,11 @@ import {
   rememberPlain,
   rememberText,
   rememberValidatedChannel,
+  validatedChannelOf,
   type PlainEntry,
 } from "./plainCache";
 import { applyPayload } from "./view";
-import { decryptFileBytes, encryptFileBytes } from "./fileCrypto";
+import { decryptFileBytes, derivePinKeysOffThread, encryptFileBytes } from "./fileCrypto";
 
 // ─── Module state (one signed-in account at a time) ───────────────────────────
 
@@ -128,9 +152,25 @@ function clientCdnUrl(): string {
 }
 
 export class E2eeApiError extends Error {
-  constructor(readonly status: number, message: string, readonly code: string | null = null) {
+  constructor(readonly status: number, message: string, readonly code: string | null = null, readonly details: Record<string, unknown> | null = null) {
     super(message);
     this.name = "E2eeApiError";
+  }
+}
+
+/** A PIN unlock failed: wrong PIN (with tries left), the backup was destroyed, there is none, or PINs are unavailable. */
+export class E2eePinError extends Error {
+  constructor(readonly reason: "wrong" | "locked" | "no_pin" | "unavailable" | "rate_limited", readonly attemptsLeft: number | null = null) {
+    super(reason === "wrong" ? "Wrong PIN" : reason === "locked" ? "The PIN backup was reset" : reason === "no_pin" ? "No PIN backup" : reason === "rate_limited" ? "Too many attempts" : "PINs are unavailable");
+    this.name = "E2eePinError";
+  }
+}
+
+/** Setting a PIN here needs proof first: the current PIN, the recovery passphrase, or it can't be done on this device. */
+export class E2eePinProofError extends Error {
+  constructor(readonly needs: "pin" | "passphrase" | "impossible") {
+    super(needs === "impossible" ? "Set your PIN on the device where you first set up encryption" : "Confirm it's you first");
+    this.name = "E2eePinProofError";
   }
 }
 
@@ -178,7 +218,9 @@ async function api<T = Record<string, unknown>>(path: string, init: RequestInit 
       if (controller?.signal.aborted) throw err;
       return {};
     })) as T & { error?: string; code?: unknown };
-    if (!res.ok) throw new E2eeApiError(res.status, data?.error || `Request failed (${res.status})`, typeof data?.code === "string" ? data.code : null);
+    if (!res.ok) {
+      throw new E2eeApiError(res.status, data?.error || `Request failed (${res.status})`, typeof data?.code === "string" ? data.code : null, data as Record<string, unknown>);
+    }
     return data;
   } finally {
     if (timer) clearTimeout(timer);
@@ -236,6 +278,8 @@ function resetModuleState() {
   linkApprove = null;
   linkNewPoll = null;
   linkApprovePoll = null;
+  proofAt = 0;
+  offChecks.clear();
 }
 
 /** Forget everything in memory (sign-out / account switch). Keys stay in IndexedDB. */
@@ -250,6 +294,8 @@ interface StatusResponse {
   enabled: boolean;
   identity: { identityPub: string; backupPub: string; hasBackup: boolean } | null;
   device: { id: string; active: boolean } | null;
+  /** Servers before the PIN backup don't send it. */
+  pin?: { available: boolean; set: boolean; attemptsLeft: number | null; lockedAt: string | null } | null;
 }
 
 /**
@@ -441,6 +487,11 @@ async function publishPhase(phase: "ready" | "disabled" | "needs-restore", statu
     markHadKeys(userId);
     requestPersistentStorage();
   }
+  const pin = status.pin ?? null;
+  const pinAvailable = status.enabled && Boolean(pin?.available);
+  // The account's PIN backup (a new device unlocks with it; a ready one can change it).
+  const hasPin = Boolean(pin?.set);
+  const extractable = keysExtractable();
   setE2eeSnapshot({
     phase,
     enabled: status.enabled,
@@ -449,11 +500,21 @@ async function publishPhase(phase: "ready" | "disabled" | "needs-restore", statu
     identityPub: identity?.pub ?? null,
     hasPassphrase,
     serverHasBackup,
-    remindPassphrase: phase === "ready" && status.enabled && !hasPassphrase && Date.now() >= (backupState?.remindAfter ?? 0),
+    // With PIN backups available the PIN replaces the passphrase onboarding.
+    remindPassphrase: phase === "ready" && status.enabled && !pinAvailable && !hasPassphrase && Date.now() >= (backupState?.remindAfter ?? 0),
     error: null,
     resetElsewhere,
-    keysExtractable: keysExtractable(),
+    keysExtractable: extractable,
     keysLost: phase === "needs-restore" && keysLost && !resetElsewhere,
+    pinAvailable,
+    hasPin,
+    pinAttemptsLeft: hasPin && typeof pin?.attemptsLeft === "number" ? pin.attemptsLeft : null,
+    pinLocked: !hasPin && Boolean(pin?.lockedAt),
+    // Every account converts to a PIN: from the keys here (only copy), or
+    // by entering the recovery passphrase first ("Upgrade to a 6-digit PIN").
+    requirePinSetup: phase === "ready" && pinAvailable && !hasPin && (hasPassphrase || extractable),
+    pinUpgrade: pinAvailable && !hasPin && serverHasBackup,
+    pinSetupElsewhere: phase === "ready" && pinAvailable && !hasPin && !hasPassphrase && !extractable,
   });
 }
 
@@ -633,7 +694,7 @@ async function sealKeysOnDevice(s: KeyStore, secrets: BackupSecrets): Promise<vo
  * backup exists the keys on this device are non-extractable, so changing the
  * passphrase opens the current backup with `currentPassphrase` instead.
  */
-export async function setRecoveryPassphrase(passphrase: string, currentPassphrase?: string): Promise<void> {
+export async function setRecoveryPassphrase(passphrase: string, currentPassphrase?: string, currentPin?: string): Promise<void> {
   const s = requireStore();
   if (!identity || !backupKey) throw new E2eeUnavailableError("Encryption isn't set up on this device");
   if (!isStrongRecoveryPassphrase(passphrase)) throw new E2eeFormatError("This passphrase is too easy to guess");
@@ -643,6 +704,9 @@ export async function setRecoveryPassphrase(passphrase: string, currentPassphras
   const held = keysExtractable() || !currentPassphrase ? await currentSecrets() : null;
   if (held) {
     secrets = held;
+  } else if (currentPin) {
+    // A PIN-only account turning on the passphrase as an extra recovery method.
+    secrets = await unlockSecretsWithPin(currentPin);
   } else {
     if (!currentPassphrase) throw new E2eeCurrentPassphraseError();
     const data = await api<{ backup: { blob: string; salt: string; iters: number } }>("/backup");
@@ -692,6 +756,8 @@ export async function restoreFromPassphrase(passphrase: string): Promise<void> {
   if (publicKeyFromJwk(secrets.identity) !== data.identityPub || publicKeyFromJwk(secrets.backup) !== data.backupPub) {
     throw new E2eeFormatError("This backup doesn't match your current keys. Reset encryption to start over.");
   }
+  // Proven before the state flips to ready (the PIN upgrade then skips asking again).
+  proofAt = Date.now();
   await adoptKeys(s, secrets, { identityPub: data.identityPub, backupPub: data.backupPub }, true);
 }
 
@@ -708,7 +774,215 @@ export async function resetEncryption(password: string): Promise<void> {
   decryptCache.clear();
   clearKeyCaches();
   await refreshStatus();
-  setE2eeSnapshot({ remindPassphrase: true });
+  // New keys exist only here now: the PIN setup (or, without PIN backups, the passphrase) comes next.
+  if (!getE2eeSnapshot().pinAvailable) setE2eeSnapshot({ remindPassphrase: true });
+}
+
+// ─── 6-digit PIN backup (lib/e2ee/pin.ts) ──────────────────────────────────────
+// The PIN (600 000 PBKDF2 iterations, in the attachment worker when it runs)
+// gives a verifier for the server and a wrap key that never leaves the
+// device; the bundle also needs the server secret S, which the server only
+// returns for the right verifier (10 wrong tries in total destroy it).
+
+interface PinParams {
+  salt: string;
+  iterations: number;
+  attemptsLeft: number;
+  identityPub: string;
+}
+
+function pinApiError(err: unknown): never {
+  if (err instanceof E2eeApiError) {
+    const left = typeof err.details?.attemptsLeft === "number" ? (err.details.attemptsLeft as number) : null;
+    if (err.status === 403 && err.code === "e2ee_pin_wrong") throw new E2eePinError("wrong", left);
+    if (err.status === 410) throw new E2eePinError("locked", 0);
+    if (err.status === 404) throw new E2eePinError("no_pin");
+    if (err.status === 503) throw new E2eePinError("unavailable");
+    if (err.status === 429) throw new E2eePinError("rate_limited");
+  }
+  throw err;
+}
+
+/** Prove the PIN to the server and open the bundle: the account's identity + backup private keys. */
+async function pinBundleSecrets(pin: string): Promise<{ secrets: BackupSecrets; identityPub: string }> {
+  if (!userId) throw new E2eeUnavailableError("Encryption isn't set up yet");
+  if (!isValidPin(pin)) throw new E2eeFormatError("A PIN is 6 digits");
+  const uid = userId;
+  const params = await api<PinParams>("/pin").catch(pinApiError);
+  const keys = await derivePinKeysOffThread(pin, uid, fromB64(params.salt), params.iterations);
+  try {
+    const res = await api<{ secret: string; bundle: string; identityPub: string }>("/pin/unlock", {
+      method: "POST",
+      body: JSON.stringify({ verifier: toB64(keys.verifier) }),
+    }).catch(pinApiError);
+    const secret = fromB64(res.secret);
+    try {
+      const secrets = await openPinBundle(keys, secret, uid, res.identityPub, res.bundle);
+      return { secrets, identityPub: res.identityPub };
+    } finally {
+      secret.fill(0);
+    }
+  } finally {
+    keys.wrap.fill(0);
+    keys.verifier.fill(0);
+  }
+}
+
+/** New device: unlock the account's keys with the PIN and register this device. */
+export async function unlockWithPin(pin: string): Promise<void> {
+  const s = requireStore();
+  const { secrets } = await pinBundleSecrets(pin);
+  const status = await api<StatusResponse>("/status");
+  const pubs = status.identity;
+  if (!pubs || publicKeyFromJwk(secrets.identity) !== pubs.identityPub || publicKeyFromJwk(secrets.backup) !== pubs.backupPub) {
+    throw new E2eeFormatError("This PIN backup doesn't match your current keys. Reset encryption to start over.");
+  }
+  await adoptKeys(s, secrets, { identityPub: pubs.identityPub, backupPub: pubs.backupPub }, Boolean(pubs.hasBackup));
+}
+
+/**
+ * Existing device: the identity + backup private keys via the PIN (they are
+ * non-extractable here). Opens the short link-escrow window like the
+ * passphrase does, so linking / setting a passphrase right after needs
+ * nothing else.
+ */
+export async function unlockSecretsWithPin(pin: string): Promise<BackupSecrets> {
+  requireStore();
+  if (!identity || !backupKey) throw new E2eeUnavailableError("Encryption isn't set up on this device");
+  const { secrets } = await pinBundleSecrets(pin);
+  if (publicKeyFromJwk(secrets.identity) !== identity.pub || publicKeyFromJwk(secrets.backup) !== backupKey.pub) {
+    throw new E2eeFormatError("The PIN backup doesn't match the keys on this device.");
+  }
+  await sealEscrow(secrets);
+  return secrets;
+}
+
+/** Existing device: unlock linking another device with the PIN. */
+export async function unlockLinkingWithPin(pin: string): Promise<void> {
+  await unlockSecretsWithPin(pin);
+}
+
+/**
+ * What setting a PIN on this device needs first: nothing (the keys are at
+ * hand), the current PIN, the recovery passphrase, or it can't be done here
+ * (keys sealed, no backup to open them with: set it on the first device).
+ */
+export async function pinSetupProof(): Promise<"none" | "pin" | "passphrase" | "impossible"> {
+  await whenLocalReady();
+  if (await currentSecrets()) return "none";
+  const snap = getE2eeSnapshot();
+  if (snap.hasPin) return "pin";
+  if (snap.serverHasBackup) return "passphrase";
+  return "impossible";
+}
+
+/**
+ * Set (or replace) the PIN backup. The keys come from this device (still
+ * extractable, or the short escrow window), else from the current PIN or the
+ * recovery passphrase. Two steps on the server: a fresh secret S, then the
+ * bundle sealed with it, signed by the identity key. Afterwards the keys here
+ * are non-extractable (as after a passphrase), with the 10-minute escrow.
+ */
+export async function setPin(pin: string, proof: { currentPin?: string; passphrase?: string } = {}): Promise<void> {
+  const s = requireStore();
+  if (!identity || !backupKey || !userId) throw new E2eeUnavailableError("Encryption isn't set up on this device");
+  if (!isValidPin(pin)) throw new E2eeFormatError("A PIN is 6 digits");
+  if (isEasyPin(pin)) throw new E2eeFormatError("This PIN is too easy to guess");
+  const uid = userId;
+  let secrets = await currentSecrets();
+  if (!secrets && proof.currentPin) secrets = await unlockSecretsWithPin(proof.currentPin);
+  if (!secrets && proof.passphrase) {
+    const data = await api<{ backup: { blob: string; salt: string; iters: number } }>("/backup");
+    const opened = await openBackup(proof.passphrase, uid, data.backup);
+    if (publicKeyFromJwk(opened.identity) !== identity.pub || publicKeyFromJwk(opened.backup) !== backupKey.pub) {
+      throw new E2eeFormatError("The saved backup doesn't match the keys on this device.");
+    }
+    secrets = opened;
+  }
+  if (!secrets) {
+    const snap = getE2eeSnapshot();
+    throw new E2eePinProofError(snap.hasPin ? "pin" : snap.serverHasBackup ? "passphrase" : "impossible");
+  }
+  const begin = await api<{ secret: string; iterations?: number }>("/pin/begin", { method: "POST" });
+  const iterations = Math.max(PIN_PBKDF2_ITERATIONS, typeof begin.iterations === "number" ? begin.iterations : 0);
+  const salt = randomBytes(PBKDF2_SALT_BYTES);
+  const keys = await derivePinKeysOffThread(pin, uid, salt, iterations);
+  const secret = fromB64(begin.secret);
+  try {
+    const identityPub = identity.pub;
+    const bundle = await sealPinBundle(keys, secret, uid, identityPub, secrets);
+    const commit = { identityPub, salt: toB64(salt), iterations, bundle, secretCheck: await pinSecretCheck(secret) };
+    const sig = await signPinCommit(identity.priv, uid, commit);
+    await api("/pin/commit", { method: "POST", body: JSON.stringify({ ...commit, verifier: toB64(keys.verifier), sig }) });
+  } finally {
+    secret.fill(0);
+    keys.wrap.fill(0);
+    keys.verifier.fill(0);
+  }
+  const held = secrets;
+  await withSetupLock(() => sealKeysOnDevice(s, held));
+  await sealEscrow(held);
+  const state = await s.get("backupState");
+  await s.put("backupState", { hasPassphrase: state?.hasPassphrase ?? false, remindAfter: 0 });
+  proofAt = 0;
+  setE2eeSnapshot({
+    hasPin: true,
+    pinLocked: false,
+    pinAttemptsLeft: PIN_MAX_ATTEMPTS,
+    requirePinSetup: false,
+    pinUpgrade: false,
+    pinSetupElsewhere: false,
+    remindPassphrase: false,
+    keysExtractable: false,
+  });
+}
+
+/** Remove the PIN backup (the recovery passphrase stays): signed by the identity key. */
+export async function removePin(): Promise<void> {
+  requireStore();
+  if (!identity || !userId) throw new E2eeUnavailableError("Encryption isn't set up on this device");
+  const ts = Date.now();
+  const sig = await signRecoveryRemoval(identity.priv, userId, identity.pub, "pin", ts);
+  await api("/pin/remove", { method: "POST", body: JSON.stringify({ identityPub: identity.pub, ts, sig }) });
+  await refreshStatus();
+}
+
+/** Remove the recovery passphrase backup (the PIN stays): signed by the identity key. */
+export async function removeRecoveryPassphrase(): Promise<void> {
+  const s = requireStore();
+  if (!identity || !userId) throw new E2eeUnavailableError("Encryption isn't set up on this device");
+  const ts = Date.now();
+  const sig = await signRecoveryRemoval(identity.priv, userId, identity.pub, "passphrase", ts);
+  await api("/backup/remove", { method: "POST", body: JSON.stringify({ identityPub: identity.pub, ts, sig }) });
+  const state = await s.get("backupState");
+  await s.put("backupState", { hasPassphrase: false, remindAfter: state?.remindAfter ?? 0 });
+  await refreshStatus();
+}
+
+// "Upgrade to a 6-digit PIN" starts by proving the account: the recovery
+// passphrase (restoring with it, or entering it), or — when it's forgotten
+// but this device can still produce the keys — the account password.
+let proofAt = 0;
+const PROOF_TTL_MS = LINK_ESCROW_TTL_MS;
+
+/** The account was proven on this device moments ago and the keys are at hand: the PIN can be created now. */
+export async function hasRecentProof(): Promise<boolean> {
+  if (!proofAt || Date.now() - proofAt > PROOF_TTL_MS) return false;
+  return (await currentSecrets()) !== null;
+}
+
+/**
+ * "Forgot your passphrase?" while upgrading: the account password (checked
+ * by the server like "Reset encryption") stands in for it, but only when
+ * this device can produce the keys without the passphrase (still
+ * extractable, or the short escrow window). Sealed keys can't be exported:
+ * then only a reset (or another device) helps.
+ */
+export async function proveWithAccountPassword(password: string): Promise<void> {
+  requireStore();
+  if (!(await currentSecrets())) throw new E2eePinProofError("passphrase");
+  await api("/reauth", { method: "POST", body: JSON.stringify({ password }) });
+  proofAt = Date.now();
 }
 
 // ─── Devices ──────────────────────────────────────────────────────────────────
@@ -976,11 +1250,37 @@ export function onTrustedSignersChanged(listener: (changed: Record<string, Recor
 // its page (URL) decrypted it. One-way, like the "seen encrypted" memory.
 
 export type EncryptedConversationInfo = { kind: "dm"; peer: string } | { kind: "group_dm" };
+/** What native code is sent: an encrypted conversation, or `plain` (turned off: forget it). */
+export type ConversationSyncInfo = EncryptedConversationInfo | { kind: "plain" };
 
 const conversationBook = new Map<string, EncryptedConversationInfo>();
-const conversationListeners = new Set<(changed: Record<string, EncryptedConversationInfo>) => void>();
-let conversationPending: Record<string, EncryptedConversationInfo> = {};
+const conversationListeners = new Set<(changed: Record<string, ConversationSyncInfo>) => void>();
+let conversationPending: Record<string, ConversationSyncInfo> = {};
 let conversationTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushConversationsSoon() {
+  if (conversationTimer || conversationListeners.size === 0) return;
+  conversationTimer = setTimeout(() => {
+    conversationTimer = null;
+    const batch = conversationPending;
+    conversationPending = {};
+    conversationListeners.forEach((l) => l(batch));
+  }, 300);
+}
+
+/**
+ * A conversation was turned off (verified): native code forgets it (newer
+ * APKs drop `plain` entries; older ones ignore them and keep showing
+ * "New encrypted message", which fails safe).
+ */
+function noteConversationPlain(channelId: string) {
+  const key = lower(channelId);
+  if (!UUID_RE.test(key)) return;
+  conversationBook.delete(key);
+  if (conversationListeners.size === 0) return;
+  conversationPending[key] = { kind: "plain" };
+  flushConversationsSoon();
+}
 
 function noteEncryptedConversation(channelId: string, info: EncryptedConversationInfo) {
   const key = lower(channelId);
@@ -990,17 +1290,11 @@ function noteEncryptedConversation(channelId: string, info: EncryptedConversatio
   conversationBook.set(key, info);
   if (conversationListeners.size === 0) return;
   conversationPending[key] = info;
-  if (conversationTimer) return;
-  conversationTimer = setTimeout(() => {
-    conversationTimer = null;
-    const batch = conversationPending;
-    conversationPending = {};
-    conversationListeners.forEach((l) => l(batch));
-  }, 300);
+  flushConversationsSoon();
 }
 
-/** Subscribe to newly noted encrypted conversations; the listener first gets everything known. */
-export function onEncryptedConversationsChanged(listener: (changed: Record<string, EncryptedConversationInfo>) => void): () => void {
+/** Subscribe to newly noted encrypted (or turned-off) conversations; the listener first gets everything known. */
+export function onEncryptedConversationsChanged(listener: (changed: Record<string, ConversationSyncInfo>) => void): () => void {
   conversationListeners.add(listener);
   if (conversationBook.size > 0) listener(Object.fromEntries(conversationBook));
   return () => {
@@ -1016,9 +1310,12 @@ export function encryptedConversationsSnapshot(): Record<string, EncryptedConver
 /** Group DMs this device remembers as encrypted (keyed by the URL's channel: `gdm:<id>`). */
 export async function noteRememberedGroups(): Promise<void> {
   await whenLocalReady();
-  const list = store ? await store.get("conversations").catch(() => null) : null;
-  for (const key of Object.keys(list ?? {})) {
-    if (key.startsWith("gdm:")) noteEncryptedConversation(key.slice(4), { kind: "group_dm" });
+  const local = store ? await store.getMany(["conversations", "conversationStates"]).catch(() => null) : null;
+  for (const key of Object.keys(local?.conversations ?? {})) {
+    if (!key.startsWith("gdm:")) continue;
+    // Turned off (a verified record): native code forgets it instead.
+    if (local?.conversationStates?.[key]?.off) noteConversationPlain(key.slice(4));
+    else noteEncryptedConversation(key.slice(4), { kind: "group_dm" });
   }
 }
 
@@ -1219,11 +1516,157 @@ export async function safetyNumberWith(uid: string, identityPub?: string | null)
 /** Turn encryption on; `withoutRecovery` names others who haven't set a recovery passphrase. */
 export async function enableChannelEncryption(channelId: string): Promise<{ changed: boolean; withoutRecovery: string[] }> {
   const res = await api<{ changed?: boolean; withoutRecovery?: unknown }>(`/channels/${encodeURIComponent(channelId)}/enable`, { method: "POST" });
+  offChecks.clear();
   const key = lower(channelId);
   channelKeyCache.delete(key);
   channelKeysSettled.delete(key);
   const names = Array.isArray(res.withoutRecovery) ? res.withoutRecovery.filter((n): n is string => typeof n === "string") : [];
   return { changed: res.changed !== false, withoutRecovery: names };
+}
+
+// ─── Turning encryption off (lib/e2ee/conversationState.ts) ───────────────────
+
+/** The channel a conversation's messages are bound to: the URL's group, or the DM channel (checked against the URL's person). */
+function boundChannel(target: E2eeTarget, channelId: string): string | null {
+  if (target.kind === "group") return lower(channelId) === lower(target.channelId) ? lower(target.channelId) : null;
+  if (!UUID_RE.test(channelId)) return null;
+  // A 1:1 DM already proven to be another channel on this device: refuse.
+  const known = validatedChannelOf(conversationKey(target));
+  if (known && known !== lower(channelId)) return null;
+  return lower(channelId);
+}
+
+/** What a record for this conversation must name (kind, and a 1:1 DM's two people). */
+function expectedConversation(target: E2eeTarget, selfId: string): { kind: "dm"; members: [string, string] } | { kind: "group_dm" } {
+  return target.kind === "dm" ? { kind: "dm", members: dmPair(selfId, target.recipientId) } : { kind: "group_dm" };
+}
+
+/**
+ * Turn encryption off for the open conversation: this device signs the
+ * record (the server can't do it on its own), the server flips the flag and
+ * posts the notice. This device accepts its own record at once.
+ */
+export async function disableChannelEncryption(channelId: string, target: E2eeTarget): Promise<{ changed: boolean }> {
+  await whenLocalReady();
+  if (!device) await whenE2eeSettled();
+  if (!device || !userId) throw new E2eeSendBlockedError("not_ready");
+  const bound = boundChannel(target, channelId);
+  if (!bound) throw new E2eeSendBlockedError("member_mismatch");
+  if (target.kind === "dm") {
+    const keys = await getChannelKeys(bound).catch(() => null);
+    if (!keys || !isExactDmMembers(keys.members.map((m) => m.userId), userId, target.recipientId)) throw new E2eeSendBlockedError("member_mismatch");
+  }
+  const expected = expectedConversation(target, userId);
+  const record = await signConversationOff(device.signPriv, {
+    channelId: bound,
+    kind: expected.kind,
+    ...(expected.kind === "dm" ? { members: expected.members } : {}),
+    userId,
+    deviceId: device.id,
+  });
+  const res = await api<{ changed?: boolean }>(`/channels/${encodeURIComponent(bound)}/disable`, { method: "POST", body: JSON.stringify({ record }) });
+  await acceptConversationOff(userId, conversationKey(target), { ts: record.ts, by: record.userId, deviceId: record.deviceId, channelId: bound }).catch(() => {});
+  noteConversationPlain(bound);
+  return { changed: res.changed !== false };
+}
+
+export type OffVerification =
+  | { ok: true; record: ConversationStateRecord }
+  | { ok: false; reason: OffRejection | "no_record" | "keys_unavailable" | "not_ready" };
+
+/** Checks in flight only (results are never reused: every check runs against the current memory). */
+const offChecks = new Map<string, Promise<OffVerification>>();
+
+/**
+ * Whether this device accepts that the conversation (what the user opened:
+ * `target`; `channelId` its channel) was turned off: the record (given, e.g.
+ * from a live event, or fetched from the server) must name this kind of
+ * conversation (and a 1:1 DM's two people), be signed by a device this device
+ * trusts for a member of exactly this conversation, and be newer than the
+ * last time this device saw it encrypted and than any record it saw
+ * superseded. Accepted records are remembered (plaintext allowed there until
+ * it is seen encrypted again).
+ */
+export function verifyConversationOff(target: E2eeTarget, channelId: string, record?: unknown): Promise<OffVerification> {
+  const given = record === undefined ? null : parseConversationState(record);
+  const cacheKey = `${conversationKey(target)}|${lower(channelId)}|${record === undefined ? "server" : given?.sig ?? "malformed"}`;
+  const running = offChecks.get(cacheKey);
+  if (running) return running;
+  const p = runOffCheck(target, channelId, record === undefined ? undefined : given).catch((): OffVerification => ({ ok: false, reason: "keys_unavailable" }));
+  offChecks.set(cacheKey, p);
+  const clear = () => {
+    if (offChecks.get(cacheKey) === p) offChecks.delete(cacheKey);
+  };
+  p.then(clear, clear);
+  return p;
+}
+
+/** The record's signer as this device trusts it, and whether everything but freshness holds. */
+async function checkOffRecordHere(target: E2eeTarget, bound: string, record: ConversationStateRecord, freshness: { seenEncryptedAt: number | null; acceptedOffTs?: number | null; consumedOffTs?: number | null }) {
+  const uid = userId!;
+  let keys = await getChannelKeys(bound).catch(() => null);
+  if (!keys) return { ok: false, reason: "keys_unavailable" } as const;
+  const signerOf = (k: ChannelKeys) => k.members.find((m) => m.userId === record.userId)?.signers.get(record.deviceId);
+  // A device added since the key set was cached: ask the server once.
+  if (!signerOf(keys)) keys = (await getChannelKeys(bound, true).catch(() => null)) ?? keys;
+  const memberIds = keys.members.map((m) => m.userId);
+  if (target.kind === "dm" && !isExactDmMembers(memberIds, uid, target.recipientId)) return { ok: false, reason: "wrong_conversation" } as const;
+  const signer = signerOf(keys);
+  return checkOffRecord({
+    record,
+    channelId: bound,
+    expected: expectedConversation(target, uid),
+    memberIds,
+    signer,
+    signatureValid: signer ? await verifyConversationStateSig(signer.signPub, record) : false,
+    now: Date.now(),
+    ...freshness,
+  });
+}
+
+async function runOffCheck(target: E2eeTarget, channelId: string, given: ConversationStateRecord | null | undefined): Promise<OffVerification> {
+  await whenLocalReady();
+  if (!userId) return { ok: false, reason: "not_ready" };
+  const uid = userId;
+  const bound = boundChannel(target, channelId);
+  if (!bound) return { ok: false, reason: "wrong_conversation" };
+  let rec = given ?? null;
+  if (given === undefined) {
+    const state = await api<{ record?: unknown }>(`/channels/${encodeURIComponent(bound)}/state`);
+    rec = parseConversationState(state.record);
+    if (!rec) return { ok: false, reason: "no_record" };
+  }
+  if (!rec) return { ok: false, reason: "malformed" };
+  const record = rec;
+  const memory = await getConversationStateMemory(uid, conversationKey(target)).catch(() => null);
+  const verdict = await checkOffRecordHere(target, bound, record, {
+    seenEncryptedAt: memory?.seenEncryptedAt ?? null,
+    acceptedOffTs: memory?.lastOffTs ?? null,
+    consumedOffTs: memory?.consumedOffTs ?? null,
+  });
+  if (!verdict.ok) return verdict;
+  await acceptConversationOff(uid, conversationKey(target), { ts: record.ts, by: record.userId, deviceId: record.deviceId, channelId: bound });
+  noteConversationPlain(bound);
+  return { ok: true, record };
+}
+
+/**
+ * A "turned off" notice row's record, when it verifies for this conversation
+ * (signer, binding, signature; not freshness: it's history). Null otherwise.
+ * The caller places the off point at the signed time, not the row's.
+ */
+export async function verifiedOffNotice(target: E2eeTarget, channelId: string, record: unknown): Promise<ConversationStateRecord | null> {
+  const parsed = parseConversationState(record);
+  if (!parsed || !userId) return null;
+  const bound = boundChannel(target, channelId);
+  if (!bound) return null;
+  const verdict = await checkOffRecordHere(target, bound, parsed, { seenEncryptedAt: null }).catch(() => null);
+  return verdict?.ok ? parsed : null;
+}
+
+/** A conversation was turned on again: forget "off" checks still running. */
+export function forgetOffChecks(): void {
+  offChecks.clear();
 }
 
 // ─── Who a conversation's messages are encrypted to ───────────────────────────
@@ -2200,7 +2643,8 @@ export async function confirmLinkApproval(): Promise<void> {
   if (!state?.secrets || !userId) throw new E2eeFormatError("Nothing to approve");
   const secrets = await currentSecrets();
   if (!secrets) {
-    if (!getE2eeSnapshot().serverHasBackup) throw new E2eeLinkNeedsPassphraseError();
+    const snap = getE2eeSnapshot();
+    if (!snap.serverHasBackup && !snap.hasPin) throw new E2eeLinkNeedsPassphraseError();
     throw new E2eeLinkPassphraseError();
   }
   const payload = await sealLinkPayload(state.secrets.key, userId, state.code, secrets);
@@ -2220,6 +2664,7 @@ export async function unlockLinkingWithPassphrase(passphrase: string): Promise<v
     throw new E2eeFormatError("The saved backup doesn't match the keys on this device.");
   }
   await sealEscrow(secrets);
+  proofAt = Date.now();
 }
 
 export async function cancelLinkApproval(): Promise<void> {

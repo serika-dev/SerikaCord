@@ -686,7 +686,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     window.dispatchEvent(new CustomEvent("openUserSettings", { detail: { tab: "connections" } }));
   }, []);
   // Rules screening (Discord): new members accept the rules before talking.
-  // The banner + rules modal live in ServerOnboardingGate.
+  // The banner lives in ServerOnboardingGate; the rules themselves are on the
+  // full-page join flow (/channels/:serverId/onboarding).
   const screening = useServerOnboarding(currentServer?.id);
   const screeningBlocked = Boolean(currentServer && screening.blocked && !verificationBlocked);
   const screeningAppStatus = screening.data?.member.application?.status;

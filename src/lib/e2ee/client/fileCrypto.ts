@@ -13,6 +13,7 @@ import {
   type AttachmentSecret,
   type EncryptedAttachment,
 } from "@/lib/e2ee";
+import { derivePinKeys, type PinKeys } from "@/lib/e2ee/pin";
 
 type Pending = { resolve: (value: unknown) => void; reject: (err: unknown) => void };
 type Reply = { id: number; ok: boolean; result?: unknown; error?: { name: string; message: string; code?: string } };
@@ -81,6 +82,20 @@ function getWorker(): Promise<Worker | null> {
     return w;
   })();
   return workerReady;
+}
+
+/**
+ * The PIN's verifier + wrap key (600 000 PBKDF2 iterations) in the worker
+ * when it runs, else here (WebCrypto runs PBKDF2 off the UI thread in most
+ * engines anyway). Identical results either way.
+ */
+export async function derivePinKeysOffThread(pin: string, userId: string, salt: Uint8Array, iterations: number): Promise<PinKeys> {
+  const w = await getWorker();
+  if (!w) return derivePinKeys(pin, userId, salt, iterations);
+  const copy = new Uint8Array(salt.byteLength);
+  copy.set(salt);
+  const r = (await post(w, { op: "pin", pin, userId, salt: copy.buffer, iterations }, [copy.buffer])) as { verifier: ArrayBuffer; wrap: ArrayBuffer };
+  return { verifier: new Uint8Array(r.verifier), wrap: new Uint8Array(r.wrap) };
 }
 
 /** Encrypt a file's bytes (the buffer may be handed to the worker: don't reuse it). */
