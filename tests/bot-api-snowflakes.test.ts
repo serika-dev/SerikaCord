@@ -214,9 +214,12 @@ describe("JSON with big integers", () => {
 
 describe("path helpers", () => {
   test("custom emoji params", () => {
-    expect(emojiParamId("wave:1001")).toEqual({ name: "wave", id: "1001" });
-    expect(emojiParamId("a:dance:1002")).toEqual({ name: "dance", id: "1002" });
-    expect(emojiParamId(encodeURIComponent("abc:1003"))).toEqual({ name: "abc", id: "1003" });
+    expect(emojiParamId("wave:1001")).toEqual({ name: "wave", id: "1001", prefix: "wave:", suffix: "" });
+    expect(emojiParamId("a:dance:1002")).toEqual({ name: "dance", id: "1002", prefix: "a:dance:", suffix: "" });
+    expect(emojiParamId(encodeURIComponent("abc:1003"))).toMatchObject({ name: "abc", id: "1003" });
+    expect(emojiParamId(encodeURIComponent("<:abc:1003>"))).toEqual({ name: "abc", id: "1003", prefix: "<:abc:", suffix: ">" });
+    expect(emojiParamId("_:1004")).toMatchObject({ name: "_", id: "1004" });
+    expect(emojiParamId("<:abc:1003")).toBeNull();
     expect(emojiParamId("%F0%9F%91%8D")).toBeNull();
   });
   test("unknown id errors use Discord codes", () => {

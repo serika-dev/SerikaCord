@@ -143,7 +143,7 @@ export async function translateInbound(req: InboundRequest): Promise<InboundResu
     } else if (k === 'emoji') {
       const e = emojiParamId(v);
       const uuid = e ? get(e.id, 'any') : undefined;
-      if (e && uuid) { newParams[k] = `${e.name}:${uuid}`; paramsChanged = true; }
+      if (e && uuid) { newParams[k] = `${e.prefix}${uuid}${e.suffix}`; paramsChanged = true; }
     }
   }
   if (paramsChanged) out.params = newParams;

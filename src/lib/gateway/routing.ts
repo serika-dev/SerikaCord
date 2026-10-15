@@ -72,10 +72,10 @@ export function routeDecision(s: RoutingSession, dispatch: RoutableDispatch): Ro
   if (dispatch.intent && (s.intents & dispatch.intent) === 0) return NO;
   if (dispatch.audience && !dispatch.audience.some((id) => sameId(id, botId))) return NO;
 
-  const d = (dispatch.d ?? {}) as { channel_id?: unknown; user?: { id?: unknown }; author?: { id?: unknown } };
+  const d = (dispatch.d ?? {}) as { channel_id?: unknown; user?: { id?: unknown } };
 
-  // Never echo a bot's own message back to it.
-  if (dispatch.t === 'MESSAGE_CREATE' && sameId(d.author?.id, botId)) return NO;
+  // A bot's own messages are delivered too, like Discord (libraries filter
+  // `message.author.bot` themselves and cache their own sends from the event).
 
   if (dispatch.guildId) {
     const isBotJoin =

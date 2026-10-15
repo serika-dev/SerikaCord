@@ -304,12 +304,18 @@ export const ID_QUERY_KEYS = new Set([
   'application_id', 'role_ids', 'target_id', 'message_id', 'sku_ids',
 ]);
 
-/** `name:id` custom-emoji path segment (reactions): the id part, if a snowflake. */
-export function emojiParamId(emoji: string): { name: string; id: string } | null {
+/**
+ * Custom-emoji path segment (reactions: `name:id`, `a:name:id`, `<:name:id>`,
+ * `_:id`): the snowflake id part plus what surrounds it, so the segment can be
+ * rebuilt with a UUID (`prefix + uuid + suffix`) in the same form.
+ */
+export function emojiParamId(emoji: string): { name: string; id: string; prefix: string; suffix: string } | null {
   let raw = emoji;
   try { raw = decodeURIComponent(emoji); } catch { /* keep raw */ }
-  const m = /^(?:a:)?([^:]+):(\d{1,20})$/.exec(raw);
-  return m && isSnowflake(m[2]) ? { name: m[1], id: m[2] } : null;
+  const m = /^(<?(?:a?:)?([^:<>]*):)(\d{1,20})(>?)$/.exec(raw);
+  if (!m || !isSnowflake(m[3])) return null;
+  if ((m[1].startsWith('<')) !== (m[4] === '>')) return null;
+  return { name: m[2], id: m[3], prefix: m[1], suffix: m[4] };
 }
 
 // ─── JSON with 64-bit integers ───────────────────────────────────────────────

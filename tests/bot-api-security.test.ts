@@ -110,8 +110,8 @@ describe("gateway guild routing", () => {
     expect(routeDecision(session(), guildMsg({ audience: [BOT] })).deliver).toBe(true);
   });
 
-  test("never echoes the bot's own message", () => {
-    expect(routeDecision(session(), guildMsg({ d: { channel_id: CHANNEL, guild_id: GUILD, author: { id: BOT } } })).deliver).toBe(false);
+  test("delivers the bot's own message, like Discord", () => {
+    expect(routeDecision(session(), guildMsg({ d: { channel_id: CHANNEL, guild_id: GUILD, author: { id: BOT } } })).deliver).toBe(true);
   });
 
   test("a targeted GUILD_CREATE adds the guild", () => {
