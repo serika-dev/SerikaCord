@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.5.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.6.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.1.6 — 2026-10-15
+
+**Tag:** `v2.1.6` · **Commit:** `37ca0f6`
 
 ### Features
 - **Honest comparison pages** — serika.chat/compare, with SerikaCord vs Discord and SerikaCord vs Stoat (formerly Revolt): feature tables, where each app is better, our own weak spots, an FAQ and dated sources.
@@ -12,14 +30,8 @@
 ### Changes
 - Better search-engine and link previews: proper titles, descriptions and share images per page, a cleaner sitemap and robots rules, and app-only pages are no longer indexed.
 
-### Bug Fixes
-
-### Performance
-
 ### Security
 - Link previews of a server page no longer show the name and icon of servers that aren't listed in Discovery.
-
-### Removed
 
 ---
 
