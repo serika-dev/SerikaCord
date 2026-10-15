@@ -386,6 +386,11 @@ Intents allow your bot to subscribe to specific categories of gateway events to 
 - \`GUILDS\` (1 << 0)
 - \`GUILD_MEMBERS\` (1 << 1) - Privileged
 - \`GUILD_MESSAGES\` (1 << 9)
+- \`GUILD_MESSAGE_REACTIONS\` (1 << 10)
+- \`GUILD_MESSAGE_TYPING\` (1 << 11)
+- \`DIRECT_MESSAGES\` (1 << 12)
+- \`DIRECT_MESSAGE_REACTIONS\` (1 << 13)
+- \`DIRECT_MESSAGE_TYPING\` (1 << 14)
 - \`MESSAGE_CONTENT\` (1 << 15) - Privileged
 
 ## Privileged Intents
@@ -767,12 +772,24 @@ Content-Type: application/json
     description: "Adding, removing, and fetching emoji reactions on channel messages.",
     content: `# Reactions & Emoji Expressions
 
-Add unicode or custom server emoji reactions to messages.
+Add unicode or custom server emoji reactions to messages. Reactions show up live for everyone viewing the message.
+
+## The {emoji} path segment
+- Unicode: the emoji itself, URL-encoded (\`%F0%9F%91%8D\` for 👍).
+- Custom: \`name:id\` (\`a:name:id\` also works), URL-encoded. Using an emoji from another server needs the bot to be in that server and \`USE_EXTERNAL_EMOJIS\` in the channel. Unknown or unusable emoji answer \`10014 Unknown Emoji\`.
 
 ## Endpoints
-- \`PUT /channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me\` - Add reaction
+- \`PUT /channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me\` - Add reaction (a new emoji needs \`ADD_REACTIONS\`; at most 20 different emoji per message, error 30010)
 - \`DELETE /channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me\` - Remove own reaction
-- \`GET /channels/{channel_id}/messages/{message_id}/reactions/{emoji}\` - List users who reacted`,
+- \`DELETE /channels/{channel_id}/messages/{message_id}/reactions/{emoji}/{user_id}\` - Remove someone's reaction (\`MANAGE_MESSAGES\`)
+- \`GET /channels/{channel_id}/messages/{message_id}/reactions/{emoji}\` - Users who reacted, ordered by id: \`after\`, \`limit\` (1-100, default 25), \`type\` (0 normal, 1 burst; Serika has no burst reactions)
+- \`DELETE /channels/{channel_id}/messages/{message_id}/reactions/{emoji}\` - Remove every reaction of one emoji (\`MANAGE_MESSAGES\`)
+- \`DELETE /channels/{channel_id}/messages/{message_id}/reactions\` - Remove all reactions (\`MANAGE_MESSAGES\`)
+
+Reaction routes share a per-channel bucket of 4 requests per second (one every 250 ms, like Discord).
+
+## Gateway events
+\`MESSAGE_REACTION_ADD\` (with \`member\` in servers and \`message_author_id\`), \`MESSAGE_REACTION_REMOVE\`, \`MESSAGE_REACTION_REMOVE_ALL\` and \`MESSAGE_REACTION_REMOVE_EMOJI\`, under the \`GUILD_MESSAGE_REACTIONS\` / \`DIRECT_MESSAGE_REACTIONS\` intents, only to bots that can see the channel.`,
   },
   "topics/stickers": {
     slug: "topics/stickers",
@@ -928,13 +945,32 @@ Represents a server invite code link used by members to join a guild.
     description: "Message object schema, embeds, components, attachments, and message REST endpoints.",
     content: `# Message Resource
 
-Represents a text message sent in a channel or thread.
+Represents a text message sent in a channel, thread, DM or group DM. Message objects follow Discord v10: \`type\` (0 default, 19 reply, 20 command reply, 46 poll result, ...), \`mentions\` as user objects, \`mention_roles\`, \`mention_everyone\`, \`referenced_message\` + \`message_reference\` on replies, \`message_snapshots\` on forwards, \`sticker_items\`, \`webhook_id\`, \`reactions\` (with \`me\` for your bot), \`poll\` with results, \`position\` in threads and \`nonce\` on the create response. End-to-end encrypted DM messages are returned without content, attachments or embeds.
 
 ## Endpoints
-- \`GET /channels/{channel.id}/messages\` - List messages
-- \`POST /channels/{channel.id}/messages\` - Create message
-- \`PATCH /channels/{channel.id}/messages/{message.id}\` - Edit message
-- \`DELETE /channels/{channel.id}/messages/{message.id}\` - Delete message`,
+- \`GET /channels/{channel.id}/messages\` - List messages, newest first. \`limit\` 1-100 (default 50) and one of \`around\`, \`before\`, \`after\` (a message id, or a snowflake whose timestamp is used). \`after\` returns the messages right after the cursor.
+- \`GET /channels/{channel.id}/messages/{message.id}\` - Get one message
+- \`POST /channels/{channel.id}/messages\` - Create message (JSON, or multipart with \`files[n]\` + \`payload_json\`)
+- \`PATCH /channels/{channel.id}/messages/{message.id}\` - Edit message (others' messages: only \`flags\` to suppress embeds, with \`MANAGE_MESSAGES\`)
+- \`DELETE /channels/{channel.id}/messages/{message.id}\` - Delete message (others' messages need \`MANAGE_MESSAGES\`, audited)
+- \`POST /channels/{channel.id}/messages/bulk-delete\` - Delete 2-100 messages at once (\`MANAGE_MESSAGES\`; messages older than 14 days fail with 50034; returns 204)
+- \`POST /channels/{channel.id}/messages/{message.id}/crosspost\` - Publish an announcement-channel message to followers
+- \`GET /channels/{channel.id}/messages/pins\` - Pinned messages: \`{ items: [{ pinned_at, message }], has_more }\`, \`before\` (ISO8601) and \`limit\` (1-50)
+- \`PUT\` / \`DELETE /channels/{channel.id}/messages/pins/{message.id}\` - Pin / unpin (\`PIN_MESSAGES\`; 250 pins per channel). The older \`/channels/{channel.id}/pins\` routes still work.
+- \`GET /channels/{channel.id}/polls/{message.id}/answers/{answer_id}\` - Voters of a poll answer (\`after\`, \`limit\` 1-100)
+- \`POST /channels/{channel.id}/polls/{message.id}/expire\` - End your poll now
+- \`POST /channels/{channel.id}/typing\` - Show your bot as typing for about 10 seconds
+
+## Creating and editing
+- \`content\` up to 2000 characters.
+- \`embeds\` up to 10, Discord's limits (title 256, description 4096, 25 fields, 6000 characters in total); URLs must be http(s). \`attachment://filename.png\` uses a file uploaded with the message. Embeds need \`EMBED_LINKS\`.
+- \`allowed_mentions\` (\`parse\`, \`users\`, \`roles\`, \`replied_user\`) decides who is pinged before anything is notified. Without it every mention in the content pings (still limited by \`MENTION_EVERYONE\` and mentionable roles) and a reply pings its author.
+- \`message_reference\`: \`{ message_id }\` replies in the same channel (\`fail_if_not_exists: false\` sends a normal message when the target is gone); \`{ type: 1, message_id, channel_id }\` forwards a message your bot can read (no other content allowed).
+- \`nonce\` (string up to 25 characters or integer) is echoed back; with \`enforce_nonce: true\` a retry within 5 minutes returns the first message instead of posting twice.
+- \`sticker_ids\` (one sticker), \`tts\` (needs \`SEND_TTS_MESSAGES\`), \`flags\` (\`SUPPRESS_EMBEDS\`, \`SUPPRESS_NOTIFICATIONS\`, \`IS_VOICE_MESSAGE\`), \`poll\` and \`attachments\` (file metadata; on edit, the attachments to keep).
+
+## Gateway events
+\`MESSAGE_CREATE\` (with \`member\` and \`guild_id\` in servers), \`MESSAGE_UPDATE\` (full message), \`MESSAGE_DELETE\`, \`MESSAGE_DELETE_BULK\`, \`CHANNEL_PINS_UPDATE\`, \`TYPING_START\` (\`GUILD_MESSAGE_TYPING\` / \`DIRECT_MESSAGE_TYPING\`), \`MESSAGE_POLL_VOTE_ADD\` / \`_REMOVE\`. They fire for messages from users, bots, webhooks and the system, in channels, threads and DMs, and only reach bots that can see the channel.`,
   },
   "resources/reaction": {
     slug: "resources/reaction",
@@ -943,10 +979,11 @@ Represents a text message sent in a channel or thread.
     description: "Message reaction count object schema and reaction user list endpoints.",
     content: `# Reaction Resource
 
-Tracks emoji reaction totals and user lists on messages.
+Tracks emoji reaction totals and user lists on messages: \`{ count, count_details: { normal, burst }, me, me_burst, burst_colors, emoji }\`, where \`me\` is true when your bot reacted.
 
 ## Endpoints
-- \`GET /channels/{channel_id}/messages/{message_id}/reactions/{emoji}\` - List reaction users`,
+- \`GET /channels/{channel_id}/messages/{message_id}/reactions/{emoji}\` - List reaction users (\`after\`, \`limit\`, \`type\`)
+- See Reactions & Emoji Expressions for adding and removing reactions.`,
   },
   "resources/sticker": {
     slug: "resources/sticker",

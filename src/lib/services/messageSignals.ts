@@ -23,6 +23,8 @@ export async function signalChannelMessage(opts: {
   authorName?: string | null;
   mentionedUserIds?: string[];
   mentionEveryone?: boolean;
+  /** Role mentions (members of these roles get the mention badge). */
+  mentionedRoleIds?: string[];
   authorAvatar?: string | null;
   /** Message text, for the desktop notification preview. */
   content?: string | null;
@@ -46,6 +48,7 @@ export async function signalChannelMessage(opts: {
       authorName: opts.authorName ?? undefined,
       mentionedUserIds: opts.mentionedUserIds ?? [],
       mentionEveryone: Boolean(opts.mentionEveryone),
+      ...(opts.mentionedRoleIds?.length ? { mentionedRoleIds: opts.mentionedRoleIds } : {}),
       authorAvatar: opts.authorAvatar ?? null,
       preview,
       mentionNames,

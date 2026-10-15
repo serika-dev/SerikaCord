@@ -272,6 +272,11 @@ export const messages = pgTable('messages', {
   // Nullable, no default (metadata-only add on the big table). Added at boot by
   // ensureE2eeSchema() (drizzle/manual_e2ee.sql).
   e2ee: jsonb('e2ee'),
+  // Discord `tts` on bot / webhook messages, and when the message was pinned
+  // (pins pagination, CHANNEL_PINS_UPDATE). Nullable, no default. Added at
+  // boot by ensureBotMessageSchema() (drizzle/manual_bot_message_parity.sql).
+  tts: boolean('tts'),
+  pinnedAt: timestamp('pinned_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

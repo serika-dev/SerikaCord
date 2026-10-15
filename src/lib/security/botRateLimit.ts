@@ -14,7 +14,10 @@ export const BOT_LIMITS = {
   botGlobal: { points: 50, duration: 1 },
   botMessageSend: { points: 5, duration: 5 },
   botMessageDelete: { points: 5, duration: 1 },
+  // Discord: one reaction change per 250 ms per channel.
   botReaction: { points: 4, duration: 1 },
+  botBulkDelete: { points: 1, duration: 1 },
+  botTyping: { points: 5, duration: 5 },
   botWrite: { points: 30, duration: 10 },
 } as const;
 
@@ -68,6 +71,8 @@ export function botRequestBuckets(
     if (m === 'POST' && tpl === '/channels/:channelId/messages') add('botMessageSend', 'message-send');
     else if (tpl.includes('/reactions')) add('botReaction', 'reactions');
     else if (m === 'DELETE' && tpl === '/channels/:channelId/messages/:messageId') add('botMessageDelete', 'message-delete');
+    else if (m === 'POST' && tpl === '/channels/:channelId/messages/bulk-delete') add('botBulkDelete', 'bulk-delete');
+    else if (m === 'POST' && tpl === '/channels/:channelId/typing') add('botTyping', 'typing');
     else add('botWrite', `${m} ${tpl}`);
   }
   out.push({ limiter: 'botGlobal', key: botId, bucket: 'global', limit: BOT_LIMITS.botGlobal.points });

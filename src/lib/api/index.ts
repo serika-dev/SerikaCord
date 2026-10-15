@@ -4105,6 +4105,9 @@ export const api = new Elysia({ prefix: '/api' })
       reactions: [],
     };
     publishToChannel(channel.id, { type: 'message', message: messageResponse });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: channel.id, serverId: channel.serverId ?? null }))
+      .catch(() => {});
     const { signalChannelMessage, extractUserMentionIds } = await import('@/lib/services/messageSignals');
     void signalChannelMessage({
       channel: { id: channel.id, serverId: channel.serverId, name: channel.name },
@@ -4396,6 +4399,13 @@ export async function initializeAPI() {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     await connectDB();
+    // FIRST, before anything can read a message row: messages.tts /
+    // messages.pinned_at are named in every Drizzle select on messages
+    // (src/lib/db/schema.ts). server.ts awaits initializeAPI() before it starts
+    // serving or the gateway, so no message query runs before this. Idempotent,
+    // metadata-only, lock_timeout 3s per attempt, never throws.
+    const { ensureBotMessageSchema } = await import('@/lib/services/botMessageSchema');
+    await ensureBotMessageSchema();
     // Create + seed the staff-editable `badges` table if this database predates
     // it. Idempotent, runs once per process, never throws (falls back to the
     // built-in badge constants on failure).

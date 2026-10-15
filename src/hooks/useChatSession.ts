@@ -1044,6 +1044,15 @@ export function useChatSession<M extends ChatMessage>({
         return;
       }
 
+      if (data.type === "reactions_set") {
+        // A moderator or bot cleared every reaction (or every reaction of one emoji).
+        if (Array.isArray(data.reactions)) {
+          const reactions = data.reactions as M["reactions"];
+          setMessages((prev) => prev.map((m) => (m.id === data.messageId ? { ...m, reactions } : m)));
+        }
+        return;
+      }
+
       if (data.type === "thread_update") {
         // A thread started here changed (new reply, renamed, archived, deleted):
         // its starter message chip / "started a thread" row follows.
