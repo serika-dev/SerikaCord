@@ -95,15 +95,20 @@ export default async function WebhooksDoc() {
         ["avatar_url", gt("No"), gt("Override the webhook's default avatar")],
         ["tts", gt("No"), gt("If true, message is sent as text-to-speech")],
         ["allowed_mentions", gt("No"), gt("Control which mentions are parsed")],
-        ["components", gt("No"), gt("Message components (buttons, select menus)")],
-        ["files", gt("No"), gt("Not supported yet for webhooks")],
+        ["components", gt("No"), gt("Message components; only used with ?with_components=true. Application-owned webhooks may send buttons and selects, other webhooks link buttons and layout components")],
+        ["flags", gt("No"), gt("SUPPRESS_EMBEDS, SUPPRESS_NOTIFICATIONS and IS_COMPONENTS_V2")],
+        ["thread_name", gt("No"), gt("In a forum channel: create a post with this title")],
+        ["files[n]", gt("No"), gt("Files as multipart/form-data, with the JSON body in payload_json")],
       ]} />
       <P>{gt("Optional query parameters:")}</P>
       <Table headers={[gt("Parameter"), gt("Description")]} rows={[
         ["wait", gt("If true, waits and returns the message object (default: false)")],
         ["thread_id", gt("Send to a specific thread in the channel")],
-        ["with_components", gt("Include components in the response")],
+        ["with_components", gt("Use the components field (Discord ignores it without this)")],
       ]} />
+      <P>
+        {gt("The username and avatar_url overrides are kept with the message, so it shows the same name after a reload. Old webhook URLs of the form /api/webhooks/CHANNEL_ID/TOKEN keep working.")}
+      </P>
       <CodeBlock lang="bash">{`# Execute a webhook and wait for the message object
 curl -X POST \\
   -H "Content-Type: application/json" \\
@@ -112,12 +117,12 @@ curl -X POST \\
 
       <H3 id="edit-message">{gt("Edit a Webhook Message")}</H3>
       <Endpoint method="PATCH" path="/webhooks/{webhook.id}/{webhook.token}/messages/{message.id}">
-        {gt("Edit a message sent by the webhook. Use")}{" "}<InlineCode>@original</InlineCode> {gt("as the message ID to edit the first message.")}
+        {gt("Edit a message sent by the webhook (content, embeds, components, attachments, flags). For interaction tokens,")}{" "}<InlineCode>@original</InlineCode> {gt("is the interaction's first response.")}
       </Endpoint>
 
       <H3 id="delete-message">{gt("Delete a Webhook Message")}</H3>
       <Endpoint method="DELETE" path="/webhooks/{webhook.id}/{webhook.token}/messages/{message.id}">
-        {gt("Delete a message sent by the webhook. Use")}{" "}<InlineCode>@original</InlineCode> {gt("to delete the first message.")}
+        {gt("Delete a message sent by the webhook.")}
       </Endpoint>
 
       <H2 id="managing-webhooks">{gt("Managing Webhooks")}</H2>

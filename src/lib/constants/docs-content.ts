@@ -398,7 +398,10 @@ When a user triggers a slash command or clicks a component, SerikaCord delivers 
 - \`5\`: \`DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE\` (Acknowledge now, update later)
 - \`6\`: \`DEFERRED_UPDATE_MESSAGE\` (Acknowledge component click without edit)
 - \`7\`: \`UPDATE_MESSAGE\` (Edit component message)
+- \`8\`: \`APPLICATION_COMMAND_AUTOCOMPLETE_RESULT\` (Autocomplete choices)
 - \`9\`: \`MODAL\` (Pop up a form modal)
+
+Acknowledge within 3 seconds, once (late: 10062, twice: 40060). The token works for 15 minutes for followups and \`@original\` edits (\`/webhooks/{application_id}/{token}\`). \`flags: 64\` replies are shown only to the invoker. Add \`?with_response=true\` to get the created message back.
 
 ## Responding to Interaction
 \`\`\`http

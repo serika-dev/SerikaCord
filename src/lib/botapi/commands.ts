@@ -57,6 +57,10 @@ export interface CommandChoice {
   name: string;
   name_localizations?: Record<string, string> | null;
   value: string | number;
+  /** SerikaCord extension: shown by the in-app picker, ignored by Discord clients. */
+  description?: string;
+  /** SerikaCord extension: an emoji shown next to the choice. */
+  emoji?: string;
 }
 
 export interface CommandOption {
@@ -213,6 +217,9 @@ function validateOption(e: FormErrors, path: FormErrorPath, v: unknown, depth: n
         const choice: CommandChoice = { name: cname, value };
         const cl = localizations(e, [...p, 'name_localizations'], c.name_localizations, COMMAND_LIMITS.CHOICE_NAME, false);
         if (cl) choice.name_localizations = cl;
+        // Rich choices (SerikaCord extension, documented): kept, length-capped.
+        if (typeof c.description === 'string' && c.description) choice.description = cleanLabel(c.description).slice(0, COMMAND_LIMITS.DESCRIPTION);
+        if (typeof c.emoji === 'string' && c.emoji) choice.emoji = cleanLabel(c.emoji).slice(0, 64);
         choices.push(choice);
       });
       out.choices = choices;

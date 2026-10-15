@@ -29,8 +29,18 @@ export default async function InteractionsDoc() {
         [gt("HTTP endpoint"), gt("Signed POST to your Interactions Endpoint URL"), gt("Serverless bots, lightweight bots without persistent connections")],
       ]} />
       <P>
-        {gt("You can use both simultaneously. Many bots use the Gateway for message events and HTTP for slash command interactions.")}
+        {gt("Like Discord, an app with an Interactions Endpoint URL gets interactions only over HTTP; without one they arrive as INTERACTION_CREATE on the gateway. The endpoint must be a public https URL (private and local addresses are refused) and must answer a signed PING. Requests time out after 3 seconds and redirects are not followed.")}
       </P>
+
+      <H2 id="rules">{gt("Response rules")}</H2>
+      <UL>
+        <li>{gt("Acknowledge within 3 seconds, once. A late callback gets 10062 (Unknown interaction), a second one 40060 (Interaction has already been acknowledged).")}</li>
+        <li>{gt("The token works for 15 minutes for followups and edits, on any server instance (tokens live in Redis). After that the webhook routes return 10015.")}</li>
+        <li>{gt("Add ?with_response=true to the callback to get an InteractionCallbackResponse with the created or updated message instead of 204.")}</li>
+        <li>{gt("Type 5 shows \"<your bot> is thinking…\" until you edit @original (or send the first followup, which completes it).")}</li>
+        <li>{gt("flags: 64 (EPHEMERAL) messages are shown only to the user who ran the interaction, are never stored in the channel, and can be edited or deleted by id for 15 minutes.")}</li>
+        <li>{gt("Types 10 (premium required, deprecated) and 12 (launch activity) are rejected with 50035.")}</li>
+      </UL>
 
       <H2 id="interaction-types">{gt("Interaction Types")}</H2>
       <Table headers={[gt("Type"), gt("Name"), gt("Description")]} rows={[
@@ -147,6 +157,14 @@ function verify(req, rawBody, PUBLIC_KEY) {
   }
 }`}</CodeBlock>
       <Table headers={["Field", "Type", "Description"]} rows={[
+        ["guild / channel", "object", gt("Partial guild and channel (the channel carries the invoker's permissions)")],
+        ["app_permissions", "string", gt("Your bot's permissions in the channel")],
+        ["locale / guild_locale", "string", gt("The invoker's language and the server's")],
+        ["context", "integer", gt("0 server, 1 DM with your bot, 2 group DM")],
+        ["authorizing_integration_owners", "object", gt("Who installed the app: key \"0\" maps to the server id")],
+        ["entitlements", "array", gt("Always empty (no monetization yet)")],
+        ["attachment_size_limit", "integer", gt("Largest file you may upload in the response, in bytes")],
+        ["message", "object", gt("The message a clicked component is on (component interactions)")],
         ["id", "snowflake", "Interaction ID — used to respond"],
         ["application_id", "snowflake", "Your application ID"],
         ["type", "integer", "Interaction type (see table above)"],
@@ -194,9 +212,11 @@ function verify(req, rawBody, PUBLIC_KEY) {
       <Endpoint method="DELETE" path="/webhooks/{'{application.id}'}/{'{interaction.token}'}/messages/{'{message.id}'}">
         {gt("Delete a follow-up message.")}
       </Endpoint>
+      <P>
+        {gt("GET, PATCH and DELETE work on messages/@original and on followup ids; ephemeral messages included. No Authorization header is needed: the interaction token is the credential.")}
+      </P>
       <CodeBlock lang="bash">{`# Send a follow-up message
 curl -X POST \\
-  -H "Authorization: Bot YOUR_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"content":"Follow-up message!"}' \\
   https://api.serika.chat/api/v10/webhooks/APP_ID/INTERACTION_TOKEN`}</CodeBlock>
@@ -231,6 +251,18 @@ curl -X POST \\
   }
 }`}</CodeBlock>
 
+      <H3 id="component-reference">{gt("Supported components")}</H3>
+      <Table headers={[gt("Type"), gt("Component"), gt("Notes")]} rows={[
+        ["1", "Action row", gt("Up to 5 buttons or one select menu; up to 5 rows")],
+        ["2", "Button", gt("Styles 1-5 (5 = link, http(s) only). Premium buttons are not supported")],
+        ["3, 5, 6, 7, 8", gt("Select menus"), gt("String, user, role, mentionable and channel selects, min_values / max_values")],
+        ["9, 10, 11", gt("Section, text display, thumbnail"), gt("Components v2 (message flag 1 << 15, IS_COMPONENTS_V2)")],
+        ["12, 13, 14, 17", gt("Media gallery, file, separator, container"), gt("Components v2; media can be https URLs or attachment://name")],
+      ]} />
+      <P>
+        {gt("Components are accepted on bot messages, interaction responses, followups and application-owned webhooks, validated against Discord's limits (custom_id up to 100 characters, labels up to 80, 40 components and 4,000 characters of text display in v2), and stored with the message. A user's click is checked against the stored message: unknown or disabled components never reach your app.")}
+      </P>
+
       <H2 id="modals">{gt("Modals")}</H2>
       <P>
         {gt("Respond with type")}{" "}<InlineCode>9</InlineCode> {gt("to show a modal popup. The user fills it in and submits, triggering a")}{" "}<InlineCode>MODAL_SUBMIT</InlineCode> {gt("interaction (type 5):")}
@@ -256,6 +288,20 @@ curl -X POST \\
     ]
   }
 }`}</CodeBlock>
+
+      <P>
+        {gt("Modals can use label components (type 18) wrapping a text input, a select menu, a radio group, a checkbox group or a checkbox, plus text displays. The submitted values are checked against your modal (required fields, lengths, choices) before you get MODAL_SUBMIT, and each modal can be submitted once.")}
+      </P>
+
+      <H2 id="autocomplete">{gt("Autocomplete")}</H2>
+      <P>
+        {gt("Options with autocomplete: true send APPLICATION_COMMAND_AUTOCOMPLETE (type 4) while the user types, with the option being typed marked focused. Answer with type 8 and up to 25 choices of the option's type.")}
+      </P>
+
+      <H2 id="context-menus">{gt("Context menu commands")}</H2>
+      <P>
+        {gt("User commands (type 2) appear when someone right-clicks a member, message commands (type 3) when they right-click a message. The interaction's data.target_id is the user or message, and data.resolved carries it.")}
+      </P>
 
       <Callout type="info" title={gt("Prefer the gateway?")}>
         {gt("If you use a full library like serika.js, you generally don't need an HTTP endpoint — interactions arrive on your socket. The HTTP path exists for serverless and lightweight bots. Learn to register commands in")}{" "}<Link2 href="/developers/docs/bots/slash-commands">{gt("Slash Commands")}</Link2>.

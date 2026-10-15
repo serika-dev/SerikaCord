@@ -90,8 +90,26 @@ export default async function SlashCommandsDoc() {
     }
   ]'`}</CodeBlock>
       <P>
-        {gt("Guild commands are deleted and recreated on each bulk overwrite. The current implementation removes all existing guild commands and creates new ones from the provided array.")}
+        {gt("Bulk overwrites keep command ids stable: a command is matched by name and type (or by the id you send), only changed commands get a new version, and commands missing from the array are deleted. POST works the same way for one command: it replaces the command with the same name and type (200) or creates it (201).")}
       </P>
+      <P>
+        {gt("Invalid definitions are rejected with error code 50035 and an errors object that points at the field, e.g. options.0.name. Names of slash commands and options must be lowercase and match Discord's name rules; user and message commands may use spaces and capitals but have no description or options.")}
+      </P>
+
+      <H3 id="command-fields">{gt("Visibility and permissions")}</H3>
+      <Table headers={[gt("Field"), gt("Description")]} rows={[
+        ["default_member_permissions", gt("Permission bitfield a member needs (\"0\" = admins only). Hides the command from the picker and blocks it for everyone else.")],
+        ["contexts", gt("Where it can be used: 0 servers, 1 DMs with your bot, 2 group DMs. Defaults follow dm_permission.")],
+        ["integration_types", gt("Stored and returned. Apps are installed to servers (0).")],
+        ["nsfw", gt("Only usable in age-restricted channels (and DMs).")],
+        ["name_localizations / description_localizations", gt("Stored and returned to your bot.")],
+      ]} />
+      <Endpoint method="PUT" path="/applications/{'{application.id}'}/guilds/{'{guild.id}'}/commands/{'{command.id}'}/permissions">
+        {gt("Per-server overrides for users (type 2), roles (type 1, the @everyone role or the guild id for everyone) and channels (type 3, the guild id for all channels). Use your application id as the command id for app-wide defaults. Your bot token may call this; the bot gets APPLICATION_COMMAND_PERMISSIONS_UPDATE.")}
+      </Endpoint>
+      <Endpoint method="GET" path="/applications/{'{application.id}'}/guilds/{'{guild.id}'}/commands/permissions">
+        {gt("All overrides your app has in a server.")}
+      </Endpoint>
 
       <H2 id="option-types">{gt("Option types")}</H2>
       <Table headers={[gt("Type"), gt("Name"), gt("Description")]} rows={[
@@ -192,6 +210,9 @@ export default async function SlashCommandsDoc() {
       <Endpoint method="DELETE" path="/applications/{'{application.id}'}/commands/{'{command.id}'}">{gt("Delete a command.")}</Endpoint>
       <Endpoint method="GET" path="/applications/{'{application.id}'}/guilds/{'{guild.id}'}/commands">{gt("Fetch all guild commands.")}</Endpoint>
       <Endpoint method="PUT" path="/applications/{'{application.id}'}/guilds/{'{guild.id}'}/commands">{gt("Bulk overwrite guild commands.")}</Endpoint>
+      <P>
+        {gt("The application id in these paths is your application's id (the same one interactions carry); your client id is accepted too.")}
+      </P>
 
       <H2 id="handling">{gt("Handling invocations")}</H2>
       <P>
@@ -214,6 +235,8 @@ export default async function SlashCommandsDoc() {
         [gt("Command description length"), gt("1-100 characters")],
         [gt("Options per command"), gt("Up to 25")],
         [gt("Choices per option"), gt("Up to 25")],
+        [gt("User / message commands"), gt("15 of each per scope")],
+        [gt("Total size of a command"), gt("8,000 characters (names, descriptions, choices)")],
         [gt("Subcommand groups per command"), gt("Up to 1 level deep")],
       ]} />
 

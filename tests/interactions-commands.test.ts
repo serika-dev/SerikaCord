@@ -97,6 +97,13 @@ describe("command validation", () => {
     expect(def({ name: "x", description: "x", default_permission: false }).def!.defaultMemberPermissions).toBe("0");
   });
 
+  test("rich choices (description / emoji) survive validation", () => {
+    const { def: d } = def({ name: "mode", description: "m", options: [
+      { type: 3, name: "kind", description: "k", choices: [{ name: "Audio", value: "audio", description: "Guess from the song", emoji: "🎵" }] },
+    ] });
+    expect(d!.options[0].choices![0]).toMatchObject({ description: "Guess from the song", emoji: "🎵" });
+  });
+
   test("PATCH keeps fields that weren't sent", () => {
     const base = def({ name: "ping", description: "Pong", default_member_permissions: "8" }).def!;
     const patched = def({ description: "Pong!" }, { partial: base }).def!;
