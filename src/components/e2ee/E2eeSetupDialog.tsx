@@ -117,7 +117,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
         name === "E2eeVerifyError"
           ? gt("That passphrase isn't right.")
           : name === "E2eeFormatError"
-            ? gt("This backup doesn't match your current keys. Reset encryption to start over.")
+            ? gt("This backup doesn't match your current keys. Start over with new keys to keep using encryption.")
             : status === 409
               ? gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.")
               : gt("Couldn't restore your keys. Try again."),
@@ -162,7 +162,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
                 ? gt("Change recovery passphrase")
                 : mode === "restore"
                   ? gt("Set up encryption on this device")
-                  : gt("Reset encryption")}
+                  : gt("Start over with new keys?")}
           </DialogTitle>
           <DialogDescription className="text-[var(--text-secondary)]">
             {mode === "onboard"
@@ -175,7 +175,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
                   ? e2ee.keysLost
                     ? gt("This browser cleared the encryption keys it had (for example after clearing site data). Set it up again with another device or your recovery passphrase.")
                     : gt("This device doesn't have your encryption keys yet. Set it up with a device that already has them, or with your recovery passphrase.")
-                  : gt("This creates new encryption keys. Encrypted messages from before stay readable on this device only, and your contacts will see that your security code changed. Enter your account password to confirm.")}
+                  : gt("Nothing is recovered. This creates brand-new encryption keys: encrypted messages from before can't be read on new devices (devices that already have your old keys keep them). Your contacts will see that your security code changed. Enter your account password to confirm.")}
           </DialogDescription>
         </DialogHeader>
 
@@ -314,7 +314,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           )}
           {mode === "restore" && (
             <Button variant="ghost" onClick={() => { reset(); onModeChange("reset"); }} disabled={busy}>
-              {gt("Forgot it? Reset encryption")}
+              {gt("Forgot it? Start over with new keys")}
             </Button>
           )}
           {(mode === "change-passphrase" || mode === "reset") && (
@@ -334,7 +334,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           )}
           {mode === "reset" && (
             <Button onClick={() => void resetEncryption()} disabled={busy || !password} className="bg-red-600 text-white hover:bg-red-700">
-              {gt("Reset encryption")}
+              {gt("Yes, start over")}
             </Button>
           )}
         </DialogFooter>

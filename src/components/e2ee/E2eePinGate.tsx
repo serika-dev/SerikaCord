@@ -79,7 +79,7 @@ function PassphraseUnlock() {
         name === "E2eeVerifyError"
           ? gt("That passphrase isn't right.")
           : name === "E2eeFormatError"
-            ? gt("This backup doesn't match your current keys. Reset encryption to start over.")
+            ? gt("This backup doesn't match your current keys. Start over with new keys to keep using encryption.")
             : status === 409
               ? gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.")
               : gt("Couldn't restore your keys. Try again."),
@@ -96,8 +96,13 @@ function PassphraseUnlock() {
         <p className="text-sm text-[var(--text-secondary)]">
           {e2ee.serverHasBackup
             ? gt("Enter your recovery passphrase. You'll then create a 6-digit PIN, so new devices are easier to set up.")
-            : gt("This device doesn't have your encryption keys yet. Use a device that's already set up.")}
+            : gt("This device doesn't have your encryption keys yet. To read your encrypted messages here, approve it from a device that's already set up.")}
         </p>
+        {!e2ee.serverHasBackup && (
+          <p className="text-xs text-[var(--app-muted)]">
+            {gt("Your account has no PIN yet, so it can't be used here. On a device that's already set up, create one in Settings → Encryption, then you can unlock any new device with it.")}
+          </p>
+        )}
       </div>
       {e2ee.serverHasBackup && (
         <form
@@ -126,7 +131,7 @@ function PassphraseUnlock() {
           {gt("Use another device instead")}
         </button>
         <button type="button" className={linkButton} disabled={busy} onClick={() => openE2eeDialog("reset")}>
-          {e2ee.serverHasBackup ? gt("Forgot your passphrase? Reset encryption") : gt("Reset encryption")}
+          {e2ee.serverHasBackup ? gt("Forgot your passphrase? Start over with new keys") : gt("Start over with new keys")}
         </button>
         <Button variant="ghost" size="sm" disabled={busy} onClick={() => setE2eeSnapshot({ unlockGateDeferred: true })}>
           {gt("Not now")}

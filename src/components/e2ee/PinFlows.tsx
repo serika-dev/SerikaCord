@@ -62,7 +62,7 @@ function usePinErrorText() {
       if (e.reason === "rate_limited") return gt("Too many attempts. Wait a moment and try again.");
       return gt("PINs aren't available right now. Use another device or your recovery passphrase.");
     }
-    if (errorName(err) === "E2eeFormatError") return gt("This PIN backup doesn't match your current keys. Reset encryption to start over.");
+    if (errorName(err) === "E2eeFormatError") return gt("This PIN backup doesn't match your current keys. Start over with new keys to keep using encryption.");
     if (errorStatus(err) === 409) return gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.");
     return gt("Something went wrong. Check your connection and try again.");
   };
@@ -136,7 +136,7 @@ export function PinUnlockFlow({ onDone, renderTitle = defaultTitle }: { onDone?:
           </button>
         )}
         <button type="button" className={linkButton} disabled={busy} onClick={() => openE2eeDialog("reset")}>
-          {gt("Forgot PIN? Reset encryption")}
+          {gt("Forgot PIN? Start over with new keys")}
         </button>
       </div>
     </div>
@@ -401,7 +401,7 @@ export function PinSetupFlow({
             <Button variant="ghost" onClick={() => restart(null, "passphrase")}>{gt("Back")}</Button>
           )}
           {cancel}
-          <Button variant="destructive" onClick={() => openE2eeDialog("reset")}>{gt("Reset encryption")}</Button>
+          <Button variant="destructive" onClick={() => openE2eeDialog("reset")}>{gt("Start over with new keys")}</Button>
         </div>
       </div>
     );

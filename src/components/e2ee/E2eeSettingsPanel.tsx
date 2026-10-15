@@ -165,7 +165,7 @@ export function E2eeSettingsPanel() {
               {e2ee.hasPin && <Button size="sm" onClick={() => openE2eeDialog("pin-unlock")}>{gt("Enter your PIN")}</Button>}
               <Button size="sm" variant={e2ee.hasPin ? "secondary" : "default"} onClick={() => openE2eeDialog("link-new")}>{gt("Use another device")}</Button>
               {e2ee.serverHasBackup && <Button size="sm" variant="secondary" onClick={() => openE2eeDialog("restore")}>{gt("Use recovery passphrase")}</Button>}
-              <Button size="sm" variant="ghost" onClick={() => openE2eeDialog("reset")}>{gt("Reset encryption")}</Button>
+              <Button size="sm" variant="ghost" onClick={() => openE2eeDialog("reset")}>{gt("Start over with new keys")}</Button>
             </div>
           )}
         </div>
@@ -308,13 +308,13 @@ export function E2eeSettingsPanel() {
             <ShieldAlert className="w-5 h-5 text-red-500" />
           </div>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Reset encryption")}</p>
+            <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Start over with new keys")}</p>
             <p className="text-xs text-[var(--text-secondary)]">
-              {gt("Creates new keys. Use it only if you lost your PIN, passphrase and devices: older encrypted messages stay readable on this device only.")}
+              {gt("Only if you lost your PIN, passphrase and every set-up device. Nothing is recovered: new devices can't read your older encrypted messages.")}
             </p>
             <div className="flex flex-wrap gap-2 pt-2">
               <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-500" onClick={() => openE2eeDialog("reset")}>
-                {gt("Reset encryption")}
+                {gt("Start over…")}
               </Button>
             </div>
           </div>

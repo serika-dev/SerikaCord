@@ -11,6 +11,8 @@
 ### Changes
 
 ### Bug Fixes
+- **PIN entry is smooth again** — typing a digit now moves straight to the next box (it kept jumping back), and backspace, paste and keyboard autofill all work.
+- Clearer encryption recovery screens: "Reset encryption" is now "Start over with new keys" and says plainly that nothing is recovered, and the unlock screen explains when your account has no PIN yet and where to create one.
 
 ### Performance
 
