@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.0.1.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.1.0 — 2026-10-15
+
+**Tag:** `v2.1.0` · **Commit:** `0ecaafa`
 
 ### Features
 - **Verified domains** — website connections now need a DNS TXT record before they appear on your profile, and you can link several domains at once. Settings → Connections shows the exact record to add and a Check button; verified domains get a green check on your profile. Websites added before this stay hidden until verified.
@@ -24,12 +42,8 @@
 ### Bug Fixes
 - Product names like Windows and Discord are no longer translated (Dutch showed "Download for Ramen").
 
-### Performance
-
 ### Security
 - **More private data at rest** — connection tokens, bot and webhook tokens, private notes, join-application answers, appeals and push tokens can be stored encrypted, and stored IP addresses are shortened.
-
-### Removed
 
 ---
 
