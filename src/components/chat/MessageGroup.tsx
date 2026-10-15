@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, memo, useEffect, useMemo, useState } from "react";
-import { BellOff, Pin, Reply, Clock, Lock, ShieldAlert } from "lucide-react";
+import { BellOff, Pin, Reply, Clock, Lock, ShieldAlert, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
 import { MessageContent } from "@/components/chat/MessageContent";
@@ -23,6 +23,11 @@ import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
 import type { RoleIconData } from "@/components/chat/RoleIcon";
 import type { ChatGt } from "./ChatGtContext";
+import dynamic from "next/dynamic";
+import { attachmentsOutsideComponents, isLoadingMessage } from "@/lib/chat/interactionEvents";
+
+// Bot buttons / selects / components v2: its own chunk, only for messages that have them.
+const MessageComponents = dynamic(() => import("@/components/chat/MessageComponents"), { ssr: false });
 
 /** Why an end-to-end encrypted message can't be shown (lib/e2ee/client DecryptFailure). */
 function e2eeFailureText(gt: ChatGt, reason: string | undefined): string {
@@ -261,7 +266,7 @@ function MessageGroupInner<M extends ChatMessage>({
             {index > 0 && newSeparatorBeforeId === message.id && (
               <UnreadDivider label={gt("New")} />
             )}
-            {message.interaction && (
+            {message.interaction?.name && (
               <div className="ml-[3.5rem] mb-0.5 flex items-center gap-1 text-xs text-[var(--app-muted)] truncate">
                 <Reply className="w-3 h-3 flex-shrink-0 -scale-x-100" />
                 <span className="truncate">
@@ -383,6 +388,12 @@ function MessageGroupInner<M extends ChatMessage>({
                         <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
                         {e2eeFailureText(gt, message.e2ee.reason)}
                       </span>
+                    ) : isLoadingMessage(message.flags) && !message.content ? (
+                      // Deferred interaction reply (callback 5) until the app edits it.
+                      <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]" aria-busy="true">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        {gt("{name} is thinking…", { name: group.author.displayName || group.author.username })}
+                      </span>
                     ) : (
                     <MessageContent
                       content={message.content}
@@ -487,9 +498,24 @@ function MessageGroupInner<M extends ChatMessage>({
                     />
                     )}
 
+                    {message.components && message.components.length > 0 && (
+                      <MessageComponents
+                        messageId={message.id}
+                        channelId={message.channelId}
+                        components={message.components}
+                        attachments={message.attachments}
+                        serverId={serverId}
+                        currentUserId={currentUserId}
+                        mentionUsers={mergedMentionUsers}
+                        mentionRoles={mentionRoles}
+                        serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                        onMediaClick={onMediaClick}
+                      />
+                    )}
+
                     {inlineMediaEnabled && (
                     <MessageAttachments
-                      attachments={message.attachments}
+                      attachments={message.components?.length ? attachmentsOutsideComponents(message.attachments, message.components) : message.attachments}
                       messageId={message.id}
                       onMediaClick={onMediaClick}
                     />

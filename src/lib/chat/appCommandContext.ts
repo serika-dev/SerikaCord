@@ -20,6 +20,8 @@ export const OPT = {
  * one selectable entry in the palette.
  */
 export interface AppLeafCommand {
+  /** The registered command's id (what /api/interactions/commands takes). */
+  commandId: string;
   /** Full space-joined name, e.g. "amq start". */
   fullName: string;
   /** Path tokens, e.g. ["amq", "start"]. */
@@ -43,6 +45,7 @@ export function flattenAppCommands(groups: AppCommandGroup[]): AppLeafCommand[] 
       );
       if (subs.length === 0) {
         leaves.push({
+          commandId: cmd.id,
           fullName: cmd.name,
           path: [cmd.name],
           description: cmd.description,
@@ -54,6 +57,7 @@ export function flattenAppCommands(groups: AppCommandGroup[]): AppLeafCommand[] 
       for (const sub of subs) {
         if (sub.type === OPT.SUB_COMMAND) {
           leaves.push({
+            commandId: cmd.id,
             fullName: `${cmd.name} ${sub.name}`,
             path: [cmd.name, sub.name],
             description: sub.description || cmd.description,
@@ -64,6 +68,7 @@ export function flattenAppCommands(groups: AppCommandGroup[]): AppLeafCommand[] 
           for (const leaf of sub.options ?? []) {
             if (leaf.type !== OPT.SUB_COMMAND) continue;
             leaves.push({
+              commandId: cmd.id,
               fullName: `${cmd.name} ${sub.name} ${leaf.name}`,
               path: [cmd.name, sub.name, leaf.name],
               description: leaf.description || sub.description || cmd.description,
@@ -76,6 +81,24 @@ export function flattenAppCommands(groups: AppCommandGroup[]): AppLeafCommand[] 
     }
   }
   return leaves;
+}
+
+/** A user (type 2) or message (type 3) context-menu command. */
+export interface AppContextCommand {
+  commandId: string;
+  name: string;
+  application: AppCommandGroup["application"];
+}
+
+/** Context-menu commands of one type, for the user / message right-click menus. */
+export function contextMenuCommands(groups: AppCommandGroup[], type: 2 | 3): AppContextCommand[] {
+  const out: AppContextCommand[] = [];
+  for (const group of groups) {
+    for (const cmd of group.commands) {
+      if ((cmd.type ?? 1) === type) out.push({ commandId: cmd.id, name: cmd.name, application: group.application });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Split a string into tokens, keeping quoted values together. */

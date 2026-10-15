@@ -6,6 +6,7 @@ import type { GroupDmEventType } from "@/lib/chat/groupDm";
 import type { ThreadSummary } from "@/lib/chat/threads";
 import type { PollResultData, PollView } from "@/lib/chat/polls";
 import type { ForwardView } from "@/lib/chat/forward";
+import type { MessageComponent } from "@/lib/botapi/components";
 
 export interface MessageAuthor {
   id: string;
@@ -156,8 +157,10 @@ export interface ChatMessage {
   pending?: boolean;
   /** Ephemeral messages are only visible to the invoking user and are not persisted. */
   ephemeral?: boolean;
-  /** Set on a bot's slash-command response: who invoked which command. */
-  interaction?: { name: string; user: { id: string; username: string } };
+  /** Set on a bot's interaction response: who invoked which command (name is '' for button clicks). */
+  interaction?: { id?: string; name: string; user: { id: string; username: string } };
+  /** Bot message components: buttons, select menus, components v2 layouts (lib/botapi/components). */
+  components?: MessageComponent[];
   /** When true, link previews and rich embeds are hidden for this message. */
   suppressEmbeds?: boolean;
   /** Discord message flags (lib/chat/messageFlags): SUPPRESS_NOTIFICATIONS = "@silent". */

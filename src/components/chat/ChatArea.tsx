@@ -38,6 +38,8 @@ import {
 } from "lucide-react";
 import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAppCommandRunner, useAppCommands } from "@/hooks/useAppCommands";
+import { fetchAutocomplete } from "@/lib/chat/appCommandInvoke";
 import { MessageBar, type MessageBarHandle } from "@/components/chat/MessageBar";
 import { MessageList, type MessageListHandle } from "@/components/chat/MessageList";
 import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
@@ -71,10 +73,8 @@ import {
   type SlashCommandParam,
 } from "@/lib/chat/slashCommands";
 import {
-  flattenAppCommands,
   parseAppCommandContext,
   OPT,
-  type AppLeafCommand,
 } from "@/lib/chat/appCommandContext";
 import type { ChatMessage } from "@/lib/chat/types";
 import { emitHotkey, onHotkey } from "@/lib/keybinds";
@@ -290,9 +290,6 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const mentionRangeRef = useRef<{ start: number; end: number } | null>(null);
-  // Registered bot (application) commands available in this channel, flattened
-  // into individually-invokable leaf commands for the slash palette.
-  const [appLeaves, setAppLeaves] = useState<AppLeafCommand[]>([]);
 
   // Header utilities
   const [showPins, setShowPins] = useState(false);
@@ -370,30 +367,13 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const setSearchDraft = search.setDraft;
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
-  // Fetch registered bot slash commands available in the active channel.
-  useEffect(() => {
-    const channelId = currentChannel?.id;
-    if (!channelId) {
-      setAppLeaves([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getJsonCached<{ groups?: Parameters<typeof flattenAppCommands>[0] }>(
-          `/api/channels/${channelId}/application-commands`,
-          60_000,
-        );
-        if (!data || cancelled) return;
-        setAppLeaves(flattenAppCommands(data.groups || []));
-      } catch {
-        /* commands are optional; ignore fetch failures */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [currentChannel?.id]);
+  // Registered bot (application) commands this user may run here: slash
+  // leaves for the palette (+ context-menu commands, shared cache).
+  const appCommands = useAppCommands(currentChannel?.id);
+  const appLeaves = appCommands.leaves;
+  const runAppCommand = useAppCommandRunner(currentChannel?.id, appLeaves);
+  const autocompleteReqRef = useRef(0);
+  const autocompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch server emojis (per-server SWR: paint cache instantly, revalidate).
   // Keyed on the id: the 25s server-list poll can hand us a fresh object.
@@ -980,6 +960,15 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       }
     }
 
+    // Bot (application) command picked from the palette: send typed options
+    // (numbers, booleans, choices, user / role / channel ids, files) instead
+    // of text. Anything else falls through to a normal send.
+    if (trimmed.startsWith("/") && (await runAppCommand(trimmed))) {
+      composer?.clear();
+      chat.resetTyping();
+      return;
+    }
+
     // Normal send. Bot (application) slash commands are detected server-side:
     // the message endpoint dispatches the interaction and returns without
     // persisting the raw "/command" text (see sendMessage reconciliation).
@@ -991,7 +980,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     if (currentChannelBridged && !user?.settings?.dataPrivacy?.discordBridgePrompted) {
       setBridgeConsentOpen(true);
     }
-  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted, isThread, markThreadJoined, user, currentChannel?.id, verificationBlocked]);
+  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, currentServer, members, user?.id, currentChannelBridged, user?.settings?.dataPrivacy?.discordBridgePrompted, isThread, markThreadJoined, user, currentChannel, verificationBlocked, runAppCommand]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
@@ -1010,6 +999,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       const caretPosition =
         explicitCaretPosition ?? messageBarRef.current?.getComposer()?.getCaret() ?? draft.length;
       const beforeCursor = draft.slice(0, caretPosition);
+      // Any newer keystroke invalidates a pending autocomplete answer.
+      autocompleteReqRef.current += 1;
 
       // Slash command autocomplete: `/query` at the start of the message (no spaces)
       const slashMatch = beforeCursor.match(/^\/([a-zA-Z0-9_]*)$/);
@@ -1235,6 +1226,64 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
                 setActiveMentionIndex((prev) => (prev !== 0 ? 0 : prev));
                 return;
               }
+            }
+
+            // ROLE / MENTIONABLE / CHANNEL options → role and channel pickers.
+            if (option.type === OPT.ROLE || option.type === OPT.MENTIONABLE || option.type === OPT.CHANNEL) {
+              const pickers: MentionSuggestion[] = [];
+              if (option.type === OPT.MENTIONABLE) {
+                for (const entry of mentionUsers) {
+                  const name = (entry.displayName || entry.username || "").toLowerCase();
+                  if (!argLower || name.includes(argLower)) {
+                    pickers.push({ id: entry.id, kind: "param-user", label: entry.displayName || entry.username, description: entry.username, color: userRoleColorMap[entry.id], paramName: option.name, paramRequired: option.required, commandName: cmdName });
+                  }
+                  if (pickers.length >= 5) break;
+                }
+              }
+              if (option.type !== OPT.CHANNEL) {
+                for (const role of mentionRoles) {
+                  if (role.isDefault) continue;
+                  if (argLower && !role.name.toLowerCase().includes(argLower)) continue;
+                  pickers.push({ id: role.id, kind: "role", label: role.name, color: role.color, paramName: option.name, paramRequired: option.required, commandName: cmdName });
+                  if (pickers.length >= 10) break;
+                }
+              } else {
+                for (const ch of channels) {
+                  if (ch.type === "category" || (argLower && !ch.name.toLowerCase().includes(argLower))) continue;
+                  pickers.push({ id: ch.id, kind: "channel", label: ch.name, paramName: option.name, paramRequired: option.required, commandName: cmdName });
+                  if (pickers.length >= 10) break;
+                }
+              }
+              if (pickers.length > 0) {
+                mentionRangeRef.current = valueRange;
+                setMentionSuggestions(pickers);
+                setActiveMentionIndex((prev) => (prev !== 0 ? 0 : prev));
+                return;
+              }
+            }
+
+            // Autocomplete options: ask the app (debounced); the hint shows meanwhile.
+            if (option.autocomplete && currentChannel) {
+              const reqId = autocompleteReqRef.current;
+              const channelIdForAc = currentChannel.id;
+              const typedBefore = beforeCursor.slice(0, beforeCursor.length - currentArg.length);
+              const focusedOption = option;
+              if (autocompleteTimerRef.current) clearTimeout(autocompleteTimerRef.current);
+              autocompleteTimerRef.current = setTimeout(() => {
+                void fetchAutocomplete(channelIdForAc, leaf, typedBefore, focusedOption, currentArg).then((choices) => {
+                  if (reqId !== autocompleteReqRef.current || choices.length === 0) return;
+                  mentionRangeRef.current = valueRange;
+                  setMentionSuggestions(choices.map((c) => ({
+                    id: String(c.value),
+                    kind: "app-choice" as const,
+                    label: c.name,
+                    paramName: focusedOption.name,
+                    paramRequired: focusedOption.required,
+                    commandName: cmdName,
+                  })));
+                  setActiveMentionIndex(0);
+                });
+              }, 250);
             }
 
             // Explicit choices (screenshot: 🎵 Audio — guess from theme song).
@@ -1488,7 +1537,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       setMentionSuggestions(nextSuggestions);
       setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
     },
-    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, channels, appLeaves, gt]
+    [mentionRoles, mentionUsers, userRoleColorMap, allServerEmojis, currentServer, currentChannel, channels, appLeaves, gt]
   );
 
   const insertMentionFromSuggestion = useCallback(
@@ -1529,7 +1578,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         composer.replaceRange(activeRange.start, activeRange.end, `${suggestion.label}:`);
       } else if (suggestion.kind === "app-choice") {
         // Insert the chosen option value, then a space to advance.
-        composer.replaceRange(activeRange.start, activeRange.end, `${suggestion.id} `);
+        composer.replaceRange(activeRange.start, activeRange.end, /\s/.test(suggestion.id) ? `"${suggestion.id}" ` : `${suggestion.id} `);
       } else if (suggestion.kind === "param-user") {
         // Insert user mention pill for command param
         composer.replaceRangeWithMention(activeRange.start, activeRange.end, {

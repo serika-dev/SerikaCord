@@ -7,6 +7,7 @@ import { sharedGet } from "@/lib/bootFetch";
 import { useGT } from "gt-next";
 import type { MessageBarHandle } from "@/components/chat/MessageBar";
 import { useChatStream, useTypingSignal, type ChatStreamEvent } from "@/hooks/useChatStream";
+import { onInteractionEvent } from "@/lib/chat/interactionEvents";
 import { useMessageActions } from "@/hooks/useMessageActions";
 import {
   applyThreadUpdate,
@@ -966,8 +967,12 @@ export function useChatSession<M extends ChatMessage>({
                   pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
                   embeds: data.embeds !== undefined ? data.embeds : m.embeds,
                   attachments: data.attachments !== undefined ? data.attachments : m.attachments,
+                  // App messages: components / flags change on interaction updates.
+                  ...(data.components !== undefined ? { components: Array.isArray(data.components) && data.components.length ? data.components : undefined } : {}),
+                  ...(typeof data.flags === "number" ? { flags: data.flags } : {}),
                   ...(data.e2eeState ? { e2ee: data.e2eeState, sticker: data.sticker, mentionedUserIds: data.mentionedUserIds ?? [] } : {}),
-                  edited: data.content !== undefined ? true : m.edited,
+                  // A deferred "thinking…" reply getting its content isn't an edit.
+                  edited: data.loadingDone ? m.edited : data.content !== undefined ? true : m.edited,
                   updatedAt: new Date().toISOString(),
                 }
               : m
@@ -1383,6 +1388,26 @@ export function useChatSession<M extends ChatMessage>({
     },
     [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt, appendCapped, returnToPresent, encryptedChat, checkRemembered, decodeRaw]
   );
+
+  // App interactions: ephemeral replies arrive on the user's own activity
+  // stream (never the channel stream others listen on), see
+  // lib/services/appMessages.ts. Apply the ones for this conversation.
+  useEffect(() => {
+    return onInteractionEvent((e) => {
+      const here = e.channelId && (e.channelId === contextId || e.channelId === conversationRef.current?.channelId);
+      if (!here) return;
+      if (e.event === "ephemeral") {
+        const incoming = normalizeIncomingMessage<M>(e.message as never);
+        setMessages((prev) => (prev.some((m) => m.id === incoming.id) ? prev : appendCapped(prev, incoming)));
+        latestRef.current.onShouldScrollToBottom?.();
+      } else if (e.event === "ephemeral_update") {
+        const incoming = normalizeIncomingMessage<M>(e.message as never);
+        setMessages((prev) => prev.map((m) => (m.id === incoming.id ? incoming : m)));
+      } else if (e.event === "ephemeral_delete") {
+        setMessages((prev) => prev.filter((m) => m.id !== e.messageId));
+      }
+    });
+  }, [contextId, appendCapped]);
 
   /**
    * Inject a client-only ephemeral message visible to the current user. Used by

@@ -7,6 +7,7 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { NotificationHosts } from "@/components/notifications/NotificationHosts";
 import { NativeAppBridge } from "@/components/native/NativeAppBridge";
 import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
+import { InteractionModalHost } from "@/components/chat/InteractionModalHost";
 import { UserActionsHost } from "@/components/user/UserActionsHost";
 import { ChangelogHost } from "@/components/changelog/ChangelogHost";
 import dynamic from "next/dynamic";
@@ -66,6 +67,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
           {children}
           <NotificationHosts />
           <ForwardDialogHost />
+          <InteractionModalHost />
           <NativeAppBridge />
           <UserActionsHost />
           <ChangelogHost />

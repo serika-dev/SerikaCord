@@ -199,6 +199,18 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "quoted by the sender": gt("quoted by the sender"),
       "Not encrypted – can't verify sender": gt("Not encrypted – can't verify sender"),
       "{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.": gt("{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.", { actor: "{actor}" }),
+      // MessageComponents — bot buttons, select menus, components v2
+      "You are doing that too fast.": gt("You are doing that too fast."),
+      "This component is no longer available.": gt("This component is no longer available."),
+      "This app is no longer in this conversation.": gt("This app is no longer in this conversation."),
+      "This interaction failed.": gt("This interaction failed."),
+      "Make a selection": gt("Make a selection"),
+      "Search": gt("Search"),
+      "No results": gt("No results"),
+      "Apply": gt("Apply"),
+      "File": gt("File"),
+      // MessageGroup — deferred interaction reply
+      "{name} is thinking…": gt("{name} is thinking…", { name: "{name}" }),
       "Not verified": gt("Not verified"),
       "Someone": gt("Someone"),
       "{actor} turned off end-to-end encryption. New messages here aren't end-to-end encrypted.": gt("{actor} turned off end-to-end encryption. New messages here aren't end-to-end encrypted.", { actor: "{actor}" }),

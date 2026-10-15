@@ -22,6 +22,7 @@
  * via `markChannelRead(id, message)`.
  */
 
+import { INTERACTION_EVENT } from "@/lib/chat/interactionEvents";
 import { streamerHidesNow } from "@/hooks/useStreamerMode";
 import { getRelationships, refreshRelationships } from "@/lib/social/relationshipsStore";
 import { receiveUserNote } from "@/lib/social/notesStore";
@@ -775,6 +776,13 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       }
 
       // Friends / blocks changed (any device): refresh the shared lists.
+      // App interactions (lib/chat/interactionEvents): ephemeral replies,
+      // acks / failures, modals. Only this user's streams get them.
+      if (data.type === "interaction") {
+        window.dispatchEvent(new CustomEvent(INTERACTION_EVENT, { detail: data }));
+        return;
+      }
+
       if (data.type === "staff_access_changed") {
         window.dispatchEvent(new Event("serika:staff-access-changed"));
         return;

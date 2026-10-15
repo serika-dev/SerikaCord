@@ -32,6 +32,7 @@ import { PinnedMessagesDialog } from "@/components/chat/PinnedMessagesDialog";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { useChatSession } from "@/hooks/useChatSession";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
+import { useAppCommandRunner, useAppCommands } from "@/hooks/useAppCommands";
 import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { playTts } from "@/lib/chat/tts";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
@@ -220,6 +221,9 @@ export default function DMConversationPage() {
   const dmMuted = dmChannelId ? isChannelMuted(dmChannelId) : false;
 
   const { executeCommand } = useSlashCommands({});
+  // Typed app commands with the bot in this DM (picker leaves; cached per channel).
+  const dmAppCommands = useAppCommands(recipient?.isBot ? dmChannelId : null);
+  const runAppCommand = useAppCommandRunner(dmChannelId, dmAppCommands.leaves);
 
   const handleSend = useCallback(async () => {
     const composer = messageBarRef.current?.getComposer();
@@ -269,8 +273,14 @@ export default function DMConversationPage() {
       }
     }
 
+    if (trimmed.startsWith("/") && (await runAppCommand(trimmed))) {
+      composer?.clear();
+      chat.resetTyping();
+      return;
+    }
+
     void chat.sendMessage();
-  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice]);
+  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, runAppCommand]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
