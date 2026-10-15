@@ -13,6 +13,8 @@ import {
   toDiscordRole, toDiscordSticker,
 } from '@/lib/services/gatewayEvents';
 import { INTENT } from './intents';
+import { computeChannelPermissions, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
+import { PERMISSION_BITS } from '@/lib/permissions/bits';
 
 export const DEFAULT_LARGE_THRESHOLD = 50;
 export const MAX_LARGE_THRESHOLD = 250;
@@ -45,6 +47,52 @@ function managedBotRoles(members: MemberRow[], bots: Map<string, UserRow>, roles
     for (const r of m.roles ?? []) if (managed.has(r) && !out.has(r)) out.set(r, u.id);
   }
   return out;
+}
+
+interface ThreadLike {
+  type?: string | null;
+  archived?: boolean | null;
+  threadMemberIds?: string[] | null;
+  ownerId?: string | null;
+}
+
+/** VIEW_CHANNEL check for the bot on a guild channel (pure; same rules as users). */
+export function botViewChecker(opts: {
+  isOwner: boolean;
+  serverId: string;
+  botId: string;
+  memberRoleIds: readonly string[];
+  roles: ReadonlyArray<{ id: string; permissions?: string | null; isDefault?: boolean | null }>;
+}): (channel: { permissionOverwrites?: unknown } | null) => boolean {
+  const bits = (v: string | null | undefined) => { try { return BigInt(v ?? '0'); } catch { return 0n; } };
+  const everyone = opts.roles.find((r) => r.isDefault) ?? null;
+  const mine = new Set(opts.memberRoleIds.map((r) => r.toLowerCase()));
+  const rolePermissions = opts.roles.filter((r) => !r.isDefault && mine.has(r.id.toLowerCase())).map((r) => bits(r.permissions));
+  return (channel) => {
+    if (!channel) return false;
+    const perms = computeChannelPermissions({
+      isOwner: opts.isOwner,
+      everyonePermissions: everyone ? bits(everyone.permissions) : null,
+      rolePermissions,
+      overwrites: (channel.permissionOverwrites ?? []) as ChannelOverwrite[],
+      ctx: { serverId: opts.serverId, everyoneRoleId: everyone?.id ?? null, memberRoleIds: opts.memberRoleIds, userId: opts.botId },
+    });
+    return (perms & PERMISSION_BITS.VIEW_CHANNEL) === PERMISSION_BITS.VIEW_CHANNEL;
+  };
+}
+
+/** An active thread the bot may see: parent viewable; private threads only for members / the owner. */
+export function threadVisibleToBot(
+  thread: ThreadLike,
+  parent: { permissionOverwrites?: unknown } | null,
+  botId: string,
+  canView: (channel: { permissionOverwrites?: unknown } | null) => boolean,
+): boolean {
+  if (thread.archived) return false;
+  if (!canView(parent)) return false;
+  if (thread.type !== 'private_thread') return true;
+  const bot = botId.toLowerCase();
+  return (thread.threadMemberIds ?? []).some((u) => u.toLowerCase() === bot) || (thread.ownerId ?? '').toLowerCase() === bot;
 }
 
 export interface GuildCreateOptions {
@@ -99,12 +147,20 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
     events = rows.map((r) => toDiscordEvent(r));
   } catch { /* table may not exist yet */ }
 
-  const botId = botMember.userId.toLowerCase();
-  const visibleThread = (c: (typeof channels)[number]) =>
-    !c.archived && (c.type !== 'private_thread' || (c.threadMemberIds ?? []).some((u) => u.toLowerCase() === botId) || (c.ownerId ?? '').toLowerCase() === botId);
-  const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type));
-  const threads = channels.filter((c) => isThreadChannelType(c.type) && visibleThread(c))
+  // Threads: only active ones whose parent the bot can view (same overwrite
+  // resolution as checkChannelAccess); private threads also need membership.
+  const byId = new Map(channels.map((c) => [c.id.toLowerCase(), c]));
+  const canViewParent = botViewChecker({
+    isOwner: (server.ownerId ?? '').toLowerCase() === botMember.userId.toLowerCase(),
+    serverId: sid,
+    botId: botMember.userId,
+    memberRoleIds: botMember.roles ?? [],
+    roles,
+  });
+  const threads = channels
+    .filter((c) => isThreadChannelType(c.type) && threadVisibleToBot(c, byId.get((c.parentId ?? '').toLowerCase()) ?? null, botMember.userId, canViewParent))
     .map((c) => ({ ...toDiscordChannel({ ...c, ownerId: c.ownerId ?? server.ownerId }) }));
+  const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type));
 
   return {
     ...toDiscordGuildBase(server),

@@ -47,7 +47,11 @@ export const SF_KIND = {
   auditEntry: 15,
   sku: 16,
   integration: 17,
+  tag: 18,
 } as const;
+
+/** Most new mapping rows one payload may create. */
+export const MAX_NEW_PER_PAYLOAD = 2000;
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +100,9 @@ const u2s = processShared('sf:u2s', () => new BoundedMap<string, string>(100_000
 const s2u = processShared('sf:s2u', () => new BoundedMap<string, { uuid: string; kind: number }>(100_000));
 /** @everyone role uuids (their snowflake is the guild's). */
 const everyoneRoles = processShared('sf:everyone', () => new BoundedMap<string, true>(20_000));
+/** UUIDs recently found in no table (not minted): uuid -> when (ms). Skips repeat lookups. */
+const unverified = processShared('sf:unverified', () => new BoundedMap<string, number>(50_000));
+const UNVERIFIED_TTL_MS = 10 * 60_000;
 /** server uuid -> its @everyone role uuid. */
 const everyoneByServer = processShared('sf:everyoneByServer', () => new BoundedMap<string, string>(20_000));
 
@@ -157,7 +164,9 @@ interface Origin { ts: number; kind: number; clientId?: string | null; everyoneO
  */
 export async function snowflakesForUuids(
   uuidsIn: Iterable<string>,
-  hints?: Map<string, { ts: number; kind?: number }>,
+  hints?: Map<string, { ts: number }>,
+  /** Kinds proven by position (attachments, tags, interactions): minted without a table hit. */
+  structural?: Map<string, number>,
 ): Promise<ResolvedOutbound> {
   const map = new Map<string, string>();
   const everyone = new Set<string>();
@@ -204,8 +213,16 @@ export async function snowflakesForUuids(
   }
   if (missing.length === 0) return { map, everyone };
 
-  // 4. New entities: find their creation time and kind, then mint rows.
-  const origins = await originsOf(missing, hints);
+  // 4. New entities: find their creation time and kind, then mint rows. Ids
+  // that recently matched no table are skipped (a fake <#uuid> in text must
+  // not cost a lookup per dispatch), and one payload mints a bounded number.
+  const now = Date.now();
+  missing = missing.filter((u) => {
+    const at = unverified.get(u);
+    return !(at && now - at < UNVERIFIED_TTL_MS) || structural?.has(u);
+  }).slice(0, MAX_NEW_PER_PAYLOAD);
+  if (missing.length === 0) return { map, everyone };
+  const origins = await originsOf(missing, hints, structural);
 
   // @everyone roles borrow the guild's snowflake.
   const everyoneRoleIds = missing.filter((u) => origins.get(u)?.everyoneOf);
@@ -224,7 +241,14 @@ export async function snowflakesForUuids(
     redisSetMany(toRedis);
   }
 
-  const toMint = missing.filter((u) => !everyone.has(u));
+  // Only entities that exist get a row: a table hit, or a structural kind.
+  // Unknown ids (e.g. made-up tokens in message text) stay untranslated.
+  const toMint = missing.filter((u) => {
+    if (everyone.has(u)) return false;
+    if ((origins.get(u)?.kind ?? SF_KIND.unknown) !== SF_KIND.unknown) return true;
+    unverified.set(u, now);
+    return false;
+  });
   if (toMint.length > 0) {
     const minted = await mint(toMint, origins);
     for (const [u, sf] of minted) map.set(u, sf);
@@ -233,15 +257,19 @@ export async function snowflakesForUuids(
 }
 
 /** Creation time + kind for UUIDs not mapped yet (hints first, then one lookup per table group). */
-async function originsOf(uuids: string[], hints?: Map<string, { ts: number; kind?: number }>): Promise<Map<string, Origin>> {
+async function originsOf(
+  uuids: string[],
+  hints?: Map<string, { ts: number }>,
+  structural?: Map<string, number>,
+): Promise<Map<string, Origin>> {
   const out = new Map<string, Origin>();
-  // Messages with a known timestamp still go through the lookup for kind only
-  // when cheap; their timestamp is authoritative.
+  // Structural kinds need no lookup; a message `timestamp` hint gives the time
+  // but its existence is still checked against the tables.
   for (const u of uuids) {
-    const h = hints?.get(u);
-    if (h) out.set(u, { ts: h.ts, kind: h.kind ?? SF_KIND.unknown });
+    const k = structural?.get(u);
+    if (k) out.set(u, { ts: hints?.get(u)?.ts ?? Date.now(), kind: k });
   }
-  const need = uuids.filter((u) => !out.has(u) || out.get(u)!.kind === SF_KIND.unknown);
+  const need = uuids.filter((u) => !out.has(u));
   if (need.length === 0) return out;
 
   const take = (rows: Row[]) => {
@@ -249,9 +277,8 @@ async function originsOf(uuids: string[], hints?: Map<string, { ts: number; kind
       const u = lower(String(r.id));
       // timestamp columns hold UTC without a zone: read epoch ms from SQL, not a JS Date.
       const created = r.created_ms ? Number(r.created_ms) : NaN;
-      const prev = out.get(u);
       out.set(u, {
-        ts: prev?.ts ?? (Number.isFinite(created) ? created : Date.now()),
+        ts: hints?.get(u)?.ts ?? (Number.isFinite(created) ? created : Date.now()),
         kind: Number(r.kind) || SF_KIND.unknown,
         clientId: (r.client_id as string | null) ?? null,
         everyoneOf: r.is_default ? lower(String(r.server_id)) : null,
@@ -290,6 +317,16 @@ async function originsOf(uuids: string[], hints?: Map<string, { ts: number; kind
   }
   for (const u of uuids) if (!out.has(u)) out.set(u, { ts: Date.now(), kind: SF_KIND.unknown });
   return out;
+}
+
+/** Cached snowflake for a uuid (process cache only, no I/O). */
+export function cachedSnowflakeOf(uuid: string): string | undefined {
+  return u2s.get(lower(uuid));
+}
+
+/** Whether a uuid is a cached @everyone role (process cache only). */
+export function isCachedEveryoneRole(uuid: string): boolean {
+  return everyoneRoles.has(lower(uuid));
 }
 
 /** Insert mapping rows, retrying a candidate that collides with another entity's snowflake. */

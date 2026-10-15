@@ -120,7 +120,7 @@ describe("GatewayHub (no DB paths)", () => {
   test("dispatches keep order and seq; detached sessions buffer for RESUME", async () => {
     const hub = new GatewayHub({ persistPresence: false });
     const c = authed(fakeConn());
-    hub.connections.add(c);
+    hub.adopt(c);
     const msg = (content: string) => ({
       t: "MESSAGE_CREATE", guildId: GUILD, intent: 1 << 9, audience: [BOT],
       d: { id: crypto.randomUUID(), channel_id: GUILD, guild_id: GUILD, author: { id: "someone" }, content, mentions: [] },
@@ -139,7 +139,7 @@ describe("GatewayHub (no DB paths)", () => {
     const hub = new GatewayHub({ persistPresence: false });
     const c = authed(fakeConn());
     c.data.ready = false;
-    hub.connections.add(c);
+    hub.adopt(c);
     await hub.routeDispatch({ t: "GUILD_SCHEDULED_EVENT_CREATE", guildId: GUILD, intent: 0, d: { id: "e" } });
     expect(c.frames.length).toBe(0);
     expect(c.data.pending.length).toBe(1);
@@ -148,7 +148,7 @@ describe("GatewayHub (no DB paths)", () => {
   test("op 7 RECONNECT to everyone", () => {
     const hub = new GatewayHub({ persistPresence: false });
     const c = authed(fakeConn());
-    hub.connections.add(c);
+    hub.adopt(c);
     expect(hub.reconnectAll(10_000)).toBe(1);
     expect(c.frames.at(-1)).toMatchObject({ op: OP.RECONNECT });
   });

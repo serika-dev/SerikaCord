@@ -312,7 +312,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     'name', 'description', 'icon', 'coverImage', 'botPublic', 'botRequireCodeGrant',
     'redirectUris', 'scopes', 'installParams', 'customInstallUrl', 'tags',
     'termsOfServiceUrl', 'privacyPolicyUrl', 'rpcOrigins', 'gatewayIntents',
-    'interactionsEndpointUrl', 'apiIdFormat',
+    'apiIdFormat',
+    // interactionsEndpointUrl is set only through POST .../bot/interactions-endpoint (verified PING).
   ];
 
   const updateData: Record<string, unknown> = {};
@@ -447,17 +448,18 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     return { interactionsEndpointUrl: null };
   }
 
-  try { new URL(url); } catch { set.status = 400; return { error: 'Invalid URL' }; }
+  const { isAcceptableEndpointUrl, verifyInteractionsEndpointSafely } = await import('@/lib/botapi/endpointVerify');
+  if (!isAcceptableEndpointUrl(url)) { set.status = 400; return { error: 'The interactions endpoint must be an https URL' }; }
 
   // Make sure the app has a keypair to sign with.
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-  await ensureBotProvisioned(app);
+  const provisioned = await ensureBotProvisioned(app);
 
-  const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
-  const ok = await verifyInteractionEndpoint({
-    interactionsEndpointUrl: url,
-    privateKeyPem: app.privateKeyPem,
-    clientId: app.clientId,
+  // Public addresses only (checked on the request itself), no redirects, capped reply.
+  const ok = await verifyInteractionsEndpointSafely({
+    url,
+    privateKeyPem: provisioned.privateKeyPem,
+    clientId: provisioned.clientId,
   });
   if (!ok) {
     set.status = 400;

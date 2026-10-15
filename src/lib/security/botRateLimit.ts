@@ -23,6 +23,15 @@ export const BOT_LIMITS = {
 
 export type BotLimiterName = keyof typeof BOT_LIMITS;
 
+/**
+ * Gateway IDENTIFY budget per bot (Discord: max_concurrency 1 = one IDENTIFY
+ * per 5 s, and 1000 session starts per day). Used by src/lib/gateway/core.ts.
+ */
+export const GATEWAY_LIMITS = {
+  gatewayIdentify: { points: 1, duration: 5 },
+  gatewayIdentifyDaily: { points: 1000, duration: 86_400 },
+} as const;
+
 export interface BotBucket {
   limiter: BotLimiterName;
   /** Counter identifier (bot + bucket). */

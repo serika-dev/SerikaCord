@@ -81,6 +81,18 @@ export function isSnowflake(value: unknown): value is string {
   }
 }
 
+/**
+ * Fewest digits a real public snowflake has (anything after ~6 hours past the
+ * epoch has 15+). Inbound translation ignores shorter numbers, so counters,
+ * colors and bitfields are never looked up.
+ */
+export const MIN_PUBLIC_SNOWFLAKE_DIGITS = 15;
+
+/** A snowflake long enough to be a real public id (see MIN_PUBLIC_SNOWFLAKE_DIGITS). */
+export function isPublicSnowflake(value: unknown): value is string {
+  return typeof value === 'string' && value.length >= MIN_PUBLIC_SNOWFLAKE_DIGITS && isSnowflake(value);
+}
+
 function toBig(sf: string | bigint): bigint | null {
   if (typeof sf === 'bigint') return sf >= 0n ? sf : null;
   if (!isSnowflake(sf)) return null;

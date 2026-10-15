@@ -83,7 +83,7 @@ describe("snowflake codec", () => {
 });
 
 describe("outbound id rewrite", () => {
-  const map = new Map([[U1, "1001"], [U2, "1002"], [U3, "1003"], [GUILD, "2000"], [ROLE_EVERYONE, "2000"]]);
+  const map = new Map([[U1, "1000000000001001"], [U2, "1000000000001002"], [U3, "1000000000001003"], [GUILD, "1000000000002000"], [ROLE_EVERYONE, "1000000000002000"]]);
   const lookup = { get: (u: string) => map.get(u), everyoneRoles: new Set([ROLE_EVERYONE]) };
 
   test("rewrites id fields, nested objects, arrays and tokens", () => {
@@ -101,19 +101,19 @@ describe("outbound id rewrite", () => {
       referenced_message: { id: U2, author: { id: U1 } },
     };
     const out = rewriteOutbound(msg, lookup);
-    expect(out.id).toBe("1001");
-    expect(out.channel_id).toBe("1002");
-    expect(out.guild_id).toBe("2000");
-    expect(out.author.id).toBe("1003");
+    expect(out.id).toBe("1000000000001001");
+    expect(out.channel_id).toBe("1000000000001002");
+    expect(out.guild_id).toBe("1000000000002000");
+    expect(out.author.id).toBe("1000000000001003");
     expect(out.author.username).toBe("bob");
-    expect(out.mentions[0].id).toBe("1003");
-    expect(out.mention_roles).toEqual(["1001"]);
+    expect(out.mentions[0].id).toBe("1000000000001003");
+    expect(out.mention_roles).toEqual(["1000000000001001"]);
     // free text keeps a bare UUID, tokens are rewritten
-    expect(out.content).toBe("hi <@1003> <@!1003> in <#1002> <@&1001> <:wave:1001> <a:dance:1002> </cmd sub:1001> " + U1);
+    expect(out.content).toBe("hi <@1000000000001003> <@!1000000000001003> in <#1000000000001002> <@&1000000000001001> <:wave:1000000000001001> <a:dance:1000000000001002> </cmd sub:1000000000001001> " + U1);
     expect(out.nonce).toBe(U1);
     // @everyone never appears in member roles
-    expect(out.member.roles).toEqual(["1001"]);
-    expect(out.referenced_message.author.id).toBe("1001");
+    expect(out.member.roles).toEqual(["1000000000001001"]);
+    expect(out.referenced_message.author.id).toBe("1000000000001001");
     // input untouched
     expect(msg.id).toBe(U1);
   });
@@ -131,18 +131,18 @@ describe("outbound id rewrite", () => {
       permission_overwrites: [{ id: U2, type: 0, allow: "1024", deny: "0" }],
     };
     const out = rewriteOutbound(ix, lookup);
-    expect(Object.keys(out.data.resolved.users)).toEqual(["1001"]);
-    expect((out.data.resolved.users as Record<string, { id: string }>)["1001"].id).toBe("1001");
-    expect(out.data.options[0].value).toBe("1001");
+    expect(Object.keys(out.data.resolved.users)).toEqual(["1000000000001001"]);
+    expect((out.data.resolved.users as Record<string, { id: string }>)["1000000000001001"].id).toBe("1000000000001001");
+    expect(out.data.options[0].value).toBe("1000000000001001");
     expect(out.data.options[1].value).toBe(U2);
-    expect(out.authorizing_integration_owners["0"]).toBe("2000");
-    expect(out.permission_overwrites[0]).toEqual({ id: "1002", type: 0, allow: "1024", deny: "0" });
+    expect(out.authorizing_integration_owners["0"]).toBe("1000000000002000");
+    expect(out.permission_overwrites[0]).toEqual({ id: "1000000000001002", type: 0, allow: "1024", deny: "0" });
   });
 
   test("scan collects ids and message timestamp hints", () => {
     const s = scanOutbound([{ id: U1, channel_id: U2, timestamp: "2026-10-16T00:00:00.000Z", content: `<@${U3}>` }]);
     expect([...s.uuids].sort()).toEqual([U1, U2, U3].sort());
-    expect(s.hints.get(U1)).toEqual({ ts: Date.parse("2026-10-16T00:00:00.000Z"), kind: 4 });
+    expect(s.hints.get(U1)).toEqual({ ts: Date.parse("2026-10-16T00:00:00.000Z") });
   });
 
   test("unknown uuids are left alone", () => {
@@ -151,47 +151,47 @@ describe("outbound id rewrite", () => {
 });
 
 describe("inbound id rewrite", () => {
-  const m = new Map([["1001", U1], ["1002", U2], ["2000", GUILD]]);
-  const get = (sf: string, ctx: "role" | "any") => (ctx === "role" && sf === "2000" ? ROLE_EVERYONE : m.get(sf));
+  const m = new Map([["1000000000001001", U1], ["1000000000001002", U2], ["1000000000002000", GUILD]]);
+  const get = (sf: string, ctx: "role" | "any") => (ctx === "role" && sf === "1000000000002000" ? ROLE_EVERYONE : m.get(sf));
 
   test("only id-shaped keys are translated; bitfields and nonces stay", () => {
     const body = {
-      content: "hey <@1001> <#1002> <@&2000> 1001",
-      nonce: "1001",
-      message_reference: { message_id: "1001", channel_id: 1002 },
-      allowed_mentions: { parse: [], users: ["1001", 1002], roles: ["2000"] },
+      content: "hey <@1000000000001001> <#1000000000001002> <@&1000000000002000> 1000000000001001",
+      nonce: "1000000000001001",
+      message_reference: { message_id: "1000000000001001", channel_id: 1000000000001002 },
+      allowed_mentions: { parse: [], users: ["1000000000001001", 1000000000001002], roles: ["1000000000002000"] },
       permission_overwrites: [
-        { id: "2000", type: 0, allow: "1001", deny: "0" },
-        { id: "1001", type: 1, allow: "0", deny: "1002" },
+        { id: "1000000000002000", type: 0, allow: "1000000000001001", deny: "0" },
+        { id: "1000000000001001", type: 1, allow: "0", deny: "1000000000001002" },
       ],
-      roles: ["1002", "2000"],
-      color: 1001,
-      sticker_ids: ["1001"],
+      roles: ["1000000000001002", "1000000000002000"],
+      color: 1000000000001001,
+      sticker_ids: ["1000000000001001"],
     };
     const scan = scanInbound(body);
-    expect([...scan.snowflakes].sort()).toEqual(["1001", "1002", "2000"]);
-    expect(scan.roleSnowflakes.has("2000")).toBe(true);
+    expect([...scan.snowflakes].sort()).toEqual(["1000000000001001", "1000000000001002", "1000000000002000"]);
+    expect(scan.roleSnowflakes.has("1000000000002000")).toBe(true);
     const out = rewriteInbound(body, { get });
-    expect(out.content).toBe(`hey <@${U1}> <#${U2}> <@&${ROLE_EVERYONE}> 1001`);
-    expect(out.nonce).toBe("1001");
+    expect(out.content).toBe(`hey <@${U1}> <#${U2}> <@&${ROLE_EVERYONE}> 1000000000001001`);
+    expect(out.nonce).toBe("1000000000001001");
     expect(out.message_reference).toEqual({ message_id: U1, channel_id: U2 });
     expect(out.allowed_mentions.users).toEqual([U1, U2]);
     expect(out.allowed_mentions.roles).toEqual([ROLE_EVERYONE]);
-    expect(out.permission_overwrites[0]).toEqual({ id: ROLE_EVERYONE, type: 0, allow: "1001", deny: "0" });
-    expect(out.permission_overwrites[1]).toEqual({ id: U1, type: 1, allow: "0", deny: "1002" });
+    expect(out.permission_overwrites[0]).toEqual({ id: ROLE_EVERYONE, type: 0, allow: "1000000000001001", deny: "0" });
+    expect(out.permission_overwrites[1]).toEqual({ id: U1, type: 1, allow: "0", deny: "1000000000001002" });
     expect(out.roles).toEqual([U2, ROLE_EVERYONE]);
-    expect(out.color).toBe(1001);
+    expect(out.color).toBe(1000000000001001);
     expect(out.sticker_ids).toEqual([U1]);
   });
 
   test("UUIDs and unknown snowflakes pass through", () => {
-    const out = rewriteInbound({ channel_id: U1, message_id: "4242" }, { get });
-    expect(out).toEqual({ channel_id: U1, message_id: "4242" });
+    const out = rewriteInbound({ channel_id: U1, message_id: "1000000000004242" }, { get });
+    expect(out).toEqual({ channel_id: U1, message_id: "1000000000004242" });
   });
 
   test("outbound then inbound round-trips a payload", () => {
-    const fwd = new Map([[U1, "1001"], [U2, "1002"]]);
-    const back = new Map([["1001", U1], ["1002", U2]]);
+    const fwd = new Map([[U1, "1000000000001001"], [U2, "1000000000001002"]]);
+    const back = new Map([["1000000000001001", U1], ["1000000000001002", U2]]);
     const original = { id: U1, channel_id: U2, users: [U1, U2], content: `<@${U1}> and <#${U2}>` };
     const sf = rewriteOutbound(original, { get: (u) => fwd.get(u) });
     const again = rewriteInbound(sf, { get: (s) => back.get(s) });
@@ -214,12 +214,12 @@ describe("JSON with big integers", () => {
 
 describe("path helpers", () => {
   test("custom emoji params", () => {
-    expect(emojiParamId("wave:1001")).toEqual({ name: "wave", id: "1001", prefix: "wave:", suffix: "" });
-    expect(emojiParamId("a:dance:1002")).toEqual({ name: "dance", id: "1002", prefix: "a:dance:", suffix: "" });
-    expect(emojiParamId(encodeURIComponent("abc:1003"))).toMatchObject({ name: "abc", id: "1003" });
-    expect(emojiParamId(encodeURIComponent("<:abc:1003>"))).toEqual({ name: "abc", id: "1003", prefix: "<:abc:", suffix: ">" });
-    expect(emojiParamId("_:1004")).toMatchObject({ name: "_", id: "1004" });
-    expect(emojiParamId("<:abc:1003")).toBeNull();
+    expect(emojiParamId("wave:1000000000001001")).toEqual({ name: "wave", id: "1000000000001001", prefix: "wave:", suffix: "" });
+    expect(emojiParamId("a:dance:1000000000001002")).toEqual({ name: "dance", id: "1000000000001002", prefix: "a:dance:", suffix: "" });
+    expect(emojiParamId(encodeURIComponent("abc:1000000000001003"))).toMatchObject({ name: "abc", id: "1000000000001003" });
+    expect(emojiParamId(encodeURIComponent("<:abc:1000000000001003>"))).toEqual({ name: "abc", id: "1000000000001003", prefix: "<:abc:", suffix: ">" });
+    expect(emojiParamId("_:1000000000001004")).toMatchObject({ name: "_", id: "1000000000001004" });
+    expect(emojiParamId("<:abc:1000000000001003")).toBeNull();
     expect(emojiParamId("%F0%9F%91%8D")).toBeNull();
   });
   test("unknown id errors use Discord codes", () => {
@@ -231,7 +231,7 @@ describe("path helpers", () => {
   });
   test("isUuid", () => {
     expect(isUuid(U1)).toBe(true);
-    expect(isUuid("1001")).toBe(false);
+    expect(isUuid("1000000000001001")).toBe(false);
   });
   test("id format per application", () => {
     expect(idFormatOf({ apiIdFormat: "snowflake" })).toBe("snowflake");
@@ -243,11 +243,11 @@ describe("path helpers", () => {
 describe("Discord error bodies", () => {
   test("errors tree", () => {
     expect(errorsTree([
-      { path: "content", code: "BASE_TYPE_MAX_LENGTH", message: "Must be 2000 or fewer in length." },
+      { path: "content", code: "BASE_TYPE_MAX_LENGTH", message: "Must be 1000000000002000 or fewer in length." },
       { path: "embeds.0.title", code: "BASE_TYPE_REQUIRED", message: "This field is required" },
       { path: ["embeds", 0, "title"], code: "X", message: "y" },
     ])).toEqual({
-      content: { _errors: [{ code: "BASE_TYPE_MAX_LENGTH", message: "Must be 2000 or fewer in length." }] },
+      content: { _errors: [{ code: "BASE_TYPE_MAX_LENGTH", message: "Must be 1000000000002000 or fewer in length." }] },
       embeds: { "0": { title: { _errors: [{ code: "BASE_TYPE_REQUIRED", message: "This field is required" }, { code: "X", message: "y" }] } } },
     });
   });
@@ -257,7 +257,7 @@ describe("Discord error bodies", () => {
   });
   test("maps Elysia validation errors", () => {
     const err = { all: [
-      { path: "/content", message: "Expected string length less or equal to 2000", schema: { maxLength: 2000 }, value: "x".repeat(2001) },
+      { path: "/content", message: "Expected string length less or equal to 1000000000002000", schema: { maxLength: 1000000000002000 }, value: "x".repeat(2001) },
       { path: "/content", message: "dup", schema: {}, value: 1 },
       { path: "/name", message: "Expected required property", schema: {}, value: undefined },
     ] };
@@ -265,7 +265,7 @@ describe("Discord error bodies", () => {
       code: 50035,
       message: "Invalid Form Body",
       errors: {
-        content: { _errors: [{ code: "BASE_TYPE_MAX_LENGTH", message: "Must be 2000 or fewer in length." }] },
+        content: { _errors: [{ code: "BASE_TYPE_MAX_LENGTH", message: "Must be 1000000000002000 or fewer in length." }] },
         name: { _errors: [{ code: "BASE_TYPE_REQUIRED", message: "This field is required" }] },
       },
     });

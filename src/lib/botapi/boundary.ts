@@ -6,8 +6,12 @@
  * REST (Elysia hooks, mounted once at the top of botApiRoutes):
  *  - parse: JSON bodies keep 64-bit integer ids exact (discord.py sends some
  *    ids as JSON numbers).
- *  - transform: snowflakes in path params, id query params, body id fields and
- *    content tokens become UUIDs (UUIDs are accepted unchanged). An unknown
+ *  - beforeHandle (first hook of the group, after the per-IP limiter):
+ *    snowflakes in path params, id query params, body id fields and content
+ *    tokens become UUIDs (UUIDs are accepted unchanged). Query and body are
+ *    translated only for a valid bot token, at most MAX_INBOUND_IDS ids
+ *    (50035 beyond); without a token only the (few) path params are, so
+ *    token-less interaction routes still work. With a token, an unknown
  *    snowflake in a path param answers the matching "Unknown X" 404.
  *  - afterHandle: for applications with `api_id_format = 'snowflake'`, every
  *    UUID id in the JSON response becomes a snowflake. Applications without
@@ -19,12 +23,14 @@
  */
 import { Elysia, ParseError } from 'elysia';
 import {
-  emojiParamId, ID_QUERY_KEYS, isIdParam, isRoleParam, parseJsonBig, rewriteInbound, rewriteOutbound,
+  emojiParamId, ID_QUERY_KEYS, isIdParam, isRoleParam, MAX_INBOUND_IDS, parseJsonBig, rewriteInbound, rewriteOutbound,
   scanInbound, scanOutbound, unknownIdError, type InboundContext, type OutboundLookup,
 } from './idTranslate';
-import { isSnowflake } from './snowflake';
+import { isPublicSnowflake as isSnowflake } from './snowflake';
+import { invalidFormBody, type DiscordError } from './errors';
 import {
-  applicationByClientId, everyoneRoleOf, snowflakesForUuids, SF_KIND, uuidsForSnowflakes,
+  applicationByClientId, cachedSnowflakeOf, everyoneRoleOf, isCachedEveryoneRole, snowflakesForUuids, SF_KIND,
+  uuidsForSnowflakes,
 } from './snowflakeStore';
 
 export type IdFormat = 'uuid' | 'snowflake';
@@ -36,12 +42,30 @@ export function idFormatOf(app: { apiIdFormat?: string | null } | null | undefin
 
 // ─── Outbound ─────────────────────────────────────────────────────────────────
 
-/** Resolve every UUID in `payload` (one batched lookup) into a reusable lookup. */
-export async function resolveOutbound(payload: unknown): Promise<OutboundLookup | null> {
+/**
+ * Resolve every UUID in `payload` (one batched lookup) into a reusable lookup.
+ * With `timeoutMs`, a slow resolution falls back to the ids already cached
+ * (the lookup keeps running and fills the cache for the next payload).
+ */
+export async function resolveOutbound(payload: unknown, opts?: { timeoutMs?: number }): Promise<OutboundLookup | null> {
   const scan = scanOutbound(payload);
   if (scan.uuids.size === 0) return null;
-  const res = await snowflakesForUuids(scan.uuids, scan.hints);
-  return { get: (u) => res.map.get(u), everyoneRoles: res.everyone };
+  const full = snowflakesForUuids(scan.uuids, scan.hints, scan.kinds)
+    .then((res): OutboundLookup => ({ get: (u) => res.map.get(u), everyoneRoles: res.everyone }));
+  if (!opts?.timeoutMs) return full;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fallback = new Promise<OutboundLookup>((resolve) => {
+    timer = setTimeout(() => {
+      const everyone = new Set([...scan.uuids].filter(isCachedEveryoneRole));
+      resolve({ get: (u) => cachedSnowflakeOf(u), everyoneRoles: everyone });
+    }, opts.timeoutMs);
+  });
+  full.catch(() => {});
+  try {
+    return await Promise.race([full, fallback]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 /** `payload` with its UUID ids replaced by snowflakes. */
@@ -58,15 +82,22 @@ export interface InboundRequest {
   params?: Record<string, string | undefined> | null;
   query?: Record<string, unknown> | null;
   body?: unknown;
+  /** Answer an unknown path snowflake with "Unknown X" (only for authenticated bots). Default true. */
+  reportUnknown?: boolean;
 }
 
 export interface InboundResult {
   params?: Record<string, string | undefined>;
   query?: Record<string, unknown>;
   body?: unknown;
-  /** Set when a path param names an unknown snowflake. */
-  error?: { status: number; body: { code: number; message: string } };
+  /** Unknown path snowflake (404) or too many ids (400 / 50035). */
+  error?: { status: number; body: DiscordError };
 }
+
+const TOO_MANY_IDS = {
+  status: 400,
+  body: invalidFormBody([{ path: '_ids', code: 'BASE_TYPE_MAX_LENGTH', message: `Must reference ${MAX_INBOUND_IDS} or fewer ids.` }]),
+};
 
 function querySnowflakes(value: unknown): string[] {
   const parts = Array.isArray(value) ? value : [value];
@@ -99,13 +130,20 @@ export async function translateInbound(req: InboundRequest): Promise<InboundResu
     if (isIdParam(k) && isSnowflake(v)) { all.add(v); if (isRoleParam(k)) roleSfs.add(v); }
     else if (k === 'emoji') { const e = emojiParamId(v); if (e) all.add(e.id); }
   }
-  for (const k of ID_QUERY_KEYS) for (const sf of querySnowflakes(query[k])) all.add(sf);
+  for (const k of ID_QUERY_KEYS) {
+    for (const sf of querySnowflakes(query[k])) {
+      all.add(sf);
+      if (all.size > MAX_INBOUND_IDS) return { error: TOO_MANY_IDS };
+    }
+  }
   const scanBody = bodyForScan(req.body);
-  const bodyScan = scanBody && typeof scanBody === 'object' ? scanInbound(scanBody) : null;
+  const bodyScan = scanBody && typeof scanBody === 'object' ? scanInbound(scanBody, { snowflakes: new Set(), roleSnowflakes: new Set(), limit: MAX_INBOUND_IDS - all.size }) : null;
+  if (bodyScan?.overflow) return { error: TOO_MANY_IDS };
   if (bodyScan) {
     for (const sf of bodyScan.snowflakes) all.add(sf);
     for (const sf of bodyScan.roleSnowflakes) roleSfs.add(sf);
   }
+  if (all.size > MAX_INBOUND_IDS) return { error: TOO_MANY_IDS };
   if (all.size === 0) return {};
 
   const { map } = await uuidsForSnowflakes(all);
@@ -138,7 +176,7 @@ export async function translateInbound(req: InboundRequest): Promise<InboundResu
     if (typeof v !== 'string') continue;
     if (isIdParam(k) && isSnowflake(v)) {
       const uuid = get(v, isRoleParam(k) ? 'role' : 'any');
-      if (!uuid) { out.error ??= unknownIdError(k); continue; }
+      if (!uuid) { if (req.reportUnknown !== false) out.error ??= unknownIdError(k); continue; }
       newParams[k] = uuid; paramsChanged = true;
     } else if (k === 'emoji') {
       const e = emojiParamId(v);
@@ -178,13 +216,20 @@ export async function translateInbound(req: InboundRequest): Promise<InboundResu
 
 // ─── Elysia plugin ────────────────────────────────────────────────────────────
 
-const inboundErrors = new WeakMap<Request, { status: number; body: { code: number; message: string } }>();
 const formatMemo = new WeakMap<Request, Promise<IdFormat>>();
 
-function botTokenOf(authorization: string | null): string | null {
+/** A syntactically valid bot token from `Authorization: Bot <token>` (or a bare token), else null. */
+export function botTokenOf(authorization: string | null | undefined): string | null {
   if (!authorization) return null;
   const t = authorization.startsWith('Bot ') ? authorization.slice(4).trim() : authorization.trim();
-  return t && !/\s/.test(t) && !/^Bearer$/i.test(t) ? t : null;
+  return /^[A-Za-z0-9._-]{20,512}$/.test(t) ? t : null;
+}
+
+async function botAppOf(request: Request) {
+  const token = botTokenOf(request.headers.get('authorization'));
+  if (!token) return null;
+  const { resolveBotToken } = await import('@/lib/services/botTokens');
+  return resolveBotToken(token).catch(() => null);
 }
 
 /** The id format of the application a bot API request acts as. */
@@ -192,12 +237,8 @@ function requestFormat(request: Request, params: Record<string, string | undefin
   const memo = formatMemo.get(request);
   if (memo) return memo;
   const p = (async (): Promise<IdFormat> => {
-    const token = botTokenOf(request.headers.get('authorization'));
-    if (token) {
-      const { resolveBotToken } = await import('@/lib/services/botTokens');
-      const app = await resolveBotToken(token).catch(() => null);
-      if (app) return idFormatOf(app);
-    }
+    const app = await botAppOf(request);
+    if (app) return idFormatOf(app);
     // Token-less routes (interaction callbacks / follow-ups) act for the app in the path.
     const appId = params?.applicationId ?? params?.appId;
     if (appId && /^[0-9a-f-]{36}$/i.test(appId)) {
@@ -227,26 +268,32 @@ export const botIdBoundary = new Elysia({ name: 'botIdBoundary' })
       throw new ParseError(err as Error);
     }
   })
-  .onTransform({ as: 'scoped' }, async (ctx) => {
+  // Runs after the global per-IP limiter (index.ts) and before the group's
+  // per-bot limiter and access guard, which then see UUIDs.
+  .onBeforeHandle({ as: 'scoped' }, async (ctx) => {
     const c = ctx as unknown as {
       request: Request;
+      set: { status?: number | string };
       params?: Record<string, string | undefined>;
       query?: Record<string, unknown>;
       body?: unknown;
     };
     try {
-      const res = await translateInbound({ params: c.params, query: c.query, body: c.body });
+      const authed = !!(await botAppOf(c.request));
+      const res = await translateInbound({
+        params: c.params,
+        // Unauthenticated callers get no lookups beyond the path's own ids.
+        query: authed ? c.query : undefined,
+        body: authed ? c.body : undefined,
+        reportUnknown: authed,
+      });
+      if (res.error && (authed || res.error.status === 400)) { c.set.status = res.error.status; return res.error.body; }
       if (res.params && c.params) Object.assign(c.params, res.params);
       if (res.query && c.query) Object.assign(c.query, res.query);
       if (res.body !== undefined) c.body = res.body;
-      if (res.error) inboundErrors.set(c.request, res.error);
     } catch (err) {
       console.error('[bot-api] inbound id translation failed:', (err as Error)?.message ?? err);
     }
-  })
-  .onBeforeHandle({ as: 'scoped' }, ({ request, set }) => {
-    const err = inboundErrors.get(request);
-    if (err) { set.status = err.status; return err.body; }
   })
   .onAfterHandle({ as: 'scoped' }, async (ctx) => {
     const c = ctx as unknown as { request: Request; params?: Record<string, string | undefined>; responseValue?: unknown; response?: unknown };

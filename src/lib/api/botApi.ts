@@ -611,18 +611,12 @@ async function patchOwnApplication(auth: BotAuth, body: unknown, set: { status?:
     const url = parsed.interactionsEndpointUrl;
     if (url) {
       // Same check as the portal: a signed PING must come back as a PONG.
-      // Public hosts only, so a bot can't make the server probe internal ones.
-      try {
-        const { assertPublicUrl } = await import('@/lib/security/ssrf');
-        await assertPublicUrl(url);
-      } catch {
-        set.status = 400;
-        return invalidFormBodyAt([{ path: 'interactions_endpoint_url', code: 'URL_TYPE_INVALID_URL', message: 'Not a well formed URL.' }]);
-      }
+      // safeFetch re-checks the address on the call itself, follows no
+      // redirects and the reply is capped (src/lib/botapi/endpointVerify.ts).
       const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
       const provisioned = await ensureBotProvisioned(auth.app);
-      const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
-      const ok = await verifyInteractionEndpoint({ interactionsEndpointUrl: url, privateKeyPem: provisioned.privateKeyPem, clientId: provisioned.clientId });
+      const { verifyInteractionsEndpointSafely } = await import('@/lib/botapi/endpointVerify');
+      const ok = await verifyInteractionsEndpointSafely({ url, privateKeyPem: provisioned.privateKeyPem, clientId: provisioned.clientId });
       if (!ok) {
         set.status = 400;
         return invalidFormBodyAt([{ path: 'interactions_endpoint_url', code: 'APPLICATION_INTERACTION_ENDPOINT_URL_INVALID', message: 'The specified interactions endpoint url could not be verified.' }]);

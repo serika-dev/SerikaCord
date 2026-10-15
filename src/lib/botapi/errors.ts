@@ -54,18 +54,21 @@ export function apiError(code: number, message: string, errors?: ErrorTree): Dis
 
 /** Field path -> nested errors tree. `path` is "a.b.0.c", "/a/b/0/c" or a segment list. */
 export function errorsTree(entries: Array<{ path: string | Array<string | number>; code: string; message: string }>): ErrorTree {
-  const root: ErrorTree = {};
+  // Null-prototype nodes: paths come from request bodies, so a segment like
+  // "__proto__" must stay a plain key, never reach Object.prototype.
+  const root: ErrorTree = Object.create(null);
   for (const e of entries) {
     const segs = Array.isArray(e.path)
       ? e.path.map(String)
       : e.path.split(/[./]/).filter((s) => s.length > 0);
     let node = root;
     for (const s of segs) {
-      const next = node[s];
-      if (!next || Array.isArray(next)) node[s] = {};
+      const next = Object.prototype.hasOwnProperty.call(node, s) ? node[s] : undefined;
+      if (!next || Array.isArray(next)) node[s] = Object.create(null);
       node = node[s] as ErrorTree;
     }
-    (node._errors ??= []).push({ code: e.code, message: e.message });
+    if (!Object.prototype.hasOwnProperty.call(node, '_errors')) node._errors = [];
+    node._errors!.push({ code: e.code, message: e.message });
   }
   return root;
 }

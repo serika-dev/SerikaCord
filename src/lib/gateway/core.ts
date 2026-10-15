@@ -88,6 +88,12 @@ export interface Session {
   encoding: string;
   version: string | null;
   rate: RateWindow;
+  /** Per-session dispatch ordering (a slow id lookup only delays this session). */
+  chain?: Promise<void>;
+  /** Op 8 requests are handled one at a time per session. */
+  opChain?: Promise<void>;
+  /** Last full member-list op 8 per guild (ms), for the 30 s throttle. */
+  memberListAt?: Map<string, number>;
 }
 
 export interface Conn {
@@ -138,6 +144,28 @@ function gwlog(...args: unknown[]) {
 /** How long a closed session can be resumed (its state and replay buffer are kept). */
 const RESUME_WINDOW_MS = 5 * 60_000;
 const MAX_DETACHED = 2_000;
+/** Resumable sessions kept per bot, and live + resumable sessions per bot. */
+export const MAX_DETACHED_PER_BOT = 8;
+export const MAX_SESSIONS_PER_BOT = 16;
+/** A socket that has not identified (or resumed) by then is closed. */
+export const IDENTIFY_TIMEOUT_MS = 20_000;
+/** Id lookups for one dispatch may take this long before cached ids are used. */
+const DISPATCH_LOOKUP_TIMEOUT_MS = 2_000;
+/** Ids per op 8 / op 31 request. */
+export const MAX_REQUEST_IDS = 100;
+/** One full member list per guild per session in this window (else RATE_LIMITED). */
+export const MEMBER_LIST_INTERVAL_MS = 30_000;
+
+export type IdentifyLimit = 'ok' | 'too_fast' | 'daily';
+
+/** Discord's identify budget per bot: 1 per 5 s (max_concurrency 1) and 1000 per day (Redis). */
+async function defaultIdentifyLimiter(botId: string): Promise<IdentifyLimit> {
+  const { checkRateLimit } = await import('@/lib/security');
+  const fast = await checkRateLimit('gatewayIdentify', botId);
+  if (!fast.success) return 'too_fast';
+  const daily = await checkRateLimit('gatewayIdentifyDaily', botId);
+  return daily.success ? 'ok' : 'daily';
+}
 
 async function toSnowflakes<T>(payload: T): Promise<T> {
   const { toSnowflakes: translate } = await import('@/lib/botapi/boundary');
@@ -150,14 +178,43 @@ export class GatewayHub {
   /** Closed sessions that may RESUME: sessionId -> session (still buffering dispatches). */
   private readonly detached = new Map<string, { session: Session; expiresAt: number }>();
   private readonly compressors = new WeakMap<Conn, ZlibStreamCompressor>();
-  /** Dispatches are processed one at a time, so every bot sees them in publish order. */
-  private queue: Promise<void> = Promise.resolve();
+  private readonly identifyTimers = new WeakMap<Conn, ReturnType<typeof setTimeout>>();
+  /** The live socket of a session (none while detached). */
+  private readonly sessionConn = new WeakMap<Session, Conn>();
   private shuttingDown = false;
   /** Write bot presence to the users table (off in unit tests: no DB). */
   private readonly persistPresence: boolean;
+  private readonly identifyLimiter: (botId: string) => Promise<IdentifyLimit>;
+  private readonly identifyTimeoutMs: number;
 
-  constructor(opts?: { persistPresence?: boolean }) {
+  constructor(opts?: {
+    persistPresence?: boolean;
+    identifyLimiter?: (botId: string) => Promise<IdentifyLimit>;
+    identifyTimeoutMs?: number;
+  }) {
     this.persistPresence = opts?.persistPresence ?? true;
+    this.identifyLimiter = opts?.identifyLimiter ?? defaultIdentifyLimiter;
+    this.identifyTimeoutMs = opts?.identifyTimeoutMs ?? IDENTIFY_TIMEOUT_MS;
+  }
+
+  /** Run `fn` after everything queued for this session (keeps its events in order). */
+  private enqueue(session: Session, fn: () => Promise<void> | void): Promise<void> {
+    const next = (session.chain ?? Promise.resolve()).then(fn).catch((err) => {
+      console.error('Gateway: dispatch failed', (err as Error)?.message ?? err);
+    });
+    session.chain = next;
+    return next;
+  }
+
+  /** Register an authenticated connection as its session's live socket. */
+  adopt(conn: Conn) {
+    this.sessionConn.set(conn.data, conn);
+    this.connections.add(conn);
+  }
+
+  private clearIdentifyTimer(conn: Conn) {
+    const t = this.identifyTimers.get(conn);
+    if (t) { clearTimeout(t); this.identifyTimers.delete(conn); }
   }
 
   // ─── Frames ──────────────────────────────────────────────
@@ -193,6 +250,13 @@ export class GatewayHub {
 
   hello(conn: Conn) {
     conn.data.lastHeartbeat = Date.now();
+    // Sockets that never identify are closed (the zlib context below can't be
+    // deferred: HELLO itself must be compressed).
+    const timer = setTimeout(() => {
+      if (!conn.data.authenticated) conn.close(CLOSE.SESSION_TIMED_OUT, 'Session timed out');
+    }, this.identifyTimeoutMs);
+    (timer as { unref?: () => void }).unref?.();
+    this.identifyTimers.set(conn, timer);
     if (conn.data.compress === 'zlib-stream' && conn.sendBinary) {
       const sendBinary = conn.sendBinary.bind(conn);
       this.compressors.set(conn, new ZlibStreamCompressor(sendBinary));
@@ -262,7 +326,15 @@ export class GatewayHub {
     if (!conn.data.authenticated) { conn.close(CLOSE.NOT_AUTHENTICATED, 'Not authenticated.'); return; }
     try {
       if (op === OP.PRESENCE_UPDATE) this.updatePresence(conn, frame.d);
-      else if (op === OP.REQUEST_GUILD_MEMBERS) await this.requestGuildMembers(conn, (frame.d ?? {}) as Record<string, unknown>);
+      else if (op === OP.REQUEST_GUILD_MEMBERS) {
+        // One op 8 at a time per session.
+        const d = (frame.d ?? {}) as Record<string, unknown>;
+        const run = (conn.data.opChain ?? Promise.resolve()).then(() => this.requestGuildMembers(conn, d)).catch((err) => {
+          console.error('Gateway: op 8 failed', err);
+        });
+        conn.data.opChain = run;
+        await run;
+      }
       else if (op === OP.REQUEST_SOUNDBOARD_SOUNDS) await this.requestSoundboardSounds(conn, (frame.d ?? {}) as Record<string, unknown>);
       // op 4 (voice): bots can't join Serika voice yet (WP7); accepted and ignored.
     } catch (err) {
@@ -271,7 +343,9 @@ export class GatewayHub {
   }
 
   onClose(conn: Conn) {
+    this.clearIdentifyTimer(conn);
     this.connections.delete(conn);
+    if (this.sessionConn.get(conn.data) === conn) this.sessionConn.delete(conn.data);
     this.compressors.get(conn)?.close();
     this.compressors.delete(conn);
     if (conn.data.authenticated && conn.data.botId && !this.shuttingDown) {
@@ -281,6 +355,7 @@ export class GatewayHub {
         conn.data.ready = true;
         conn.data.pending = [];
         this.detached.set(conn.data.sessionId, { session: conn.data, expiresAt: now + RESUME_WINDOW_MS });
+        this.trimDetached(conn.data.botId, MAX_DETACHED_PER_BOT);
       }
     }
     // Mark the bot offline when its last connection drops. If the same bot has
@@ -306,6 +381,22 @@ export class GatewayHub {
     }, closeDelayMs);
     (t as { unref?: () => void }).unref?.();
     return conns.length;
+  }
+
+  /** Drop a bot's oldest resumable sessions beyond `keep`. */
+  private trimDetached(botId: string, keep: number) {
+    const mine = [...this.detached.entries()].filter(([, e]) => e.session.botId === botId);
+    mine.sort((a, b) => a[1].expiresAt - b[1].expiresAt);
+    for (let i = 0; i < mine.length - keep; i++) this.detached.delete(mine[i][0]);
+  }
+
+  /** Live + resumable sessions of a bot. */
+  sessionCount(botId: string): { live: number; detached: number } {
+    let live = 0;
+    let detached = 0;
+    for (const c of this.connections) if (c.data.botId === botId) live++;
+    for (const e of this.detached.values()) if (e.session.botId === botId) detached++;
+    return { live, detached };
   }
 
   private botHasOtherConnection(except: Conn, botId: string): boolean {
@@ -388,6 +479,19 @@ export class GatewayHub {
       return;
     }
 
+    // Session budget: at most MAX_SESSIONS_PER_BOT live + resumable sessions.
+    const counts = this.sessionCount(app.botId);
+    if (counts.live >= MAX_SESSIONS_PER_BOT) {
+      conn.close(CLOSE.RATE_LIMITED, 'Too many sessions.');
+      return;
+    }
+    if (counts.live + counts.detached >= MAX_SESSIONS_PER_BOT) this.trimDetached(app.botId, Math.max(0, MAX_SESSIONS_PER_BOT - counts.live - 1));
+    // Discord's identify limits: one per 5 s per bot (op 9, the client retries)
+    // and 1000 per day (close).
+    const limit = await this.identifyLimiter(app.botId);
+    if (limit === 'too_fast') { this.send(conn, OP.INVALID_SESSION, false); return; }
+    if (limit === 'daily') { conn.close(CLOSE.RATE_LIMITED, 'Daily identify limit reached.'); return; }
+
     // Fetch bot user, memberships, and DM channels in parallel
     const [botUser, memberships, dmChannels] = await Promise.all([
       User.findById(app.botId),
@@ -422,7 +526,8 @@ export class GatewayHub {
     if (parsed.value.presence) this.updatePresence(conn, parsed.value.presence);
     // Registered now so dispatches published while READY is built queue up.
     conn.data.authenticated = true;
-    this.connections.add(conn);
+    this.clearIdentifyTimer(conn);
+    this.adopt(conn);
     gwlog(conn.data.sessionId.slice(0, 8), `READY bot=${app.botId} guilds=${guildIds.length} dms=${conn.data.dmChannelIds.size} format=${conn.data.idFormat}`);
 
     // Reflect the connection into presence so the bot shows online.
@@ -525,10 +630,14 @@ export class GatewayHub {
       return;
     }
     this.detached.delete(sessionId);
+    this.clearIdentifyTimer(conn);
     // Adopt the old session; keep this socket's transport options.
+    // The session object itself moves to this socket, so dispatches still
+    // queued for it (its chain) are delivered here with the right seq.
     const { compress, encoding, version, rate } = conn.data;
-    Object.assign(conn.data, prev, { compress, encoding, version, rate, authenticated: true, ready: true, pending: [], lastHeartbeat: Date.now() });
-    this.connections.add(conn);
+    Object.assign(prev, { compress, encoding, version, rate, authenticated: true, ready: true, pending: [], lastHeartbeat: Date.now() });
+    conn.data = prev;
+    this.adopt(conn);
     gwlog(conn.data.sessionId.slice(0, 8), `RESUMED bot=${app.botId} replay=${missed.length}`);
     for (const text of missed) this.write(conn, text);
     this.emit(conn.data, conn, 'RESUMED', JSON.stringify({ _trace: ['["serika-gateway",{"micros":0}]'] }));
@@ -538,7 +647,9 @@ export class GatewayHub {
   // ─── Op 8 / op 31 ────────────────────────────────────────
 
   private async requestGuildMembers(conn: Conn, d: Record<string, unknown>) {
-    const rawIds = d.user_ids === undefined || d.user_ids === null ? undefined : (Array.isArray(d.user_ids) ? d.user_ids : [d.user_ids]);
+    const rawIds = d.user_ids === undefined || d.user_ids === null
+      ? undefined
+      : (Array.isArray(d.user_ids) ? d.user_ids : [d.user_ids]).slice(0, MAX_REQUEST_IDS);
     const { translateInbound } = await import('@/lib/botapi/boundary');
     const body = { guild_id: d.guild_id, ...(rawIds ? { user_ids: rawIds.map(String) } : {}) };
     const res = await translateInbound({ body });
@@ -550,9 +661,26 @@ export class GatewayHub {
     const query = typeof d.query === 'string' ? d.query : '';
     const limit = Number.isInteger(d.limit) ? Number(d.limit) : 0;
     const canListAll = (conn.data.intents & INTENT.GUILD_MEMBERS) !== 0;
+    const nonce = typeof d.nonce === 'string' ? d.nonce.slice(0, 32) : undefined;
+    // Full member lists are expensive: one per guild per session every 30 s,
+    // like Discord's op 8 rate limit (RATE_LIMITED dispatch).
+    if (!userIds && !query && canListAll) {
+      const now = Date.now();
+      const seen = (conn.data.memberListAt ??= new Map());
+      const last = seen.get(known) ?? 0;
+      if (now - last < MEMBER_LIST_INTERVAL_MS) {
+        await this.dispatchTo(conn, 'RATE_LIMITED', {
+          opcode: OP.REQUEST_GUILD_MEMBERS,
+          retry_after: Math.ceil((MEMBER_LIST_INTERVAL_MS - (now - last)) / 1000),
+          meta: { guild_id: known, ...(nonce !== undefined ? { nonce } : {}) },
+        });
+        return;
+      }
+      seen.set(known, now);
+    }
     const { buildMemberChunks } = await import('./guildPayload');
     const chunks = await buildMemberChunks(
-      { guildId: known, query, limit, userIds, nonce: typeof d.nonce === 'string' ? d.nonce : undefined },
+      { guildId: known, query, limit, userIds, nonce },
       canListAll,
     );
     // Restore the ids the bot asked for in not_found (unknown snowflakes have no UUID).
@@ -567,7 +695,7 @@ export class GatewayHub {
   }
 
   private async requestSoundboardSounds(conn: Conn, d: Record<string, unknown>) {
-    const ids = Array.isArray(d.guild_ids) ? d.guild_ids.map(String) : [];
+    const ids = Array.isArray(d.guild_ids) ? d.guild_ids.slice(0, MAX_REQUEST_IDS).map(String) : [];
     const { translateInbound } = await import('@/lib/botapi/boundary');
     const res = await translateInbound({ body: { guild_ids: ids } });
     const translated = ((res.body ?? { guild_ids: ids }) as { guild_ids: string[] }).guild_ids;
@@ -585,19 +713,15 @@ export class GatewayHub {
    * bots in that guild (and, for channel events, only bots the emitter listed
    * in `audience`), DM events only the DM's recipients (default-deny). Message
    * payloads are blanked for bots without MESSAGE_CONTENT. Detached sessions
-   * buffer the dispatch for RESUME. Dispatches are processed in publish order.
+   * buffer the dispatch for RESUME. Each session sees dispatches in publish order.
    */
   routeDispatch(dispatch: GatewayDispatch): Promise<void> {
-    this.queue = this.queue
-      .then(() => this.processDispatch(dispatch))
-      .catch((err) => console.error('Gateway: dispatch failed', (err as Error)?.message ?? err));
-    return this.queue;
-  }
-
-  private async processDispatch(dispatch: GatewayDispatch) {
+    // Routing decisions (and the session state they change) happen now, in
+    // publish order; sending is queued per session, so a slow id lookup for
+    // one dispatch only delays the sessions that receive it.
     const now = Date.now();
-    const targets: Array<{ session: Session; conn: Conn | null; joined?: string }> = [];
-    const consider = (session: Session, conn: Conn | null) => {
+    const targets: Array<{ session: Session; joined?: string }> = [];
+    const consider = (session: Session) => {
       if (!session.authenticated || !session.botId) return;
       const decision = routeDecision(session, dispatch);
       if (decision.addDmChannelId) session.dmChannelIds.add(decision.addDmChannelId);
@@ -606,44 +730,44 @@ export class GatewayHub {
         for (const id of session.guildIds) if (id.toLowerCase() === gone) session.guildIds.delete(id);
       }
       if (!decision.deliver) return;
-      targets.push({ session, conn, joined: decision.addGuildId });
+      targets.push({ session, joined: decision.addGuildId });
     };
-    for (const conn of this.connections) consider(conn.data, conn);
+    for (const conn of this.connections) consider(conn.data);
     for (const [id, entry] of this.detached) {
       if (entry.expiresAt < now) { this.detached.delete(id); continue; }
-      consider(entry.session, null);
+      consider(entry.session);
     }
-    if (targets.length === 0) return;
+    if (targets.length === 0) return Promise.resolve();
 
-    // A guild the bot just joined belongs to one shard only.
-    for (const target of targets) {
-      if (!target.joined) continue;
-      if (await this.guildInShard(target.session, target.joined)) target.session.guildIds.add(target.joined);
-      else target.joined = '!skip';
-    }
-
-    let lookup: OutboundLookup | null = null;
-    if (targets.some((x) => x.session.idFormat === 'snowflake')) {
-      const { resolveOutbound } = await import('@/lib/botapi/boundary');
-      lookup = await resolveOutbound(dispatch.d);
-    }
-    const { rewriteOutbound } = await import('@/lib/botapi/idTranslate');
+    let lookupP: Promise<OutboundLookup | null> | null = null;
+    const lookup = () => {
+      lookupP ??= import('@/lib/botapi/boundary')
+        .then(({ resolveOutbound }) => resolveOutbound(dispatch.d, { timeoutMs: DISPATCH_LOOKUP_TIMEOUT_MS }))
+        .catch(() => null);
+      return lookupP;
+    };
     const cache = new Map<unknown, { uuid?: string; sf?: string }>();
-    for (const { session, conn, joined } of targets) {
-      if (joined === '!skip') continue;
-      const variant = messagePayloadFor(dispatch.t, dispatch.d, session.botId!, session.intents);
-      const snowflake = session.idFormat === 'snowflake' && lookup;
-      const entry = cache.get(variant) ?? {};
-      if (!session.ready) {
-        session.pending.push({ t: dispatch.t, d: snowflake ? rewriteOutbound(variant, lookup!) : variant });
-        continue;
+    return Promise.all(targets.map(({ session, joined }) => this.enqueue(session, async () => {
+      // A guild the bot just joined belongs to one shard only.
+      if (joined) {
+        if (!(await this.guildInShard(session, joined))) return;
+        session.guildIds.add(joined);
       }
-      let json: string;
-      if (snowflake) json = entry.sf ??= JSON.stringify(rewriteOutbound(variant, lookup!));
-      else json = entry.uuid ??= JSON.stringify(variant);
+      const variant = messagePayloadFor(dispatch.t, dispatch.d, session.botId!, session.intents);
+      const sf = session.idFormat === 'snowflake' ? await lookup() : null;
+      const { rewriteOutbound } = await import('@/lib/botapi/idTranslate');
+      if (!session.ready) {
+        session.pending.push({ t: dispatch.t, d: sf ? rewriteOutbound(variant, sf) : variant });
+        return;
+      }
+      const entry = cache.get(variant) ?? {};
       cache.set(variant, entry);
-      this.emit(session, conn, dispatch.t, json);
-    }
+      const json = sf
+        ? (entry.sf ??= JSON.stringify(rewriteOutbound(variant, sf)))
+        : (entry.uuid ??= JSON.stringify(variant));
+      // Live socket now (it may have closed or resumed since): else just buffer.
+      this.emit(session, this.sessionConn.get(session) ?? null, dispatch.t, json);
+    }))).then(() => {});
   }
 }
 

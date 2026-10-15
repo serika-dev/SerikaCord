@@ -1,4 +1,4 @@
-import { BOT_LIMITS } from './botRateLimit';
+import { BOT_LIMITS, GATEWAY_LIMITS } from './botRateLimit';
 import { RateLimiterRedis, RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
 import sanitizeHtml from 'sanitize-html';
 import xss from 'xss';
@@ -62,6 +62,8 @@ export const rateLimiters_config = {
 
   // Bot API (/api/v10), per bot: see src/lib/security/botRateLimit.ts
   ...BOT_LIMITS,
+  // Bot gateway IDENTIFY, per bot
+  ...GATEWAY_LIMITS,
 
   // Fish Audio TTS proxy (paid API), per user
   ttsFish: { points: 30, duration: 60 },

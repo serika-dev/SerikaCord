@@ -13,7 +13,7 @@
  * Discord bodies (permission bitfields, nonces, colors), so only values under
  * id-shaped keys (ID_KEY / ID_ARRAY_KEYS) and tokens in strings are touched.
  */
-import { isSnowflake } from './snowflake';
+import { isPublicSnowflake } from './snowflake';
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UUID_SRC = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
@@ -30,6 +30,8 @@ const TEXT_KEYS = new Set([
   'verify_key', 'value', 'resume_gateway_url', 'avatar', 'banner', 'icon', 'splash', 'hash',
   'unicode_emoji', 'locale', 'preferred_locale', 'emoji_name', 'state', 'details', 'large_text',
   'small_text', 'large_image', 'small_image', 'party_id', 'match', 'join', 'spectate', 'image',
+  // select-menu values are free text chosen by users
+  'values',
 ]);
 
 /** Option types whose `value` is an id (USER, CHANNEL, ROLE, MENTIONABLE). */
@@ -40,31 +42,56 @@ function tokenRegex(idSrc: string) {
   return new RegExp(`<(@!?|@&|#|a?:[^:<>\\s]{1,64}:|\\/[^:<>]{1,100}:)(${idSrc})>`, 'g');
 }
 const OUT_TOKEN_RE = tokenRegex(UUID_SRC);
-const IN_TOKEN_RE = tokenRegex('\\d{1,20}');
+const IN_TOKEN_RE = tokenRegex('\\d{15,20}');
 
 function isRoleToken(prefix: string) {
   return prefix === '@&';
 }
 
+/** Assign an own property (a JSON key "__proto__" stays a plain key, never the prototype). */
+function setOwn(obj: Record<string, unknown>, key: string, value: unknown) {
+  if (key === '__proto__') Object.defineProperty(obj, key, { value, enumerable: true, writable: true, configurable: true });
+  else obj[key] = value;
+}
+
 // ─── Outbound ─────────────────────────────────────────────────────────────────
 
+/** Most UUIDs one outbound payload resolves (the rest stay as they are). */
+export const MAX_OUTBOUND_IDS = 5000;
+
+/** Structural kinds (api_snowflakes.kind) for ids that live in jsonb, not in a table. */
+export const STRUCTURAL_KIND = { attachment: 11, interaction: 12, tag: 18 } as const;
+
 export interface OutboundScan {
-  /** Lower-cased UUIDs found in the payload. */
+  /** Lower-cased UUIDs found in the payload (at most MAX_OUTBOUND_IDS). */
   uuids: Set<string>;
-  /** Creation time hints (ms) for UUIDs, from `timestamp` next to `id` (messages) etc. */
-  hints: Map<string, { ts: number; kind?: number }>;
+  /** Creation time hints (ms) for UUIDs, from `timestamp` next to `id` (messages). */
+  hints: Map<string, { ts: number }>;
+  /**
+   * UUIDs whose position proves what they are although no table holds them
+   * (attachment ids, forum tag ids, interaction ids). Only these and
+   * table-verified ids get a new mapping row; tokens in free text never do.
+   */
+  kinds: Map<string, number>;
 }
 
 /** Collect every UUID the outbound rewrite would replace (one resolver round trip per payload). */
-export function scanOutbound(payload: unknown, scan: OutboundScan = { uuids: new Set(), hints: new Map() }): OutboundScan {
+export function scanOutbound(payload: unknown, scan: OutboundScan = { uuids: new Set(), hints: new Map(), kinds: new Map() }): OutboundScan {
   walkOut(payload, null, null, scan);
   return scan;
 }
 
+function addOut(scan: OutboundScan, uuid: string) {
+  if (scan.uuids.size < MAX_OUTBOUND_IDS) scan.uuids.add(uuid);
+}
+
 function walkOut(v: unknown, key: string | null, parent: Record<string, unknown> | null, scan: OutboundScan) {
   if (typeof v === 'string') {
-    if (isUuid(v) && isIdPosition(key, parent)) scan.uuids.add(v.toLowerCase());
-    else if (v.includes('<')) for (const m of v.matchAll(OUT_TOKEN_RE)) scan.uuids.add(m[2].toLowerCase());
+    if (isUuid(v) && isIdPosition(key, parent)) {
+      const u = v.toLowerCase();
+      addOut(scan, u);
+      if (key === 'applied_tags') scan.kinds.set(u, STRUCTURAL_KIND.tag);
+    } else if (v.includes('<')) for (const m of v.matchAll(OUT_TOKEN_RE)) addOut(scan, m[2].toLowerCase());
     return;
   }
   if (!v || typeof v !== 'object') return;
@@ -73,13 +100,21 @@ function walkOut(v: unknown, key: string | null, parent: Record<string, unknown>
     return;
   }
   const obj = v as Record<string, unknown>;
-  // A message-like object: its own id was created at `timestamp`.
-  if (isUuid(obj.id) && typeof obj.timestamp === 'string') {
-    const ts = Date.parse(obj.timestamp);
-    if (Number.isFinite(ts)) scan.hints.set((obj.id as string).toLowerCase(), { ts, kind: 'channel_id' in obj ? 4 : undefined });
+  if (isUuid(obj.id)) {
+    const id = (obj.id as string).toLowerCase();
+    // A message-like object: its own id was created at `timestamp`.
+    if (typeof obj.timestamp === 'string') {
+      const ts = Date.parse(obj.timestamp);
+      if (Number.isFinite(ts)) scan.hints.set(id, { ts });
+    }
+    if (key === 'attachments') scan.kinds.set(id, STRUCTURAL_KIND.attachment);
+    else if (key === 'available_tags') scan.kinds.set(id, STRUCTURAL_KIND.tag);
+    else if (key === null && typeof obj.token === 'string' && 'application_id' in obj && typeof obj.type === 'number') {
+      scan.kinds.set(id, STRUCTURAL_KIND.interaction);
+    }
   }
   for (const [k, child] of Object.entries(obj)) {
-    if (isUuid(k)) scan.uuids.add(k.toLowerCase());
+    if (isUuid(k)) addOut(scan, k.toLowerCase());
     walkOut(child, k, obj, scan);
   }
 }
@@ -129,7 +164,7 @@ function outValue(v: unknown, key: string | null, parent: Record<string, unknown
   const out: Record<string, unknown> = {};
   for (const [k, child] of Object.entries(obj)) {
     const nk = isUuid(k) ? (lookup.get(k.toLowerCase()) ?? k) : k;
-    out[nk] = outValue(child, k, obj, lookup);
+    setOwn(out, nk, outValue(child, k, obj, lookup));
   }
   return out;
 }
@@ -155,33 +190,46 @@ function isIdArrayKey(key: string): boolean {
 /** Inbound id context: role ids may name the guild (= @everyone). */
 export type InboundContext = 'role' | 'any';
 
+/** Most distinct ids one request may carry for translation (more: 50035). */
+export const MAX_INBOUND_IDS = 500;
+
 export interface InboundScan {
   snowflakes: Set<string>;
   /** Snowflakes seen in a role position. */
   roleSnowflakes: Set<string>;
+  /** More than `limit` distinct ids: the scan stopped early. */
+  overflow?: boolean;
+  limit?: number;
 }
 
 function asIdString(v: unknown): string | null {
-  if (typeof v === 'string') return isSnowflake(v) ? v : null;
-  if (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) return String(v);
+  if (typeof v === 'string') return isPublicSnowflake(v) ? v : null;
+  if (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) {
+    const s = String(v);
+    return isPublicSnowflake(s) ? s : null;
+  }
   return null;
 }
 
-/** Collect the snowflakes an inbound body carries in id positions and tokens. */
+/** Collect the snowflakes an inbound body carries in id positions and tokens (stops past `limit`). */
 export function scanInbound(body: unknown, scan: InboundScan = { snowflakes: new Set(), roleSnowflakes: new Set() }): InboundScan {
+  scan.limit ??= MAX_INBOUND_IDS;
   walkIn(body, null, scan);
   return scan;
 }
 
 function addIn(scan: InboundScan, sf: string, role: boolean) {
+  if (scan.overflow) return;
   scan.snowflakes.add(sf);
   if (role) scan.roleSnowflakes.add(sf);
+  if (scan.snowflakes.size > (scan.limit ?? MAX_INBOUND_IDS)) scan.overflow = true;
 }
 
 function walkIn(v: unknown, key: string | null, scan: InboundScan) {
+  if (scan.overflow) return;
   if (typeof v === 'string') {
     if (v.includes('<')) {
-      for (const m of v.matchAll(IN_TOKEN_RE)) if (isSnowflake(m[2])) addIn(scan, m[2], isRoleToken(m[1]));
+      for (const m of v.matchAll(IN_TOKEN_RE)) if (isPublicSnowflake(m[2])) addIn(scan, m[2], isRoleToken(m[1]));
     }
   }
   if (!v || typeof v !== 'object') return;
@@ -240,18 +288,18 @@ function inValue(v: unknown, key: string | null, lookup: InboundLookup): unknown
     if (isIdKey(k)) {
       const sf = asIdString(child);
       if (sf) {
-        out[k] = lookup.get(sf, ROLE_KEYS.has(k) || isRoleOverwrite(k, obj) ? 'role' : 'any') ?? child;
+        setOwn(out, k, lookup.get(sf, ROLE_KEYS.has(k) || isRoleOverwrite(k, obj) ? 'role' : 'any') ?? child);
         continue;
       }
     } else if (isIdArrayKey(k) && Array.isArray(child)) {
       const ctx: InboundContext = ROLE_KEYS.has(k) ? 'role' : 'any';
-      out[k] = child.map((item) => {
+      setOwn(out, k, child.map((item) => {
         const sf = asIdString(item);
         return sf ? (lookup.get(sf, ctx) ?? item) : inValue(item, k, lookup);
-      });
+      }));
       continue;
     }
-    out[k] = inValue(child, k, lookup);
+    setOwn(out, k, inValue(child, k, lookup));
   }
   return out;
 }
@@ -313,7 +361,7 @@ export function emojiParamId(emoji: string): { name: string; id: string; prefix:
   let raw = emoji;
   try { raw = decodeURIComponent(emoji); } catch { /* keep raw */ }
   const m = /^(<?(?:a?:)?([^:<>]*):)(\d{1,20})(>?)$/.exec(raw);
-  if (!m || !isSnowflake(m[3])) return null;
+  if (!m || !isPublicSnowflake(m[3])) return null;
   if ((m[1].startsWith('<')) !== (m[4] === '>')) return null;
   return { name: m[2], id: m[3], prefix: m[1], suffix: m[4] };
 }
