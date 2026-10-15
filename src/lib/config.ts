@@ -9,6 +9,13 @@ export const config = {
   // Accounts API (external auth service)
   ACCOUNTS_API_URL: process.env.ACCOUNTS_URL || 'https://accounts.serika.dev',
   ACCOUNTS_SERVICE_KEY: process.env.AUTH_INTERNAL_KEY || process.env.AUTH_SERVICE_INTERNAL_KEY || 'serika-internal-auth-key-change-in-production',
+  // Browser-facing accounts origin for the sign-in hand-off ("Sign in with
+  // passkey"). Separate from ACCOUNTS_URL, which may be an internal address.
+  ACCOUNTS_PUBLIC_URL: process.env.ACCOUNTS_PUBLIC_URL || 'https://accounts.serika.dev',
+  // Hand-off callback registered for product "serikacord" in the accounts
+  // app's HANDOFF_CLIENTS. Default: FRONTEND_URL + /api/auth/accounts/callback
+  // (https://serika.chat/... when FRONTEND_URL is unset).
+  ACCOUNTS_HANDOFF_CALLBACK_URL: process.env.ACCOUNTS_HANDOFF_CALLBACK_URL || '',
 
   // SerikaMoe (streaming) — live "now watching" presence source
   SERIKA_MOE_URL: process.env.SERIKA_MOE_URL || 'https://serika.moe',

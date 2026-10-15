@@ -220,7 +220,11 @@ class VoiceService {
   // conversations): every SDP offer/answer carries the sender device's
   // signature over its DTLS fingerprints (lib/e2ee/dtls), checked before the
   // SDP is applied, so the signalling server can't sit in the middle.
+  // Required-ness per room: the DM / group page's flag, plus what this device
+  // remembers / the server flags (resolved before the first SDP is applied).
   private e2eeRooms: Map<string, boolean> = new Map();
+  private e2eeResolving: Map<string, Promise<boolean>> = new Map();
+  private e2eeResolved: Map<string, boolean> = new Map();
   private peerE2ee: Map<string, "verified" | "unverified" | "failed"> = new Map();
   private signalChains: Map<string, Promise<void>> = new Map();
 
@@ -760,17 +764,64 @@ class VoiceService {
     return () => { this.listeners.delete(fn); };
   }
 
-  /** Whether calls in `roomId` must be end-to-end verified (set by the DM / group DM page). */
+  /**
+   * The DM / group DM page says calls in `roomId` must be end-to-end verified.
+   * Only ever adds to what this device remembers (a page saying "not
+   * encrypted" can't lift it). Turning it on drops peers accepted unsigned.
+   */
   setRoomE2ee(roomId: string, required: boolean) {
     if (this.e2eeRooms.get(roomId) === required) return;
     this.e2eeRooms.set(roomId, required);
+    if (required) this.enforceRoomE2ee(roomId);
     if (roomId === this.roomId) this.emit({ type: "e2ee_changed" });
+  }
+
+  private isRoomE2eeRequired(roomId: string): boolean {
+    return this.e2eeRooms.get(roomId) === true || this.e2eeResolved.get(roomId) === true;
+  }
+
+  /**
+   * Whether `roomId` (a DM / group DM room) must be verified: the page's flag,
+   * or the conversation is remembered encrypted on this device / flagged by
+   * the server. Resolved once per join; unknown → wait (signals queue behind
+   * it), storage errors → required.
+   */
+  private resolveRoomE2ee(roomId: string): Promise<boolean> {
+    if (this.e2eeRooms.get(roomId) === true) return Promise.resolve(true);
+    let pending = this.e2eeResolving.get(roomId);
+    if (!pending) {
+      const me = this.getMyUserId();
+      pending = import("@/lib/e2ee/client/callGuard")
+        .then((m) => m.isCallRoomEncrypted(roomId, me))
+        .catch(() => true);
+      this.e2eeResolving.set(roomId, pending);
+      void pending.then((required) => {
+        this.e2eeResolved.set(roomId, required);
+        if (required) this.enforceRoomE2ee(roomId);
+        if (roomId === this.roomId) this.emit({ type: "e2ee_changed" });
+      });
+    }
+    return pending.then((required) => required || this.e2eeRooms.get(roomId) === true);
+  }
+
+  /** The room now requires verification: drop peers that were accepted without a valid signature. */
+  private enforceRoomE2ee(roomId: string) {
+    if (roomId !== this.roomId) return;
+    let dropped = false;
+    for (const userId of Array.from(this.peers.keys())) {
+      if (this.peerE2ee.get(userId) !== "unverified") continue;
+      this.destroyPeer(userId);
+      this.peerE2ee.set(userId, "failed");
+      this.emit({ type: "e2ee_warning", userId });
+      dropped = true;
+    }
+    if (dropped) this.emitParticipants();
   }
 
   /** The current call's encryption: required here, and every connected peer verified. */
   get callE2ee(): { required: boolean; verified: boolean } {
     const roomId = this.roomId;
-    const required = roomId ? this.e2eeRooms.get(roomId) === true : false;
+    const required = roomId ? this.isRoomE2eeRequired(roomId) : false;
     const peers = Array.from(this.peers.keys());
     return { required, verified: required && peers.length > 0 && peers.every((u) => this.peerE2ee.get(u) === "verified") };
   }
@@ -792,14 +843,15 @@ class VoiceService {
       if (sdp) {
         const { e2ee: proof, ...rest } = signal as RemoteSignal & { e2ee?: unknown };
         clean = rest;
-        const required = this.e2eeRooms.get(roomId) === true;
+        // Known before any SDP is applied, wherever the call was joined from.
+        const required = await this.resolveRoomE2ee(roomId);
         let state: "verified" | "unverified" | "failed" = "unverified";
         if (proof) {
           const session = await import("@/lib/e2ee/client/session");
           state = (await session.verifyCallSdp(roomId, fromUserId, sdp, proof).catch(() => false)) ? "verified" : "failed";
         }
         if (this.roomId !== roomId) return;
-        if (state === "failed" || (required && state !== "verified")) {
+        if (state === "failed" || ((required || this.isRoomE2eeRequired(roomId)) && state !== "verified")) {
           this.destroyPeer(fromUserId);
           this.peerE2ee.set(fromUserId, "failed");
           this.emit({ type: "e2ee_warning", userId: fromUserId });
@@ -871,6 +923,10 @@ class VoiceService {
     this.roomId = channelId;
     this.peerE2ee.clear();
     this.signalChains.clear();
+    // Re-resolve whether this room must be verified (start early: signals wait for it).
+    this.e2eeResolving.delete(channelId);
+    this.e2eeResolved.delete(channelId);
+    if (VoiceService.isDmRoom(channelId)) void this.resolveRoomE2ee(channelId);
     this.meta = meta;
     this.sessionId = newSessionId();
     this.reconnectAttempt = 0;

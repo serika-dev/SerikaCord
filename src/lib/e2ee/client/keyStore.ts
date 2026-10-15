@@ -52,14 +52,31 @@ export interface BackupState {
   remindAfter: number;
 }
 
+/**
+ * Keys this device used before an encryption reset (here or on another
+ * device). Kept so history encrypted to them stays readable here; never used
+ * to encrypt or sign anything new.
+ */
+export interface ArchivedKeys {
+  identity: StoredIdentity | null;
+  backup: StoredIdentity | null;
+  device: StoredDevice | null;
+  archivedAt: number;
+}
+
 interface Records {
   identity: StoredIdentity;
   backup: StoredIdentity;
   device: StoredDevice;
   pins: Record<string, IdentityPin>;
-  /** Conversations seen encrypted (downgrade protection: one-way, local). */
-  channels: Record<string, true>;
+  /**
+   * Conversations seen encrypted, keyed by what the user opened (`dm:<user>`,
+   * `gdm:<channel>`; lib/e2ee/conversation): downgrade protection, one-way,
+   * local. Never keyed by a server-supplied channel id.
+   */
+  conversations: Record<string, true>;
   backupState: BackupState;
+  archive: ArchivedKeys[];
 }
 
 export type RecordName = keyof Records;
@@ -128,6 +145,17 @@ export class KeyStore {
     });
   }
 
+  /** Read-modify-write one record in a single transaction (tabs can't lose each other's writes). */
+  async update<N extends RecordName>(name: N, fn: (current: Records[N] | null) => Records[N]): Promise<void> {
+    const key = this.key(name);
+    await tx("readwrite", (s) => {
+      const req = s.get(key) as IDBRequest<Records[N] | undefined>;
+      req.onsuccess = () => {
+        s.put(fn(req.result ?? null), key);
+      };
+    });
+  }
+
   async delete(name: RecordName): Promise<void> {
     await tx("readwrite", (s) => {
       s.delete(this.key(name));
@@ -153,4 +181,17 @@ export async function isKeyStoreAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Whether this device has seen the conversation `key` encrypted (false when storage is unavailable). */
+export async function isConversationRememberedEncrypted(userId: string, key: string): Promise<boolean> {
+  if (!userId || !key || !(await isKeyStoreAvailable())) return false;
+  const list = await new KeyStore(userId).get("conversations");
+  return Boolean(list?.[key.toLowerCase()]);
+}
+
+/** Remember that the conversation `key` is encrypted (one-way). */
+export async function rememberConversationEncrypted(userId: string, key: string): Promise<void> {
+  if (!userId || !key || !(await isKeyStoreAvailable())) return;
+  await new KeyStore(userId).update("conversations", (current) => ({ ...(current ?? {}), [key.toLowerCase()]: true }));
 }

@@ -18,3 +18,5 @@ export * from "./backup";
 export * from "./safetyNumber";
 export * from "./dtls";
 export * from "./franking";
+export * from "./conversation";
+export * from "./passphrase";

@@ -122,6 +122,11 @@ export interface ReferencedMessage {
   createdAt?: string;
   /** The referenced message is end-to-end encrypted (its text comes from the reply's own envelope). */
   encrypted?: boolean;
+  /**
+   * Encrypted: `content` is the snippet the replier put in their own message
+   * (we couldn't decrypt the original here), so it is shown as their quote.
+   */
+  quotedBySender?: boolean;
 }
 
 export interface ChatMessage {
@@ -175,6 +180,11 @@ export interface ChatMessage {
   forward?: ForwardView | null;
   /** End-to-end encrypted message (DMs / group DMs): decryption status. */
   e2ee?: MessageE2ee;
+  /**
+   * A message without an envelope in an end-to-end encrypted conversation
+   * (after encryption was turned on): nobody can vouch for its sender.
+   */
+  e2eePlaintext?: boolean;
 }
 
 /** Details of a group DM system row (the actor is the message author). */

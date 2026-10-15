@@ -5,7 +5,29 @@
 // conversation actually has encrypted messages.
 import type { ChatMessage, MessageAttachment, MessageSticker } from "@/lib/chat/types";
 import type { RawMessagePayload } from "@/lib/chat/messages";
+import {
+  conversationKey,
+  encryptionNoticeTime,
+  isUnverifiablePlaintextRow,
+  type E2eeTarget,
+} from "@/lib/e2ee/conversation";
+import { isConversationRememberedEncrypted, rememberConversationEncrypted } from "./keyStore";
 import { loadE2eeSession } from "./state";
+import type { DecryptContext } from "./session";
+
+/**
+ * Whether this device has seen the conversation encrypted (downgrade
+ * protection, keyed by what the user opened, never by a server channel id).
+ * Rejects when storage fails: callers treat that as encrypted (fail closed).
+ */
+export function isRememberedEncrypted(userId: string, target: E2eeTarget): Promise<boolean> {
+  return isConversationRememberedEncrypted(userId, conversationKey(target));
+}
+
+/** Remember the conversation as encrypted on this device (one-way). */
+export function rememberEncrypted(userId: string, target: E2eeTarget): Promise<void> {
+  return rememberConversationEncrypted(userId, conversationKey(target));
+}
 
 /** A raw API / SSE message still carrying its envelope (not yet decrypted). */
 export function hasEnvelope(raw: RawMessagePayload | null | undefined): boolean {
@@ -13,11 +35,58 @@ export function hasEnvelope(raw: RawMessagePayload | null | undefined): boolean 
   return Boolean(e && typeof e === "object" && !("status" in e));
 }
 
-/** Decrypt the envelopes in a raw page (no-op, no import, when there are none). */
-export async function decryptIfNeeded(raw: RawMessagePayload[], channelId?: string | null): Promise<RawMessagePayload[]> {
-  if (!raw.some(hasEnvelope)) return raw;
+/** Which channel an encrypted page's rows must belong to (the URL's group, or the DM channel checked against the URL's person). */
+export function decryptContextFor(target: E2eeTarget | null, meta: ConversationMeta | null): DecryptContext {
+  if (!target) return { channelId: meta?.channelId ?? null };
+  if (target.kind === "group") return { channelId: target.channelId };
+  return { channelId: meta?.channelId ?? null, dmPeer: target.recipientId };
+}
+
+/** The channel id sends / edits are encrypted for (never a server-supplied id for groups). */
+export function encryptChannelIdFor(target: E2eeTarget | null, meta: ConversationMeta | null): string | null {
+  if (target?.kind === "group") return target.channelId;
+  return meta?.channelId ?? null;
+}
+
+// Earliest "turned on encryption" notice seen per conversation (memory only):
+// plain rows before it are legitimate history.
+const encryptedSince = new Map<string, number>();
+
+/** Mark rows without an envelope in an encrypted conversation: nobody vouches for their sender. */
+function flagPlaintextRows(rows: RawMessagePayload[], target: E2eeTarget | null): RawMessagePayload[] {
+  const key = target ? conversationKey(target) : null;
+  const notice = encryptionNoticeTime(rows as Array<{ type?: unknown; e2ee?: unknown; createdAt?: unknown }>);
+  if (key && notice !== null) {
+    const prev = encryptedSince.get(key);
+    if (prev === undefined || notice < prev) encryptedSince.set(key, notice);
+  }
+  const since = key ? encryptedSince.get(key) ?? null : notice;
+  return rows.map((r) => (
+    isUnverifiablePlaintextRow(r as { type?: unknown; e2ee?: unknown; createdAt?: unknown }, since)
+      ? ({ ...r, e2eePlaintext: true } as RawMessagePayload)
+      : r
+  ));
+}
+
+export interface DecodeOptions {
+  /** What the page opened (from the URL). */
+  target: E2eeTarget | null;
+  /** Conversation facts from the server (channel id, flag). */
+  meta: ConversationMeta | null;
+  /** The conversation is encrypted (server flag, or remembered on this device). */
+  encrypted: boolean;
+}
+
+/**
+ * Prepare a raw DM / group DM page for the chat: flag plaintext rows of an
+ * encrypted conversation and decrypt envelopes (bound to the open
+ * conversation). No crypto import when there are no envelopes.
+ */
+export async function decodeConversationRows(raw: RawMessagePayload[], opts: DecodeOptions): Promise<RawMessagePayload[]> {
+  const rows = opts.encrypted ? flagPlaintextRows(raw, opts.target) : raw;
+  if (!rows.some(hasEnvelope)) return rows;
   const session = await loadE2eeSession();
-  return session.decryptRawMessages(raw as Array<Record<string, unknown>>, channelId ?? null);
+  return session.decryptRawMessages(rows as Array<Record<string, unknown>>, decryptContextFor(opts.target, opts.meta));
 }
 
 /** Conversation facts the DM / group DM message endpoints return with a page. */
@@ -66,6 +135,9 @@ export function attachmentViewOf(a: EncryptedAttachmentUpload): MessageAttachmen
  */
 export async function buildEncryptedSendBody(opts: {
   channelId: string;
+  /** What the page opened, and (groups) the members it shows: only they get keys. */
+  target: E2eeTarget;
+  memberIds?: string[] | null;
   content: string;
   attachments: EncryptedAttachmentUpload[];
   sticker?: MessageSticker;
@@ -94,7 +166,7 @@ export async function buildEncryptedSendBody(opts: {
       : {}),
     ...(opts.sticker ? { sticker: opts.sticker } : {}),
     ...(opts.reply ? { replyPreview: { id: opts.reply.id.toLowerCase(), content: (opts.reply.content ?? "").slice(0, 200) } } : {}),
-  });
+  }, opts.target, opts.memberIds);
   return {
     content: "",
     e2ee: envelope,
@@ -113,7 +185,13 @@ export async function buildEncryptedSendBody(opts: {
 }
 
 /** The PATCH body of an encrypted edit: the whole payload again, bound to the message id. */
-export async function buildEncryptedEditBody(channelId: string, message: ChatMessage, content: string): Promise<Record<string, unknown>> {
+export async function buildEncryptedEditBody(
+  channelId: string,
+  message: ChatMessage,
+  content: string,
+  target: E2eeTarget,
+  memberIds?: string[] | null,
+): Promise<Record<string, unknown>> {
   const session = await loadE2eeSession();
   const files = (message.attachments ?? []).filter((a) => a.e2ee);
   const envelope = await session.encryptForChannel(channelId, {
@@ -140,6 +218,6 @@ export async function buildEncryptedEditBody(channelId: string, message: ChatMes
     ...(message.referencedMessage
       ? { replyPreview: { id: message.referencedMessage.id.toLowerCase(), content: (message.referencedMessage.content ?? "").slice(0, 200) } }
       : {}),
-  });
+  }, target, memberIds);
   return { content: "", e2ee: envelope };
 }

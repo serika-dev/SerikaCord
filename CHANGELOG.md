@@ -7,14 +7,18 @@
 ## Unreleased
 
 ### Features
+- **Sign in with a passkey** — use your fingerprint, face or security key from the login page (under the QR code, or below Sign in). Add and manage passkeys from Settings → Devices, which links to your Serika account. Accounts that require a passkey or two-factor authentication now get a clear message and a button to continue, instead of a generic error.
 
 ### Changes
 
 ### Bug Fixes
+- Admins can turn domain connections off again: Platform Settings → Connections → Allowed Providers now has a Domains switch.
 
 ### Performance
 
 ### Security
+- **End-to-end encryption hardened before rollout** — encrypted conversations now check that keys belong to the right people and devices, warn about unencrypted or misplaced messages, keep calls verified however you join them, refuse weak recovery passphrases and ask for your password before resetting encryption. Polls and forwards are blocked in encrypted chats, and reports still work after a message is edited.
+- Reporting the same image several times no longer adds extra strikes or duplicate safety incidents.
 
 ### Removed
 

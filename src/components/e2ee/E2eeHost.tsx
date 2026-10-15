@@ -56,6 +56,15 @@ export function E2eeHost() {
     if (e2ee.phase === "ready" && e2ee.remindPassphrase) {
       promptedRef.current = `${userId}:${e2ee.phase}`;
       openE2eeDialog("onboard");
+    } else if (e2ee.phase === "needs-restore" && e2ee.resetElsewhere) {
+      // The account's keys changed elsewhere: this device's keys were archived
+      // (old messages stay readable here), never silently deleted.
+      promptedRef.current = `${userId}:${e2ee.phase}`;
+      toast.warning(gt("Encryption was reset on another device"), {
+        description: gt("Your older encrypted messages stay readable here. Enter your new recovery passphrase to read and send new ones. If you didn't reset it, change your password."),
+        action: { label: gt("Restore"), onClick: () => openE2eeDialog("restore") },
+        duration: 30_000,
+      });
     } else if (e2ee.phase === "needs-restore" && e2ee.enabled) {
       promptedRef.current = `${userId}:${e2ee.phase}`;
       toast(gt("Your encrypted messages are locked on this device"), {
@@ -64,7 +73,7 @@ export function E2eeHost() {
         duration: 15_000,
       });
     }
-  }, [userId, e2ee.phase, e2ee.remindPassphrase, e2ee.enabled, gt]);
+  }, [userId, e2ee.phase, e2ee.remindPassphrase, e2ee.enabled, e2ee.resetElsewhere, gt]);
 
   return (
     <MountWhenOpened open={dialog !== null}>

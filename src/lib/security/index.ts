@@ -52,6 +52,9 @@ export const rateLimiters_config = {
   authEmail: { points: 5, duration: 900 }, // forgot-password / resend-verification, per IP and per email
   passwordReset: { points: 10, duration: 900 }, // reset-password submissions per IP
   qrCreate: { points: 60, duration: 600 }, // QR login codes per IP (the login page refreshes them every 2 min)
+  // Serika Accounts sign-in hand-off ("Sign in with passkey"), per IP
+  handoffStart: { points: 30, duration: 600 },
+  handoffCallback: { points: 30, duration: 600 },
 
   // Incoming channel webhooks, per webhook
   webhookExecute: { points: 30, duration: 10 },

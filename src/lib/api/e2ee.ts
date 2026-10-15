@@ -3,13 +3,15 @@
 // key backup; it never sees private keys or message plaintext.
 //
 //   GET    /e2ee/status                        { enabled, identity } (?device=<id> touches last-seen)
-//   PUT    /e2ee/identity                      { identityPub, backupPub, reset? } publish own keys
+//   PUT    /e2ee/identity                      { identityPub, backupPub, reset?, password? } publish own keys
+//                                              (a reset needs the account password: step-up check)
 //   GET    /e2ee/devices                       own devices (active + recently revoked)
 //   POST   /e2ee/devices                       { id, ecdhPub, signPub, sig, name? } register (sig checked)
 //   DELETE /e2ee/devices/:deviceId             revoke own device
 //   GET    /e2ee/backup                        own sealed backup
 //   PUT    /e2ee/backup                        { blob, salt, iters } (size-limited)
-//   GET    /e2ee/users/:userId/keys            one user's public key bundle (calls)
+//   GET    /e2ee/users/:userId/keys            one user's public key bundle (calls; friends, shared
+//                                              conversations or servers only)
 //   GET    /e2ee/channels/:channelId/keys      bundles of a DM / group DM's members (members only)
 //   POST   /e2ee/channels/:channelId/enable    turn encryption on (member; all members have keys; one-way)
 //   GET    /e2ee/blob?url=                     same-origin relay of an encrypted attachment blob
@@ -22,12 +24,14 @@ import { and, count, eq, isNull, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
+import { checkRateLimit, getClientIP, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
+import { accountsLogin, accountsLogout } from '@/lib/services/accountsClient';
 import { Channel, Message, User } from '@/lib/models';
 import {
   E2EE_DISABLED_ERROR,
   E2EE_NOTICE,
   canJoinEncrypted,
+  canLookUpKeys,
   devicesOf,
   e2eeEnabled,
   ensureE2eeSchema,
@@ -78,6 +82,36 @@ function cleanDeviceName(name: unknown): string | null {
   return cleaned || null;
 }
 
+type AuthUser = NonNullable<Awaited<ReturnType<typeof getAuth>>['user']>;
+
+/**
+ * Step-up check before "Reset encryption" (it revokes every device and drops
+ * the backup): the account password, verified by the accounts service. The
+ * throwaway session that check creates is revoked right away.
+ */
+async function verifyAccountPassword(user: AuthUser, password: unknown, request: Request): Promise<{ status: number; error: string } | null> {
+  if (typeof password !== 'string' || password.length === 0) {
+    return { status: 403, error: 'Enter your account password to reset encryption' };
+  }
+  const ip = getClientIP(request);
+  const rl = await checkRateLimit('login', `e2ee-reset:${normalizeId(user.id)}`);
+  if (!rl.success) return { status: 429, error: 'Too many attempts. Please wait a moment and try again.' };
+  const email = (user as { email?: string | null }).email || `${user.username}@serika.dev`;
+  const result = await accountsLogin({ email, password }, { userAgent: 'SerikaCord (encryption reset check)', ip });
+  if (result.ok && result.data.token) {
+    void accountsLogout(result.data.token).catch(() => {});
+    return null;
+  }
+  // The accounts service answers these only after the password matched (it
+  // then wants a second factor / passkey for a full sign-in): the password
+  // step-up itself passed.
+  const code = (result.data as { code?: unknown } | null)?.code;
+  if (result.status === 403 && (code === 'TWO_FACTOR_REQUIRED' || code === 'PASSKEY_REQUIRED')) return null;
+  if (result.status === 503) return { status: 503, error: 'The accounts service is unavailable. Try again in a moment.' };
+  if (result.status === 429) return { status: 429, error: 'Too many attempts. Please wait a moment and try again.' };
+  return { status: 403, error: 'Incorrect password' };
+}
+
 function identitySummary(row: Awaited<ReturnType<typeof getIdentity>>) {
   return row
     ? { identityPub: row.identityPub, backupPub: row.backupPub, hasBackup: Boolean(row.backupBlob), updatedAt: row.updatedAt }
@@ -114,7 +148,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     return { enabled: e2eeEnabled(), identity: identitySummary(identity), device };
   }, { query: t.Object({ device: t.Optional(t.String({ maxLength: 64 })) }) })
 
-  .put('/identity', async ({ headers, cookie, body, set }) => {
+  .put('/identity', async ({ headers, cookie, body, set, request }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) {
       set.status = 401;
@@ -142,6 +176,14 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     if (existing && body.reset !== true) {
       set.status = 409;
       return { error: 'You already have encryption keys. Restore them with your recovery passphrase, or reset encryption.' };
+    }
+    if (existing) {
+      // Replacing keys revokes every device and drops the backup: re-authenticate.
+      const denied = await verifyAccountPassword(user, body.password, request);
+      if (denied) {
+        set.status = denied.status;
+        return { error: denied.error };
+      }
     }
     const now = new Date();
     const row = await db.transaction(async (tx) => {
@@ -171,6 +213,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       backupPub: t.String({ maxLength: 120 }),
       backupSig: t.String({ maxLength: 120 }),
       reset: t.Optional(t.Boolean()),
+      password: t.Optional(t.String({ maxLength: 256 })),
     }),
   })
 
@@ -364,8 +407,17 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     }
     const rl = await limited('e2eeRead', user.id, set);
     if (rl) return rl;
+    if (!isValidObjectId(params.userId)) {
+      set.status = 400;
+      return { error: 'Invalid user id' };
+    }
+    // Only people you have something to do with (no key / device enumeration).
+    if (!(await canLookUpKeys(user.id, params.userId).catch(() => false))) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
     await ensureE2eeSchema();
-    const [bundle] = await keyBundles([params.userId]);
+    const [bundle] = await keyBundles([params.userId], user.id);
     return { keys: bundle };
   }, { params: t.Object({ userId: t.String() }) })
 
@@ -388,7 +440,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
     return {
       channelId: channel.id,
       e2ee: channel.e2ee === true,
-      members: await keyBundles(memberIds),
+      members: await keyBundles(memberIds, user.id),
     };
   }, { params: t.Object({ channelId: t.String() }) })
 

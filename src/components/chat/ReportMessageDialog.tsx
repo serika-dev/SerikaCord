@@ -47,9 +47,14 @@ export function ReportMessageDialog({ message, onClose }: ReportMessageDialogPro
     try {
       // End-to-end encrypted: disclose the message key + plaintext so the
       // safety team can verify the report (message franking).
-      let e2ee: { key: string; payload: string } | null = null;
+      // The disclosure names the exact envelope (version) shown here, by its signature.
+      let e2ee: { key: string; payload: string; sig: string } | null = null;
       if (message.e2ee) {
-        e2ee = message.e2ee.status === "ok" ? (await loadE2eeSession()).frankingDisclosure(message.id) : null;
+        const sig = (message.e2ee.envelope as { sig?: unknown } | undefined)?.sig;
+        const disclosure = message.e2ee.status === "ok" && typeof sig === "string"
+          ? (await loadE2eeSession()).frankingDisclosure(sig)
+          : null;
+        e2ee = disclosure && typeof sig === "string" ? { ...disclosure, sig } : null;
         if (!e2ee) {
           toast.error(gt("This encrypted message can't be reported from this device because it couldn't be decrypted here."));
           return;

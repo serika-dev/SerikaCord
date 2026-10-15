@@ -2,9 +2,12 @@
 // feature flag, the boot-time schema ensure, public key lookups, and the checks
 // the DM send/edit routes run on encrypted messages. The server only ever sees
 // public keys, sealed backups and opaque envelopes.
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { cache, getRedis } from '@/lib/db/redis';
 import { config } from '@/lib/config';
 import {
   E2eeVerifyError,
@@ -78,6 +81,14 @@ export function ensureE2eeSchema(): Promise<void> {
             revoked_at timestamp
           )`);
           await tx.execute(sql`CREATE INDEX IF NOT EXISTS e2ee_devices_user_id_idx ON e2ee_devices (user_id)`);
+          // Earlier envelopes of edited encrypted messages (reports can name the version they saw).
+          await tx.execute(sql`CREATE TABLE IF NOT EXISTS e2ee_envelope_history (
+            message_id uuid NOT NULL,
+            sig text NOT NULL,
+            envelope jsonb NOT NULL,
+            replaced_at timestamp DEFAULT now(),
+            PRIMARY KEY (message_id, sig)
+          )`);
         });
         return;
       } catch (err) {
@@ -142,8 +153,60 @@ export function publicDevice(d: DeviceRow) {
   };
 }
 
-/** Public key bundles for `userIds` (identity, backup, devices incl. recently revoked). */
-export async function keyBundles(userIds: string[]) {
+/** A device as other people see it: keys and revocation only (no name, no activity times). */
+export function contactDevice(d: DeviceRow) {
+  return {
+    id: d.id,
+    userId: d.userId,
+    ecdhPub: d.ecdhPub,
+    signPub: d.signPub,
+    sig: d.deviceSig,
+    identityPub: d.identityPub,
+    revokedAt: d.revokedAt ?? null,
+  };
+}
+
+/**
+ * Whether `viewerId` may look up `targetId`'s key bundle: themselves, a
+ * friend, someone they share a DM / group DM or a server with.
+ */
+export async function canLookUpKeys(viewerId: string, targetId: string): Promise<boolean> {
+  const viewer = normalizeId(viewerId);
+  const target = normalizeId(targetId);
+  if (viewer === target) return true;
+  const [friend] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, viewer), sql`${target}::uuid = ANY(${schema.users.friends})`))
+    .limit(1);
+  if (friend) return true;
+  const [conversation] = await db
+    .select({ id: schema.channels.id })
+    .from(schema.channels)
+    .where(and(
+      inArray(schema.channels.type, ['dm', 'group_dm']),
+      sql`${schema.channels.recipientIds} @> ARRAY[${viewer}, ${target}]::uuid[]`,
+    ))
+    .limit(1);
+  if (conversation) return true;
+  const mine = alias(schema.serverMembers, 'viewer_members');
+  const theirs = alias(schema.serverMembers, 'target_members');
+  const [server] = await db
+    .select({ id: mine.serverId })
+    .from(mine)
+    .innerJoin(theirs, eq(mine.serverId, theirs.serverId))
+    .where(and(eq(mine.userId, viewer), eq(theirs.userId, target)))
+    .limit(1);
+  return Boolean(server);
+}
+
+/**
+ * Public key bundles for `userIds` (identity, backup, devices incl. recently
+ * revoked). Device names and activity times are only included for the
+ * viewer's own bundle.
+ */
+export async function keyBundles(userIds: string[], viewerId?: string) {
+  const viewer = viewerId ? normalizeId(viewerId) : null;
   const ids = [...new Set(userIds.map((u) => normalizeId(u)))];
   if (ids.length === 0) return [];
   const [identities, devices] = await Promise.all([
@@ -165,8 +228,8 @@ export async function keyBundles(userIds: string[]) {
       identityPub: identity?.identityPub ?? null,
       backupPub: identity?.backupPub ?? null,
       backupSig: identity?.backupSig ?? null,
-      devices: active.map(publicDevice),
-      revokedDevices: revoked.map(publicDevice),
+      devices: active.map(userId === viewer ? publicDevice : contactDevice),
+      revokedDevices: revoked.map(userId === viewer ? publicDevice : contactDevice),
     };
   });
 }
@@ -276,11 +339,158 @@ async function fetchCdnBlob(url: string, allowedUrls: Set<string>): Promise<Uint
   // Only the blobs stored on this very message, only on our CDN.
   if (!allowedUrls.has(url) || parsed.protocol !== cdn.protocol || parsed.host !== cdn.host || parsed.username || parsed.password) return null;
   const res = await fetch(parsed.toString(), { redirect: 'error', signal: AbortSignal.timeout(REPORT_FETCH_TIMEOUT_MS) }).catch(() => null);
-  if (!res || !res.ok) return null;
+  if (!res || !res.ok || !res.body) return null;
   const declared = Number(res.headers.get('content-length') || '0');
   if (declared > REPORT_MAX_BLOB_BYTES) return null;
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  return bytes.byteLength > REPORT_MAX_BLOB_BYTES ? null : bytes;
+  return readCapped(res.body, REPORT_MAX_BLOB_BYTES);
+}
+
+/** Read a stream into memory, giving up (null) as soon as it passes `max` bytes. */
+async function readCapped(body: ReadableStream<Uint8Array>, max: number): Promise<Uint8Array | null> {
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        await reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    out.set(c, offset);
+    offset += c.byteLength;
+  }
+  return out;
+}
+
+// ─── Edited messages: earlier envelopes ───────────────────────────────────────
+
+const MAX_ENVELOPE_HISTORY = 20;
+
+/**
+ * Keep the envelope an edit replaces, so a report can still name (and prove)
+ * the version the reporter saw. At most MAX_ENVELOPE_HISTORY per message: the
+ * oldest is dropped beyond that. Best effort (never blocks the edit).
+ */
+export async function archiveReplacedEnvelope(messageId: string, previous: unknown): Promise<void> {
+  const envelope = storedEnvelope(previous);
+  if (!envelope) return;
+  try {
+    await ensureE2eeSchema();
+    const id = normalizeId(messageId);
+    await db.insert(schema.e2eeEnvelopeHistory)
+      .values({ messageId: id, sig: envelope.sig, envelope })
+      .onConflictDoNothing();
+    const rows = await db
+      .select({ sig: schema.e2eeEnvelopeHistory.sig })
+      .from(schema.e2eeEnvelopeHistory)
+      .where(eq(schema.e2eeEnvelopeHistory.messageId, id))
+      .orderBy(desc(schema.e2eeEnvelopeHistory.replacedAt));
+    for (const old of rows.slice(MAX_ENVELOPE_HISTORY)) {
+      await db.delete(schema.e2eeEnvelopeHistory)
+        .where(and(eq(schema.e2eeEnvelopeHistory.messageId, id), eq(schema.e2eeEnvelopeHistory.sig, old.sig)));
+    }
+  } catch (err) {
+    console.warn(`[e2ee] Could not keep the previous envelope of ${messageId}:`, (err as Error)?.message ?? err);
+  }
+}
+
+/** The envelope of `message` with signature `sig`: the current one, or an earlier version. */
+async function envelopeBySig(message: { id: string; e2ee?: unknown }, sig: string | undefined): Promise<Envelope | null> {
+  const current = storedEnvelope(message.e2ee);
+  if (!sig || current?.sig === sig) return current;
+  await ensureE2eeSchema();
+  const [row] = await db
+    .select({ envelope: schema.e2eeEnvelopeHistory.envelope })
+    .from(schema.e2eeEnvelopeHistory)
+    .where(and(eq(schema.e2eeEnvelopeHistory.messageId, normalizeId(message.id)), eq(schema.e2eeEnvelopeHistory.sig, sig)))
+    .orderBy(asc(schema.e2eeEnvelopeHistory.replacedAt))
+    .limit(1)
+    .catch(() => []);
+  const old = storedEnvelope(row?.envelope);
+  return old && old.sig === sig ? old : null;
+}
+
+// ─── Report scans: once per message + file ────────────────────────────────────
+
+type ReportScanVerdict = { blocked: boolean; kind?: string; incidentId?: string | null; reused?: boolean };
+
+const REPORT_SCAN_TTL_S = 30 * 86_400;
+const reportScansInFlight = new Map<string, Promise<ReportScanVerdict>>();
+
+/**
+ * Scan a disclosed image of a reported message once: later reports of the
+ * same message + file reuse the verdict (Redis), and a file that already
+ * produced an incident for this sender reuses that incident (database), so
+ * repeated reports never create duplicate incidents or strikes.
+ */
+async function scanReportedImage(
+  message: { id: string; channelId: string; authorId: string },
+  file: { name: string },
+  plain: Uint8Array,
+  imageType: string,
+): Promise<ReportScanVerdict> {
+  const sha256 = createHash('sha256').update(plain).digest('hex');
+  const key = `e2ee:report-scan:${normalizeId(message.id)}:${sha256}`;
+  const inFlight = reportScansInFlight.get(key);
+  if (inFlight) return { ...(await inFlight), reused: true };
+  const run = (async (): Promise<ReportScanVerdict> => {
+    const cached = await cache.get<ReportScanVerdict>(key);
+    if (cached) return { ...cached, reused: true };
+    const [prior] = await db
+      .select({ id: schema.safetyIncidents.id, kind: schema.safetyIncidents.kind })
+      .from(schema.safetyIncidents)
+      .where(and(
+        eq(schema.safetyIncidents.userId, normalizeId(message.authorId)),
+        eq(schema.safetyIncidents.sha256, sha256),
+        eq(schema.safetyIncidents.uploadCategory, 'e2ee-report'),
+      ))
+      .orderBy(asc(schema.safetyIncidents.createdAt))
+      .limit(1)
+      .catch(() => []);
+    if (prior) {
+      const verdict = { blocked: true, kind: prior.kind === 'csam' ? 'csam' : prior.kind === 'scam_image' ? 'scam' : prior.kind, incidentId: prior.id };
+      await cache.set(key, verdict, REPORT_SCAN_TTL_S);
+      return { ...verdict, reused: true };
+    }
+    // Another instance is scanning this exact file right now.
+    const redis = getRedis();
+    const lockKey = `${key}:lock`;
+    const lock = redis ? await redis.set(lockKey, '1', 'EX', 120, 'NX').catch(() => 'OK') : 'OK';
+    if (lock !== 'OK') return { blocked: false, kind: 'in-progress', reused: true };
+    try {
+      const { scanUploadedImage } = await import('@/lib/services/trustSafety');
+      const result = await scanUploadedImage(Buffer.from(plain), imageType, {
+        userId: message.authorId,
+        fileName: file.name,
+        category: 'e2ee-report',
+        channelId: message.channelId,
+      });
+      const verdict: ReportScanVerdict = result.blocked
+        ? { blocked: true, kind: result.kind, incidentId: result.incidentId ?? null }
+        : { blocked: false };
+      await cache.set(key, verdict, REPORT_SCAN_TTL_S);
+      return verdict;
+    } finally {
+      if (redis) await redis.del(lockKey).catch(() => 0);
+    }
+  })();
+  reportScansInFlight.set(key, run);
+  try {
+    return await run;
+  } finally {
+    reportScansInFlight.delete(key);
+  }
 }
 
 export type FrankedReport =
@@ -297,11 +507,15 @@ export async function frankEncryptedReport(
   message: { id: string; channelId: string; authorId: string; e2ee?: unknown; attachments?: unknown },
   disclosure: unknown,
 ): Promise<FrankedReport> {
-  const envelope = storedEnvelope(message.e2ee);
-  if (!envelope) return { ok: false, status: 400, error: 'This message is not end-to-end encrypted' };
+  if (!storedEnvelope(message.e2ee)) return { ok: false, status: 400, error: 'This message is not end-to-end encrypted' };
   if (!isFrankingDisclosure(disclosure)) {
     return { ok: false, status: 400, error: 'Reporting an encrypted message needs the message key. Update the app and try again.' };
   }
+  // The version the reporter saw (an edit keeps the earlier envelopes).
+  const claimedSig = (disclosure as { sig?: unknown }).sig;
+  const sig = typeof claimedSig === 'string' ? claimedSig : undefined;
+  const envelope = await envelopeBySig(message, sig);
+  if (!envelope) return { ok: false, status: 400, error: "This report couldn't be verified" };
   const device = await findUserDevice(message.authorId, envelope.sd);
   if (!device) return { ok: false, status: 400, error: "This report couldn't be verified" };
   const result = await verifyFranking(
@@ -318,7 +532,6 @@ export async function frankEncryptedReport(
   const stored = Array.isArray(message.attachments) ? (message.attachments as Array<{ url?: unknown }>) : [];
   const allowedUrls = new Set(stored.map((a) => (typeof a?.url === 'string' ? a.url : '')).filter(Boolean));
   const notes: string[] = [];
-  const { scanUploadedImage } = await import('@/lib/services/trustSafety');
   const { sniffImageType } = await import('@/lib/safety/imageHash');
   for (const att of result.payload.attachments ?? []) {
     const label = `${att.name} (${att.type || 'unknown type'}, ${att.size} bytes)`;
@@ -335,15 +548,13 @@ export async function frankEncryptedReport(
         notes.push(`${label}: decrypted, not an image (not scanned)`);
         continue;
       }
-      const verdict = await scanUploadedImage(Buffer.from(plain), imageType, {
-        userId: message.authorId,
-        fileName: att.name,
-        category: 'e2ee-report',
-        channelId: message.channelId,
-      });
-      notes.push(verdict.blocked
-        ? `${label}: MATCHED ${verdict.kind}${verdict.incidentId ? ` (incident ${verdict.incidentId})` : ''}`
-        : `${label}: scanned, no match`);
+      const verdict = await scanReportedImage(message, att, plain, imageType);
+      const again = verdict.reused ? ', already scanned for an earlier report' : '';
+      notes.push(verdict.kind === 'in-progress'
+        ? `${label}: being scanned for another report right now`
+        : verdict.blocked
+          ? `${label}: MATCHED ${verdict.kind}${verdict.incidentId ? ` (incident ${verdict.incidentId})` : ''}${again}`
+          : `${label}: scanned, no match${again}`);
     } catch (err) {
       notes.push(`${label}: ${err instanceof E2eeVerifyError ? 'failed to decrypt with the disclosed key' : 'scan failed'}`);
     }

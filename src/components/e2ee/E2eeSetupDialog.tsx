@@ -9,21 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { loadE2eeSession, type E2eeDialogRequest } from "@/lib/e2ee/client/state";
+import { MIN_RECOVERY_PASSPHRASE_STRENGTH, passphraseStrength } from "@/lib/e2ee/passphrase";
 import { useE2ee } from "@/hooks/useE2ee";
-
-const MIN_LENGTH = 10;
-
-/** 0 (weak) … 4 (strong): length plus character variety. */
-function passphraseStrength(value: string): number {
-  const v = value.normalize("NFKC").trim();
-  if (v.length < MIN_LENGTH) return 0;
-  const classes = [/[a-z]/, /[A-Z]/, /[0-9]/, /[^A-Za-z0-9]/, /\s/].filter((re) => re.test(v)).length;
-  let score = 1;
-  if (v.length >= 14) score++;
-  if (v.length >= 20) score++;
-  if (classes >= 3) score++;
-  return Math.min(4, score);
-}
 
 interface E2eeSetupDialogProps {
   mode: E2eeDialogRequest | null;
@@ -41,12 +28,18 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
   const e2ee = useE2ee();
   const [passphrase, setPassphrase] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  // Changing a sealed passphrase: the current one (keys here can't be exported).
+  const [currentPassphrase, setCurrentPassphrase] = useState("");
+  // Reset: the account password (step-up check on the server).
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reset = () => {
     setPassphrase("");
     setConfirmation("");
+    setCurrentPassphrase("");
+    setPassword("");
     setError(null);
     setBusy(false);
   };
@@ -58,7 +51,8 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
   const strength = passphraseStrength(passphrase);
   const strengthLabel = [gt("Too short"), gt("Weak"), gt("Okay"), gt("Good"), gt("Strong")][strength];
   const settingPassphrase = mode === "onboard" || mode === "change-passphrase";
-  const canSave = strength > 0 && passphrase === confirmation;
+  const needsCurrent = settingPassphrase && !e2ee.keysExtractable && e2ee.serverHasBackup;
+  const canSave = strength >= MIN_RECOVERY_PASSPHRASE_STRENGTH && passphrase === confirmation && (!needsCurrent || currentPassphrase.length > 0);
 
   const savePassphrase = async () => {
     if (!canSave) return;
@@ -66,11 +60,16 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
     setError(null);
     try {
       const session = await loadE2eeSession();
-      await session.setRecoveryPassphrase(passphrase);
+      await session.setRecoveryPassphrase(passphrase, needsCurrent ? currentPassphrase : undefined);
       toast.success(gt("Recovery passphrase saved"));
       close();
-    } catch {
-      setError(gt("Couldn't save the passphrase. Try again."));
+    } catch (err) {
+      const name = err instanceof Error ? err.name : "";
+      setError(
+        name === "E2eeVerifyError" || name === "E2eeCurrentPassphraseError"
+          ? gt("Your current passphrase isn't right.")
+          : gt("Couldn't save the passphrase. Try again."),
+      );
       setBusy(false);
     }
   };
@@ -102,16 +101,24 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
   };
 
   const resetEncryption = async () => {
+    if (!password) return;
     setBusy(true);
     setError(null);
     try {
       const session = await loadE2eeSession();
-      await session.resetEncryption();
+      await session.resetEncryption(password);
       toast.success(gt("Encryption was reset. Set a recovery passphrase for your new keys."));
       reset();
       onModeChange("onboard");
-    } catch {
-      setError(gt("Couldn't reset encryption. Try again."));
+    } catch (err) {
+      const status = err instanceof Error && err.name === "E2eeApiError" ? (err as Error & { status?: number }).status : null;
+      setError(
+        status === 403
+          ? gt("That password isn't right.")
+          : status === 429
+            ? gt("Too many attempts. Wait a moment and try again.")
+            : gt("Couldn't reset encryption. Try again."),
+      );
       setBusy(false);
     }
   };
@@ -137,18 +144,28 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
                 ? gt("Your keys are sealed again with the new passphrase. The old one stops working.")
                 : mode === "restore"
                   ? gt("This device doesn't have your encryption keys yet. Enter your recovery passphrase to read your encrypted messages here.")
-                  : gt("This creates new encryption keys. Encrypted messages from before can't be read on new devices anymore, and your contacts will see that your security code changed.")}
+                  : gt("This creates new encryption keys. Encrypted messages from before stay readable on this device only, and your contacts will see that your security code changed. Enter your account password to confirm.")}
           </DialogDescription>
         </DialogHeader>
 
         {settingPassphrase && (
           <div className="flex flex-col gap-2">
+            {needsCurrent && (
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={currentPassphrase}
+                onChange={(e) => setCurrentPassphrase(e.target.value)}
+                placeholder={gt("Current recovery passphrase")}
+                aria-label={gt("Current recovery passphrase")}
+              />
+            )}
             <Input
               type="password"
               autoComplete="new-password"
               value={passphrase}
               onChange={(e) => setPassphrase(e.target.value)}
-              placeholder={gt("Recovery passphrase (at least 10 characters)")}
+              placeholder={gt("Recovery passphrase")}
               aria-label={gt("Recovery passphrase")}
             />
             <div className="flex items-center gap-2" aria-live="polite">
@@ -175,6 +192,11 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
               placeholder={gt("Repeat the passphrase")}
               aria-label={gt("Repeat the passphrase")}
             />
+            {passphrase && strength < MIN_RECOVERY_PASSPHRASE_STRENGTH && (
+              <p className="text-xs text-[var(--app-muted)]">
+                {gt("Use at least 14 characters mixing letters, numbers and symbols, or a phrase of several uncommon words. Common passwords don't count.")}
+              </p>
+            )}
             {confirmation && passphrase !== confirmation && (
               <p className="text-xs text-red-400">{gt("The passphrases don't match.")}</p>
             )}
@@ -206,6 +228,20 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           )
         )}
 
+        {mode === "reset" && (
+          <Input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void resetEncryption();
+            }}
+            placeholder={gt("Account password")}
+            aria-label={gt("Account password")}
+          />
+        )}
+
         {error && <p className="text-sm text-red-400">{error}</p>}
 
         <DialogFooter className="gap-2 sm:justify-between">
@@ -235,7 +271,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
             </Button>
           )}
           {mode === "reset" && (
-            <Button onClick={() => void resetEncryption()} disabled={busy} className="bg-red-600 text-white hover:bg-red-700">
+            <Button onClick={() => void resetEncryption()} disabled={busy || !password} className="bg-red-600 text-white hover:bg-red-700">
               {gt("Reset encryption")}
             </Button>
           )}

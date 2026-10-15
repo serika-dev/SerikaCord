@@ -100,6 +100,7 @@ import { readSettingsBackAction } from "@/components/settings/mobileSettingsNav"
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
 import { AdminBadgesPanel } from "@/components/settings/AdminBadgesPanel";
+import { PasskeysSettingsRow } from "@/components/settings/PasskeysSettingsRow";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
@@ -3675,6 +3676,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                     <E2eeSettingsPanel />
                   ) : activeTab === "devices" ? (
                     <div className="space-y-2">
+                      {/* Passkeys live on Serika Accounts; link there (sign-in security). */}
+                      <PasskeysSettingsRow className="mb-4" />
                       {deviceSessions.length === 0 && (
                         <div className="text-center py-8 text-[var(--text-muted)] text-sm">
                           <MonitorSmartphone className="w-10 h-10 mx-auto mb-2 opacity-50" />

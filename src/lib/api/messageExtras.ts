@@ -77,6 +77,11 @@ const sameId = (a?: string | null, b?: string | null) => !!a && !!b && a.toLower
 /** A conversation the user may post in, after every send check. */
 type Destination = { channel: IChannel; membership: Membership };
 
+// Polls, forwards and forward notes are stored as server-readable rows: never
+// in an end-to-end encrypted conversation (they would sit there in plaintext).
+const E2EE_REFUSED: Fail = { status: 400, error: "This isn't available in end-to-end encrypted conversations yet" };
+const isEncryptedConversation = (channel: { e2ee?: boolean | null } | null | undefined) => channel?.e2ee === true;
+
 /**
  * Resolve a channel id (server channel, DM or group DM) the user wants to post
  * into, applying the same gates as the send routes: visibility, timeout,
@@ -90,6 +95,7 @@ async function resolveDestination(user: AuthUser, channelId: string, opts: { att
   if (!access.hasAccess || !access.channel) return { status: 403, error: access.error || 'Access denied' };
   const channel = access.channel as IChannel;
   if (!POSTABLE_TYPES.has(String(channel.type))) return { status: 400, error: 'You cannot send messages here' };
+  if (isEncryptedConversation(channel as { e2ee?: boolean | null })) return E2EE_REFUSED;
   const membership = (access.membership ?? null) as Membership;
   if (channel.serverId) {
     const denial = await checkCanSpeak(channel as never, membership as never, user.id, opts.attach ? ['send', 'attach'] : ['send'], {
@@ -119,6 +125,7 @@ async function resolveDmDestination(user: AuthUser, recipientId: string): Promis
     if (!canStartDm(user, recipient, recipientIsSystem)) return { status: 403, error: 'You cannot message this user' };
     channel = await getOrCreateDMChannel(user.id, recipientId);
   }
+  if (isEncryptedConversation(channel as { e2ee?: boolean | null })) return E2EE_REFUSED;
   return { dest: { channel: channel as IChannel, membership: null } };
 }
 
@@ -309,6 +316,8 @@ async function listForwardTargets(user: AuthUser): Promise<ForwardTarget[]> {
   const personById = new Map(people.map((u) => [u.id.toLowerCase(), u]));
   for (const c of dmChannels) {
     const others = (c.recipientIds || []).filter((id) => !sameId(id, user.id));
+    // Forwards can't go into end-to-end encrypted conversations.
+    if (isEncryptedConversation(c as { e2ee?: boolean | null })) continue;
     if (c.type === 'dm') {
       const other = others[0] ? personById.get(others[0].toLowerCase()) : null;
       if (!other) continue;
@@ -495,6 +504,8 @@ export const messageExtrasRoutes = new Elysia()
     const { checkChannelAccess } = await import('@/lib/api/channels');
     const sourceAccess = await checkChannelAccess(user.id, source.channelId);
     if (!sourceAccess.hasAccess) { set.status = 403; return { error: 'You cannot see that message' }; }
+    // An encrypted message's server copy is ciphertext: there is nothing to forward.
+    if ((source as { e2ee?: unknown }).e2ee) { set.status = 400; return { error: 'Encrypted messages cannot be forwarded yet' }; }
 
     // Forwarding a forward passes the original along, like Discord.
     const inner = source.messageSnapshot ? parseStoredForward(source.messageSnapshot) : null;

@@ -1345,3 +1345,16 @@ export const e2eeDevices = pgTable('e2ee_devices', {
 }, (t) => ({
   userIdx: index('e2ee_devices_user_id_idx').on(t.userId),
 }));
+
+// Envelopes replaced by edits of encrypted messages, so a franking report can
+// name (by signature) the version the reporter saw. Capped per message by the
+// app. ensureE2eeSchema() / drizzle/manual_e2ee.sql.
+export const e2eeEnvelopeHistory = pgTable('e2ee_envelope_history', {
+  messageId: uuid('message_id').notNull(),
+  sig: text('sig').notNull(),
+  envelope: jsonb('envelope').notNull(),
+  replacedAt: timestamp('replaced_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.messageId, t.sig] }),
+}));
+

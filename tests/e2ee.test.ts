@@ -39,6 +39,19 @@ import {
   verifyDtlsFingerprints,
   verifyEnvelopeSignature,
   verifyFranking,
+  MIN_RECOVERY_PASSPHRASE_STRENGTH,
+  compareGroupMembers,
+  conversationKey,
+  e2eeTargetForApiBase,
+  e2eeTargetForCallRoom,
+  encryptionNoticeTime,
+  hasDuplicateIds,
+  isCdnUrl,
+  isExactDmMembers,
+  isStrongRecoveryPassphrase,
+  isUnverifiablePlaintextRow,
+  passphraseStrength,
+  payloadUrlsAllowed,
   type DeviceKeys,
   type Envelope,
   type MessagePayload,
@@ -501,5 +514,148 @@ describe("server policy (policy.ts)", () => {
     expect(storedEnvelope({ v: 1, junk: true })).toBeNull();
     expect(isE2eeNotice(E2EE_NOTICE)).toBe(true);
     expect(isE2eeNotice(envelope)).toBe(false);
+  });
+});
+
+// ─── Binding to what the user opened (lib/e2ee/conversation) ─────────────────
+
+describe("conversation binding (conversation.ts)", () => {
+  const CDN = "https://cdn.serika.chat";
+
+  test("targets come from the URL / room id, never from the server", () => {
+    expect(e2eeTargetForApiBase(`/api/dms/${BOB}`)).toEqual({ kind: "dm", recipientId: BOB });
+    expect(e2eeTargetForApiBase(`/api/group-dms/${CHANNEL}`)).toEqual({ kind: "group", channelId: CHANNEL });
+    expect(e2eeTargetForApiBase(`/api/channels/${CHANNEL}`)).toBeNull();
+    expect(e2eeTargetForApiBase(`/api/dms/${BOB}/../x`)).toBeNull();
+    expect(e2eeTargetForApiBase(null)).toBeNull();
+    expect(conversationKey({ kind: "dm", recipientId: BOB.toUpperCase() })).toBe(`dm:${BOB}`);
+    expect(conversationKey({ kind: "group", channelId: CHANNEL })).toBe(`gdm:${CHANNEL}`);
+
+    const room = `dm:${[ALICE, BOB].sort().join("_")}`;
+    expect(e2eeTargetForCallRoom(room, ALICE)).toEqual({ kind: "dm", recipientId: BOB });
+    expect(e2eeTargetForCallRoom(room, BOB.toUpperCase())).toEqual({ kind: "dm", recipientId: ALICE });
+    expect(e2eeTargetForCallRoom(room, CAROL)).toBeNull();
+    expect(e2eeTargetForCallRoom(`dm:${ALICE}_${ALICE}`, ALICE)).toBeNull();
+    expect(e2eeTargetForCallRoom(`gdm:${CHANNEL}`, ALICE)).toEqual({ kind: "group", channelId: CHANNEL });
+    expect(e2eeTargetForCallRoom(`channel-${CHANNEL}`, ALICE)).toBeNull();
+  });
+
+  test("a 1:1 DM's keys must be exactly us + the URL's person", () => {
+    expect(isExactDmMembers([ALICE, BOB], ALICE, BOB)).toBe(true);
+    expect(isExactDmMembers([BOB.toUpperCase(), ALICE], ALICE, BOB)).toBe(true);
+    // A hidden extra member, a substituted person, a duplicate, ourselves only.
+    expect(isExactDmMembers([ALICE, BOB, CAROL], ALICE, BOB)).toBe(false);
+    expect(isExactDmMembers([ALICE, CAROL], ALICE, BOB)).toBe(false);
+    expect(isExactDmMembers([ALICE, ALICE.toUpperCase()], ALICE, ALICE)).toBe(false);
+    expect(isExactDmMembers([ALICE, BOB, BOB], ALICE, BOB)).toBe(false);
+    expect(isExactDmMembers([ALICE], ALICE, BOB)).toBe(false);
+    expect(hasDuplicateIds([ALICE, ALICE.toUpperCase()])).toBe(true);
+    expect(hasDuplicateIds([ALICE, BOB])).toBe(false);
+  });
+
+  test("group messages only go to the members the group shows", () => {
+    const check = compareGroupMembers([ALICE, BOB, CAROL], [BOB], ALICE);
+    expect([...check.allowed].sort()).toEqual([ALICE, BOB].sort());
+    expect(check.hidden).toEqual([CAROL]);
+    expect(check.missing).toEqual([]);
+    const missing = compareGroupMembers([ALICE], [BOB.toUpperCase(), ALICE], ALICE);
+    expect([...missing.allowed]).toEqual([ALICE]);
+    expect(missing.missing).toEqual([BOB]);
+    expect(missing.hidden).toEqual([]);
+  });
+
+  test("plaintext rows in an encrypted conversation can't be trusted (system rows and earlier history can)", () => {
+    const noticeAt = "2026-10-01T12:00:00.000Z";
+    const rows = [
+      { type: "default", createdAt: "2026-09-30T00:00:00.000Z" },
+      { type: "e2ee_enabled", createdAt: noticeAt },
+      { type: "default", createdAt: "2026-10-02T00:00:00.000Z" },
+    ];
+    const since = encryptionNoticeTime(rows);
+    expect(since).toBe(new Date(noticeAt).getTime());
+    expect(isUnverifiablePlaintextRow(rows[0], since)).toBe(false);
+    expect(isUnverifiablePlaintextRow(rows[2], since)).toBe(true);
+    expect(isUnverifiablePlaintextRow({ type: "reply", createdAt: "2026-10-02T00:00:00.000Z" }, since)).toBe(true);
+    // No notice known (created encrypted): every plain user row is suspect.
+    expect(isUnverifiablePlaintextRow({ type: "default", createdAt: "2020-01-01T00:00:00.000Z" }, null)).toBe(true);
+    expect(isUnverifiablePlaintextRow({ createdAt: "2026-10-02T00:00:00.000Z" }, null)).toBe(true);
+    // Envelopes, call rows, group events and the notice itself are fine.
+    expect(isUnverifiablePlaintextRow({ type: "default", e2ee: { v: 1 } }, null)).toBe(false);
+    expect(isUnverifiablePlaintextRow({ type: "call" }, null)).toBe(false);
+    expect(isUnverifiablePlaintextRow({ type: "recipient_add" }, null)).toBe(false);
+    expect(isUnverifiablePlaintextRow({ type: "e2ee_enabled" }, null)).toBe(false);
+    expect(encryptionNoticeTime([{ type: "default" }])).toBeNull();
+  });
+
+  test("payload URLs: only this message's blobs on our CDN, stickers on our CDN", () => {
+    const blobUrl = `${CDN}/attachments/${ALICE}/e2ee-x.bin`;
+    const file = { id: "1", url: blobUrl, name: "a.png", type: "image/png", size: 1, key: "k", iv: "i", sha256: "h" };
+    const stored = { cdnUrl: CDN, storedAttachmentUrls: [blobUrl] };
+    expect(payloadUrlsAllowed({ attachments: [file] }, stored)).toBe(true);
+    expect(payloadUrlsAllowed({}, stored)).toBe(true);
+    // Not stored on the message, another host, another path, credentials.
+    expect(payloadUrlsAllowed({ attachments: [file] }, { cdnUrl: CDN, storedAttachmentUrls: [] })).toBe(false);
+    const evil = "https://evil.example/attachments/x.bin";
+    expect(payloadUrlsAllowed({ attachments: [{ ...file, url: evil }] }, { cdnUrl: CDN, storedAttachmentUrls: [evil] })).toBe(false);
+    const avatar = `${CDN}/avatars/x.png`;
+    expect(payloadUrlsAllowed({ attachments: [{ ...file, url: avatar }] }, { cdnUrl: CDN, storedAttachmentUrls: [avatar] })).toBe(false);
+    expect(isCdnUrl(`https://user:pw@cdn.serika.chat/attachments/x.bin`, CDN, "/attachments/")).toBe(false);
+    expect(isCdnUrl(`http://cdn.serika.chat/attachments/x.bin`, CDN)).toBe(false);
+    expect(isCdnUrl(`https://cdn.serika.chat.evil.example/attachments/x.bin`, CDN)).toBe(false);
+    const sticker = { id: "s", name: "s", imageUrl: `${CDN}/stickers/s.png` };
+    expect(payloadUrlsAllowed({ sticker }, stored)).toBe(true);
+    expect(payloadUrlsAllowed({ sticker: { ...sticker, imageUrl: "https://tracker.example/s.png" } }, stored)).toBe(false);
+  });
+});
+
+describe("recovery passphrase strength (passphrase.ts)", () => {
+  test("common, repetitive, sequential and short passphrases are refused", () => {
+    for (const weak of [
+      "short",
+      "Password123!",
+      "passwordpassword1",
+      "qwertyuiop1234",
+      "aaaaaaaaaaaaaaaaaaaaaaaa",
+      "abcdefghijklmnop",
+      "12345678901234567890",
+      "Serikacord2026!!",
+      "letmein-letmein-letmein",
+    ]) {
+      expect(isStrongRecoveryPassphrase(weak)).toBe(false);
+    }
+    expect(passphraseStrength("short")).toBe(0);
+    expect(passphraseStrength("Password123!")).toBe(1);
+  });
+
+  test("long phrases and varied passphrases reach Good", () => {
+    for (const strong of ["correct horse battery staple", "Tr0ub4dor&3 river", "violet-Otter-42-glacier", "my cat hums opera on tuesdays"]) {
+      expect(passphraseStrength(strong) >= MIN_RECOVERY_PASSPHRASE_STRENGTH).toBe(true);
+      expect(isStrongRecoveryPassphrase(strong)).toBe(true);
+    }
+    expect(passphraseStrength("ten chars!")).toBeLessThan(MIN_RECOVERY_PASSPHRASE_STRENGTH);
+  });
+});
+
+describe("key bundles are bound to the user asked for (client session)", () => {
+  test("getUserKeys refuses a bundle for someone else", async () => {
+    const session = await import("@/lib/e2ee/client/session");
+    const bob = await makeUser(BOB);
+    const bundleFor = (userId: string) => ({
+      keys: { userId, identityPub: bob.identityPub, backupPub: null, backupSig: null, devices: [{ ...bob.devices[0].pub, revokedAt: null }], revokedDevices: [] },
+    });
+    const realFetch = globalThis.fetch;
+    let served = bundleFor(CAROL);
+    globalThis.fetch = (async () => new Response(JSON.stringify(served), { status: 200, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch;
+    try {
+      // The server answers a lookup for Bob with Carol's (or anyone's) keys: refused.
+      await expect(session.getUserKeys(BOB, true)).rejects.toThrow();
+      served = bundleFor(BOB.toUpperCase());
+      const keys = await session.getUserKeys(BOB, true);
+      expect(keys.userId).toBe(BOB);
+      expect(keys.signers.get(bob.devices[0].pub.id)?.trusted).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+      session.shutdownE2ee();
+    }
   });
 });

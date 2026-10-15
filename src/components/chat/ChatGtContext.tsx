@@ -193,6 +193,10 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "This message wasn't encrypted for this device.": gt("This message wasn't encrypted for this device."),
       "Couldn't verify who sent this message.": gt("Couldn't verify who sent this message."),
       "Couldn't decrypt this message.": gt("Couldn't decrypt this message."),
+      "This message belongs to a different conversation.": gt("This message belongs to a different conversation."),
+      "This message points to files outside SerikaCord, so it wasn't shown.": gt("This message points to files outside SerikaCord, so it wasn't shown."),
+      "quoted by the sender": gt("quoted by the sender"),
+      "Not encrypted – can't verify sender": gt("Not encrypted – can't verify sender"),
       "{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.": gt("{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.", { actor: "{actor}" }),
     };
 

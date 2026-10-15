@@ -10,6 +10,7 @@ import { useGT } from "gt-next";
 import { useStreamerHides } from "@/hooks/useStreamerMode";
 import { maskEmail } from "@/lib/streamer/streamerMode";
 import { getProfileBannerStyle } from "@/lib/userDisplayNameStyle";
+import { PasskeysSettingsRow } from "@/components/settings/PasskeysSettingsRow";
 
 export default function AccountSettingsPage() {
     const router = useRouter();
@@ -97,6 +98,12 @@ export default function AccountSettingsPage() {
                             </dd>
                         </div>
                     </dl>
+
+                    {/* Sign-in security: passkeys are managed on Serika Accounts */}
+                    <section className="space-y-1">
+                        <h3 className="px-1 text-xs font-bold text-[var(--text-muted)] uppercase tracking-wide">{gt("Sign-in & Security")}</h3>
+                        <PasskeysSettingsRow className="rounded-xl" />
+                    </section>
                 </div>
             </ScrollArea>
         </div>

@@ -117,6 +117,8 @@ export default function GroupDMPage() {
   }, [router, channelId]);
 
   const apiBase = channelId ? groupDmApiBase(channelId) : null;
+  // Encrypted messages only go to the members this group shows (lib/e2ee).
+  const e2eeMemberIds = useMemo(() => (group ? group.members.map((m) => m.id) : null), [group]);
 
   const chat = useChatSession<ChatMessage>({
     apiBase,
@@ -126,6 +128,7 @@ export default function GroupDMPage() {
     emojiLookup: availableServerEmojis,
     // End-to-end encrypted group DMs (lib/e2ee): decrypt + encrypt in the chat engine.
     encryptedChat: true,
+    e2eeMemberIds,
     onShouldScrollToBottom: () => {
       if (messageListRef.current?.isAtBottom()) {
         requestAnimationFrame(() => messageListRef.current?.scrollToBottom());
@@ -303,6 +306,7 @@ export default function GroupDMPage() {
   }, [callRoomId, chat.e2eeActive]);
   const e2eeMembers = useMemo(() => others.map((m) => ({ id: m.id, name: m.displayName || m.username })), [others]);
   const e2eeUnsupported = useMemo(() => members.some((m) => m.isBot || m.isSystem), [members]);
+  const e2eeTarget = useMemo(() => (channelId ? { kind: "group" as const, channelId } : null), [channelId]);
   const groupIcon = group?.icon ?? null;
   const callGroup = useMemo<CallGroup | undefined>(
     () => (channelId ? { channelId, name: title || gt("Group"), icon: groupIcon, memberCount: members.length } : undefined),
@@ -681,6 +685,8 @@ export default function GroupDMPage() {
             active={chat.e2eeActive}
             members={e2eeMembers}
             unsupported={e2eeUnsupported}
+            target={e2eeTarget}
+            memberIds={e2eeMemberIds}
           />
           <MessageBar
             ref={messageBarRef}
@@ -703,7 +709,7 @@ export default function GroupDMPage() {
             replyMention={chat.actions.replyMention}
             onToggleReplyMention={chat.actions.toggleReplyMention}
             onCancelReply={() => chat.actions.setReplyToMessage(null)}
-            pollApiBase={channelId ? `/api/group-dms/${channelId}` : undefined}
+            pollApiBase={channelId && !chat.e2eeActive ? `/api/group-dms/${channelId}` : undefined}
             draftKey={channelId ? `gdm:${channelId}` : undefined}
             onSendVoice={chat.e2eeActive ? undefined : chat.handleVoiceSend}
           />

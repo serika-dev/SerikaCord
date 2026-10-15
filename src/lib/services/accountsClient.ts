@@ -108,7 +108,8 @@ export function accountsLogin(
   body: { email: string; password: string },
   client?: { userAgent?: string; ip?: string }
 ) {
-  return accountsFetch<{ token?: string; refreshToken?: string; user?: AccountsUser }>(
+  // `code` on refusals, e.g. PASSKEY_REQUIRED / TWO_FACTOR_REQUIRED (403).
+  return accountsFetch<{ token?: string; refreshToken?: string; user?: AccountsUser; code?: string }>(
     '/api/auth/login',
     {
       method: 'POST',
@@ -187,6 +188,45 @@ export function accountsInternalGetUser(identifier: string) {
     internal: true,
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Redeem a sign-in hand-off code (accounts GET /api/auth/handoff/start) for a
+ * SerikaCord session. Same body as a password login on success; 200 with
+ * `success: false` for a bad/expired/used code. Never retried: codes are
+ * single use, so a retry after a lost response could only fail.
+ */
+export async function accountsExchangeHandoffCode(body: {
+  code: string;
+  redirectUri: string;
+  codeVerifier: string;
+  state: string;
+}): Promise<AccountsResult<{
+  success?: boolean;
+  token?: string;
+  refreshToken?: string;
+  user?: AccountsUser;
+  banned?: boolean;
+  code?: string;
+}>> {
+  try {
+    return await accountsFetchOnce('/internal/auth/exchange-code', {
+      method: 'POST',
+      internal: true,
+      body: JSON.stringify({
+        code: body.code,
+        productId: 'serikacord',
+        redirect_uri: body.redirectUri,
+        code_verifier: body.codeVerifier,
+        state: body.state,
+      }),
+    });
+  } catch {
+    // Timeout / network error. Don't log the error object: keep request
+    // details (and anything derived from the code) out of the logs.
+    console.error('[Auth] Accounts hand-off exchange unreachable');
+    return { ok: false, status: 503, data: { error: 'Accounts service is temporarily unavailable. Please try again.' } };
+  }
 }
 
 export function accountsInternalGetUserByOriginalId(originalUserId: string) {

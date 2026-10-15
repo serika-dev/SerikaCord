@@ -33,6 +33,55 @@ vulnerabilities privately (see `SECURITY.md`), never in public issues or PRs.
   mints a fresh, independently revocable session; tokens are single use and
   expire after 120 s.
 
+## Passkey sign-in (Serika Accounts hand-off)
+
+Passkey ceremonies only run on the accounts origin, so SerikaCord never does
+WebAuthn itself. "Sign in with passkey" on `/login` is a plain link (full-page
+navigation, no popup, so it also works in the Qt and Capacitor shells):
+
+1. `GET /api/auth/accounts/start?next=<path>[&passkey=0]` (rate limit
+   `handoffStart`, per IP) creates a random `state` (32 bytes), a PKCE
+   verifier (32 bytes) and its S256 challenge, and a random flow id. The flow
+   `{ state, verifier, next, redirectUri }` is stored in Redis as
+   `accounts-handoff:<flowId>` for 10 minutes; the browser only gets the flow
+   id in `serika_handoff` (HttpOnly, Secure, SameSite=Lax,
+   `Path=/api/auth/accounts`, 10 minutes). It then redirects to
+   `<ACCOUNTS_PUBLIC_URL>/api/auth/handoff/start?product=serikacord&return=<callback>&state&code_challenge&code_challenge_method=S256&passkey=1`.
+2. Serika Accounts signs the user in on its own origin (passkey, or password +
+   2FA) and redirects to the callback with a single-use, 2-minute `code` and
+   the `state`.
+3. `GET /api/auth/accounts/callback` (rate limit `handoffCallback`) consumes
+   the flow atomically (`MULTI GET+DEL`), checks the `code`/`state` charset and
+   length, compares `state` in constant time, then calls
+   `POST <ACCOUNTS_URL>/internal/auth/exchange-code` with the service key and
+   `{ code, productId: 'serikacord', redirect_uri, code_verifier, state }`
+   (never retried: codes are single use). The response is a password-login
+   body and goes through the same `finishAccountsSignIn` as
+   `POST /api/auth/login` (session cookies, account switcher, serika.moe /
+   Discord connection sync; suspended users get Account Standing).
+4. It redirects to `/login?signed_in=1&redirect=<next>`; the login page clears
+   the message cache (as a password login does) and continues to `next`.
+   Errors go to `/login?error=passkey_*` (expired/used code, state mismatch or
+   missing cookie, cancelled, accounts unavailable, age restriction, rate
+   limited); the page only shows whitelisted codes. The flow cookie is cleared
+   on every callback outcome.
+
+Rules: `next` is sanitized on start and again on the callback
+(`sanitizeNextPath`: same-origin relative path, never `/api/*`, else
+`/channels/me`), so there is no open redirect. Codes, verifiers, states and
+tokens are never logged. The callback URL must be registered **exactly** for
+product `serikacord` in the accounts app's `HANDOFF_CLIENTS`; SerikaCord
+derives it from `ACCOUNTS_HANDOFF_CALLBACK_URL`, else `FRONTEND_URL`, else
+`https://serika.chat` (a loopback request origin is used outside production).
+If a start request arrives on another host than the callback's, it restarts
+once on the callback's origin so the cookie lands where the callback runs.
+
+Password login passes the accounts refusal code through (`403
+PASSKEY_REQUIRED`, `TWO_FACTOR_REQUIRED`, ...); the login page answers those
+with the hand-off instead of a generic error. Passkeys are added and managed
+on Serika Accounts (`/settings?tab=security`), linked from Settings → Devices
+and the mobile My Account page.
+
 ## Authorization per surface
 
 | Surface | Rule | Where |

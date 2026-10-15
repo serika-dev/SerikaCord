@@ -36,6 +36,10 @@ function e2eeFailureText(gt: ChatGt, reason: string | undefined): string {
     case "unknown_device":
     case "revoked_device":
       return gt("Couldn't verify who sent this message.");
+    case "wrong_conversation":
+      return gt("This message belongs to a different conversation.");
+    case "foreign_url":
+      return gt("This message points to files outside SerikaCord, so it wasn't shown.");
     default:
       return gt("Couldn't decrypt this message.");
   }
@@ -327,10 +331,21 @@ function MessageGroupInner<M extends ChatMessage>({
                           ) : (
                             gt("(attachment)")
                           )}
+                          {message.referencedMessage.quotedBySender && message.referencedMessage.content && (
+                            // The replier's own snippet of a message we couldn't decrypt: their quote, not the original.
+                            <span className="ml-1 italic opacity-70">({gt("quoted by the sender")})</span>
+                          )}
                         </span>
                       </div>
                     )}
 
+                    {message.e2eePlaintext && (
+                      // No envelope in an encrypted conversation: the server could have written it.
+                      <span className="flex items-center gap-1 text-xs font-medium text-amber-500">
+                        <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+                        {gt("Not encrypted – can't verify sender")}
+                      </span>
+                    )}
                     {message.e2ee && message.e2ee.status !== "ok" ? (
                       // End-to-end encrypted, not readable (yet) on this device.
                       <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]">

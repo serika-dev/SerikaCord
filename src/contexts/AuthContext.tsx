@@ -271,7 +271,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || "Failed to login");
+      // Keep the server's code (e.g. PASSKEY_REQUIRED) for the login page.
+      throw Object.assign(new Error(data.error || "Failed to login"), {
+        code: typeof data.code === "string" ? data.code : undefined,
+      });
     }
 
     // Wait for the context to pick up the new auth cookie before returning.

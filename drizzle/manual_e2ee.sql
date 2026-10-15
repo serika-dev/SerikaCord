@@ -37,3 +37,14 @@ CREATE TABLE IF NOT EXISTS e2ee_devices (
 );
 
 CREATE INDEX IF NOT EXISTS e2ee_devices_user_id_idx ON e2ee_devices (user_id);
+
+-- Earlier envelopes of edited encrypted messages: a franking report names the
+-- version the reporter saw by its signature (src/lib/services/e2ee.ts
+-- archiveReplacedEnvelope). New table only; at most 20 rows per message.
+CREATE TABLE IF NOT EXISTS e2ee_envelope_history (
+  message_id uuid NOT NULL,
+  sig text NOT NULL,
+  envelope jsonb NOT NULL,
+  replaced_at timestamp DEFAULT now(),
+  PRIMARY KEY (message_id, sig)
+);

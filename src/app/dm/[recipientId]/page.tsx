@@ -309,6 +309,8 @@ export default function DMConversationPage() {
     () => (recipient && recipient.id === recipientId ? [{ id: recipient.id, name: recipient.displayName || recipient.username }] : []),
     [recipient, recipientId],
   );
+  // The person in the URL: this DM's keys must be exactly us + them (lib/e2ee).
+  const e2eeTarget = useMemo(() => (recipientId ? { kind: "dm" as const, recipientId } : null), [recipientId]);
   const recipientName = recipient?.displayName || recipient?.username;
   // Latest profile for the call handlers below without re-running them on
   // every profile refresh.
@@ -777,6 +779,7 @@ export default function DMConversationPage() {
             active={chat.e2eeActive}
             members={e2eeMembers}
             unsupported={Boolean(recipient?.isSystem || recipient?.isBot)}
+            target={e2eeTarget}
           />
           {pendingRequest ? (
             <MessageRequestBar channelId={pendingRequest.channelId} userId={pendingRequest.user.id} name={recipientName || pendingRequest.user.username} />
@@ -807,7 +810,7 @@ export default function DMConversationPage() {
               replyMention={chat.actions.replyMention}
               onToggleReplyMention={chat.actions.toggleReplyMention}
               onCancelReply={() => chat.actions.setReplyToMessage(null)}
-              pollApiBase={apiBase ?? undefined}
+              pollApiBase={chat.e2eeActive ? undefined : apiBase ?? undefined}
               draftKey={recipientId ? `dm:${recipientId}` : undefined}
               onSendVoice={chat.e2eeActive ? undefined : chat.handleVoiceSend}
             />

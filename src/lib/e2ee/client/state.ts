@@ -33,6 +33,18 @@ export interface E2eeSnapshot {
   error: string | null;
   /** Bumped whenever trust pins change (safety-number banners re-check). */
   pinsVersion: number;
+  /**
+   * This account's encryption was reset on another device: this device's old
+   * keys were archived (old history stays readable here) and it needs the new
+   * recovery passphrase.
+   */
+  resetElsewhere: boolean;
+  /**
+   * The private identity / backup keys here can still be exported (no backup
+   * sealed yet). Once sealed they are re-imported non-extractable, and
+   * changing the passphrase needs the current one.
+   */
+  keysExtractable: boolean;
 }
 
 const INITIAL: E2eeSnapshot = {
@@ -46,6 +58,8 @@ const INITIAL: E2eeSnapshot = {
   remindPassphrase: false,
   error: null,
   pinsVersion: 0,
+  resetElsewhere: false,
+  keysExtractable: false,
 };
 
 let snapshot: E2eeSnapshot = INITIAL;

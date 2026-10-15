@@ -11,7 +11,7 @@ import {
   authenticateRequest,
   createSession,
 } from '../services/auth';
-import { cache } from '../db/redis';
+import { cache, getRedis } from '../db/redis';
 import { UserConnection, User } from '../models';
 import { getPlatformSettings } from '../models/PlatformSettings';
 import { OAUTH_VERIFIED_KEY } from '../connections/policy';
@@ -26,8 +26,37 @@ import {
   accountsResetPassword,
   accountsInternalGetUser,
   accountsLogout,
+  accountsExchangeHandoffCode,
   type AccountsUser,
 } from '../services/accountsClient';
+import {
+  CLEAR_HANDOFF_COOKIE,
+  HANDOFF_COOKIE,
+  HANDOFF_REDIS_PREFIX,
+  HANDOFF_TTL_SECONDS,
+  buildHandoffStartUrl,
+  createPkcePair,
+  handoffCookie,
+  isValidFlowId,
+  isValidHandoffCode,
+  isValidHandoffState,
+  mapExchangeResult,
+  newFlowId,
+  parseHandoffFlow,
+  passThroughLoginCode,
+  randomUrlSafe,
+  readCookie,
+  resolveHandoffCallbackUrl,
+  secureEquals,
+  type HandoffFlow,
+} from '../services/accountsHandoff';
+import {
+  DEFAULT_NEXT_PATH,
+  HANDOFF_START_PATH,
+  loginReturnPath,
+  sanitizeNextPath,
+  type HandoffErrorCode,
+} from '../accountsHandoff';
 import {
   parseSavedAccounts,
   encodeSavedAccountsCookie,
@@ -97,6 +126,14 @@ function oauthRedirect(url: string, setCookie?: string | string[]): Response {
     }
   }
   return new Response(null, { status: 302, headers });
+}
+
+/** oauthRedirect for the passkey hand-off: never cached, no Referer onward. */
+function handoffRedirect(url: string, setCookie?: string | string[]): Response {
+  const res = oauthRedirect(url, setCookie);
+  res.headers.set('Cache-Control', 'no-store');
+  res.headers.set('Referrer-Policy', 'no-referrer');
+  return res;
 }
 
 // ── OAuth2 provider configurations ──────────────────────────────────────────
@@ -299,6 +336,171 @@ async function authRateLimit(
   return null;
 }
 
+/**
+ * Shared end of every accounts sign-in (password login and the passkey
+ * hand-off): keep the account that was signed in on this browser in the
+ * account switcher, add the new one when it maps to a local user, sync the
+ * serika.moe / Discord connections, and return the cookies to set. Suspended
+ * users get their cookies too: the app then shows Account Standing.
+ */
+async function finishAccountsSignIn(
+  data: { token?: string; refreshToken?: string; user?: AccountsUser },
+  cookie: Record<string, { value?: unknown } | undefined>,
+): Promise<string[]> {
+  // Start from current saved_accounts cookie and preserve currently logged-in account
+  let savedAccounts = parseSavedAccounts(cookie.saved_accounts?.value as unknown);
+  const currentToken = cookie.auth_token?.value;
+  if (typeof currentToken === 'string' && currentToken) {
+    const currentUser = await getLocalUserFromToken(currentToken);
+    if (currentUser) {
+      const email = getAccountEmail(currentUser);
+      savedAccounts = upsertSavedAccount(savedAccounts, {
+        email,
+        username: currentUser.username,
+        displayName: currentUser.displayName ?? undefined,
+        avatar: currentUser.avatar ?? undefined,
+        token: currentToken,
+        refreshToken: typeof cookie.refresh_token?.value === 'string' ? cookie.refresh_token.value : undefined,
+        savedAt: Date.now(),
+      });
+    }
+  }
+
+  // Add newly logged-in account only if it maps to a local SerikaCord user
+  if (data.token) {
+    const newUser = await getLocalUserFromToken(data.token);
+    if (newUser) {
+      const email = getAccountEmail(newUser);
+      savedAccounts = upsertSavedAccount(savedAccounts, {
+        email,
+        username: newUser.username || email.split('@')[0],
+        displayName: newUser.displayName ?? undefined,
+        avatar: newUser.avatar ?? undefined,
+        token: data.token,
+        refreshToken: data.refreshToken,
+        savedAt: Date.now(),
+      });
+
+      // Fetch full accounts profile if login response is missing serikaMoe/discord fields.
+      // The accounts /internal/get-user endpoint already returns serikaMoeUsername/serikaMoeId
+      // and (after redeployment) discordId/discordUsername.
+      let accountsUser = data.user as AccountsUser & Record<string, unknown>;
+      if (!accountsUser?.serikaMoeUsername || !accountsUser?.discordId) {
+        try {
+          const lookupKey = accountsUser?.id || email || '';
+          if (lookupKey) {
+            const { ok: guOk, data: guData } = await accountsInternalGetUser(lookupKey);
+            if (guOk && guData.user) {
+              accountsUser = { ...accountsUser, ...guData.user };
+            }
+          }
+        } catch {
+          // Best-effort — continue with whatever we have
+        }
+      }
+
+      // Auto-create/update 'serika' connection using serikaMoeUsername from accounts API
+      // The serika.moe profile URL is /u/<serikaMoeUsername>, not /u/<serikacord username>
+      try {
+        const moeUsername = accountsUser?.serikaMoeUsername?.toLowerCase() || null;
+        const moeId = accountsUser?.serikaMoeId || null;
+        // Only create serika connection if user has a linked serika.moe account
+        if (moeUsername) {
+          const existingSerikaConn = await UserConnection.findOne({ userId: newUser.id, provider: 'serika' });
+          // Use the accounts service avatar (serika.moe avatar) if available,
+          // fall back to the SerikaCord user avatar.
+          const moeAvatar = accountsUser?.avatar || newUser.avatar || null;
+          const connData = {
+            accountId: moeUsername,
+            username: moeUsername,
+            displayName: moeUsername,
+            avatar: moeAvatar,
+            metadata: moeId ? { serikaMoeId: moeId } : undefined,
+          };
+          if (existingSerikaConn) {
+            await UserConnection.updateById(existingSerikaConn.id, connData);
+          } else {
+            await UserConnection.create({
+              userId: newUser.id,
+              provider: 'serika',
+              ...connData,
+            });
+          }
+        }
+      } catch (e) {
+        // Non-critical — don't fail login if connection sync fails
+        console.error('[Auth] Failed to auto-create serika connection:', e);
+      }
+
+      // Auto-create/update Discord connection from accounts API or local DB
+      try {
+        const discordId = accountsUser?.discordId || newUser.discordId || null;
+        let discordUsername = accountsUser?.discordUsername || newUser.discordUsername || null;
+        if (discordId) {
+          const existingDiscordConn = await UserConnection.findOne({ userId: newUser.id, provider: 'discord' });
+          // Fetch fresh Discord profile (avatar, username, display name) from the bot API.
+          let discordAvatar: string | null = null;
+          let discordDisplayName = discordUsername || newUser.username;
+          try {
+            const botToken = process.env.SERIKA_DISCORD_TOKEN;
+            if (botToken) {
+              const dUser = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
+                headers: { Authorization: `Bot ${botToken}` },
+              });
+              if (dUser.ok) {
+                const dData = await dUser.json() as { username?: string; global_name?: string; avatar?: string };
+                // Use the actual Discord username (not global_name) for the connection username
+                if (dData.username) discordUsername = dData.username;
+                // Use global_name (display name) if available, otherwise the username
+                discordDisplayName = dData.global_name || dData.username || discordUsername || '';
+                if (dData.avatar) {
+                  const ext = dData.avatar.startsWith('a_') ? 'gif' : 'png';
+                  discordAvatar = `https://cdn.discordapp.com/avatars/${discordId}/${dData.avatar}.${ext}?size=64`;
+                }
+              }
+            }
+          } catch {
+            // Best-effort — avatar/name is non-critical
+          }
+          // discordId comes from the accounts service (linked via OAuth there).
+          if (existingDiscordConn) {
+            const prevMeta = (existingDiscordConn.metadata && typeof existingDiscordConn.metadata === 'object')
+              ? existingDiscordConn.metadata as Record<string, unknown>
+              : {};
+            await UserConnection.updateById(existingDiscordConn.id, {
+              accountId: discordId,
+              username: discordUsername || newUser.username,
+              displayName: discordDisplayName,
+              avatar: discordAvatar,
+              metadata: { ...prevMeta, [OAUTH_VERIFIED_KEY]: true },
+            });
+          } else {
+            await UserConnection.create({
+              userId: newUser.id,
+              provider: 'discord',
+              accountId: discordId,
+              username: discordUsername || newUser.username,
+              displayName: discordDisplayName,
+              avatar: discordAvatar,
+              metadata: { [OAUTH_VERIFIED_KEY]: true },
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[Auth] Failed to auto-create discord connection:', e);
+      }
+    }
+  }
+
+  // Session cookies from the accounts response (token/refreshToken directly)
+  if (!data.token) return [];
+  return [
+    `auth_token=${data.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
+    `refresh_token=${data.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
+    encodeSavedAccountsCookie(savedAccounts),
+  ];
+}
+
 export const authRoutes = new Elysia({ prefix: '/auth' })
   // Register - proxies to accounts.serika.dev
   .post('/register', async ({ body, set, request }) => {
@@ -370,162 +572,15 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
       if (!ok) {
         set.status = status;
-        return { error: data.error || 'Authentication failed' };
+        // Pass the accounts code through (e.g. 403 PASSKEY_REQUIRED, which the
+        // login page answers with "Sign in with passkey").
+        const code = passThroughLoginCode(data.code);
+        const message = data.error || 'Authentication failed';
+        return code ? { error: message, message, code } : { error: message };
       }
 
-      // Start from current saved_accounts cookie and preserve currently logged-in account
-      let savedAccounts = parseSavedAccounts(cookie.saved_accounts?.value as unknown);
-      const currentToken = cookie.auth_token?.value;
-      if (typeof currentToken === 'string' && currentToken) {
-        const currentUser = await getLocalUserFromToken(currentToken);
-        if (currentUser) {
-          const email = getAccountEmail(currentUser);
-          savedAccounts = upsertSavedAccount(savedAccounts, {
-            email,
-            username: currentUser.username,
-            displayName: currentUser.displayName ?? undefined,
-            avatar: currentUser.avatar ?? undefined,
-            token: currentToken,
-            refreshToken: typeof cookie.refresh_token?.value === 'string' ? cookie.refresh_token.value : undefined,
-            savedAt: Date.now(),
-          });
-        }
-      }
-
-      // Add newly logged-in account only if it maps to a local SerikaCord user
-      if (data.token) {
-        const newUser = await getLocalUserFromToken(data.token);
-        if (newUser) {
-          const email = getAccountEmail(newUser);
-          savedAccounts = upsertSavedAccount(savedAccounts, {
-            email,
-            username: newUser.username || email.split('@')[0],
-            displayName: newUser.displayName ?? undefined,
-            avatar: newUser.avatar ?? undefined,
-            token: data.token,
-            refreshToken: data.refreshToken,
-            savedAt: Date.now(),
-          });
-
-          // Fetch full accounts profile if login response is missing serikaMoe/discord fields.
-          // The accounts /internal/get-user endpoint already returns serikaMoeUsername/serikaMoeId
-          // and (after redeployment) discordId/discordUsername.
-          let accountsUser = data.user as AccountsUser & Record<string, unknown>;
-          if (!accountsUser?.serikaMoeUsername || !accountsUser?.discordId) {
-            try {
-              const lookupKey = accountsUser?.id || email || '';
-              if (lookupKey) {
-                const { ok: guOk, data: guData } = await accountsInternalGetUser(lookupKey);
-                if (guOk && guData.user) {
-                  accountsUser = { ...accountsUser, ...guData.user };
-                }
-              }
-            } catch {
-              // Best-effort — continue with whatever we have
-            }
-          }
-
-          // Auto-create/update 'serika' connection using serikaMoeUsername from accounts API
-          // The serika.moe profile URL is /u/<serikaMoeUsername>, not /u/<serikacord username>
-          try {
-            const moeUsername = accountsUser?.serikaMoeUsername?.toLowerCase() || null;
-            const moeId = accountsUser?.serikaMoeId || null;
-            // Only create serika connection if user has a linked serika.moe account
-            if (moeUsername) {
-              const existingSerikaConn = await UserConnection.findOne({ userId: newUser.id, provider: 'serika' });
-              // Use the accounts service avatar (serika.moe avatar) if available,
-              // fall back to the SerikaCord user avatar.
-              const moeAvatar = accountsUser?.avatar || newUser.avatar || null;
-              const connData = {
-                accountId: moeUsername,
-                username: moeUsername,
-                displayName: moeUsername,
-                avatar: moeAvatar,
-                metadata: moeId ? { serikaMoeId: moeId } : undefined,
-              };
-              if (existingSerikaConn) {
-                await UserConnection.updateById(existingSerikaConn.id, connData);
-              } else {
-                await UserConnection.create({
-                  userId: newUser.id,
-                  provider: 'serika',
-                  ...connData,
-                });
-              }
-            }
-          } catch (e) {
-            // Non-critical — don't fail login if connection sync fails
-            console.error('[Auth] Failed to auto-create serika connection:', e);
-          }
-
-          // Auto-create/update Discord connection from accounts API or local DB
-          try {
-            const discordId = accountsUser?.discordId || newUser.discordId || null;
-            let discordUsername = accountsUser?.discordUsername || newUser.discordUsername || null;
-            if (discordId) {
-              const existingDiscordConn = await UserConnection.findOne({ userId: newUser.id, provider: 'discord' });
-              // Fetch fresh Discord profile (avatar, username, display name) from the bot API.
-              let discordAvatar: string | null = null;
-              let discordDisplayName = discordUsername || newUser.username;
-              try {
-                const botToken = process.env.SERIKA_DISCORD_TOKEN;
-                if (botToken) {
-                  const dUser = await fetch(`https://discord.com/api/v10/users/${discordId}`, {
-                    headers: { Authorization: `Bot ${botToken}` },
-                  });
-                  if (dUser.ok) {
-                    const dData = await dUser.json() as { username?: string; global_name?: string; avatar?: string };
-                    // Use the actual Discord username (not global_name) for the connection username
-                    if (dData.username) discordUsername = dData.username;
-                    // Use global_name (display name) if available, otherwise the username
-                    discordDisplayName = dData.global_name || dData.username || discordUsername || '';
-                    if (dData.avatar) {
-                      const ext = dData.avatar.startsWith('a_') ? 'gif' : 'png';
-                      discordAvatar = `https://cdn.discordapp.com/avatars/${discordId}/${dData.avatar}.${ext}?size=64`;
-                    }
-                  }
-                }
-              } catch {
-                // Best-effort — avatar/name is non-critical
-              }
-              // discordId comes from the accounts service (linked via OAuth there).
-              if (existingDiscordConn) {
-                const prevMeta = (existingDiscordConn.metadata && typeof existingDiscordConn.metadata === 'object')
-                  ? existingDiscordConn.metadata as Record<string, unknown>
-                  : {};
-                await UserConnection.updateById(existingDiscordConn.id, {
-                  accountId: discordId,
-                  username: discordUsername || newUser.username,
-                  displayName: discordDisplayName,
-                  avatar: discordAvatar,
-                  metadata: { ...prevMeta, [OAUTH_VERIFIED_KEY]: true },
-                });
-              } else {
-                await UserConnection.create({
-                  userId: newUser.id,
-                  provider: 'discord',
-                  accountId: discordId,
-                  username: discordUsername || newUser.username,
-                  displayName: discordDisplayName,
-                  avatar: discordAvatar,
-                  metadata: { [OAUTH_VERIFIED_KEY]: true },
-                });
-              }
-            }
-          } catch (e) {
-            console.error('[Auth] Failed to auto-create discord connection:', e);
-          }
-        }
-      }
-
-      // Set cookies from accounts response (accounts returns token/refreshToken directly)
-      if (data.token) {
-        setCookies(set, [
-          `auth_token=${data.token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`,
-          `refresh_token=${data.refreshToken}; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=${90 * 24 * 60 * 60}`,
-          encodeSavedAccountsCookie(savedAccounts),
-        ]);
-      }
+      const cookies = await finishAccountsSignIn(data, cookie);
+      if (cookies.length) setCookies(set, cookies);
 
       return {
         success: true,
@@ -545,6 +600,120 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       email: t.String({ format: 'email' }),
       password: t.String(),
     }),
+  })
+
+  // ── Sign in with passkey (Serika Accounts hand-off) ────────────────────────
+  // Passkeys only work on the accounts origin, so the browser signs in there
+  // and comes back with a one-time code that only this server can redeem
+  // (PKCE + state + service key). Full-page redirects throughout, so it works
+  // in the desktop and mobile shells too. Flow and rules:
+  // docs/architecture/security.md ("Passkey sign-in"), helpers in
+  // services/accountsHandoff.ts. Never log codes, verifiers, states or tokens.
+  .get('/accounts/start', async ({ query, request }) => {
+    const q = query as Record<string, unknown>;
+    const next = sanitizeNextPath(q.next);
+    const passkey = String(q.passkey) !== '0';
+
+    const limited = await checkRateLimit('handoffStart', getClientIP(request));
+    if (!limited.success) return handoffRedirect(loginReturnPath(next, { error: 'passkey_rate_limited' }));
+
+    const production = config.NODE_ENV === 'production';
+    const requestUrl = new URL(request.url);
+    const redirectUri = resolveHandoffCallbackUrl({
+      explicit: config.ACCOUNTS_HANDOFF_CALLBACK_URL,
+      frontendUrl: config.FRONTEND_URL,
+      requestOrigin: requestUrl.origin,
+      production,
+    });
+
+    // The flow cookie must live on the callback's origin: if this request came
+    // in on another host, restart there once (`hop` stops any loop).
+    const callbackUrl = new URL(redirectUri);
+    const requestHost = (request.headers.get('x-forwarded-host')?.split(',')[0] || requestUrl.host).trim().toLowerCase();
+    if (production && String(q.hop) !== '1' && requestHost && callbackUrl.host.toLowerCase() !== requestHost) {
+      const restart = new URL(HANDOFF_START_PATH, callbackUrl.origin);
+      if (next !== DEFAULT_NEXT_PATH) restart.searchParams.set('next', next);
+      if (!passkey) restart.searchParams.set('passkey', '0');
+      restart.searchParams.set('hop', '1');
+      return handoffRedirect(restart.toString());
+    }
+
+    const redis = getRedis();
+    if (!redis) return handoffRedirect(loginReturnPath(next, { error: 'passkey_unavailable' }));
+
+    const flowId = newFlowId();
+    const state = randomUrlSafe(32);
+    const { verifier, challenge } = createPkcePair();
+    const flow: HandoffFlow = { state, verifier, next, redirectUri, createdAt: Date.now() };
+    try {
+      await redis.set(`${HANDOFF_REDIS_PREFIX}${flowId}`, JSON.stringify(flow), 'EX', HANDOFF_TTL_SECONDS);
+    } catch {
+      console.error('[Auth] Could not store the accounts hand-off flow');
+      return handoffRedirect(loginReturnPath(next, { error: 'passkey_unavailable' }));
+    }
+
+    return handoffRedirect(
+      buildHandoffStartUrl({ accountsBase: config.ACCOUNTS_PUBLIC_URL, redirectUri, state, challenge, passkey }),
+      handoffCookie(flowId),
+    );
+  })
+
+  .get('/accounts/callback', async ({ query, request, cookie }) => {
+    const q = query as Record<string, unknown>;
+    const fail = (code: HandoffErrorCode, next: string = DEFAULT_NEXT_PATH) =>
+      handoffRedirect(loginReturnPath(next, { error: code }), CLEAR_HANDOFF_COOKIE);
+
+    const limited = await checkRateLimit('handoffCallback', getClientIP(request));
+    if (!limited.success) return fail('passkey_rate_limited');
+
+    // Consume the flow first (single use, whatever happens next).
+    const flowId = readCookie(request.headers.get('cookie'), HANDOFF_COOKIE);
+    let flow: HandoffFlow | null = null;
+    if (isValidFlowId(flowId)) {
+      const redis = getRedis();
+      if (!redis) return fail('passkey_unavailable');
+      try {
+        const key = `${HANDOFF_REDIS_PREFIX}${flowId}`;
+        const results = await redis.multi().get(key).del(key).exec();
+        flow = parseHandoffFlow(results?.[0]?.[1] ?? null);
+      } catch {
+        console.error('[Auth] Could not read the accounts hand-off flow');
+        return fail('passkey_unavailable');
+      }
+    }
+    if (!flow) return fail('passkey_expired');
+    const next = sanitizeNextPath(flow.next);
+
+    if (typeof q.error === 'string' && q.error) return fail('passkey_cancelled', next);
+    if (!isValidHandoffCode(q.code) || !isValidHandoffState(q.state) || !secureEquals(q.state, flow.state)) {
+      return fail('passkey_expired', next);
+    }
+
+    const result = await accountsExchangeHandoffCode({
+      code: q.code,
+      redirectUri: flow.redirectUri,
+      codeVerifier: flow.verifier,
+      state: flow.state,
+    });
+    const errorCode = mapExchangeResult(result);
+    if (errorCode) {
+      if (result.data?.error === 'Invalid service key') {
+        console.error('[Auth] Accounts refused the service key on the hand-off exchange (check AUTH_INTERNAL_KEY)');
+      }
+      return fail(errorCode, next);
+    }
+
+    try {
+      // Same end state as a password login (session cookies, account
+      // switcher, connection sync). The login page then clears the message
+      // cache and continues to `next`.
+      const cookies = await finishAccountsSignIn(result.data, cookie);
+      if (!cookies.length) return fail('passkey_failed', next);
+      return handoffRedirect(loginReturnPath(next, { signed_in: '1' }), [...cookies, CLEAR_HANDOFF_COOKIE]);
+    } catch {
+      console.error('[Auth] Accounts hand-off sign-in failed');
+      return fail('passkey_failed', next);
+    }
   })
 
   // ── QR login ───────────────────────────────────────────────────────────────

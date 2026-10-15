@@ -8,6 +8,7 @@ import { AlertTriangle, Lock, LockOpen, ShieldCheck } from "lucide-react";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { loadE2eeSession, openE2eeDialog } from "@/lib/e2ee/client/state";
 import type { ConversationMeta } from "@/lib/e2ee/client/chatGlue";
+import type { E2eeTarget } from "@/lib/e2ee/conversation";
 import { useE2ee } from "@/hooks/useE2ee";
 
 const SafetyNumberDialog = dynamic(() => import("./SafetyNumberDialog").then((m) => m.SafetyNumberDialog), { ssr: false });
@@ -26,6 +27,10 @@ interface E2eeConversationBannerProps {
   members: Array<{ id: string; name: string }>;
   /** Bots / system accounts: encryption is never offered. */
   unsupported?: boolean;
+  /** What the page opened (URL): the key list is checked against it. */
+  target?: E2eeTarget | null;
+  /** Group DMs: ids of the members the group shows (null while loading). */
+  memberIds?: string[] | null;
 }
 
 /**
@@ -34,11 +39,11 @@ interface E2eeConversationBannerProps {
  * a contact's security code changed (acknowledge / verify), someone without
  * keys, this device not set up, or the "Turn on encryption" button.
  */
-export function E2eeConversationBanner({ conversation, active, members, unsupported = false }: E2eeConversationBannerProps) {
+export function E2eeConversationBanner({ conversation, active, members, unsupported = false, target = null, memberIds = null }: E2eeConversationBannerProps) {
   const gt = useGT();
   const e2ee = useE2ee();
   const channelId = conversation?.channelId ?? null;
-  const [issues, setIssues] = useState<{ channelId: string; list: MemberIssue[]; everyoneHasKeys: boolean } | null>(null);
+  const [issues, setIssues] = useState<{ channelId: string; list: MemberIssue[]; everyoneHasKeys: boolean; mismatch: boolean } | null>(null);
   const [safetyUser, setSafetyUser] = useState<{ id: string; name: string } | null>(null);
   const [enabling, setEnabling] = useState(false);
   const autoTriedRef = useRef<string | null>(null);
@@ -49,23 +54,36 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
     if (!channelId || e2ee.phase !== "ready" || unsupported) return;
     let cancelled = false;
     void loadE2eeSession()
-      .then((session) => session.getChannelKeys(channelId, true))
-      .then((keys) => {
+      .then(async (session) => {
+        const keys = await session.getChannelKeys(channelId, true);
+        // The key list must match what the user opened: exactly us + the
+        // URL's person in a 1:1 DM; a group's must match the members shown.
+        const check = target ? session.checkMembers(keys, target, memberIds) : null;
+        return { keys, check };
+      })
+      .then(({ keys, check }) => {
         if (cancelled) return;
-        const others = keys.members.filter((m) => m.trust !== "self");
+        const mismatch = !check || !target
+          ? false
+          : target.kind === "dm"
+            ? !check.ok
+            : check.ok && (check.hidden.length > 0 || check.missing.length > 0);
+        const counted = check?.ok ? check.members : keys.members;
+        const others = counted.filter((m) => m.trust !== "self");
         setIssues({
           channelId,
           list: others
             .filter((m) => m.trust === "changed" || m.trust === "missing" || m.recipients.length === 0)
             .map((m) => ({ userId: m.userId, kind: m.trust === "changed" ? "changed" : "missing" })),
-          everyoneHasKeys: keys.members.every((m) => m.identityPub && m.recipients.length > 0),
+          everyoneHasKeys: counted.every((m) => m.identityPub && m.recipients.length > 0),
+          mismatch,
         });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [channelId, e2ee.phase, e2ee.pinsVersion, unsupported, active]);
+  }, [channelId, e2ee.phase, e2ee.pinsVersion, unsupported, active, target, memberIds]);
 
   const current = issues && issues.channelId === channelId ? issues : null;
 
@@ -121,29 +139,41 @@ export function E2eeConversationBanner({ conversation, active, members, unsuppor
               )}
             </div>
           ) : (
-            current?.list.map((issue) =>
-              issue.kind === "changed" ? (
-                <div key={issue.userId} className={`${strip} border border-amber-500/40 bg-amber-500/10 text-[var(--text-primary)]`} role="alert">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <>
+              {current?.mismatch && (
+                <div className={`${strip} border border-red-500/40 bg-red-500/10 text-[var(--text-primary)]`} role="alert">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" />
                   <span className="flex-1">
-                    {gt("{name}'s security code changed. This happens when they reset encryption or reinstall. Messages won't send until you review it.", { name: nameOf(issue.userId) })}
-                  </span>
-                  <button type="button" className={linkButton} onClick={() => setSafetyUser({ id: issue.userId, name: nameOf(issue.userId) })}>
-                    {gt("Verify")}
-                  </button>
-                  <button type="button" className={linkButton} onClick={() => void acknowledge(issue.userId)}>
-                    {gt("Accept new code")}
-                  </button>
-                </div>
-              ) : (
-                <div key={issue.userId} className={`${strip} border border-[var(--border-subtle)] bg-[var(--app-surface-alt)] text-[var(--text-secondary)]`} role="status">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span className="flex-1">
-                    {gt("{name} hasn't set up encryption on any device yet, so they can't read new messages here.", { name: nameOf(issue.userId) })}
+                    {target?.kind === "dm"
+                      ? gt("This conversation's encryption keys don't match the person you're talking to, so messages here can't be sent or read.")
+                      : gt("The member list the server sent doesn't match this group. Messages are only encrypted for the members shown here.")}
                   </span>
                 </div>
-              ),
-            )
+              )}
+              {current?.list.map((issue) =>
+                issue.kind === "changed" ? (
+                  <div key={issue.userId} className={`${strip} border border-amber-500/40 bg-amber-500/10 text-[var(--text-primary)]`} role="alert">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span className="flex-1">
+                      {gt("{name}'s security code changed. This happens when they reset encryption or reinstall. Messages won't send until you review it.", { name: nameOf(issue.userId) })}
+                    </span>
+                    <button type="button" className={linkButton} onClick={() => setSafetyUser({ id: issue.userId, name: nameOf(issue.userId) })}>
+                      {gt("Verify")}
+                    </button>
+                    <button type="button" className={linkButton} onClick={() => void acknowledge(issue.userId)}>
+                      {gt("Accept new code")}
+                    </button>
+                  </div>
+                ) : (
+                  <div key={issue.userId} className={`${strip} border border-[var(--border-subtle)] bg-[var(--app-surface-alt)] text-[var(--text-secondary)]`} role="status">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                    <span className="flex-1">
+                      {gt("{name} hasn't set up encryption on any device yet, so they can't read new messages here.", { name: nameOf(issue.userId) })}
+                    </span>
+                  </div>
+                ),
+              )}
+            </>
           )}
           <div className={`${strip} text-[var(--app-muted)]`}>
             <Lock className="h-3 w-3 shrink-0" />

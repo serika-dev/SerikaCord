@@ -4298,10 +4298,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     body: t.Object({
       reason: t.String({ maxLength: 32 }),
       details: t.Optional(t.String({ maxLength: 1000 })),
-      // Franking disclosure for an end-to-end encrypted message: { key, payload }.
+      // Franking disclosure for an end-to-end encrypted message: { key, payload,
+      // sig? } — sig names the envelope version (edits keep earlier ones).
       e2ee: t.Optional(t.Object({
         key: t.String({ maxLength: 64 }),
         payload: t.String({ maxLength: 40_000 }),
+        sig: t.Optional(t.String({ maxLength: 120 })),
       })),
     }),
   })

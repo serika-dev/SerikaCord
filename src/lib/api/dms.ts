@@ -31,6 +31,7 @@ import { normalizeVoiceMessage } from '@/lib/chat/voiceMessage';
 import { extractUserMentionIds } from '@/lib/services/messageSignals';
 import {
   ENCRYPTED_PREVIEW,
+  archiveReplacedEnvelope,
   checkE2eeChannelSend,
   conversationE2eeFlags,
   initialConversationE2ee,
@@ -808,6 +809,8 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
   if (gate) return fail(gate.status, gate.error);
   if (envelope) {
     const editedTimestamp = new Date();
+    // Keep the replaced envelope: a report can still prove the version it saw.
+    await archiveReplacedEnvelope(message.id, message.e2ee);
     await Message.updateById(message.id, { content: '', e2ee: envelope, edited: true, editedTimestamp });
     publishToDm(channel.id, { type: 'edit', messageId, content: '', e2ee: envelope, editedTimestamp });
     return ok();
