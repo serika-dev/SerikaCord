@@ -1973,8 +1973,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 // 1 4 5 6 7 8 9; with_response=true returns an InteractionCallbackResponse).
 .post('/interactions/:interactionId/:interactionToken/callback', async ({ params, body, query, set }) => {
   const { handleInteractionCallback } = await import('@/lib/services/interactions');
-  const withResponse = (query as Record<string, string | undefined>).with_response === 'true';
-  return respond(set, await handleInteractionCallback(params.interactionId, params.interactionToken, body, { withResponse }));
+  const { with_response } = query as Record<string, string | undefined>;
+  return respond(set, await handleInteractionCallback(params.interactionId, params.interactionToken, body, { withResponse: with_response === 'true' }));
 })
 
 // ─── Invite ────────────────────────────────────────────────
@@ -2583,7 +2583,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { findWebhookByToken, executeWebhook } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await executeWebhook(webhook, body, query as Record<string, string | undefined>, { ip: getClientIP(request) }));
+  const { wait, thread_id, with_components } = query as Record<string, string | undefined>;
+  return respond(set, await executeWebhook(webhook, body, { wait, thread_id, with_components }, { ip: getClientIP(request) }));
 })
 .get('/webhooks/:webhookId/:webhookToken', async ({ params, set }) => {
   const { resolveInteractionWebhook } = await import('@/lib/services/interactions');
@@ -2609,6 +2610,24 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   return respond(set, await deleteWebhook(webhook));
 })
+.get('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, set }) => {
+  const { resolveInteractionWebhook, getInteractionMessage } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await getInteractionMessage(ix, '@original'));
+})
+.patch('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, body, set }) => {
+  const { resolveInteractionWebhook, editInteractionMessage } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await editInteractionMessage(ix, '@original', body));
+})
+.delete('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, set }) => {
+  const { resolveInteractionWebhook, deleteInteractionMessage } = await import('@/lib/services/interactions');
+  const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
+  if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  return respond(set, await deleteInteractionMessage(ix, '@original'));
+})
 .get('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, query, set }) => {
   const { resolveInteractionWebhook, getInteractionMessage } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
@@ -2616,7 +2635,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { findWebhookByToken, getWebhookMessage } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await getWebhookMessage(webhook, params.messageId, (query as Record<string, string | undefined>).thread_id));
+  const { thread_id } = query as Record<string, string | undefined>;
+  return respond(set, await getWebhookMessage(webhook, params.messageId, thread_id));
 })
 .patch('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, body, query, request, set }) => {
   const { resolveInteractionWebhook, editInteractionMessage } = await import('@/lib/services/interactions');
@@ -2625,7 +2645,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { findWebhookByToken, editWebhookMessage } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await editWebhookMessage(webhook, params.messageId, body, query as Record<string, string | undefined>, { ip: getClientIP(request) }));
+  const { thread_id, with_components } = query as Record<string, string | undefined>;
+  return respond(set, await editWebhookMessage(webhook, params.messageId, body, { thread_id, with_components }, { ip: getClientIP(request) }));
 })
 .delete('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, query, set }) => {
   const { resolveInteractionWebhook, deleteInteractionMessage } = await import('@/lib/services/interactions');
@@ -2634,7 +2655,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { findWebhookByToken, deleteWebhookMessage } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await deleteWebhookMessage(webhook, params.messageId, (query as Record<string, string | undefined>).thread_id));
+  const { thread_id } = query as Record<string, string | undefined>;
+  return respond(set, await deleteWebhookMessage(webhook, params.messageId, thread_id));
 })
 
 // ─── Audit Log ─────────────────────────────────────────────
