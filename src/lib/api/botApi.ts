@@ -30,7 +30,9 @@ import {
 import { checkRateLimit, decryptFromStorage, getClientIP, isValidObjectId } from '@/lib/security';
 import { botRequestBuckets, rateLimitedResponse, rateLimitHeaders } from '@/lib/security/botRateLimit';
 import { botIdBoundary } from '@/lib/botapi/boundary';
-import { validationErrorBody } from '@/lib/botapi/errors';
+import { invalidFormBody, validationErrorBody } from '@/lib/botapi/errors';
+import { parseApplicationPatch, toDiscordApplication } from '@/lib/botapi/application';
+import { toDiscordChannel, toDiscordRole } from '@/lib/services/gatewayEvents';
 
 /** Audit-log a bot's moderation action (reason from X-Audit-Log-Reason, like Discord). */
 function botAudit(
@@ -260,6 +262,7 @@ function formatUser(user: any) {
     username: user.username,
     global_name: user.displayName || user.username,
     avatar: user.avatar,
+    discriminator: '0',
     banner: user.banner ?? null,
     accent_color: null,
     bot: user.isBot ?? false,
@@ -275,30 +278,8 @@ function formatUser(user: any) {
 }
 
 function formatChannel(channel: any) {
-  const typeMap: Record<string, number> = {
-    text: 0, dm: 1, voice: 2, group_dm: 3, category: 4, announcement: 5,
-    announcement_thread: 10, public_thread: 11, private_thread: 12,
-    stage_voice: 13, directory: 14, forum: 15, media: 16,
-  };
-  const isDM = channel.type === 'dm' || channel.type === 'group_dm';
-  return {
-    id: channel.id,
-    type: typeMap[channel.type] ?? 0,
-    guild_id: channel.serverId ?? null,
-    name: channel.name ?? null,
-    topic: channel.topic ?? null,
-    position: channel.position ?? 0,
-    nsfw: channel.nsfw ?? false,
-    rate_limit_per_user: channel.rateLimitPerUser ?? 0,
-    parent_id: channel.parentId ?? null,
-    last_message_id: null,
-    bitrate: channel.bitrate ?? undefined,
-    user_limit: channel.userLimit ?? undefined,
-    rtc_region: channel.rtcRegion ?? undefined,
-    recipients: isDM && channel.recipientIds
-      ? channel.recipientIds.map((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => ({ id: r, username: '' }))
-      : undefined,
-  };
+  // Shared with the gateway (GUILD_CREATE): permission_overwrites, forum tags, thread metadata.
+  return toDiscordChannel(channel);
 }
 
 function formatMessage(msg: any, viewerId?: string) {
@@ -378,19 +359,7 @@ async function formatGuild(server: any) {
 }
 
 function formatRole(role: any) {
-  return {
-    id: role.id,
-    name: role.name,
-    color: role.color ?? 0,
-    hoist: role.hoist ?? false,
-    icon: null,
-    unicode_emoji: null,
-    position: role.position ?? 0,
-    permissions: role.permissions ?? '0',
-    managed: role.managed ?? false,
-    mentionable: role.mentionable ?? false,
-    flags: 0,
-  };
+  return toDiscordRole(role);
 }
 
 function formatMember(member: any, user: any) {
@@ -428,6 +397,19 @@ function formatInvite(invite: any) {
     temporary: invite.temporary ?? false,
     created_at: invite.createdAt ? new Date(invite.createdAt).toISOString() : undefined,
   };
+}
+
+/** The bot's application as Discord returns it (owner, bot user, guild count). */
+async function discordApplication(app: IApplication, botUser: unknown) {
+  const [owner, guildCount] = await Promise.all([
+    app.ownerId ? User.findById(app.ownerId).catch(() => null) : Promise.resolve(null),
+    ServerMember.countByUser(app.botId ?? '').catch(() => 0),
+  ]);
+  return toDiscordApplication(app, {
+    owner: owner ? formatUser(owner) : null,
+    bot: botUser ? formatUser(botUser) : null,
+    guildCount,
+  });
 }
 
 // ─── Bot API Routes (Discord v10 compatible) ───────────────
@@ -556,6 +538,65 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const user = await User.findById(params.userId);
   if (!user) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
   return formatUser(user);
+})
+
+// ─── Applications (WP6: the calling bot's own application) ─
+// discord.py's login calls GET /oauth2/applications/@me; discord.js
+// client.application.fetch() and command deploy scripts call /applications/@me.
+.get('/applications/@me', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  return discordApplication(auth.app, auth.botUser);
+})
+.get('/oauth2/applications/@me', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  return discordApplication(auth.app, auth.botUser);
+})
+.get('/applications/:appId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // A bot may only read its own application (Discord: owner/team only).
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  return discordApplication(auth.app, auth.botUser);
+})
+.patch('/applications/@me', async ({ headers, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const parsed = parseApplicationPatch(body);
+  if (!parsed.ok) { set.status = 400; return parsed.error; }
+  const updates = { ...parsed.updates };
+  if (parsed.interactionsEndpointUrl !== undefined) {
+    const url = parsed.interactionsEndpointUrl;
+    if (url) {
+      // Same check as the portal: a signed PING must come back as a PONG.
+      // Public hosts only, so a bot can't make the server probe internal ones.
+      try {
+        const { assertPublicUrl } = await import('@/lib/security/ssrf');
+        await assertPublicUrl(url);
+      } catch {
+        set.status = 400;
+        return invalidFormBody([{ path: 'interactions_endpoint_url', code: 'URL_TYPE_INVALID_URL', message: 'Not a well formed URL.' }]);
+      }
+      const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+      const provisioned = await ensureBotProvisioned(auth.app);
+      const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
+      const ok = await verifyInteractionEndpoint({ interactionsEndpointUrl: url, privateKeyPem: provisioned.privateKeyPem, clientId: provisioned.clientId });
+      if (!ok) {
+        set.status = 400;
+        return invalidFormBody([{ path: 'interactions_endpoint_url', code: 'APPLICATION_INTERACTION_ENDPOINT_URL_INVALID', message: 'The specified interactions endpoint url could not be verified.' }]);
+      }
+    }
+    updates.interactionsEndpointUrl = url;
+  }
+  const { Application } = await import('@/lib/models');
+  if (Object.keys(updates).length > 0) {
+    await Application.updateById(auth.app.id, updates);
+    const { invalidateBotTokenCache } = await import('@/lib/services/botTokens');
+    invalidateBotTokenCache();
+  }
+  const fresh = (await Application.findById(auth.app.id)) ?? auth.app;
+  return discordApplication(fresh, auth.botUser);
 })
 
 // ─── Guilds ────────────────────────────────────────────────

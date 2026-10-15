@@ -1481,7 +1481,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       }
     }
 
-    const { Application, User, ServerMember, Server, Role, AuthorizedApp, Channel } = await import('@/lib/models');
+    const { Application, User, ServerMember, Server, Role, AuthorizedApp } = await import('@/lib/models');
 
     const app = await Application.findOne({ clientId });
     if (!app) {
@@ -1629,88 +1629,22 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
 
         await emitGuildMemberAdd({ guildId: serverId, member: memberDto });
 
-        const serverChannels = await Channel.find({ serverId });
-        const serverRolesUpdated = await Role.find({ serverId });
-        
-        const mappedRoles = serverRolesUpdated.map(r => ({
-          id: r.id,
-          name: r.name,
-          color: Number(r.color) || 0,
-          hoist: Boolean(r.hoist),
-          position: r.position ?? 0,
-          permissions: r.permissions || '0',
-          managed: Boolean(r.managed),
-          mentionable: Boolean(r.mentionable),
-        }));
-
-        const typeMap: Record<string, number> = {
-          text: 0,
-          dm: 1,
-          voice: 2,
-          group_dm: 3,
-          category: 4,
-          announcement: 5,
-          forum: 15,
-        };
-
-        const mappedChannels = serverChannels.map(c => ({
-          id: c.id,
-          type: typeMap[c.type] ?? 0,
-          name: c.name,
-          position: c.position ?? 0,
-          parent_id: c.parentId ?? null,
-          topic: c.topic ?? null,
-          nsfw: Boolean(c.nsfw),
-          rate_limit_per_user: c.rateLimitPerUser ?? 0,
-        }));
-
-        // Like Discord: the full member list only goes to apps with the
-        // privileged GUILD_MEMBERS intent; everyone else gets just the bot.
-        const canSeeMembers = (allowedPrivilegedIntents(app) & INTENT.GUILD_MEMBERS) !== 0;
-        const allServerMembers = canSeeMembers
-          ? await ServerMember.find({ serverId })
-          : await ServerMember.find({ serverId, userId: botUser.id });
-        const allUserIds = allServerMembers.map(m => m.userId);
-        const allUsers = await User.find({ id: { in: allUserIds } });
-        const userMap = new Map(allUsers.map(u => [u.id, u]));
-
-        const mappedMembers = allServerMembers.map(m => {
-          const u = userMap.get(m.userId) || { id: m.userId, username: 'Unknown', isBot: false, avatar: null };
-          return {
-            user: {
-              id: u.id,
-              username: u.username,
-              avatar: u.avatar || null,
-              bot: Boolean(u.isBot),
-              discriminator: '0',
-            },
-            nick: m.nickname || null,
-            roles: m.roles || [],
-            joined_at: m.joinedAt ? new Date(m.joinedAt).toISOString() : new Date().toISOString(),
-            deaf: Boolean(m.deaf),
-            mute: Boolean(m.mute),
-          };
+        // The same full GUILD_CREATE a bot gets after READY. Like Discord, the
+        // member list only goes to apps with the privileged GUILD_MEMBERS
+        // intent; everyone else gets just the bot.
+        const { buildGuildCreate } = await import('@/lib/gateway/guildPayload');
+        const guildCreatePayload = await buildGuildCreate(serverId, {
+          botId: botUser.id,
+          intents: allowedPrivilegedIntents(app) & INTENT.GUILD_MEMBERS,
+          largeThreshold: 250,
         });
-
-        const guildCreatePayload = {
-          id: targetServer.id,
-          name: targetServer.name,
-          icon: targetServer.icon ?? null,
-          owner_id: targetServer.ownerId,
-          roles: mappedRoles,
-          channels: mappedChannels,
-          members: mappedMembers,
-          member_count: canSeeMembers ? mappedMembers.length : (targetServer.memberCount ?? mappedMembers.length),
-          joined_at: new Date().toISOString(),
-          large: false,
-          unavailable: false,
-        };
-
-        await emitGuildCreate({
-          guildId: serverId,
-          targetBotId: botUser.id,
-          guild: guildCreatePayload,
-        });
+        if (guildCreatePayload) {
+          await emitGuildCreate({
+            guildId: serverId,
+            targetBotId: botUser.id,
+            guild: guildCreatePayload,
+          });
+        }
 
         botAdded = true;
       }

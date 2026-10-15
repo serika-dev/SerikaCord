@@ -18,20 +18,11 @@
 import './gt-preload';
 import { createServer } from 'node:http';
 import next from 'next';
-import type { ServerWebSocket } from 'bun';
 import { connectDB } from '@/lib/db';
 import { api, initializeAPI } from '@/lib/api';
 import { authenticateRequest } from '@/lib/services/auth';
-import {
-  GatewayHub,
-  subscribeHubToRedis,
-  newSession,
-  isHeartbeatExpired,
-  KEEPALIVE_SWEEP_INTERVAL,
-  GATEWAY_PATH,
-  type Conn,
-  type Session,
-} from '@/lib/gateway/core';
+import { GatewayHub, subscribeHubToRedis, GATEWAY_PATH } from '@/lib/gateway/core';
+import { createBunGatewayTransport, type GatewaySocketData } from '@/lib/gateway/bunTransport';
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
@@ -124,25 +115,12 @@ async function main() {
   // ─── Bun.serve: native WebSocket + SSE + proxy to Next.js ──
   // Bun.serve handles WebSocket upgrades natively — no ws package, no
   // node:http upgrade event. This is what fixes the 1006 drops.
-  interface SocketData { conn: Conn }
-  type WS = ServerWebSocket<SocketData>;
+  // Gateway transport: ?v= / encoding / compress=zlib-stream, keepalive sweep,
+  // and op 7 RECONNECT to every bot on SIGTERM (deploys) so they resume.
+  const gateway = createBunGatewayTransport(hub);
+  gateway.installShutdown();
 
-  const liveSockets = new Set<WS>();
-  const keepaliveSweep = setInterval(() => {
-    for (const ws of liveSockets) {
-      const conn = ws.data.conn;
-      if (!conn) continue;
-      if (ws.readyState !== ws.OPEN) continue;
-      if (conn.data.authenticated && isHeartbeatExpired(conn)) {
-        try { ws.close(4009, 'Session timed out'); } catch { ws.terminate(); }
-        continue;
-      }
-      // Bun sends protocol-level pings automatically (sendPings: true).
-    }
-  }, KEEPALIVE_SWEEP_INTERVAL);
-  keepaliveSweep.unref?.();
-
-  Bun.serve<SocketData>({
+  Bun.serve<GatewaySocketData>({
     port,
     idleTimeout: 120,
     fetch(req, server) {
@@ -169,8 +147,7 @@ async function main() {
 
       // ─── WebSocket upgrade for gateway ──────────────────────
       if (pathname === GATEWAY_PATH) {
-        const ok = server.upgrade(req, { data: { conn: null as unknown as Conn } });
-        return ok ? undefined : new Response('Upgrade failed', { status: 426 });
+        return gateway.upgrade(req, server);
       }
 
       // ─── SSE fast-path ───────────────────────────────────────
@@ -208,36 +185,7 @@ async function main() {
       });
       return fetch(proxyReq, { redirect: 'manual' });
     },
-    websocket: {
-      sendPings: true,
-      maxPayloadLength: 1 << 20,
-      open(ws: WS) {
-        const session: Session = newSession();
-        const conn: Conn = {
-          data: session,
-          sendText: (text) => { ws.send(text); },
-          close: (code, reason) => ws.close(code, reason),
-        };
-        ws.data.conn = conn;
-        liveSockets.add(ws);
-        hub.hello(conn);
-      },
-      async message(ws: WS, raw: string | Buffer) {
-        if (ws.data.conn) await hub.onFrame(ws.data.conn, raw.toString());
-      },
-      pong(ws: WS) {
-        if (ws.data.conn) ws.data.conn.data.lastHeartbeat = Date.now();
-      },
-      close(ws: WS) {
-        liveSockets.delete(ws);
-        if (ws.data.conn) {
-          if (process.env.GATEWAY_DEBUG === '1' || process.env.GATEWAY_DEBUG === 'true') {
-            console.log(`[gateway] closed session=${ws.data.conn.data.sessionId.slice(0, 8)} bot=${ws.data.conn.data.botId ?? '(unauth)'} code=unknown`);
-          }
-          hub.onClose(ws.data.conn);
-        }
-      },
-    },
+    websocket: gateway.websocket,
   });
 
   console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);

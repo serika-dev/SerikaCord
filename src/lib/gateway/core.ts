@@ -1,30 +1,43 @@
 /**
  * Transport-agnostic Discord Gateway v10 core.
  *
- * The same protocol logic drives two transports:
- *   1. The integrated Next.js server (server.ts) via the `ws` package — this is
- *      the default: one process, one port, one Coolify/Docker app.
- *   2. An optional standalone Bun process (scripts/gateway.ts) via Bun.serve,
- *      for horizontal scale-out later.
+ * The same protocol logic drives every transport (server.ts, the optional
+ * standalone scripts/gateway.ts and the bot-compat harness), all through
+ * ./bunTransport.ts. A "connection" is anything that can send text (and,
+ * for zlib-stream, binary) and be closed.
  *
- * A "connection" is anything that can send text and be closed. Both transports
- * adapt their socket to the `Conn` interface below.
+ * Protocol (Discord v10): HELLO -> IDENTIFY -> READY + one GUILD_CREATE per
+ * guild; HEARTBEAT/ACK; RESUME with a per-session replay buffer; op 3
+ * presence; op 8 Request Guild Members -> GUILD_MEMBERS_CHUNK; op 31
+ * soundboard (empty); op 7 RECONNECT on shutdown; Discord close codes
+ * (./session.ts). Ids: payloads are built with internal UUIDs and translated
+ * per connection for snowflake-format apps (src/lib/botapi/boundary.ts).
  */
-import { Application, User, ServerMember, Channel } from '@/lib/models';
+import { User, ServerMember, Channel } from '@/lib/models';
 import { GATEWAY_CHANNEL, type GatewayDispatch } from '@/lib/services/gatewayEvents';
 import { config } from '@/lib/config';
-import { allowedPrivilegedIntents, disallowedIntents, intentApplicationFlags, CLOSE_DISALLOWED_INTENTS } from './intents';
+import { allowedPrivilegedIntents, disallowedIntents, intentApplicationFlags, CLOSE_DISALLOWED_INTENTS, INTENT } from './intents';
 import { messagePayloadFor, routeDecision } from './routing';
+import {
+  CLOSE, MAX_GUILDS_PER_SHARD, countPayload, framesAfter, newReplayBuffer, parseIdentify, presenceStatus,
+  pushReplay, shardOfSnowflake, shardOfUuid, type RateWindow, type ReplayBuffer,
+} from './session';
+import { ZlibStreamCompressor, type GatewayCompression } from './compression';
+import type { OutboundLookup } from '@/lib/botapi/idTranslate';
 
 export const OP = {
   DISPATCH: 0,
   HEARTBEAT: 1,
   IDENTIFY: 2,
+  PRESENCE_UPDATE: 3,
+  VOICE_STATE_UPDATE: 4,
   RESUME: 6,
   RECONNECT: 7,
+  REQUEST_GUILD_MEMBERS: 8,
   INVALID_SESSION: 9,
   HELLO: 10,
   HEARTBEAT_ACK: 11,
+  REQUEST_SOUNDBOARD_SOUNDS: 31,
 } as const;
 
 export const HEARTBEAT_INTERVAL = 41250;
@@ -49,6 +62,8 @@ export function isHeartbeatExpired(conn: Conn, now = Date.now()): boolean {
   return now - conn.data.lastHeartbeat > HEARTBEAT_TIMEOUT;
 }
 
+export type IdFormat = 'uuid' | 'snowflake';
+
 export interface Session {
   authenticated: boolean;
   sessionId: string;
@@ -59,20 +74,36 @@ export interface Session {
   dmChannelIds: Set<string>;
   seq: number;
   lastHeartbeat: number;
+  /** Id format of the app's bot (snowflake apps get translated payloads). */
+  idFormat: IdFormat;
+  shard: [number, number] | null;
+  largeThreshold: number;
+  /** False while READY + GUILD_CREATEs are being sent; dispatches queue in `pending`. */
+  ready: boolean;
+  pending: Array<{ t: string; d: unknown }>;
+  replay: ReplayBuffer;
+  presence: { status: string; activities: unknown[]; since: number | null; afk: boolean } | null;
+  /** Transport options from the connect URL. */
+  compress: GatewayCompression;
+  encoding: string;
+  version: string | null;
+  rate: RateWindow;
 }
 
 export interface Conn {
   data: Session;
   sendText(text: string): void;
+  /** Binary frames (needed for zlib-stream). */
+  sendBinary?(data: Uint8Array): void;
   close(code: number, reason: string): void;
 }
 
-export function newSession(): Session {
+export function newSession(opts?: { compress?: GatewayCompression; encoding?: string; version?: string | null }): Session {
   return {
     authenticated: false,
     sessionId:
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
+        ? crypto.randomUUID().replace(/-/g, '')
         : Math.random().toString(36).slice(2),
     botId: null,
     applicationId: null,
@@ -81,6 +112,17 @@ export function newSession(): Session {
     dmChannelIds: new Set<string>(),
     seq: 0,
     lastHeartbeat: Date.now(),
+    idFormat: 'uuid',
+    shard: null,
+    largeThreshold: 50,
+    ready: false,
+    pending: [],
+    replay: newReplayBuffer(),
+    presence: null,
+    compress: opts?.compress ?? null,
+    encoding: opts?.encoding ?? 'json',
+    version: opts?.version ?? null,
+    rate: { start: Date.now(), count: 0 },
   };
 }
 
@@ -93,87 +135,141 @@ function gwlog(...args: unknown[]) {
   if (GATEWAY_DEBUG) console.log('[gateway]', ...args);
 }
 
-/** Registry of authenticated connections + Redis fan-out. */
-/** How long a closed session can be resumed (its intents and seq are kept). */
+/** How long a closed session can be resumed (its state and replay buffer are kept). */
 const RESUME_WINDOW_MS = 5 * 60_000;
+const MAX_DETACHED = 10_000;
 
+async function toSnowflakes<T>(payload: T): Promise<T> {
+  const { toSnowflakes: translate } = await import('@/lib/botapi/boundary');
+  return translate(payload);
+}
+
+/** Registry of authenticated connections + Redis fan-out. */
 export class GatewayHub {
   readonly connections = new Set<Conn>();
-  /** Closed sessions that may RESUME: sessionId -> what the new socket inherits. */
-  private readonly resumable = new Map<string, { botId: string; intents: number; seq: number; expiresAt: number }>();
+  /** Closed sessions that may RESUME: sessionId -> session (still buffering dispatches). */
+  private readonly detached = new Map<string, { session: Session; expiresAt: number }>();
+  private readonly compressors = new WeakMap<Conn, ZlibStreamCompressor>();
+  /** Dispatches are processed one at a time, so every bot sees them in publish order. */
+  private queue: Promise<void> = Promise.resolve();
+  private shuttingDown = false;
 
-  send(conn: Conn, op: number, d: unknown, extra?: { t?: string; s?: number }) {
+  // ─── Frames ──────────────────────────────────────────────
+
+  private write(conn: Conn, text: string) {
     try {
-      conn.sendText(JSON.stringify({ op, d, s: extra?.s ?? null, t: extra?.t ?? null }));
+      const z = this.compressors.get(conn);
+      if (z) z.send(text);
+      else conn.sendText(text);
     } catch {
       /* socket closing */
     }
   }
 
-  hello(conn: Conn) {
-    conn.data.lastHeartbeat = Date.now();
-    this.send(conn, OP.HELLO, { heartbeat_interval: HEARTBEAT_INTERVAL });
+  /** Send a non-dispatch frame (HELLO, ACK, op 7, op 9). */
+  send(conn: Conn, op: number, d: unknown) {
+    this.write(conn, JSON.stringify({ op, d, s: null, t: null }));
   }
 
-  async onFrame(conn: Conn, raw: string) {
-    let frame: { op?: number; d?: unknown };
-    try {
-      frame = JSON.parse(raw);
-    } catch {
-      conn.close(4002, 'Decode error');
+  /** Send (or, for a detached session, only buffer) one dispatch with the next seq. */
+  private emit(session: Session, conn: Conn | null, t: string, dJson: string) {
+    const s = ++session.seq;
+    const text = `{"op":0,"d":${dJson},"s":${s},"t":${JSON.stringify(t)}}`;
+    pushReplay(session.replay, s, text);
+    if (conn) this.write(conn, text);
+  }
+
+  /** Dispatch `d` (internal UUID ids) to one connection, translated for its id format. */
+  private async dispatchTo(conn: Conn, t: string, d: unknown) {
+    const out = conn.data.idFormat === 'snowflake' ? await toSnowflakes(d) : d;
+    this.emit(conn.data, conn, t, JSON.stringify(out));
+  }
+
+  hello(conn: Conn) {
+    conn.data.lastHeartbeat = Date.now();
+    if (conn.data.compress === 'zlib-stream' && conn.sendBinary) {
+      const sendBinary = conn.sendBinary.bind(conn);
+      this.compressors.set(conn, new ZlibStreamCompressor(sendBinary));
+    }
+    this.send(conn, OP.HELLO, { heartbeat_interval: HEARTBEAT_INTERVAL, _trace: ['["serika-gateway",{"micros":0}]'] });
+    if (conn.data.encoding !== 'json') {
+      conn.close(CLOSE.DECODE_ERROR, 'Unsupported encoding (use encoding=json)');
       return;
     }
-    switch (frame.op) {
-      case OP.HEARTBEAT:
-        conn.data.lastHeartbeat = Date.now();
-        this.send(conn, OP.HEARTBEAT_ACK, null);
-        gwlog(conn.data.sessionId.slice(0, 8), 'heartbeat', conn.data.botId ?? '(unauth)');
-        // Keep the bot's presence fresh so it doesn't go stale/offline.
-        if (conn.data.botId) void this.setBotPresence(conn.data.botId, true);
-        break;
-      case OP.IDENTIFY:
-        if (conn.data.authenticated) return;
-        try {
-          await this.identify(conn, frame.d as Record<string, unknown>);
-        } catch (err) {
-          console.error('Gateway: identify failed', err);
-          conn.close(4000, 'Unknown error');
-        }
-        break;
-      case OP.RESUME:
-        // Minimal resume: re-authenticate from the token so the connection is
-        // actually registered for dispatch (there is no event replay). Without
-        // re-auth a resumed socket would silently receive nothing.
-        if (!conn.data.authenticated) {
-          try {
-            await this.identify(conn, frame.d as Record<string, unknown>, { resumed: true });
-          } catch (err) {
-            console.error('Gateway: resume failed', err);
-            conn.close(4000, 'Unknown error');
-            break;
-          }
-        }
-        if (conn.data.authenticated) {
-          this.send(conn, OP.DISPATCH, {}, { t: 'RESUMED', s: ++conn.data.seq });
-        }
-        break;
-      default:
-        break;
+    if (conn.data.version !== null && conn.data.version !== '' && conn.data.version !== '10' && conn.data.version !== '9') {
+      conn.close(CLOSE.INVALID_API_VERSION, 'Invalid API version');
+    }
+  }
+
+  async onFrame(conn: Conn, raw: string | Uint8Array) {
+    if (!countPayload(conn.data.rate)) {
+      conn.close(CLOSE.RATE_LIMITED, 'Rate limited.');
+      return;
+    }
+    let frame: { op?: number; d?: unknown };
+    try {
+      frame = JSON.parse(typeof raw === 'string' ? raw : new TextDecoder().decode(raw));
+    } catch {
+      conn.close(CLOSE.DECODE_ERROR, 'Decode error');
+      return;
+    }
+    if (!frame || typeof frame !== 'object') {
+      conn.close(CLOSE.DECODE_ERROR, 'Decode error');
+      return;
+    }
+    const op = frame.op;
+    if (op === OP.HEARTBEAT) {
+      conn.data.lastHeartbeat = Date.now();
+      this.send(conn, OP.HEARTBEAT_ACK, null);
+      gwlog(conn.data.sessionId.slice(0, 8), 'heartbeat', conn.data.botId ?? '(unauth)');
+      // Keep the bot's presence fresh so it doesn't go stale/offline.
+      if (conn.data.botId) void this.setBotPresence(conn.data.botId, true, conn.data.presence?.status);
+      return;
+    }
+    if (op === OP.IDENTIFY) {
+      if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
+      try {
+        await this.identify(conn, frame.d);
+      } catch (err) {
+        console.error('Gateway: identify failed', err);
+        conn.close(CLOSE.UNKNOWN_ERROR, 'Unknown error');
+      }
+      return;
+    }
+    if (op === OP.RESUME) {
+      if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
+      try {
+        await this.resume(conn, (frame.d ?? {}) as Record<string, unknown>);
+      } catch (err) {
+        console.error('Gateway: resume failed', err);
+        conn.close(CLOSE.UNKNOWN_ERROR, 'Unknown error');
+      }
+      return;
+    }
+    const known = op === OP.PRESENCE_UPDATE || op === OP.VOICE_STATE_UPDATE || op === OP.REQUEST_GUILD_MEMBERS || op === OP.REQUEST_SOUNDBOARD_SOUNDS;
+    if (!known) { conn.close(CLOSE.UNKNOWN_OPCODE, 'Unknown opcode.'); return; }
+    if (!conn.data.authenticated) { conn.close(CLOSE.NOT_AUTHENTICATED, 'Not authenticated.'); return; }
+    try {
+      if (op === OP.PRESENCE_UPDATE) this.updatePresence(conn, frame.d);
+      else if (op === OP.REQUEST_GUILD_MEMBERS) await this.requestGuildMembers(conn, (frame.d ?? {}) as Record<string, unknown>);
+      else if (op === OP.REQUEST_SOUNDBOARD_SOUNDS) await this.requestSoundboardSounds(conn, (frame.d ?? {}) as Record<string, unknown>);
+      // op 4 (voice): bots can't join Serika voice yet (WP7); accepted and ignored.
+    } catch (err) {
+      console.error(`Gateway: op ${op} failed`, err);
     }
   }
 
   onClose(conn: Conn) {
     this.connections.delete(conn);
-    if (conn.data.authenticated && conn.data.botId) {
+    this.compressors.get(conn)?.close();
+    this.compressors.delete(conn);
+    if (conn.data.authenticated && conn.data.botId && !this.shuttingDown) {
       const now = Date.now();
-      for (const [id, r] of this.resumable) if (r.expiresAt < now) this.resumable.delete(id);
-      if (this.resumable.size < 10_000) {
-        this.resumable.set(conn.data.sessionId, {
-          botId: conn.data.botId,
-          intents: conn.data.intents,
-          seq: conn.data.seq,
-          expiresAt: now + RESUME_WINDOW_MS,
-        });
+      for (const [id, r] of this.detached) if (r.expiresAt < now) this.detached.delete(id);
+      if (this.detached.size < MAX_DETACHED) {
+        conn.data.ready = true;
+        conn.data.pending = [];
+        this.detached.set(conn.data.sessionId, { session: conn.data, expiresAt: now + RESUME_WINDOW_MS });
       }
     }
     // Mark the bot offline when its last connection drops. If the same bot has
@@ -182,6 +278,23 @@ export class GatewayHub {
     if (botId && !this.botHasOtherConnection(conn, botId)) {
       void this.setBotPresence(botId, false);
     }
+  }
+
+  /**
+   * Shutdown/deploy: tell every bot to reconnect (op 7) so it resumes or
+   * re-identifies against the next instance, then close the sockets.
+   */
+  reconnectAll(closeDelayMs = 1000) {
+    this.shuttingDown = true;
+    const conns = [...this.connections];
+    for (const conn of conns) this.send(conn, OP.RECONNECT, null);
+    const t = setTimeout(() => {
+      for (const conn of conns) {
+        try { conn.close(CLOSE.UNKNOWN_ERROR, 'Reconnect'); } catch { /* closed */ }
+      }
+    }, closeDelayMs);
+    (t as { unref?: () => void }).unref?.();
+    return conns.length;
   }
 
   private botHasOtherConnection(except: Conn, botId: string): boolean {
@@ -196,12 +309,13 @@ export class GatewayHub {
    * online in member lists (a user is "online" only while status is online AND
    * presenceLastHeartbeatAt is fresh). Refreshed on every heartbeat. Best-effort.
    */
-  private async setBotPresence(botId: string, online: boolean) {
+  private async setBotPresence(botId: string, online: boolean, status?: string | null) {
     try {
+      const s = presenceStatus(status) ?? 'online';
       await User.updateById(
         botId,
         online
-          ? { status: 'online', presenceLastHeartbeatAt: new Date(), presenceLastDisconnectAt: null }
+          ? { status: s, presenceLastHeartbeatAt: new Date(), presenceLastDisconnectAt: null }
           : { status: 'offline', presenceLastDisconnectAt: new Date() },
       );
     } catch (err) {
@@ -209,42 +323,48 @@ export class GatewayHub {
     }
   }
 
-  private async identify(conn: Conn, d: Record<string, unknown>, opts?: { resumed?: boolean }) {
-    const rawToken = String(d?.token ?? '');
-    const token = rawToken.startsWith('Bot ') ? rawToken.slice(4) : rawToken;
-    let intents = Number(d?.intents) || 0;
+  /** Op 3 (and IDENTIFY `presence`): store the bot's status/activities. */
+  private updatePresence(conn: Conn, d: unknown) {
+    const p = (d && typeof d === 'object' ? d : {}) as Record<string, unknown>;
+    const status = presenceStatus(p.status) ?? 'online';
+    const activities = Array.isArray(p.activities) ? p.activities.slice(0, 5) : [];
+    conn.data.presence = { status, activities, since: typeof p.since === 'number' ? p.since : null, afk: p.afk === true };
+    if (conn.data.botId) void this.setBotPresence(conn.data.botId, true, status);
+  }
 
-    if (!token) {
-      gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: missing token');
-      this.send(conn, OP.INVALID_SESSION, false);
-      conn.close(4004, 'Authentication failed');
+  // ─── IDENTIFY / READY ────────────────────────────────────
+
+  private async loadApp(token: string) {
+    const { resolveBotToken } = await import('@/lib/services/botTokens');
+    return resolveBotToken(token);
+  }
+
+  /** Guild shard for a session (Discord formula on the guild's public id). */
+  private async guildInShard(session: Session, guildId: string): Promise<boolean> {
+    const shard = session.shard;
+    if (!shard || shard[1] <= 1) return true;
+    if (session.idFormat !== 'snowflake') return shardOfUuid(guildId, shard[1]) === shard[0];
+    const { snowflakesForUuids } = await import('@/lib/botapi/snowflakeStore');
+    const { map } = await snowflakesForUuids([guildId]);
+    const sf = map.get(guildId.toLowerCase());
+    return sf ? shardOfSnowflake(sf, shard[1]) === shard[0] : shard[0] === 0;
+  }
+
+  private async identify(conn: Conn, d: unknown) {
+    const parsed = parseIdentify(d);
+    if (!parsed.ok) {
+      gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected:', parsed.reason);
+      if (parsed.close === CLOSE.AUTHENTICATION_FAILED) this.send(conn, OP.INVALID_SESSION, false);
+      conn.close(parsed.close, parsed.reason);
       return;
     }
+    const { token, intents, shard } = parsed.value;
 
-    const app = await Application.findOne({ botToken: token });
+    const app = await this.loadApp(token);
     if (!app || !app.botId) {
       gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: unknown token');
-      this.send(conn, OP.INVALID_SESSION, false);
-      conn.close(4004, 'Authentication failed');
+      conn.close(CLOSE.AUTHENTICATION_FAILED, 'Authentication failed');
       return;
-    }
-
-    // RESUME carries no intents: inherit them (and seq) from the closed session.
-    // An unknown, expired or foreign session gets op 9 (not resumable), so the
-    // client re-IDENTIFYs instead of silently running with intents 0.
-    let resumedSeq = 0;
-    if (opts?.resumed) {
-      const sessionId = String(d?.session_id ?? '');
-      const prev = this.resumable.get(sessionId);
-      if (!prev || prev.expiresAt < Date.now() || prev.botId !== app.botId) {
-        gwlog(conn.data.sessionId.slice(0, 8), 'resume rejected: unknown session');
-        this.send(conn, OP.INVALID_SESSION, false);
-        return;
-      }
-      this.resumable.delete(sessionId);
-      intents = prev.intents;
-      resumedSeq = prev.seq;
-      conn.data.sessionId = sessionId;
     }
 
     // Privileged intents (GUILD_MEMBERS, GUILD_PRESENCES, MESSAGE_CONTENT) must
@@ -263,74 +383,254 @@ export class GatewayHub {
       Channel.find({ type: { in: ['dm', 'group_dm'] }, recipientId: app.botId }),
     ]);
     if (!botUser) {
-      this.send(conn, OP.INVALID_SESSION, false);
-      conn.close(4004, 'Authentication failed');
+      conn.close(CLOSE.AUTHENTICATION_FAILED, 'Authentication failed');
+      return;
+    }
+    const allGuildIds = memberships.map((m: { serverId: string }) => m.serverId);
+    if ((!shard || shard[1] === 1) && allGuildIds.length > MAX_GUILDS_PER_SHARD) {
+      conn.close(CLOSE.SHARDING_REQUIRED, 'Sharding required.');
       return;
     }
 
-    const guildIds = memberships.map((m: { serverId: string }) => m.serverId);
-
-    conn.data.authenticated = true;
+    const { idFormatOf } = await import('@/lib/botapi/boundary');
+    const { clampLargeThreshold } = await import('./guildPayload');
     conn.data.botId = app.botId;
     conn.data.applicationId = app.id;
     conn.data.intents = intents;
-    if (opts?.resumed) conn.data.seq = resumedSeq;
-    conn.data.guildIds = new Set(guildIds);
+    conn.data.idFormat = idFormatOf(app);
+    conn.data.shard = shard;
+    conn.data.largeThreshold = clampLargeThreshold(parsed.value.largeThreshold);
     conn.data.dmChannelIds = new Set(dmChannels.map((c: { id: string }) => c.id));
+    const inShard = await Promise.all(allGuildIds.map((g) => this.guildInShard(conn.data, g)));
+    const guildIds = allGuildIds.filter((_, i) => inShard[i]);
+    conn.data.guildIds = new Set(guildIds);
     conn.data.lastHeartbeat = Date.now();
+    conn.data.ready = false;
+    conn.data.pending = [];
+    if (parsed.value.presence) this.updatePresence(conn, parsed.value.presence);
+    // Registered now so dispatches published while READY is built queue up.
+    conn.data.authenticated = true;
     this.connections.add(conn);
-    gwlog(
-      conn.data.sessionId.slice(0, 8),
-      `${opts?.resumed ? 'RESUMED' : 'READY'} bot=${app.botId} guilds=${guildIds.length} dms=${conn.data.dmChannelIds.size}`,
-    );
+    gwlog(conn.data.sessionId.slice(0, 8), `READY bot=${app.botId} guilds=${guildIds.length} dms=${conn.data.dmChannelIds.size} format=${conn.data.idFormat}`);
 
     // Reflect the connection into presence so the bot shows online.
-    void this.setBotPresence(app.botId, true);
-
-    // On resume the caller emits RESUMED; skip the READY payload.
-    if (opts?.resumed) return;
+    void this.setBotPresence(app.botId, true, conn.data.presence?.status);
 
     const user = {
       id: botUser.id,
       username: botUser.username,
-      global_name: botUser.displayName || botUser.username,
-      avatar: botUser.avatar ?? null,
-      bot: true,
       discriminator: '0',
+      global_name: botUser.displayName || null,
+      avatar: botUser.avatar ?? null,
+      banner: botUser.banner ?? null,
+      accent_color: null,
+      bot: true,
+      system: false,
       verified: true,
+      mfa_enabled: false,
+      email: null,
       flags: 0,
+      public_flags: 0,
+      premium_type: 0,
+      locale: 'en-US',
+      avatar_decoration_data: null,
     };
-
-    this.send(conn, OP.DISPATCH, {
+    await this.dispatchTo(conn, 'READY', {
       v: 10,
       user,
+      user_settings: {},
       guilds: guildIds.map((id) => ({ id, unavailable: true })),
+      relationships: [],
+      private_channels: [],
+      presences: [],
+      guild_join_requests: [],
+      geo_ordered_rtc_regions: [],
       session_id: conn.data.sessionId,
+      session_type: 'normal',
       resume_gateway_url: config.GATEWAY_URL,
+      ...(shard ? { shard } : {}),
       application: { id: app.id, flags: (app.flags ?? 0) | intentApplicationFlags(allowedPrivileged) },
-    }, { t: 'READY', s: ++conn.data.seq });
+      auth: {},
+      _trace: ['["serika-gateway",{"micros":0}]'],
+    });
+
+    // One GUILD_CREATE per guild, built a few at a time, sent in order.
+    const { buildGuildCreate } = await import('./guildPayload');
+    const BATCH = 4;
+    for (let i = 0; i < guildIds.length; i += BATCH) {
+      const batch = guildIds.slice(i, i + BATCH);
+      const payloads = await Promise.all(batch.map((g) =>
+        buildGuildCreate(g, { botId: app.botId!, intents, largeThreshold: conn.data.largeThreshold })
+          .catch((err) => { console.error('Gateway: GUILD_CREATE build failed', g, (err as Error)?.message); return null; })));
+      for (let j = 0; j < batch.length; j++) {
+        if (!this.connections.has(conn)) return;
+        const p = payloads[j];
+        if (p) await this.dispatchTo(conn, 'GUILD_CREATE', p);
+        else conn.data.guildIds.delete(batch[j]);
+      }
+    }
+    // Flush what arrived while READY was being built.
+    conn.data.ready = true;
+    const pending = conn.data.pending;
+    conn.data.pending = [];
+    for (const e of pending) this.emit(conn.data, conn, e.t, JSON.stringify(e.d));
   }
+
+  // ─── RESUME ──────────────────────────────────────────────
+
+  private async resume(conn: Conn, d: Record<string, unknown>) {
+    const rawToken = String(d?.token ?? '');
+    const token = rawToken.startsWith('Bot ') ? rawToken.slice(4) : rawToken;
+    const app = token ? await this.loadApp(token) : null;
+    if (!app || !app.botId) {
+      conn.close(CLOSE.AUTHENTICATION_FAILED, 'Authentication failed');
+      return;
+    }
+    const sessionId = String(d?.session_id ?? '');
+    const entry = this.detached.get(sessionId);
+    if (!entry || entry.expiresAt < Date.now() || entry.session.botId !== app.botId) {
+      gwlog(conn.data.sessionId.slice(0, 8), 'resume rejected: unknown session');
+      this.send(conn, OP.INVALID_SESSION, false);
+      return;
+    }
+    const prev = entry.session;
+    const clientSeq = Number(d?.seq ?? 0);
+    if (!Number.isInteger(clientSeq) || clientSeq > prev.seq) {
+      this.detached.delete(sessionId);
+      conn.close(CLOSE.INVALID_SEQ, 'Invalid seq');
+      return;
+    }
+    const missed = framesAfter(prev.replay, prev.seq, clientSeq);
+    if (!missed) {
+      this.detached.delete(sessionId);
+      this.send(conn, OP.INVALID_SESSION, false);
+      return;
+    }
+    // Privileged intents may have been switched off since IDENTIFY.
+    if (disallowedIntents(prev.intents, allowedPrivilegedIntents(app)) !== 0) {
+      this.detached.delete(sessionId);
+      conn.close(CLOSE_DISALLOWED_INTENTS, 'Disallowed intent(s)');
+      return;
+    }
+    this.detached.delete(sessionId);
+    // Adopt the old session; keep this socket's transport options.
+    const { compress, encoding, version, rate } = conn.data;
+    Object.assign(conn.data, prev, { compress, encoding, version, rate, authenticated: true, ready: true, pending: [], lastHeartbeat: Date.now() });
+    this.connections.add(conn);
+    gwlog(conn.data.sessionId.slice(0, 8), `RESUMED bot=${app.botId} replay=${missed.length}`);
+    for (const text of missed) this.write(conn, text);
+    this.emit(conn.data, conn, 'RESUMED', JSON.stringify({ _trace: ['["serika-gateway",{"micros":0}]'] }));
+    void this.setBotPresence(app.botId, true, conn.data.presence?.status);
+  }
+
+  // ─── Op 8 / op 31 ────────────────────────────────────────
+
+  private async requestGuildMembers(conn: Conn, d: Record<string, unknown>) {
+    const rawIds = d.user_ids === undefined || d.user_ids === null ? undefined : (Array.isArray(d.user_ids) ? d.user_ids : [d.user_ids]);
+    const { translateInbound } = await import('@/lib/botapi/boundary');
+    const body = { guild_id: d.guild_id, ...(rawIds ? { user_ids: rawIds.map(String) } : {}) };
+    const res = await translateInbound({ body });
+    const t = (res.body ?? body) as { guild_id?: unknown; user_ids?: string[] };
+    const guildId = typeof t.guild_id === 'string' ? t.guild_id : '';
+    const known = [...conn.data.guildIds].find((g) => g.toLowerCase() === guildId.toLowerCase());
+    if (!known) return; // not in this guild (or not on this shard): ignored, like Discord
+    const userIds = t.user_ids;
+    const query = typeof d.query === 'string' ? d.query : '';
+    const limit = Number.isInteger(d.limit) ? Number(d.limit) : 0;
+    const canListAll = (conn.data.intents & INTENT.GUILD_MEMBERS) !== 0;
+    const { buildMemberChunks } = await import('./guildPayload');
+    const chunks = await buildMemberChunks(
+      { guildId: known, query, limit, userIds, nonce: typeof d.nonce === 'string' ? d.nonce : undefined },
+      canListAll,
+    );
+    // Restore the ids the bot asked for in not_found (unknown snowflakes have no UUID).
+    if (rawIds && chunks[0]?.not_found) {
+      const back = new Map((t.user_ids ?? []).map((u, i) => [u, String(rawIds[i])]));
+      chunks[0].not_found = (chunks[0].not_found as string[]).map((u) => back.get(u) ?? u);
+    }
+    for (const c of chunks) {
+      if (!this.connections.has(conn)) return;
+      await this.dispatchTo(conn, 'GUILD_MEMBERS_CHUNK', c);
+    }
+  }
+
+  private async requestSoundboardSounds(conn: Conn, d: Record<string, unknown>) {
+    const ids = Array.isArray(d.guild_ids) ? d.guild_ids.map(String) : [];
+    const { translateInbound } = await import('@/lib/botapi/boundary');
+    const res = await translateInbound({ body: { guild_ids: ids } });
+    const translated = ((res.body ?? { guild_ids: ids }) as { guild_ids: string[] }).guild_ids;
+    for (const g of translated) {
+      const known = [...conn.data.guildIds].find((x) => x.toLowerCase() === g.toLowerCase());
+      if (known) await this.dispatchTo(conn, 'SOUNDBOARD_SOUNDS', { guild_id: known, soundboard_sounds: [] });
+    }
+  }
+
+  // ─── Fan-out ─────────────────────────────────────────────
 
   /**
    * Fan a dispatch out to the bot sessions allowed to see it (rules in
    * ./routing.ts): targeted dispatches reach only their bot, guild events only
    * bots in that guild (and, for channel events, only bots the emitter listed
    * in `audience`), DM events only the DM's recipients (default-deny). Message
-   * payloads are blanked for bots without MESSAGE_CONTENT.
+   * payloads are blanked for bots without MESSAGE_CONTENT. Detached sessions
+   * buffer the dispatch for RESUME. Dispatches are processed in publish order.
    */
-  routeDispatch(dispatch: GatewayDispatch) {
-    for (const conn of this.connections) {
-      if (!conn.data.authenticated || !conn.data.botId) continue;
-      const decision = routeDecision(conn.data, dispatch);
-      if (decision.addGuildId) conn.data.guildIds.add(decision.addGuildId);
-      if (decision.addDmChannelId) conn.data.dmChannelIds.add(decision.addDmChannelId);
+  routeDispatch(dispatch: GatewayDispatch): Promise<void> {
+    this.queue = this.queue
+      .then(() => this.processDispatch(dispatch))
+      .catch((err) => console.error('Gateway: dispatch failed', (err as Error)?.message ?? err));
+    return this.queue;
+  }
+
+  private async processDispatch(dispatch: GatewayDispatch) {
+    const now = Date.now();
+    const targets: Array<{ session: Session; conn: Conn | null; joined?: string }> = [];
+    const consider = (session: Session, conn: Conn | null) => {
+      if (!session.authenticated || !session.botId) return;
+      const decision = routeDecision(session, dispatch);
+      if (decision.addDmChannelId) session.dmChannelIds.add(decision.addDmChannelId);
       if (decision.removeGuildId) {
         const gone = decision.removeGuildId.toLowerCase();
-        for (const id of conn.data.guildIds) if (id.toLowerCase() === gone) conn.data.guildIds.delete(id);
+        for (const id of session.guildIds) if (id.toLowerCase() === gone) session.guildIds.delete(id);
       }
-      if (!decision.deliver) continue;
-      const d = messagePayloadFor(dispatch.t, dispatch.d, conn.data.botId, conn.data.intents);
-      this.send(conn, OP.DISPATCH, d, { t: dispatch.t, s: ++conn.data.seq });
+      if (!decision.deliver) return;
+      targets.push({ session, conn, joined: decision.addGuildId });
+    };
+    for (const conn of this.connections) consider(conn.data, conn);
+    for (const [id, entry] of this.detached) {
+      if (entry.expiresAt < now) { this.detached.delete(id); continue; }
+      consider(entry.session, null);
+    }
+    if (targets.length === 0) return;
+
+    // A guild the bot just joined belongs to one shard only.
+    for (const target of targets) {
+      if (!target.joined) continue;
+      if (await this.guildInShard(target.session, target.joined)) target.session.guildIds.add(target.joined);
+      else target.joined = '!skip';
+    }
+
+    let lookup: OutboundLookup | null = null;
+    if (targets.some((x) => x.session.idFormat === 'snowflake')) {
+      const { resolveOutbound } = await import('@/lib/botapi/boundary');
+      lookup = await resolveOutbound(dispatch.d);
+    }
+    const { rewriteOutbound } = await import('@/lib/botapi/idTranslate');
+    const cache = new Map<unknown, { uuid?: string; sf?: string }>();
+    for (const { session, conn, joined } of targets) {
+      if (joined === '!skip') continue;
+      const variant = messagePayloadFor(dispatch.t, dispatch.d, session.botId!, session.intents);
+      const snowflake = session.idFormat === 'snowflake' && lookup;
+      const entry = cache.get(variant) ?? {};
+      if (!session.ready) {
+        session.pending.push({ t: dispatch.t, d: snowflake ? rewriteOutbound(variant, lookup!) : variant });
+        continue;
+      }
+      let json: string;
+      if (snowflake) json = entry.sf ??= JSON.stringify(rewriteOutbound(variant, lookup!));
+      else json = entry.uuid ??= JSON.stringify(variant);
+      cache.set(variant, entry);
+      this.emit(session, conn, dispatch.t, json);
     }
   }
 }
@@ -348,7 +648,7 @@ export async function subscribeHubToRedis(hub: GatewayHub): Promise<() => void> 
   await sub.subscribe(GATEWAY_CHANNEL);
   sub.on('message', (_ch: string, payload: string) => {
     try {
-      hub.routeDispatch(JSON.parse(payload) as GatewayDispatch);
+      void hub.routeDispatch(JSON.parse(payload) as GatewayDispatch);
     } catch (err) {
       console.error('Gateway: bad dispatch payload', err);
     }

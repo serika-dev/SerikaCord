@@ -128,6 +128,16 @@ function redisSetMany(entries: Array<[string, string]>) {
 }
 
 type Row = Record<string, unknown>;
+
+/**
+ * A Postgres array literal for one bound parameter (drizzle expands a JS array
+ * in a sql template into a row of params). Only uuids / digits / small ints
+ * ever reach here; anything else is dropped.
+ */
+function pgArray(values: Array<string | number>): string {
+  const safe = values.map(String).filter((v) => /^[0-9a-fA-F-]{1,36}$/.test(v));
+  return `{${safe.join(',')}}`;
+}
 const rowsOf = (r: unknown): Row[] => ((r as { rows?: Row[] })?.rows ?? (Array.isArray(r) ? (r as Row[]) : []));
 
 // ─── UUID -> snowflake ────────────────────────────────────────────────────────
@@ -179,7 +189,7 @@ export async function snowflakesForUuids(
 
   // 3. Postgres mapping table.
   try {
-    const found = rowsOf(await db.execute(sql`SELECT snowflake::text AS sf, uuid::text AS uuid, kind FROM api_snowflakes WHERE uuid = ANY(${missing}::uuid[])`));
+    const found = rowsOf(await db.execute(sql`SELECT snowflake::text AS sf, uuid::text AS uuid, kind FROM api_snowflakes WHERE uuid = ANY(${pgArray(missing)}::uuid[])`));
     const toRedis: Array<[string, string]> = [];
     for (const r of found) {
       const u = lower(String(r.uuid)); const sf = String(r.sf);
@@ -237,7 +247,8 @@ async function originsOf(uuids: string[], hints?: Map<string, { ts: number; kind
   const take = (rows: Row[]) => {
     for (const r of rows) {
       const u = lower(String(r.id));
-      const created = r.created_at ? new Date(r.created_at as string).getTime() : NaN;
+      // timestamp columns hold UTC without a zone: read epoch ms from SQL, not a JS Date.
+      const created = r.created_ms ? Number(r.created_ms) : NaN;
       const prev = out.get(u);
       out.set(u, {
         ts: prev?.ts ?? (Number.isFinite(created) ? created : Date.now()),
@@ -251,17 +262,17 @@ async function originsOf(uuids: string[], hints?: Map<string, { ts: number; kind
   try {
     // Tables that always exist (created by the generated migrations).
     take(rowsOf(await db.execute(sql`
-      SELECT id::text AS id, created_at, 1 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM users WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 2, NULL, NULL, false FROM servers WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 3, NULL, NULL, false FROM channels WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 4, NULL, NULL, false FROM messages WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 5, NULL, server_id, is_default FROM roles WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 6, NULL, NULL, false FROM server_emojis WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 7, NULL, NULL, false FROM server_stickers WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 8, NULL, NULL, false FROM channel_webhooks WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 9, client_id, NULL, false FROM applications WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 10, NULL, NULL, false FROM app_commands WHERE id = ANY(${need}::uuid[])
-      UNION ALL SELECT id::text, created_at, 6, NULL, NULL, false FROM app_emojis WHERE id = ANY(${need}::uuid[])
+      SELECT id::text AS id, (extract(epoch FROM created_at) * 1000)::bigint::text AS created_ms, 1 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM users WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 2, NULL, NULL, false FROM servers WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 3, NULL, NULL, false FROM channels WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 4, NULL, NULL, false FROM messages WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 5, NULL, server_id, is_default FROM roles WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 6, NULL, NULL, false FROM server_emojis WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 7, NULL, NULL, false FROM server_stickers WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 8, NULL, NULL, false FROM channel_webhooks WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 9, client_id, NULL, false FROM applications WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 10, NULL, NULL, false FROM app_commands WHERE id = ANY(${pgArray(need)}::uuid[])
+      UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 6, NULL, NULL, false FROM app_emojis WHERE id = ANY(${pgArray(need)}::uuid[])
     `)));
   } catch (err) {
     console.error('[snowflakes] origin lookup failed:', (err as Error)?.message ?? err);
@@ -271,9 +282,9 @@ async function originsOf(uuids: string[], hints?: Map<string, { ts: number; kind
     // Tables created at boot by ensure* functions; tolerate their absence.
     try {
       take(rowsOf(await db.execute(sql`
-        SELECT id::text AS id, created_at, 13 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM server_scheduled_events WHERE id = ANY(${rest}::uuid[])
-        UNION ALL SELECT id::text, created_at, 14, NULL, NULL, false FROM automod_rules WHERE id = ANY(${rest}::uuid[])
-        UNION ALL SELECT id::text, created_at, 15, NULL, NULL, false FROM server_audit_logs WHERE id = ANY(${rest}::uuid[])
+        SELECT id::text AS id, (extract(epoch FROM created_at) * 1000)::bigint::text AS created_ms, 13 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM server_scheduled_events WHERE id = ANY(${pgArray(rest)}::uuid[])
+        UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 14, NULL, NULL, false FROM automod_rules WHERE id = ANY(${pgArray(rest)}::uuid[])
+        UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 15, NULL, NULL, false FROM server_audit_logs WHERE id = ANY(${pgArray(rest)}::uuid[])
       `)));
     } catch { /* optional tables */ }
   }
@@ -300,11 +311,11 @@ async function mint(uuids: string[], origins: Map<string, Origin>): Promise<Map<
     try {
       await db.execute(sql`
         INSERT INTO api_snowflakes (snowflake, kind, uuid)
-        SELECT * FROM unnest(${sfs}::bigint[], ${kinds}::smallint[], ${pending}::uuid[])
+        SELECT * FROM unnest(${pgArray(sfs)}::bigint[], ${pgArray(kinds)}::smallint[], ${pgArray(pending)}::uuid[])
         ON CONFLICT DO NOTHING
       `);
       // Whatever row now exists for each uuid wins (ours, or a concurrent writer's).
-      const rows = rowsOf(await db.execute(sql`SELECT snowflake::text AS sf, uuid::text AS uuid, kind FROM api_snowflakes WHERE uuid = ANY(${pending}::uuid[])`));
+      const rows = rowsOf(await db.execute(sql`SELECT snowflake::text AS sf, uuid::text AS uuid, kind FROM api_snowflakes WHERE uuid = ANY(${pgArray(pending)}::uuid[])`));
       const toRedis: Array<[string, string]> = [];
       for (const r of rows) {
         const u = lower(String(r.uuid)); const sf = String(r.sf); const kind = Number(r.kind) || 0;
@@ -349,7 +360,7 @@ export async function uuidsForSnowflakes(sfsIn: Iterable<string>): Promise<Resol
   missing = still;
   if (missing.length === 0) return { map };
   try {
-    const rows = rowsOf(await db.execute(sql`SELECT snowflake::text AS sf, uuid::text AS uuid, kind FROM api_snowflakes WHERE snowflake = ANY(${missing}::bigint[])`));
+    const rows = rowsOf(await db.execute(sql`SELECT snowflake::text AS sf, uuid::text AS uuid, kind FROM api_snowflakes WHERE snowflake = ANY(${pgArray(missing)}::bigint[])`));
     const toRedis: Array<[string, string]> = [];
     for (const r of rows) {
       const sf = String(r.sf); const u = lower(String(r.uuid)); const kind = Number(r.kind) || 0;
