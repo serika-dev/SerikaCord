@@ -153,6 +153,12 @@ export class GatewayHub {
   /** Dispatches are processed one at a time, so every bot sees them in publish order. */
   private queue: Promise<void> = Promise.resolve();
   private shuttingDown = false;
+  /** Write bot presence to the users table (off in unit tests: no DB). */
+  private readonly persistPresence: boolean;
+
+  constructor(opts?: { persistPresence?: boolean }) {
+    this.persistPresence = opts?.persistPresence ?? true;
+  }
 
   // ─── Frames ──────────────────────────────────────────────
 
@@ -174,7 +180,7 @@ export class GatewayHub {
   /** Send (or, for a detached session, only buffer) one dispatch with the next seq. */
   private emit(session: Session, conn: Conn | null, t: string, dJson: string) {
     const s = ++session.seq;
-    const text = `{"op":0,"d":${dJson},"s":${s},"t":${JSON.stringify(t)}}`;
+    const text = `{"op":${OP.DISPATCH},"d":${dJson},"s":${s},"t":${JSON.stringify(t)}}`;
     pushReplay(session.replay, s, text);
     if (conn) this.write(conn, text);
   }
@@ -218,36 +224,41 @@ export class GatewayHub {
       return;
     }
     const op = frame.op;
-    if (op === OP.HEARTBEAT) {
-      conn.data.lastHeartbeat = Date.now();
-      this.send(conn, OP.HEARTBEAT_ACK, null);
-      gwlog(conn.data.sessionId.slice(0, 8), 'heartbeat', conn.data.botId ?? '(unauth)');
-      // Keep the bot's presence fresh so it doesn't go stale/offline.
-      if (conn.data.botId) void this.setBotPresence(conn.data.botId, true, conn.data.presence?.status);
-      return;
+    switch (op) {
+      case OP.HEARTBEAT:
+        conn.data.lastHeartbeat = Date.now();
+        this.send(conn, OP.HEARTBEAT_ACK, null);
+        gwlog(conn.data.sessionId.slice(0, 8), 'heartbeat', conn.data.botId ?? '(unauth)');
+        // Keep the bot's presence fresh so it doesn't go stale/offline.
+        if (conn.data.botId) void this.setBotPresence(conn.data.botId, true, conn.data.presence?.status);
+        return;
+      case OP.IDENTIFY:
+        if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
+        try {
+          await this.identify(conn, frame.d);
+        } catch (err) {
+          console.error('Gateway: identify failed', err);
+          conn.close(CLOSE.UNKNOWN_ERROR, 'Unknown error');
+        }
+        return;
+      case OP.RESUME:
+        if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
+        try {
+          await this.resume(conn, (frame.d ?? {}) as Record<string, unknown>);
+        } catch (err) {
+          console.error('Gateway: resume failed', err);
+          conn.close(CLOSE.UNKNOWN_ERROR, 'Unknown error');
+        }
+        return;
+      case OP.PRESENCE_UPDATE:
+      case OP.VOICE_STATE_UPDATE:
+      case OP.REQUEST_GUILD_MEMBERS:
+      case OP.REQUEST_SOUNDBOARD_SOUNDS:
+        break;
+      default:
+        conn.close(CLOSE.UNKNOWN_OPCODE, 'Unknown opcode.');
+        return;
     }
-    if (op === OP.IDENTIFY) {
-      if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
-      try {
-        await this.identify(conn, frame.d);
-      } catch (err) {
-        console.error('Gateway: identify failed', err);
-        conn.close(CLOSE.UNKNOWN_ERROR, 'Unknown error');
-      }
-      return;
-    }
-    if (op === OP.RESUME) {
-      if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
-      try {
-        await this.resume(conn, (frame.d ?? {}) as Record<string, unknown>);
-      } catch (err) {
-        console.error('Gateway: resume failed', err);
-        conn.close(CLOSE.UNKNOWN_ERROR, 'Unknown error');
-      }
-      return;
-    }
-    const known = op === OP.PRESENCE_UPDATE || op === OP.VOICE_STATE_UPDATE || op === OP.REQUEST_GUILD_MEMBERS || op === OP.REQUEST_SOUNDBOARD_SOUNDS;
-    if (!known) { conn.close(CLOSE.UNKNOWN_OPCODE, 'Unknown opcode.'); return; }
     if (!conn.data.authenticated) { conn.close(CLOSE.NOT_AUTHENTICATED, 'Not authenticated.'); return; }
     try {
       if (op === OP.PRESENCE_UPDATE) this.updatePresence(conn, frame.d);
@@ -310,6 +321,7 @@ export class GatewayHub {
    * presenceLastHeartbeatAt is fresh). Refreshed on every heartbeat. Best-effort.
    */
   private async setBotPresence(botId: string, online: boolean, status?: string | null) {
+    if (!this.persistPresence) return;
     try {
       const s = presenceStatus(status) ?? 'online';
       await User.updateById(

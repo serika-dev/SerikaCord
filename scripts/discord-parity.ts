@@ -668,7 +668,7 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'POST /channels/{channel_id}/typing': ['no-op: nothing is shown to users and no TYPING_START'],
   'PATCH /channels/{channel_id}': ['only name/topic/nsfw/rate_limit_per_user; position, parent_id, permission_overwrites, bitrate, user_limit, flags, tags ignored', 'no CHANNEL_UPDATE / client refresh'],
   'DELETE /channels/{channel_id}': ['no CHANNEL_DELETE / client refresh; threads + messages not cascaded through the shared deletion service'],
-  'GET /channels/{channel_id}': ['permission_overwrites, last_message_id, flags missing; DM recipients are bare ids'],
+  'GET /channels/{channel_id}': ['DM recipients are bare ids'],
   'POST /guilds/{guild_id}/channels': ['permission_overwrites ignored; no CHANNEL_CREATE / client refresh'],
   'GET /guilds/{guild_id}': ['with_counts ignored; many GuildResponse fields missing (see Objects)'],
   'PATCH /guilds/{guild_id}': ['icon/banner stored as given (no image data URI handling); no GUILD_UPDATE'],
@@ -682,7 +682,6 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'PATCH /guilds/{guild_id}/roles/{role_id}': ['no GUILD_ROLE_UPDATE / client refresh'],
   'DELETE /guilds/{guild_id}/roles/{role_id}': ['no GUILD_ROLE_DELETE / client refresh'],
   'GET /guilds/{guild_id}/audit-logs': ['users/webhooks/threads arrays always empty; before/after ignored'],
-  'GET /users/@me': ['ids are UUIDs, not snowflakes (discord.py/JDA/Serenity cannot parse them)'],
   'GET /gateway/bot': ['always 1 shard; session_start_limit is static'],
   'POST /interactions/{interaction_id}/{interaction_token}/callback': [
     'only type 4 (CHANNEL_MESSAGE_WITH_SOURCE) content/embeds is applied; 5/6/7/8/9/10/12 are accepted and dropped',
@@ -707,13 +706,11 @@ const KNOWN_GAPS: Record<string, string[]> = {
 
 /** Events that are emitted, but only from some of the places that should emit them. */
 const EVENT_GAPS: Record<string, string> = {
-  GUILD_CREATE: 'only when the bot is installed via OAuth2; never after READY, so READY guilds stay unavailable',
   GUILD_MEMBER_ADD: 'only for the bot itself on install; human joins do not emit',
   MESSAGE_CREATE: 'guild messages + bot/system/poll/forward messages; human DM messages and webhook messages never emit',
   MESSAGE_DELETE: 'only when staff remove a reported message; user/bot/moderator deletes do not emit',
   INTERACTION_CREATE: 'only APPLICATION_COMMAND parsed from typed "/name args" text, only for apps without an HTTP endpoint',
-  READY: 'guilds are all unavailable and never followed by GUILD_CREATE; no shard field',
-  RESUMED: 'sent after a fresh re-identify; nothing is replayed and seq restarts',
+  RESUMED: 'replay buffer is per process: a RESUME that lands on another instance (or after a restart) gets op 9',
 };
 
 /** Regex probes for protocol-level behaviour. `invert` = the regex matches the *broken* pattern. */
@@ -728,7 +725,7 @@ const FEATURES: Feature[] = [
   { id: 'auth.bearer', wp: 'WP6', title: 'OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections)', files: BOTAPI, re: /['"`]Bearer /i },
   { id: 'perm.overwrites', wp: 'WP0', title: 'Channel permission overwrites applied to bot actions (reuse computeChannelPermissions from src/lib/permissions/channelOverwrites.ts)', files: BOTAPI, re: /computeChannelPermissions|applyChannelOverwrites|getMemberChannelPermissions/ },
   { id: 'cdn.compat', wp: 'WP6', title: 'Discord CDN path compatibility (/avatars/{user_id}/{hash}.png, /icons/, /emojis/{id}.png, /embed/avatars/)', files: [...BOTAPI, 'server.ts', 'src/lib/api/index.ts'], re: /['"`]\/(avatars|icons|emojis|embed\/avatars)\// },
-  { id: 'gw.guild_create', wp: 'WP1', title: 'GUILD_CREATE sent for every guild after READY', files: GW, re: /t:\s*['"]GUILD_CREATE['"]/ },
+  { id: 'gw.guild_create', wp: 'WP1', title: 'GUILD_CREATE sent for every guild after READY', files: GW, re: /t:\s*['"]GUILD_CREATE['"]|dispatchTo\(conn,\s*'GUILD_CREATE'/ },
   { id: 'gw.zlib', wp: 'WP1', title: 'compress=zlib-stream transport compression', files: GW, re: /zlib-stream|createDeflate|deflateRaw|Deflate\(/ },
   { id: 'gw.zstd', wp: 'WP1', title: 'compress=zstd-stream transport compression', files: GW, re: /zstd/i },
   { id: 'gw.etf', wp: 'WP1', title: 'encoding=etf (Erlang term format)', files: GW, re: /erlpack|encoding\s*===?\s*['"]etf/i },
@@ -935,9 +932,13 @@ function analyze(cache: Cache) {
   });
 
   const closeUsed = new Set<number>();
+  // Named close codes: `CLOSE = { NAME: 4001, ... }` in src/lib/gateway/session.ts.
+  const closeNames = new Map([...(/export const CLOSE = \{([\s\S]*?)\}/.exec(read('src/lib/gateway/session.ts') ?? '')?.[1] ?? '').matchAll(/(\w+):\s*(4\d{3})/g)].map((m) => [m[1], Number(m[2])]));
   for (const { f, src } of gwSrc) {
     if (!/gateway|server\.ts/.test(f)) continue;
     for (const m of src.matchAll(/close\(\s*(4\d{3})/g)) closeUsed.add(Number(m[1]));
+    for (const m of src.matchAll(/(?:close\(|close:)\s*CLOSE\.(\w+)/g)) { const c = closeNames.get(m[1]); if (c) closeUsed.add(c); }
+    for (const m of src.matchAll(/close\(\s*(CLOSE_DISALLOWED_INTENTS)/g)) if (m[1]) closeUsed.add(4014);
   }
   const closeCodes = cache.gateway.closeCodes.map((c) => ({ ...c, used: closeUsed.has(c.code) }));
 
@@ -945,21 +946,48 @@ function analyze(cache: Cache) {
   const intents = cache.gateway.intents.map((i) => ({ ...i, definedInSerika: serikaIntents.get(i.name) === i.bit }));
 
   // READY / IDENTIFY / GUILD_CREATE shapes.
-  const readyIdx = coreSrc.search(/t:\s*'READY'/);
+  // READY: `this.dispatchTo(conn, 'READY', { ... })` (older code: `OP.DISPATCH, { ... }, { t: 'READY' }`).
   let readyKeys: string[] = [];
-  if (readyIdx > 0) {
+  const readyCall = coreSrc.search(/'READY',\s*\{/);
+  const readyIdx = coreSrc.search(/t:\s*'READY'/);
+  if (readyCall > 0) {
+    const open = coreSrc.indexOf('{', readyCall);
+    readyKeys = objectKeys(coreSrc.slice(open, matchBrace(coreSrc, open) + 1));
+  } else if (readyIdx > 0) {
     const open = coreSrc.lastIndexOf('OP.DISPATCH, {', readyIdx) + 'OP.DISPATCH, '.length;
     readyKeys = objectKeys(coreSrc.slice(open, matchBrace(coreSrc, open) + 1));
   }
-  const identifyRead = [...new Set([...coreSrc.matchAll(/\bd\?\.(\w+)/g)].map((m) => m[1]))];
-  const devSrc = stripComments(read('src/lib/api/developers.ts'));
-  const gcIdx = devSrc.indexOf('guildCreatePayload = {');
-  const guildCreateKeys = gcIdx > 0 ? objectKeys(devSrc.slice(devSrc.indexOf('{', gcIdx), matchBrace(devSrc, devSrc.indexOf('{', gcIdx)) + 1)) : [];
+  // IDENTIFY fields: `d?.x` in core.ts or `p.x` in parseIdentify (session.ts).
+  const sessionSrc = stripComments(read('src/lib/gateway/session.ts') ?? '');
+  const parseIdx = sessionSrc.indexOf('export function parseIdentify');
+  const parseOpen = parseIdx >= 0 ? sessionSrc.indexOf('{\n', parseIdx) : -1;
+  const parseBody = parseOpen >= 0 ? sessionSrc.slice(parseOpen, matchBrace(sessionSrc, parseOpen) + 1) : '';
+  const identifyRead = [...new Set([...coreSrc.matchAll(/\bd\?\.(\w+)/g), ...parseBody.matchAll(/\bp\.(\w+)/g)].map((m) => m[1]))];
+  // GUILD_CREATE: the object buildGuildCreate returns (src/lib/gateway/guildPayload.ts).
+  const gpSrc = stripComments(read('src/lib/gateway/guildPayload.ts') ?? '');
+  const gpFn = gpSrc.indexOf('export async function buildGuildCreate');
+  const gpRet = gpFn >= 0 ? gpSrc.indexOf('return {', gpFn) : -1;
+  let guildCreateKeys: string[] = [];
+  if (gpRet > 0) {
+    const open = gpSrc.indexOf('{', gpRet);
+    guildCreateKeys = objectKeys(gpSrc.slice(open, matchBrace(gpSrc, open) + 1));
+    // `...toDiscordGuildBase(server)` spreads the top-level guild fields.
+    const evAll = stripComments(read('src/lib/services/gatewayEvents.ts') ?? '');
+    const baseIdx = evAll.indexOf('export function toDiscordGuildBase');
+    if (baseIdx >= 0) {
+      const bOpen = evAll.indexOf('return {', baseIdx) + 'return '.length;
+      guildCreateKeys = [...new Set([...guildCreateKeys, ...objectKeys(evAll.slice(bOpen, matchBrace(evAll, bOpen) + 1))])];
+    }
+  } else {
+    const devSrc = stripComments(read('src/lib/api/developers.ts'));
+    const gcIdx = devSrc.indexOf('guildCreatePayload = {');
+    guildCreateKeys = gcIdx > 0 ? objectKeys(devSrc.slice(devSrc.indexOf('{', gcIdx), matchBrace(devSrc, devSrc.indexOf('{', gcIdx)) + 1)) : [];
+  }
   const st = cache.gateway.structures;
   const shapes = [
     shape('READY payload', 'src/lib/gateway/core.ts', readyKeys, st['Ready Event Fields'] ?? []),
     shape('IDENTIFY fields read', 'src/lib/gateway/core.ts', identifyRead, st['Identify Structure'] ?? []),
-    shape('GUILD_CREATE (bot install)', 'src/lib/api/developers.ts', guildCreateKeys, [...(cache.objects.GuildResponse ?? []), ...(st['Guild Create Extra Fields'] ?? [])]),
+    shape('GUILD_CREATE (after READY + on install)', 'src/lib/gateway/guildPayload.ts', guildCreateKeys, [...(cache.objects.GuildResponse ?? []), ...(st['Guild Create Extra Fields'] ?? [])]),
   ];
 
   // ── Objects ──
