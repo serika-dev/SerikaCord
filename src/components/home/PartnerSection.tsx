@@ -13,8 +13,14 @@ interface PartnerServer {
   icon: string | null;
   description: string | null;
   memberCount: number;
+  onlineCount?: number;
   vanityUrlCode: string | null;
+  /** serika.cc join code: the vanity URL or a permanent homepage invite. */
+  joinCode?: string | null;
 }
+
+/** At most this many partners on the homepage. */
+const MAX_PARTNERS = 12;
 
 function ServerAvatar({ name, icon }: { name: string; icon: string | null }) {
   if (icon) {
@@ -45,7 +51,7 @@ export function PartnerSection() {
   useEffect(() => {
     fetch("/api/servers/partnered")
       .then((r) => r.json())
-      .then((data) => setServers(data.servers ?? []))
+      .then((data) => setServers((data.servers ?? []).slice(0, MAX_PARTNERS)))
       .catch(() => setServers([]))
       .finally(() => setLoading(false));
   }, []);
@@ -69,8 +75,10 @@ export function PartnerSection() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {servers.map((server) => {
-              const href = server.vanityUrlCode
-                ? `https://serika.cc/${server.vanityUrlCode}`
+              // serika.cc/<code>?join=1 joins in one step once signed in.
+              const code = server.joinCode || server.vanityUrlCode;
+              const href = code
+                ? `https://serika.cc/${encodeURIComponent(code)}?join=1`
                 : `/channels/${server.id}`;
               return (
                 <Link
@@ -92,9 +100,22 @@ export function PartnerSection() {
                         {server.description}
                       </p>
                     )}
-                    <div className="flex items-center gap-1 text-xs text-[#444]">
-                      <Users className="w-3 h-3" />
-                      <span>{server.memberCount.toLocaleString()} {gt("members")}</span>
+                    <div className="flex items-center gap-3 text-xs text-[#444]">
+                      {typeof server.onlineCount === "number" && server.onlineCount > 0 && (
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden />
+                          {gt("{count} online", { count: server.onlineCount.toLocaleString() })}
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3 h-3" />
+                        {gt("{count} members", { count: server.memberCount.toLocaleString() })}
+                      </span>
+                      {code && (
+                        <span className="ml-auto px-2.5 py-1 rounded-lg bg-[#8B5CF6]/15 text-[#a78bfa] font-semibold group-hover:bg-[#8B5CF6] group-hover:text-white transition-colors">
+                          {gt("Join")}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>

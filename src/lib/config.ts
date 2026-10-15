@@ -26,6 +26,12 @@ export const config = {
   // key as raw JSON or base64-encoded JSON. Unset = pushes are skipped.
   FCM_SERVICE_ACCOUNT_JSON: process.env.FCM_SERVICE_ACCOUNT_JSON || '',
 
+  // PhotoDNA Cloud Service (CSAM hash matching on image uploads). The
+  // secondary key is used when the primary is rejected or rate limited.
+  // Unset = PhotoDNA scanning is skipped (scam-image hashes still run).
+  PHOTODNA_KEY: process.env.PHOTODNA_KEY || '',
+  PHOTODNA_KEY_SECONDARY: process.env.PHOTODNA_KEY_SECONDARY || '',
+
   // Public frontend base URL (used for OAuth redirects back to the UI)
   FRONTEND_URL: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || '',
   

@@ -146,16 +146,23 @@ function emitToUsers(userIds: string[], payload: Record<string, unknown>) {
 const MEMBER_CACHE_TTL_MS = 30_000;
 const memberCache = processShared(
   'activityMemberCache',
-  () => new BoundedMap<string, { ids: Set<string>; expires: number }>(500),
+  () => new BoundedMap<string, { ids: Set<string>; pending: Set<string>; expires: number }>(500),
 );
 
-async function getServerMemberIds(serverId: string): Promise<Set<string>> {
+async function getServerMemberEntry(serverId: string): Promise<{ ids: Set<string>; pending: Set<string> }> {
   const cached = memberCache.get(serverId);
-  if (cached && cached.expires > Date.now()) return cached.ids;
+  if (cached && cached.expires > Date.now() && cached.pending) return cached;
   const members = await ServerMember.find({ serverId });
   const ids = new Set<string>(members.map((m: { userId: string }) => m.userId));
-  memberCache.set(serverId, { ids, expires: Date.now() + MEMBER_CACHE_TTL_MS });
-  return ids;
+  // Members still in rules screening: the server may hide channels from them.
+  const pending = new Set<string>(members.filter((m: { pending?: boolean | null }) => m.pending).map((m: { userId: string }) => m.userId));
+  const entry = { ids, pending, expires: Date.now() + MEMBER_CACHE_TTL_MS };
+  memberCache.set(serverId, entry);
+  return entry;
+}
+
+async function getServerMemberIds(serverId: string): Promise<Set<string>> {
+  return (await getServerMemberEntry(serverId)).ids;
 }
 
 /**
@@ -199,7 +206,7 @@ function hasOverwrites(value: unknown): boolean {
 async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
   const connectedUserIds = [...activeActivityConnections.keys()];
   if (connectedUserIds.length === 0 || !payload.serverId) return;
-  const memberIds = await getServerMemberIds(payload.serverId);
+  const { ids: memberIds, pending: pendingIds } = await getServerMemberEntry(payload.serverId);
   let recipients = connectedUserIds.filter(
     (id) => id !== payload.authorId && memberIds.has(id),
   );
@@ -222,10 +229,15 @@ async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
     const parent = await Channel.findById(channel.parentId).catch(() => null);
     restricted = !parent || hasOverwrites(parent.permissionOverwrites);
   }
-  if (restricted) {
+  // Members waiting in rules screening may have channels hidden from them
+  // (restrictChannels): check those few individually even on open channels.
+  const needsCheck = (id: string) => restricted || pendingIds.has(id);
+  if (recipients.some(needsCheck)) {
     const { checkChannelAccess } = await import('@/lib/api/channels');
     const allowed = await Promise.all(
-      recipients.map((id) => checkChannelAccess(id, payload.channelId).then((r) => r.hasAccess).catch(() => false)),
+      recipients.map((id) => (needsCheck(id)
+        ? checkChannelAccess(id, payload.channelId).then((r) => r.hasAccess).catch(() => false)
+        : Promise.resolve(true))),
     );
     recipients = recipients.filter((_, i) => allowed[i]);
   }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { toast } from "sonner";
+import { isAccountRestricted, openAccountStanding } from "@/components/safety/openAccountStanding";
 import { sharedGet } from "@/lib/bootFetch";
 import { useGT } from "gt-next";
 import type { MessageBarHandle } from "@/components/chat/MessageBar";
@@ -32,6 +33,17 @@ import {
 
 export { clearMessageCache, hasCachedMessages };
 import type { VoiceMessageAttachment } from "@/lib/chat/voiceMessage";
+import {
+  attachmentViewOf,
+  buildEncryptedEditBody,
+  buildEncryptedSendBody,
+  conversationMetaOf,
+  decryptIfNeeded,
+  hasEnvelope,
+  type ConversationMeta,
+  type EncryptedAttachmentUpload,
+} from "@/lib/e2ee/client/chatGlue";
+import { loadE2eeSession, openE2eeDialog } from "@/lib/e2ee/client/state";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -76,7 +88,7 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
       const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
       if (!response.ok) return;
       const data = await response.json();
-      const raw = Array.isArray(data) ? data : data.messages || [];
+      const raw = await decryptIfNeeded(Array.isArray(data) ? data : data.messages || [], conversationMetaOf(data)?.channelId);
       const seen = new Set<string>();
       const deduped: ChatMessage[] = [];
       for (const item of raw) {
@@ -136,6 +148,12 @@ interface UseChatSessionOptions<M extends ChatMessage> {
   onOtherEvent?: (event: ChatStreamEvent) => void;
   /** Called right after a send/receive that should scroll to bottom. */
   onShouldScrollToBottom?: () => void;
+  /**
+   * DMs and group DMs: end-to-end encryption aware (decrypt envelopes, and
+   * encrypt sends / edits when the conversation is encrypted). Off for
+   * server channels.
+   */
+  encryptedChat?: boolean;
 }
 
 /**
@@ -154,9 +172,39 @@ export function useChatSession<M extends ChatMessage>({
   onIncomingMessage,
   onOtherEvent,
   onShouldScrollToBottom,
+  encryptedChat = false,
 }: UseChatSessionOptions<M>) {
   const gt = useGT();
   const [messages, setMessages] = useState<M[]>([]);
+  // DM / group DM facts from the message endpoints (channel id, E2EE state).
+  const [conversation, setConversation] = useState<ConversationMeta | null>(null);
+  const conversationRef = useRef<ConversationMeta | null>(null);
+  useEffect(() => { conversationRef.current = conversation; }, [conversation]);
+  // Conversations this device has seen encrypted stay encrypted locally (the
+  // server can't downgrade them); checked lazily.
+  const [rememberedEncrypted, setRememberedEncrypted] = useState<string | null>(null);
+  const e2eeActive = encryptedChat && Boolean(
+    conversation?.e2ee || (conversation?.channelId && rememberedEncrypted === conversation.channelId),
+  );
+  const e2eeActiveRef = useRef(e2eeActive);
+  useEffect(() => { e2eeActiveRef.current = e2eeActive; }, [e2eeActive]);
+  useEffect(() => {
+    const channelId = conversation?.channelId;
+    if (!encryptedChat || !channelId) return;
+    let cancelled = false;
+    void loadE2eeSession().then((session) => {
+      if (cancelled) return;
+      if (conversation?.e2ee) void session.rememberEncryptedChannel(channelId);
+      else if (session.isRememberedEncrypted(channelId)) setRememberedEncrypted(channelId);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [encryptedChat, conversation?.channelId, conversation?.e2ee]);
+  /** Decrypt the envelopes of a raw page (DMs only; no-op otherwise). */
+  const decodeRaw = useCallback(
+    (raw: RawMessagePayload[], data?: unknown): Promise<RawMessagePayload[]> =>
+      encryptedChat ? decryptIfNeeded(raw, conversationMetaOf(data)?.channelId ?? conversationRef.current?.channelId) : Promise.resolve(raw),
+    [encryptedChat],
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isSending, setIsSending] = useState(false);
   // Sends are queued, not dropped: each Enter clears the composer and shows its
@@ -213,6 +261,7 @@ export function useChatSession<M extends ChatMessage>({
     activeFetchContextRef.current = apiBase;
     fetchedUnknownAuthorsRef.current.clear();
     setPinnedMessages([]);
+    setConversation(null);
     setIsLoadingMore(false);
     // A fresh context always opens anchored to the live tail.
     setHasMoreNewer(false);
@@ -252,14 +301,23 @@ export function useChatSession<M extends ChatMessage>({
       const response = await fetch(`${apiBase}/pins?limit=50`);
       if (response.ok) {
         const data = await response.json();
-        setPinnedMessages(((data.messages || []) as M[]).map((m) => normalizeIncomingMessage<M>(m)));
+        const raw = await decodeRaw(data.messages || []);
+        setPinnedMessages((raw as M[]).map((m) => normalizeIncomingMessage<M>(m)));
       }
     } catch {
       // best-effort UI
     } finally {
       setIsLoadingPins(false);
     }
-  }, [apiBase]);
+  }, [apiBase, decodeRaw]);
+
+  const buildEditBody = useMemo(
+    () =>
+      e2eeActive && conversation?.channelId
+        ? (message: M, content: string) => buildEncryptedEditBody(conversation.channelId!, message, content)
+        : undefined,
+    [e2eeActive, conversation?.channelId],
+  );
 
   const actions = useMessageActions<M>({
     apiBase,
@@ -267,6 +325,7 @@ export function useChatSession<M extends ChatMessage>({
     userId: user?.id,
     emojiLookup,
     onPinsChanged: fetchPinnedMessages,
+    buildEditBody,
   });
 
   const { signalTyping, resetTyping } = useTypingSignal(apiBase ? `${apiBase}/typing` : null);
@@ -305,7 +364,10 @@ export function useChatSession<M extends ChatMessage>({
       if (response.ok) {
         const data = await response.json();
         if (activeFetchContextRef.current !== requestedContext) return;
-        const raw = Array.isArray(data) ? data : data.messages || [];
+        const meta = encryptedChat ? conversationMetaOf(data) : null;
+        if (meta) setConversation(meta);
+        const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
+        if (activeFetchContextRef.current !== requestedContext) return;
         const page = dedupeMessages<M>(raw);
         // The latest page anchors us to the present again.
         setHasMoreNewer(false);
@@ -334,7 +396,7 @@ export function useChatSession<M extends ChatMessage>({
         setIsLoading(false);
       }
     }
-  }, [apiBase, paginated]);
+  }, [apiBase, paginated, encryptedChat, decodeRaw]);
 
   const messagesRef = useRef<M[]>([]);
   useEffect(() => {
@@ -352,7 +414,8 @@ export function useChatSession<M extends ChatMessage>({
       if (!response.ok || activeFetchContextRef.current !== context) return;
       const data = await response.json();
       if (activeFetchContextRef.current !== context || hasMoreNewerRef.current) return;
-      const raw = Array.isArray(data) ? data : data.messages || [];
+      const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
+      if (activeFetchContextRef.current !== context) return;
       const page = dedupeMessages<M>(raw);
       setMessages((prev) => {
         // Drop optimistic bubbles that the page now confirms.
@@ -368,7 +431,7 @@ export function useChatSession<M extends ChatMessage>({
     } catch {
       /* next reconnect or channel switch will retry */
     }
-  }, [apiBase, user?.id]);
+  }, [apiBase, user?.id, decodeRaw]);
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
     if (!apiBase || isLoadingMore || !hasMoreOlder || messages.length === 0) return false;
@@ -380,7 +443,7 @@ export function useChatSession<M extends ChatMessage>({
       const response = await fetch(`${apiBase}/messages?before=${oldestId}&limit=${OLDER_PAGE_SIZE}`);
       if (response.ok) {
         const data = await response.json();
-        const raw = Array.isArray(data) ? data : data.messages || [];
+        const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
         if (raw.length > 0) {
           setMessages((prev) => {
             const existingIds = new Set(prev.map((m) => m.id));
@@ -413,7 +476,7 @@ export function useChatSession<M extends ChatMessage>({
       setIsLoadingMore(false);
     }
     return false;
-  }, [apiBase, isLoadingMore, hasMoreOlder, messages]);
+  }, [apiBase, isLoadingMore, hasMoreOlder, messages, decodeRaw]);
 
   // Load the page of messages *after* the newest currently-loaded one. Used when
   // the window is detached from the live tail (jumped to a pin/search result, or
@@ -434,7 +497,7 @@ export function useChatSession<M extends ChatMessage>({
       const response = await fetch(`${apiBase}/messages?after=${newestId}&limit=${PAGE_SIZE}`);
       if (response.ok) {
         const data = await response.json();
-        const raw = Array.isArray(data) ? data : data.messages || [];
+        const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
         if (raw.length > 0) {
           setMessages((prev) => {
             const existingIds = new Set(prev.map((m) => m.id));
@@ -467,7 +530,7 @@ export function useChatSession<M extends ChatMessage>({
       setIsLoadingMore(false);
     }
     return false;
-  }, [apiBase, isLoadingMore, hasMoreNewer, messages]);
+  }, [apiBase, isLoadingMore, hasMoreNewer, messages, decodeRaw]);
 
   // Ensure a message is loaded so the UI can scroll to it. If it's already in
   // the window, no-op. Otherwise load a window centered on it via the `around`
@@ -480,7 +543,7 @@ export function useChatSession<M extends ChatMessage>({
       const response = await fetch(`${apiBase}/messages?around=${messageId}&limit=${PAGE_SIZE}`);
       if (!response.ok) return false;
       const data = await response.json();
-      const raw = Array.isArray(data) ? data : data.messages || [];
+      const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
       if (raw.length === 0) return false;
       const seen = new Set<string>();
       const window: M[] = [];
@@ -501,7 +564,7 @@ export function useChatSession<M extends ChatMessage>({
       console.error("Failed to jump to message:", error);
       return false;
     }
-  }, [apiBase, messages]);
+  }, [apiBase, messages, decodeRaw]);
 
   useEffect(() => {
     if (apiBase && user) {
@@ -622,6 +685,51 @@ export function useChatSession<M extends ChatMessage>({
     }
   }, [messages]);
 
+  // End-to-end encrypted conversations: stream events carrying envelopes are
+  // decrypted first. Every event goes through one queue so they still apply
+  // in arrival order (a delete never overtakes the message it deletes).
+  const streamChainRef = useRef<Promise<void>>(Promise.resolve());
+  const decodeStreamEvent = async (event: ChatStreamEvent): Promise<ChatStreamEvent | null> => {
+    const channelId = conversationRef.current?.channelId ?? null;
+    if (event.type === "message" && hasEnvelope(event.message)) {
+      const [message] = await decryptIfNeeded([event.message], channelId);
+      return { ...event, message };
+    }
+    if (event.type === "edit" && event.e2ee) {
+      const target = messagesRef.current.find((m) => m.id === event.messageId);
+      if (!target) return null;
+      const [decoded] = await decryptIfNeeded(
+        [{ id: event.messageId, authorId: target.authorId, channelId: target.channelId || channelId, createdAt: target.createdAt, edited: true, e2ee: event.e2ee }],
+        channelId,
+      );
+      return {
+        ...event,
+        content: decoded.content ?? "",
+        attachments: decoded.attachments ?? [],
+        e2eeState: decoded.e2ee,
+        sticker: decoded.sticker,
+        mentionedUserIds: decoded.mentionedUserIds ?? [],
+      };
+    }
+    return event;
+  };
+  const routeStreamEvent = (event: ChatStreamEvent, apply: (event: ChatStreamEvent) => void) => {
+    if (!encryptedChat) {
+      apply(event);
+      return;
+    }
+    if (event.type === "e2ee_enabled") {
+      // Someone turned encryption on: from now on sends are encrypted here.
+      setConversation((c) => (c ? { ...c, e2ee: true, e2eeAuto: false } : c));
+    }
+    streamChainRef.current = streamChainRef.current
+      .then(async () => {
+        const decoded = await decodeStreamEvent(event);
+        if (decoded) apply(decoded);
+      })
+      .catch(() => { /* one bad event never blocks the stream */ });
+  };
+
   // Real-time updates over SSE (connection + typing handled by the stream hook)
   const { typingStatusText, typingUsers, clearTypingUser } = useChatStream({
     url: apiBase && user ? `${apiBase}/stream` : null,
@@ -631,7 +739,7 @@ export function useChatSession<M extends ChatMessage>({
     onReconnect: () => {
       if (!hasMoreNewerRef.current) void catchUpTail();
     },
-    onEvent: (data) => {
+    onEvent: (streamEvent) => routeStreamEvent(streamEvent, (data) => {
       if (data.type === "message") {
         const incoming = normalizeIncomingMessage<M>(data.message);
         // A webhook post is never "own", even for the webhook's creator: it must
@@ -704,6 +812,7 @@ export function useChatSession<M extends ChatMessage>({
                   pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
                   embeds: data.embeds !== undefined ? data.embeds : m.embeds,
                   attachments: data.attachments !== undefined ? data.attachments : m.attachments,
+                  ...(data.e2eeState ? { e2ee: data.e2eeState, sticker: data.sticker, mentionedUserIds: data.mentionedUserIds ?? [] } : {}),
                   edited: data.content !== undefined ? true : m.edited,
                   updatedAt: new Date().toISOString(),
                 }
@@ -805,7 +914,7 @@ export function useChatSession<M extends ChatMessage>({
       }
 
       latestRef.current.onOtherEvent?.(data);
-    },
+    }),
   });
 
   /**
@@ -821,7 +930,8 @@ export function useChatSession<M extends ChatMessage>({
       if (!response.ok || activeFetchContextRef.current !== context) return false;
       const data = await response.json();
       if (activeFetchContextRef.current !== context) return false;
-      const raw = Array.isArray(data) ? data : data.messages || [];
+      const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
+      if (activeFetchContextRef.current !== context) return false;
       const page = dedupeMessages<M>(raw);
       hasMoreNewerRef.current = false;
       setHasMoreNewer(false);
@@ -833,7 +943,7 @@ export function useChatSession<M extends ChatMessage>({
       // Keep the current window.
       return false;
     }
-  }, [apiBase, paginated]);
+  }, [apiBase, paginated, decodeRaw]);
 
   /**
    * Optimistic send with rollback. Handles text, replies, stickers, GIF
@@ -863,6 +973,18 @@ export function useChatSession<M extends ChatMessage>({
       const hasAttachments = pendingAttachments.length > 0;
       if (hasAttachments && uploadingRef.current) return;
 
+      // End-to-end encrypted conversation: everything goes into an envelope.
+      const encryptSend = encryptedChat && e2eeActiveRef.current;
+      const encryptChannelId = conversationRef.current?.channelId ?? null;
+      if (encryptSend && voice) {
+        toast.error(gt("Voice messages can't be sent in encrypted conversations yet."));
+        return;
+      }
+      if (encryptSend && !encryptChannelId) {
+        toast.error(gt("Failed to send message"));
+        return;
+      }
+
       const replyReference = actions.replyToMessage;
       const replyMention = actions.replyMention;
       if (!isOverrideSend) {
@@ -886,13 +1008,14 @@ export function useChatSession<M extends ChatMessage>({
       if (hasMoreNewerRef.current) await returnToPresent();
 
       // Upload now, while the MessageBar still holds these files.
-      let uploadPromise: Promise<Array<{ id: string; url: string; filename: string; contentType: string; spoiler?: boolean }>> =
-        Promise.resolve([]);
+      let uploadPromise: Promise<EncryptedAttachmentUpload[]> = Promise.resolve([]);
       if (hasAttachments) {
         uploadingRef.current = true;
         uploadPromise = (async () => {
           try {
-            const uploaded = (await messageBarRef.current?.uploadAttachments()) ?? [];
+            // Encrypted conversations upload each file as an opaque encrypted blob.
+            const encryptFile = encryptSend ? (await loadE2eeSession()).encryptFileForUpload : undefined;
+            const uploaded = (await messageBarRef.current?.uploadAttachments(encryptFile ? { encryptFile } : undefined)) ?? [];
             // Keep the files in the composer if nothing uploaded, so they can retry.
             if (uploaded.length > 0) messageBarRef.current?.clearAttachments();
             return uploaded;
@@ -937,6 +1060,8 @@ export function useChatSession<M extends ChatMessage>({
           reactions: [],
           customEmojis: [],
           pending: true,
+          // Never persisted as plaintext (see messageCache).
+          ...(encryptSend ? { e2ee: { status: "pending" } } : {}),
         } as unknown as M);
 
       // Every send shows its bubble right away, in queue order (= POST order =
@@ -958,15 +1083,27 @@ export function useChatSession<M extends ChatMessage>({
             return;
           }
           if (hasAttachments) {
+            const shown = encryptSend ? uploadedAttachments.map(attachmentViewOf) : uploadedAttachments;
             setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? ({ ...m, attachments: uploadedAttachments } as M) : m))
+              prev.map((m) => (m.id === tempId ? ({ ...m, attachments: shown } as M) : m))
             );
           }
 
-          const body: Record<string, unknown> = {};
-          if (messageContent) body.content = messageContent;
-          if (sticker) body.sticker = sticker;
-          if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
+          let body: Record<string, unknown> = {};
+          if (encryptSend) {
+            body = await buildEncryptedSendBody({
+              channelId: encryptChannelId!,
+              content: silentParse.content,
+              attachments: uploadedAttachments,
+              sticker,
+              reply: replyReference ? { id: replyReference.id, content: replyReference.content } : null,
+            });
+            if (silentParse.silent) body.flags = MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS;
+          } else {
+            if (messageContent) body.content = messageContent;
+            if (sticker) body.sticker = sticker;
+            if (uploadedAttachments.length > 0) body.attachments = uploadedAttachments;
+          }
           if (voice) {
             body.attachments = [voice];
             body.flags = MESSAGE_FLAGS.IS_VOICE_MESSAGE;
@@ -988,7 +1125,8 @@ export function useChatSession<M extends ChatMessage>({
               // optimistic "/command" bubble.
               setMessages((prev) => prev.filter((m) => m.id !== tempId));
             } else {
-              const raw = payload?.message || payload;
+              const rawReply = payload?.message || payload;
+              const [raw] = rawReply && hasEnvelope(rawReply) ? await decodeRaw([rawReply]) : [rawReply];
               if (raw && (raw.id || raw._id)) {
                 const confirmed = normalizeIncomingMessage<M>(raw);
                 setMessages((prev) => {
@@ -1009,13 +1147,41 @@ export function useChatSession<M extends ChatMessage>({
             const data = await response.json().catch(() => null);
             setMessages((prev) => prev.filter((m) => m.id !== tempId));
             restoreDraft();
-            toast.error(data?.error || gt("Failed to send message"));
+            if (isAccountRestricted(data)) {
+              // Platform chat restriction (Trust & Safety): say until when and
+              // link to Account Standing, where it can be appealed.
+              const until = data.restrictedUntil ? new Date(data.restrictedUntil) : null;
+              toast.error(gt("Your account can't send messages right now"), {
+                description: until && !Number.isNaN(until.getTime())
+                  ? gt("You can chat again after {time}.", { time: until.toLocaleString() })
+                  : undefined,
+                action: { label: gt("View Account Standing"), onClick: openAccountStanding },
+                duration: 10_000,
+              });
+            } else {
+              toast.error(data?.error || gt("Failed to send message"));
+            }
           }
         } catch (error) {
           console.error("Failed to send message:", error);
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           restoreDraft();
-          toast.error(gt("Failed to send message. Check your connection."));
+          const blocked = error instanceof Error && error.name === "E2eeSendBlockedError"
+            ? (error as Error & { reason?: string }).reason
+            : null;
+          if (blocked === "not_ready") {
+            toast.error(gt("Set up encryption on this device to send messages here."), {
+              action: { label: gt("Set up"), onClick: () => openE2eeDialog("restore") },
+            });
+          } else if (blocked === "identity_changed") {
+            toast.error(gt("Someone's security code changed. Review it above the message box before sending."));
+          } else if (blocked) {
+            toast.error(gt("Nobody in this conversation can receive encrypted messages yet."));
+          } else if (error instanceof Error && error.name === "E2eeFormatError") {
+            toast.error(gt("This message couldn't be encrypted. It may be too long."));
+          } else {
+            toast.error(gt("Failed to send message. Check your connection."));
+          }
         } finally {
           inFlightSendsRef.current -= 1;
           if (inFlightSendsRef.current === 0) setIsSending(false);
@@ -1026,7 +1192,7 @@ export function useChatSession<M extends ChatMessage>({
       sendQueueRef.current = queued.catch(() => undefined);
       await queued;
     },
-    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt, appendCapped, returnToPresent]
+    [apiBase, contextId, user, messageBarRef, actions, resetTyping, gt, appendCapped, returnToPresent, encryptedChat, decodeRaw]
   );
 
   /**
@@ -1086,6 +1252,10 @@ export function useChatSession<M extends ChatMessage>({
   return {
     messages,
     setMessages,
+    /** DMs / group DMs: channel id and end-to-end encryption state. */
+    conversation,
+    /** Sends and edits in this conversation are end-to-end encrypted. */
+    e2eeActive,
     isLoading,
     isSending,
     hasMoreOlder,

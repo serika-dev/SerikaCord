@@ -37,7 +37,7 @@ export default async function GuidelinesPage() {
       <main className="max-w-3xl mx-auto px-6 pt-28 pb-20">
         <p className="text-sm text-[#8B5CF6] font-medium mb-3">{gt("Legal")}</p>
         <h1 className="text-4xl font-bold mb-2">{gt("Community Guidelines")}</h1>
-        <p className="text-[#555] text-sm mb-10">{gt("Last updated: June 29, 2026")}</p>
+        <p className="text-[#555] text-sm mb-10">{gt("Last updated: 15 October 2026")}</p>
 
         <p className="text-[#aaa] leading-relaxed mb-10">
           {gt("SerikaCord is built for communities. To keep it a place where everyone can talk, hang out, and build together, we ask all users to follow these guidelines. Violations may result in content removal, warnings, or account termination depending on severity.")}
@@ -100,13 +100,14 @@ export default async function GuidelinesPage() {
           <section>
             <h2 className="text-white text-xl font-semibold mb-3">{gt("9. Enforcement")}</h2>
             <p>{gt("Serika Company reserves the right to remove content, issue warnings, restrict features, or permanently ban accounts that violate these guidelines. We aim to be proportionate, but some violations — particularly those involving CSAM, violence, or serious platform abuse — result in immediate permanent action and law enforcement referral where required.")}</p>
+            <p className="mt-3">{gt("Violations can lead to account strikes and temporary restrictions. Strikes expire after 180 days (strikes for child sexual abuse material never expire), and five active strikes suspend an account. You can see your strikes and restrictions, with the reasons, on your Account Standing page and appeal any decision there; appeals are reviewed by a person. Full details are in our Terms of Service.")}</p>
           </section>
 
           <section>
             <h2 className="text-white text-xl font-semibold mb-3">{gt("10. Reporting")}</h2>
             <p>
               {gt("If you encounter content or behaviour that violates these guidelines, please report it through the in-app reporting tools or contact us at")}{" "}
-              <a href="mailto:safety@serika.dev" className="text-[#8B5CF6] hover:underline">safety@serika.dev</a>.
+              <a href="mailto:safety@serika.dev" className="text-[#8B5CF6] hover:underline">safety@serika.dev</a>.{" "}
               {gt("We take all reports seriously and review them promptly.")}
             </p>
           </section>

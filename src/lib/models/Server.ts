@@ -12,6 +12,8 @@ export interface IServerSettings {
     verificationLevel?: string;
     explicitContentFilter?: string;
     require2FA?: boolean;
+    /** Custom waits and locked actions for the verification level (VerificationOptions). */
+    verification?: { accountAgeMinutes?: number; memberAgeMinutes?: number; restrict?: string[] };
   };
   safety?: {
     raidProtection?: boolean;

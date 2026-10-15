@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { and, eq, sql } from 'drizzle-orm';
+import { chatRestrictionDenial } from '@/lib/services/trustSafety';
 import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings, type IMessage } from '@/lib/models';
 import { ChannelReadState } from '@/lib/models/ChannelReadState';
 import { db, schema } from '@/lib/db/postgres';
@@ -25,9 +26,19 @@ import { loadMessageExtras, type MessageExtras } from '@/lib/services/messageExt
 import { parsePollResult, parseStoredPoll, pollPreviewText } from '@/lib/chat/polls';
 import { isHiddenRequest, isPendingRequest } from '@/lib/chat/messageRequests';
 import { openRequestsFor, recordDmSend, resolveRequest } from '@/lib/services/messageRequests';
-import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
+import { MESSAGE_FLAGS, isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
 import { normalizeVoiceMessage } from '@/lib/chat/voiceMessage';
 import { extractUserMentionIds } from '@/lib/services/messageSignals';
+import {
+  ENCRYPTED_PREVIEW,
+  checkE2eeChannelSend,
+  conversationE2eeFlags,
+  initialConversationE2ee,
+  isE2eeNotice,
+  parseEncryptedBody,
+  storedEnvelope,
+} from '@/lib/services/e2ee';
+import type { Envelope } from '@/lib/e2ee';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -278,6 +289,10 @@ export async function findDMChannel(userId: string, recipientId: string) {
 export async function getOrCreateDMChannel(userId: string, recipientId: string) {
   const existing = await findDMChannel(userId, recipientId);
   if (existing) return existing;
+  // New DMs are end-to-end encrypted when both people have keys (and neither
+  // is a bot / system account); see lib/services/e2ee.
+  const members = await User.find({ id: { in: [userId, recipientId] } }).catch(() => []);
+  const e2ee = members.length === 2 ? await initialConversationE2ee(members) : false;
 
   return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`dm:${dmPairKey(userId, recipientId)}`}))`);
@@ -292,6 +307,7 @@ export async function getOrCreateDMChannel(userId: string, recipientId: string) 
       name: 'Direct Message',
       recipientIds: [userId, recipientId],
       position: 0,
+      e2ee,
     }).returning();
     return created;
   });
@@ -330,7 +346,7 @@ export async function openDMChannelForViewer(
 // known.
 
 type AuthUser = NonNullable<Awaited<ReturnType<typeof authenticateRequest>>['user']>;
-type DmChannelRef = { id: string; recipientIds?: string[] | null; lastMessageId?: string | null };
+type DmChannelRef = { id: string; recipientIds?: string[] | null; lastMessageId?: string | null; e2ee?: boolean | null };
 
 /** A route reply: the HTTP status plus the JSON body. */
 export type DmReply = { status: number; body: Record<string, unknown> };
@@ -442,7 +458,7 @@ export async function loadDmMessagesPage(
       url: e.url,
     }));
 
-    let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string } | undefined;
+    let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean } | undefined;
     const refRaw = msg.referencedMessageId;
     if (refRaw && typeof refRaw === 'string') {
       const refMsg = refMap.get(refRaw);
@@ -453,6 +469,7 @@ export async function loadDmMessagesPage(
           content: refContentMap.get(refRaw) || '',
           author: referenceAuthor(refAuthor),
           createdAt: refMsg.createdAt instanceof Date ? refMsg.createdAt.toISOString() : (refMsg.createdAt ?? undefined),
+          ...(storedEnvelope(refMsg.e2ee) ? { encrypted: true } : {}),
         };
       }
     }
@@ -499,8 +516,18 @@ export async function loadDmMessagesPage(
       // Group DM system row ("X added Y to the group.").
       ...(groupEvent ? { type: msg.type, groupEvent } : {}),
       ...extrasMap.get(msg.id),
+      // End-to-end encrypted: the envelope (content is ''), or the
+      // "turned on encryption" notice row.
+      ...e2eeDtoFields(msg),
     };
   });
+}
+
+/** `e2ee` envelope / notice fields of a message DTO. */
+export function e2eeDtoFields(msg: { type?: string | null; e2ee?: unknown }) {
+  if (msg.type === 'system' && isE2eeNotice(msg.e2ee)) return { type: 'e2ee_enabled' as const, content: '' };
+  const envelope = storedEnvelope(msg.e2ee);
+  return envelope ? { e2ee: envelope } : {};
 }
 
 /** The client payload of a group DM system row. */
@@ -525,6 +552,8 @@ export type DmSendBody = {
   mentionRepliedUser?: boolean;
   /** Discord message flags (SUPPRESS_NOTIFICATIONS for "@silent"). */
   flags?: number;
+  /** End-to-end encrypted envelope (lib/e2ee); content/sticker must then be empty. */
+  e2ee?: unknown;
 };
 
 type StickerData = { id: string; name: string; imageUrl: string; serverId?: string; serverName?: string };
@@ -538,11 +567,35 @@ export type PreparedDmSend = {
   /** Stored message flags ("@silent" sets SUPPRESS_NOTIFICATIONS). */
   flags: number;
   silent: boolean;
+  /** Set for end-to-end encrypted sends (sanitizedContent is then ''). */
+  e2ee?: Envelope;
 };
 
 /** Validate and sanitize a DM send body (content, attachments, sticker, reply id). */
 export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{ error: DmReply } | { prepared: PreparedDmSend }> {
   const { sticker, attachments, replyTo } = body;
+  // End-to-end encrypted: only the opaque envelope + encrypted blobs; the
+  // conversation / device checks run once the channel is known
+  // (checkE2eeChannelSend).
+  if (body.e2ee !== undefined) {
+    const parsed = parseEncryptedBody(user.id, body);
+    if (!parsed.ok) return { error: fail(parsed.status, parsed.error) };
+    if (replyTo && !isValidObjectId(replyTo)) return { error: fail(400, 'Referenced message not found') };
+    // Voice messages are sent as ordinary encrypted files (voice metadata
+    // lives in the envelope); only @silent is honoured.
+    const flags = sendFlags(body.flags, false) & MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS;
+    return {
+      prepared: {
+        sanitizedContent: '',
+        attachments: parsed.attachments,
+        replyTo,
+        mentionRepliedUser: body.mentionRepliedUser,
+        flags,
+        silent: isSilentMessage(flags),
+        e2ee: parsed.envelope,
+      },
+    };
+  }
   // "@silent hello" sends "hello" without notifying anyone (Discord).
   const silentPrefix = parseSilentPrefix(body.content);
   const content = silentPrefix.content;
@@ -655,7 +708,7 @@ export async function persistDmMessage(
 
   // Validate reply target if provided
   let replyRef: string | undefined;
-  let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string } | undefined;
+  let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean } | undefined;
   if (replyTo && replyMsg) {
     replyRef = replyTo;
     const [refAuthor, refDecrypted] = await Promise.all([
@@ -667,6 +720,7 @@ export async function persistDmMessage(
       content: refDecrypted,
       author: referenceAuthor(refAuthor),
       createdAt: replyMsg.createdAt instanceof Date ? replyMsg.createdAt.toISOString() : (replyMsg.createdAt ?? undefined),
+      ...(storedEnvelope(replyMsg.e2ee) ? { encrypted: true } : {}),
     };
   }
 
@@ -681,13 +735,14 @@ export async function persistDmMessage(
   const message = await Message.create({
     channelId: channel.id,
     authorId: user.id,
-    content: encryptedContent,
+    content: prepared.e2ee ? '' : encryptedContent,
     type: replyRef ? 'reply' : 'default',
     referencedMessageId: replyRef,
     sticker: stickerData,
     attachments,
     mentionedUserIds,
     flags: prepared.flags,
+    ...(prepared.e2ee ? { e2ee: prepared.e2ee } : {}),
   });
 
   // Update channel's last message — fire-and-forget so the sender's response
@@ -723,6 +778,7 @@ export async function persistDmMessage(
     referencedMessage,
     mentionedUserIds,
     flags: prepared.flags,
+    ...(prepared.e2ee ? { e2ee: prepared.e2ee } : {}),
   };
   return { message, messageData };
 }
@@ -732,11 +788,30 @@ async function findLiveMessage(channelId: string, messageId: string) {
 }
 
 /** Edit your own message in a DM conversation. */
-export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messageId: string, content: string): Promise<DmReply> {
+export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messageId: string, content: string, e2ee?: unknown): Promise<DmReply> {
   const message = await findLiveMessage(channel.id, messageId);
   if (!message) return fail(404, 'Message not found');
   if (message.authorId !== user.id) return fail(403, 'You can only edit your own messages');
   if (message.type && message.type !== 'default' && message.type !== 'reply') return fail(400, 'This message cannot be edited');
+  // A chat restriction covers edits too (post "hi", edit a scam link in).
+  const restricted = await chatRestrictionDenial(user.id);
+  if (restricted) return fail(403, String(restricted.body.error));
+
+  // End-to-end encrypted conversation: an edit is a whole new envelope.
+  let envelope: Envelope | null = null;
+  if (e2ee !== undefined) {
+    const parsed = parseEncryptedBody(user.id, { e2ee, content });
+    if (!parsed.ok) return fail(parsed.status, parsed.error);
+    envelope = parsed.envelope;
+  }
+  const gate = await checkE2eeChannelSend(user.id, channel, envelope);
+  if (gate) return fail(gate.status, gate.error);
+  if (envelope) {
+    const editedTimestamp = new Date();
+    await Message.updateById(message.id, { content: '', e2ee: envelope, edited: true, editedTimestamp });
+    publishToDm(channel.id, { type: 'edit', messageId, content: '', e2ee: envelope, editedTimestamp });
+    return ok();
+  }
 
   let sanitizedEditContent = '';
   if (content) {
@@ -885,6 +960,7 @@ export async function listDmPins(channelId: string) {
       updatedAt: msg.updatedAt,
       pinned: true,
       attachments: msg.attachments || [],
+      ...e2eeDtoFields(msg),
     };
   });
 }
@@ -989,6 +1065,8 @@ export const DM_SEND_BODY = t.Object({
   replyTo: t.Optional(t.String()),
   mentionRepliedUser: t.Optional(t.Boolean()),
   flags: t.Optional(t.Number()),
+  // End-to-end encrypted envelope (validated by lib/e2ee validateEnvelope).
+  e2ee: t.Optional(t.Unknown()),
 });
 
 export const dmRoutes = new Elysia({ prefix: '/dms' })
@@ -1088,7 +1166,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               if (msg) {
                 const decryptedContent = lastContentMap.get(msg.id) || '';
                 let displayContent = decryptedContent;
-                if (msg.type === 'call') {
+                if (msg.e2ee) {
+                  // End-to-end encrypted (or the "encryption on" notice): the
+                  // server can't preview it.
+                  displayContent = isE2eeNotice(msg.e2ee) ? 'End-to-end encryption turned on' : ENCRYPTED_PREVIEW;
+                } else if (msg.type === 'call') {
                   displayContent = callPreviewText(parseCallData(msg.call), user.id);
                 } else if (isGroupDmEventType(msg.type)) {
                   const nameOf = (id: string | null | undefined) => {
@@ -1124,6 +1206,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
                   authorId: msg.authorId,
                   createdAt: msg.createdAt,
                   ...(msg.type === 'call' ? { type: 'call' as const } : {}),
+                  ...(storedEnvelope(msg.e2ee) ? { encrypted: true } : {}),
                 };
               }
             } catch (err) {
@@ -1158,6 +1241,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             lastMessage,
             updatedAt: channel.updatedAt,
             unreadCount: unreadCounts[channel.id] || 0,
+            ...conversationE2eeFlags(channel),
             _recipientKey: recipientIds.sort().join(','),
           };
         })
@@ -1204,7 +1288,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       const last = channel.lastMessageId ? lastMap.get(channel.lastMessageId) : undefined;
       let preview = '';
       if (last) {
-        preview = (await decryptFromStorage(last.content || '')) || '';
+        preview = last.e2ee ? ENCRYPTED_PREVIEW : ((await decryptFromStorage(last.content || '')) || '');
         if (!preview && Array.isArray(last.attachments) && (last.attachments as unknown[]).length > 0) preview = 'Sent an attachment';
       }
       return {
@@ -1363,6 +1447,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     return {
       messages,
       channelId: channel.id,
+      ...conversationE2eeFlags(channel),
     };
   }, {
     params: t.Object({
@@ -1383,6 +1468,12 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     if (!rateLimit.success) {
       set.status = 429;
       return { error: 'Too many messages', retryAfter: rateLimit.retryAfter };
+    }
+    // Trust & Safety: a temporary chat restriction (e.g. after a scam-image strike).
+    const restricted = await chatRestrictionDenial(user.id);
+    if (restricted) {
+      set.status = restricted.status;
+      return restricted.body;
     }
 
     if (!params.recipientId) {
@@ -1422,6 +1513,14 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     ]);
     const userServerIds = userServerMemberships.map((m) => m.serverId);
 
+    // End-to-end encryption: plaintext into an encrypted DM (or an envelope
+    // into a plain one) is refused; envelopes must come from a live device.
+    const e2eeGate = await checkE2eeChannelSend(user.id, channel, prepared.e2ee);
+    if (e2eeGate) {
+      set.status = e2eeGate.status;
+      return { error: e2eeGate.error };
+    }
+
     const spam = await checkDmDuplicateSpam(channel.id, user.id, prepared);
     if (spam) {
       set.status = spam.status;
@@ -1435,6 +1534,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const { content } = body;
     if (
       recipient.isBot &&
+      !prepared.e2ee &&
       content && content.trim().startsWith('/') &&
       attachments.length === 0 && !stickerData
     ) {
@@ -1468,9 +1568,10 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         recipientId: params.recipientId,
         message: {
           id: message.id,
-          content: sanitizedContent.slice(0, 180),
+          content: prepared.e2ee ? ENCRYPTED_PREVIEW : sanitizedContent.slice(0, 180),
           authorId: user.id,
           createdAt: message.createdAt,
+          ...(prepared.e2ee ? { encrypted: true } : {}),
         },
       }
     );
@@ -1509,9 +1610,11 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
             authorId: user.id,
             authorName: user.displayName || user.username,
             authorAvatar: user.avatar ?? null,
-            // Short plaintext preview for the recipient's notification.
+            // Short plaintext preview for the recipient's notification
+            // (none for end-to-end encrypted messages).
             preview: sanitizedContent.slice(0, 120),
             mentionNames,
+            ...(prepared.e2ee ? { encrypted: true } : {}),
             hasAttachments: Array.isArray(attachments) && attachments.length > 0,
             hasSticker: Boolean(stickerData),
             createdAt: createdAtIso,
@@ -1609,7 +1712,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       set.status = 404;
       return { error: 'Message not found' };
     }
-    const reply = await editDmMessage(channel, user, params.messageId, body.content);
+    const reply = await editDmMessage(channel, user, params.messageId, body.content, body.e2ee);
     set.status = reply.status;
     return reply.body;
   }, {
@@ -1619,6 +1722,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }),
     body: t.Object({
       content: t.String({ maxLength: 4000 }),
+      // End-to-end encrypted edit (content must then be '').
+      e2ee: t.Optional(t.Unknown()),
     }),
   })
   // Suppress embeds on DM message

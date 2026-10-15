@@ -1,11 +1,22 @@
 // Welcome Screen, Rules Screening and Server Templates, mounted at /api.
 //
-//   GET    /servers/:serverId/onboarding           what a member sees: welcome screen, rules, my pending state
+//   GET    /servers/:serverId/onboarding           what a member sees: welcome, questions, guide, rules, my state
+//                                                   (?preview=1, MANAGE_SERVER: everything as a brand-new member)
+//   GET    /servers/:serverId/onboarding/config    editable questions + guide, assignable roles (MANAGE_SERVER)
+//   PUT    /servers/:serverId/onboarding/config    save them                       (MANAGE_SERVER)
+//   POST   /servers/:serverId/onboarding/responses my picks { optionIds }
+//   POST   /servers/:serverId/onboarding/todos/:todoId  tick a Server Guide to-do
+//   GET    /servers/:serverId/screening/pending    members waiting to be let in   (MANAGE_SERVER)
+//   POST   /servers/:serverId/screening/approve/:userId  let a waiting member in  (MANAGE_SERVER)
+//   GET    /servers/:serverId/application-form     rules + questions for Apply to Join
+//   GET    /servers/:serverId/connections          the owner's accounts the server shows
+//   PUT    /servers/:serverId/connections          pick them { connectionIds }    (owner only)
 //   GET    /servers/:serverId/welcome-screen       the editable welcome screen      (MANAGE_SERVER)
 //   PATCH  /servers/:serverId/welcome-screen       save it                          (MANAGE_SERVER)
 //   GET    /servers/:serverId/screening            the rules screening config       (MANAGE_SERVER)
 //   PUT    /servers/:serverId/screening            save it                          (MANAGE_SERVER)
-//   POST   /servers/:serverId/screening/accept     accept the rules { accepted: true }
+//   POST   /servers/:serverId/screening/accept     accept the rules { accepted: true, answers? }
+//                                                   (manual approval: queues an application instead)
 //   GET    /servers/:serverId/template             the server's template or null    (MANAGE_SERVER)
 //   POST   /servers/:serverId/template             create it { name, description? } (MANAGE_SERVER)
 //   PATCH  /servers/:serverId/template             rename { name?, description? }   (MANAGE_SERVER)
@@ -17,7 +28,7 @@
 // Pure rules: lib/servers/community.ts. Storage: services/serverCommunity.ts,
 // services/serverTemplates.ts. Enforcement of screening: services/serverGate.ts.
 import { Elysia, t } from 'elysia';
-import { Channel, Server, ServerMember, User } from '@/lib/models';
+import { Channel, Role, Server, ServerMember, ServerMemberApplication, User, UserConnection } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, rejectInvalidObjectIdParams, sanitizeInput } from '@/lib/security';
 import { config } from '@/lib/config';
@@ -30,15 +41,42 @@ import {
   normalizeWelcomeScreen,
   parseServerSnapshot,
   parseTemplateCode,
+  validateApplicationAnswers,
 } from '@/lib/servers/community';
 import {
-  acceptScreening,
+  isGuideVisible,
+  isOnboardingVisible,
+  isSafeOnboardingRole,
+  normalizeLinkedConnectionIds,
+  normalizeOnboardingConfig,
+  rolesWithUnsafeChannelGrants,
+  validateOnboardingSelection,
+} from '@/lib/servers/onboarding';
+import {
+  admitScreenedMember,
+  applyMemberOnboardingRoles,
+  getLinkedConnectionIds,
+  getOnboardingConfig,
+  getOnboardingResponse,
   getScreeningConfig,
   getWelcomeScreen,
+  listPendingMembers,
+  markGuideTodoDone,
+  saveLinkedConnectionIds,
+  saveOnboardingConfig,
+  saveOnboardingSelection,
   saveScreeningConfig,
   saveWelcomeScreen,
 } from '@/lib/services/serverCommunity';
 import { memberScreeningBlocked } from '@/lib/services/serverGate';
+import { canAssignRole, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
+import { getActorRoleContext } from '@/lib/permissions/serverPermissions';
+import { OAUTH_ONLY_PROVIDERS } from '@/lib/connections/policy';
+import { isVerifiedDomainConnection } from '@/lib/connections/domain';
+import { fanoutToUsers } from '@/lib/api/activity';
+import { normalizeId } from '@/lib/db/normalizeId';
+import { requestUserChannelStreamRecheck } from '@/lib/realtime/channelStreams';
+import { sameId } from '@/lib/servers/guards';
 import {
   bumpTemplateUsage,
   createServerFromSnapshot,
@@ -93,6 +131,27 @@ const SCREENING_BODY = t.Object({
   enabled: t.Optional(t.Boolean()),
   description: t.Optional(t.String({ maxLength: 2000 })),
   rules: t.Optional(t.Array(t.String({ maxLength: 2000 }), { maxItems: 50 })),
+  restrictChannels: t.Optional(t.Boolean()),
+  accessibleChannelIds: t.Optional(t.Array(t.String({ maxLength: 64 }), { maxItems: 100 })),
+  manualApproval: t.Optional(t.Boolean()),
+  questions: t.Optional(t.Array(t.Object({
+    id: t.Optional(t.String({ maxLength: 64 })),
+    type: t.Optional(t.String({ maxLength: 20 })),
+    label: t.String({ maxLength: 500 }),
+    required: t.Optional(t.Boolean()),
+    choices: t.Optional(t.Array(t.String({ maxLength: 200 }), { maxItems: 20 })),
+  }), { maxItems: 20 })),
+});
+
+const ANSWERS_BODY = t.Optional(t.Array(t.Object({
+  questionId: t.String({ maxLength: 64 }),
+  answer: t.String({ maxLength: 4000 }),
+}), { maxItems: 20 }));
+
+const ONBOARDING_BODY = t.Object({
+  enabled: t.Optional(t.Boolean()),
+  questions: t.Optional(t.Array(t.Unknown(), { maxItems: 20 })),
+  guide: t.Optional(t.Unknown()),
 });
 
 const TEMPLATE_BODY = t.Object({
@@ -111,31 +170,290 @@ async function creatorView(userId: string) {
   return u ? { id: u.id, username: u.username, displayName: u.displayName ?? null, avatar: u.avatar ?? null } : null;
 }
 
+const sameUser = (a: string | null | undefined, b: string | null | undefined) => sameId(a, b);
+
+/** HTML-escapes every string in a submitted JSON tree (the client decodes for display). */
+function sanitizeDeep(value: unknown, depth = 0): unknown {
+  if (depth > 6) return null;
+  if (typeof value === 'string') return sanitizeInput(value.slice(0, 2000));
+  if (Array.isArray(value)) return value.slice(0, 50).map((v) => sanitizeDeep(v, depth + 1));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>).slice(0, 30)) out[k] = sanitizeDeep(v, depth + 1);
+    return out;
+  }
+  return value;
+}
+
+/** Ids of every channel in the server (guide to-dos / resources, accessible channels). */
+async function serverChannelIds(serverId: string): Promise<Set<string>> {
+  const channels = await Channel.find({ serverId });
+  return new Set(channels.filter((c) => c.type !== 'public_thread' && c.type !== 'private_thread').map((c) => c.id));
+}
+
+/** Roles this user may offer through onboarding: safe to self-assign and below their top role. */
+async function assignableOnboardingRoleIds(server: ServerRow, userId: string): Promise<Set<string>> {
+  const roles = await Role.find({ serverId: server.id });
+  const actor = await getActorRoleContext(server, userId, roles as HierarchyRole[]);
+  if (!actor) return new Set();
+  const canManageRoles = actor.isOwner || actor.isAdmin || (actor.perms & PERMISSION_BITS.MANAGE_ROLES) === PERMISSION_BITS.MANAGE_ROLES;
+  if (!canManageRoles) return new Set();
+  const viaChannels = rolesWithUnsafeChannelGrants(await Channel.find({ serverId: server.id }));
+  return new Set(roles.filter((r) => isSafeOnboardingRole(r) && !viaChannels.has(r.id) && canAssignRole(actor, r as HierarchyRole)).map((r) => r.id));
+}
+
+export interface ServerConnectionView {
+  id: string;
+  provider: string;
+  accountId: string;
+  username: string | null;
+  displayName: string | null;
+  verified: boolean;
+}
+
+/** May the owner show this connection on a server? Unverified domains never. */
+function isLinkableConnection(c: { provider: string; metadata?: unknown }): boolean {
+  return c.provider !== 'website' || isVerifiedDomainConnection(c);
+}
+
+/**
+ * The owner's connections a server shows. Resolved live from the current
+ * owner's rows, so a disconnected account or an ownership transfer drops it.
+ */
+export async function serverConnectionsView(serverId: string, ownerId: string): Promise<ServerConnectionView[]> {
+  const ids = await getLinkedConnectionIds(serverId).catch(() => []);
+  if (ids.length === 0) return [];
+  const rows = await UserConnection.find({ userId: ownerId }).catch(() => []);
+  const byId = new Map(rows.map((r) => [normalizeId(r.id), r]));
+  const out: ServerConnectionView[] = [];
+  for (const id of ids) {
+    const c = byId.get(normalizeId(id));
+    if (!c || c.visible === false || !isLinkableConnection(c)) continue;
+    out.push({
+      id: c.id,
+      provider: c.provider,
+      accountId: c.accountId,
+      username: c.username ?? null,
+      displayName: c.displayName ?? null,
+      verified: (OAUTH_ONLY_PROVIDERS as readonly string[]).includes(c.provider) || isVerifiedDomainConnection(c),
+    });
+  }
+  return out;
+}
+
+async function ownerView(ownerId: string) {
+  const u = await User.findById(ownerId).catch(() => null);
+  return u ? { id: u.id, username: u.username, displayName: u.displayName ?? null, avatar: u.avatar ?? null } : null;
+}
+
+async function latestApplication(serverId: string, userId: string) {
+  const apps = await ServerMemberApplication.find({ serverId, userId }).catch(() => []);
+  apps.sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+  return apps[0] ?? null;
+}
+
+function notifyOnboardingChange(serverId: string, userId: string) {
+  void fanoutToUsers({ userIds: [normalizeId(userId)] }, { type: 'server_onboarding_update', serverId }).catch(() => {});
+}
+
 export const communityRoutes = new Elysia()
   .onBeforeHandle(rejectInvalidObjectIdParams)
   // ─── Member view ───────────────────────────────────────────────────────────
-  .get('/servers/:serverId/onboarding', async ({ headers, cookie, params, set }) => {
+  .get('/servers/:serverId/onboarding', async ({ headers, cookie, params, query, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const access = await serverAccess(user, params.serverId, false);
     if ('error' in access) { set.status = access.status; return { error: access.error }; }
     const { server, member } = access;
-    const [welcome, screening, validIds] = await Promise.all([
+    const isOwner = sameUser(server.ownerId, user.id);
+    const canManage = isOwner || await hasServerPermission(server, user.id, PERMISSION_BITS.MANAGE_SERVER, member).catch(() => false);
+    // Admins preview the whole join experience as a brand-new member, with
+    // everything shown even while it's still switched off.
+    const preview = query.preview === '1' && canManage;
+    const [welcome, screening, validIds, onboarding, response, connections, owner, application] = await Promise.all([
       getWelcomeScreen(server.id).catch(() => normalizeWelcomeScreen(null)),
       getScreeningConfig(server.id),
       eligibleWelcomeChannelIds(server.id),
+      getOnboardingConfig(server.id).catch(() => normalizeOnboardingConfig(null)),
+      preview ? Promise.resolve(null) : getOnboardingResponse(server.id, user.id),
+      serverConnectionsView(server.id, server.ownerId),
+      ownerView(server.ownerId),
+      preview || !member ? Promise.resolve(null) : latestApplication(server.id, user.id),
     ]);
     const visibleWelcome = normalizeWelcomeScreen(welcome, validIds);
-    const blocked = member ? await memberScreeningBlocked(server.id, user, member).catch(() => false) : false;
+    // Picks saved while screening or the verification level still held the
+    // member back: hand the roles out once they're through (retried per visit).
+    if (!preview && member && response?.completedAt && !response.rolesApplied) {
+      void memberScreeningBlocked(server.id, user, member)
+        .then((stillBlocked) => (stillBlocked ? false : applyMemberOnboardingRoles(server.id, user.id)))
+        .catch(() => {});
+    }
+    const blocked = preview
+      ? screening.rules.length > 0
+      : member ? await memberScreeningBlocked(server.id, user, member).catch(() => false) : false;
+    const { computeOnlineCount } = await import('@/lib/api/servers');
+    const onlineCount = await computeOnlineCount(server.id).catch(() => 0);
+    const showWelcome = preview ? visibleWelcome.description.length > 0 || visibleWelcome.welcomeChannels.length > 0 : isWelcomeScreenVisible(visibleWelcome);
+    const showQuestions = preview ? onboarding.questions.length > 0 : isOnboardingVisible(onboarding);
+    const showGuide = preview ? isGuideVisible({ ...onboarding.guide, enabled: true }) : isGuideVisible(onboarding.guide);
+    const showScreening = preview ? screening.rules.length > 0 : screening.enabled;
     return {
-      server: { id: server.id, name: server.name, icon: server.icon ?? null, description: server.description ?? null },
-      welcomeScreen: isWelcomeScreenVisible(visibleWelcome) ? visibleWelcome : null,
-      screening: screening.enabled ? { description: screening.description, rules: screening.rules } : null,
-      member: {
-        pending: Boolean(member?.pending),
-        screeningBlocked: blocked,
-        joinedAt: member?.joinedAt ?? null,
+      preview,
+      canManage,
+      isOwner,
+      server: {
+        id: server.id,
+        name: server.name,
+        icon: server.icon ?? null,
+        banner: server.banner ?? null,
+        description: server.description ?? null,
+        memberCount: server.memberCount ?? 0,
+        onlineCount,
+        createdAt: server.createdAt ?? null,
+        ownerId: server.ownerId,
+        joinMode: server.joinMode || 'invite_only',
       },
+      owner,
+      welcomeScreen: showWelcome ? { ...visibleWelcome, enabled: true } : null,
+      onboarding: showQuestions ? { questions: onboarding.questions } : null,
+      guide: showGuide ? onboarding.guide : null,
+      screening: showScreening
+        ? {
+            description: screening.description,
+            rules: screening.rules,
+            manualApproval: screening.manualApproval,
+            questions: screening.manualApproval ? screening.questions : [],
+            restrictChannels: screening.restrictChannels,
+          }
+        : null,
+      connections,
+      member: {
+        pending: preview ? showScreening : Boolean(member?.pending),
+        screeningBlocked: blocked && showScreening,
+        joinedAt: preview ? new Date().toISOString() : member?.joinedAt ?? null,
+        onboardingCompleted: Boolean(response?.completedAt),
+        optionIds: response?.optionIds ?? [],
+        todosDone: response?.todosDone ?? [],
+        application: application
+          ? {
+              status: application.status,
+              rejectionReason: application.rejectionReason ?? null,
+              createdAt: application.createdAt ?? null,
+              // Lets "Edit and resubmit" start from what they sent.
+              answers: (Array.isArray(application.answers) ? application.answers : [])
+                .map((a) => a as { questionId?: unknown; answer?: unknown })
+                .filter((a) => typeof a.questionId === 'string')
+                .map((a) => ({ questionId: a.questionId as string, answer: typeof a.answer === 'string' ? a.answer : '' })),
+            }
+          : null,
+      },
+    };
+  }, { params: t.Object({ serverId: t.String() }), query: t.Object({ preview: t.Optional(t.String()) }) })
+  // ─── Onboarding (questions + Server Guide) ─────────────────────────────────
+  .get('/servers/:serverId/onboarding/config', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, true);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const [onboarding, assignable] = await Promise.all([
+      getOnboardingConfig(access.server.id),
+      assignableOnboardingRoleIds(access.server, user.id),
+    ]);
+    return { onboarding, assignableRoleIds: [...assignable] };
+  }, { params: t.Object({ serverId: t.String() }) })
+  .put('/servers/:serverId/onboarding/config', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, true);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const [channelIds, assignable, current] = await Promise.all([
+      serverChannelIds(access.server.id),
+      assignableOnboardingRoleIds(access.server, user.id),
+      getOnboardingConfig(access.server.id),
+    ]);
+    // Roles already on an option that this editor can't assign (a higher
+    // admin set them up) stay; they just can't add new ones.
+    const keepable = new Set([...assignable, ...current.questions.flatMap((q) => q.options.flatMap((o) => o.roleIds))]);
+    const safe = new Set((await Role.find({ serverId: access.server.id })).filter((r) => isSafeOnboardingRole(r)).map((r) => r.id));
+    const roleIds = new Set([...keepable].filter((r) => safe.has(r)));
+    const sanitized = sanitizeDeep(body) as Record<string, unknown>;
+    const config = normalizeOnboardingConfig(
+      { enabled: body.enabled ?? current.enabled, questions: sanitized.questions ?? current.questions, guide: sanitized.guide ?? current.guide },
+      { channelIds, roleIds },
+    );
+    await saveOnboardingConfig(access.server.id, config);
+    return { onboarding: config, assignableRoleIds: [...assignable] };
+  }, { params: t.Object({ serverId: t.String() }), body: ONBOARDING_BODY })
+  .post('/servers/:serverId/onboarding/responses', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, false);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    if (!access.member) { set.status = 403; return { error: 'Not a member of this server' }; }
+    const limit = await checkRateLimit('onboardingResponse', `${access.server.id}:${user.id}`);
+    if (!limit.success) { set.status = 429; return { error: 'You are changing your picks too quickly', retryAfter: limit.retryAfter }; }
+    const config = await getOnboardingConfig(access.server.id);
+    if (!isOnboardingVisible(config)) { set.status = 400; return { error: 'This server has no onboarding questions' }; }
+    const checked = validateOnboardingSelection(config, body.optionIds);
+    if ('error' in checked) { set.status = 400; return { error: checked.error, questionId: checked.questionId }; }
+    await saveOnboardingSelection(access.server.id, user.id, checked.optionIds);
+    // Roles wait until rules screening lets them in: any role would skip it.
+    const blocked = await memberScreeningBlocked(access.server.id, user, access.member).catch(() => true);
+    const rolesApplied = blocked ? false : await applyMemberOnboardingRoles(access.server.id, user.id).catch(() => false);
+    return { optionIds: checked.optionIds, rolesApplied };
+  }, { params: t.Object({ serverId: t.String() }), body: t.Object({ optionIds: t.Array(t.String({ maxLength: 64 }), { maxItems: 100 }) }) })
+  .post('/servers/:serverId/onboarding/todos/:todoId', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, false);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    if (!access.member) return { todosDone: [] };
+    const config = await getOnboardingConfig(access.server.id);
+    if (!config.guide.todos.some((td) => td.id === params.todoId)) { set.status = 404; return { error: 'Unknown to-do' }; }
+    return { todosDone: await markGuideTodoDone(access.server.id, user.id, params.todoId) };
+  }, { params: t.Object({ serverId: t.String(), todoId: t.String({ maxLength: 64 }) }) })
+  // ─── Server connections (owner's linked accounts) ──────────────────────────
+  .get('/servers/:serverId/connections', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, false);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    return {
+      connections: await serverConnectionsView(access.server.id, access.server.ownerId),
+      linkedConnectionIds: sameUser(access.server.ownerId, user.id) ? await getLinkedConnectionIds(access.server.id) : undefined,
+    };
+  }, { params: t.Object({ serverId: t.String() }) })
+  .put('/servers/:serverId/connections', async ({ headers, cookie, params, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const server = await Server.findById(params.serverId);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    // Only the owner can put their own accounts on the server's profile.
+    if (!sameUser(server.ownerId, user.id)) { set.status = 403; return { error: 'Only the server owner can link connections' }; }
+    const wanted = normalizeLinkedConnectionIds(body.connectionIds);
+    const own = await UserConnection.find({ userId: user.id });
+    const linkable = new Set(own.filter(isLinkableConnection).map((c) => normalizeId(c.id)));
+    const ids = wanted.filter((id) => linkable.has(normalizeId(id)));
+    if (ids.length !== wanted.length) {
+      set.status = 400;
+      return { error: 'You can only link your own connections (websites must be verified first)' };
+    }
+    await saveLinkedConnectionIds(server.id, ids);
+    return { connections: await serverConnectionsView(server.id, server.ownerId), linkedConnectionIds: ids };
+  }, { params: t.Object({ serverId: t.String() }), body: t.Object({ connectionIds: t.Array(t.String({ maxLength: 64 }), { maxItems: 20 }) }) })
+  // ─── Apply to Join form ────────────────────────────────────────────────────
+  .get('/servers/:serverId/application-form', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const server = await Server.findById(params.serverId);
+    if (!server) { set.status = 404; return { error: 'Server not found' }; }
+    const member = await ServerMember.findOne({ serverId: server.id, userId: user.id });
+    if (!member && server.joinMode !== 'apply_to_join') { set.status = 404; return { error: 'This server is not accepting applications' }; }
+    const screening = await getScreeningConfig(server.id);
+    return {
+      rules: screening.enabled ? screening.rules : [],
+      description: screening.description,
+      questions: screening.questions,
     };
   }, { params: t.Object({ serverId: t.String() }) })
   // ─── Welcome screen ────────────────────────────────────────────────────────
@@ -176,12 +494,22 @@ export const communityRoutes = new Elysia()
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const access = await serverAccess(user, params.serverId, true);
     if ('error' in access) { set.status = access.status; return { error: access.error }; }
-    const current = await getScreeningConfig(access.server.id);
+    const [current, channelIds] = await Promise.all([getScreeningConfig(access.server.id), serverChannelIds(access.server.id)]);
     const screening = await saveScreeningConfig(access.server.id, {
       enabled: body.enabled ?? current.enabled,
       description: body.description !== undefined ? sanitizeInput(body.description) : current.description,
       rules: body.rules ? body.rules.map((r) => sanitizeInput(r)) : current.rules,
-    });
+      restrictChannels: body.restrictChannels ?? current.restrictChannels,
+      accessibleChannelIds: body.accessibleChannelIds ?? current.accessibleChannelIds,
+      manualApproval: body.manualApproval ?? current.manualApproval,
+      questions: body.questions ? sanitizeDeep(body.questions) : current.questions,
+    }, channelIds);
+    // Channel access for waiting members may have changed: re-check their open streams.
+    if (screening.restrictChannels || current.restrictChannels) {
+      void listPendingMembers(access.server.id, 500)
+        .then((rows) => rows.forEach((r) => requestUserChannelStreamRecheck(normalizeId(r.userId))))
+        .catch(() => {});
+    }
     return { screening };
   }, { params: t.Object({ serverId: t.String() }), body: SCREENING_BODY })
   .post('/servers/:serverId/screening/accept', async ({ headers, cookie, params, body, set }) => {
@@ -191,9 +519,70 @@ export const communityRoutes = new Elysia()
     const access = await serverAccess(user, params.serverId, false);
     if ('error' in access) { set.status = access.status; return { error: access.error }; }
     if (!access.member) return { pending: false };
-    await acceptScreening(access.server.id, user.id);
+    const screening = await getScreeningConfig(access.server.id);
+    // On a lookup error assume they're still blocked: never skip manual approval.
+    const blocked = await memberScreeningBlocked(access.server.id, user, access.member).catch(() => true);
+    if (screening.enabled && screening.manualApproval && blocked) {
+      // Manual approval: the rules + answers become an application a moderator
+      // approves in Server Settings → Member Applications.
+      const checked = validateApplicationAnswers(screening.questions, body.answers);
+      if ('error' in checked) { set.status = 400; return { error: checked.error, questionId: checked.questionId }; }
+      // Labels were escaped when the questions were saved; only the answers are new input.
+      const answers = checked.answers.map((a) => ({ questionId: a.questionId, question: a.question, answer: sanitizeInput(a.answer), isPrivate: true }));
+      const limit = await checkRateLimit('screeningSubmit', `${access.server.id}:${user.id}`);
+      if (!limit.success) { set.status = 429; return { error: 'Please wait before submitting again', retryAfter: limit.retryAfter }; }
+      const existing = await latestApplication(access.server.id, user.id);
+      const application = existing && (existing.status === 'pending' || existing.status === 'rejected' || existing.status === 'interviewed')
+        ? await ServerMemberApplication.updateById(existing.id, { status: 'pending', answers, rejectionReason: null, processedAt: null, processedBy: null })
+        : await ServerMemberApplication.create({ serverId: access.server.id, userId: user.id, status: 'pending', answers });
+      return {
+        pending: true,
+        application: application ? { status: application.status, rejectionReason: null, createdAt: application.createdAt ?? null } : null,
+      };
+    }
+    await admitScreenedMember(access.server.id, user.id);
     return { pending: false };
-  }, { params: t.Object({ serverId: t.String() }), body: t.Object({ accepted: t.Boolean() }) })
+  }, { params: t.Object({ serverId: t.String() }), body: t.Object({ accepted: t.Boolean(), answers: ANSWERS_BODY }) })
+  .get('/servers/:serverId/screening/pending', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, true);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const rows = await listPendingMembers(access.server.id);
+    const [users, apps] = await Promise.all([
+      rows.length ? User.find({ id: { in: rows.map((r) => r.userId) } }) : Promise.resolve([]),
+      ServerMemberApplication.find({ serverId: access.server.id, status: 'pending' }).catch(() => []),
+    ]);
+    const userById = new Map(users.map((u) => [normalizeId(u.id), u]));
+    const appByUser = new Map(apps.map((a) => [normalizeId(a.userId), a]));
+    return {
+      members: rows.map((r) => {
+        const u = userById.get(normalizeId(r.userId));
+        const app = appByUser.get(normalizeId(r.userId));
+        return {
+          user: u ? { id: u.id, username: u.username, displayName: u.displayName ?? null, avatar: u.avatar ?? null, createdAt: u.createdAt ?? null } : { id: r.userId, username: null, displayName: null, avatar: null, createdAt: null },
+          joinedAt: r.joinedAt,
+          // A moderator-given role already lets them in.
+          hasRole: r.roles.length > 1,
+          applicationId: app?.id ?? null,
+        };
+      }),
+    };
+  }, { params: t.Object({ serverId: t.String() }) })
+  .post('/servers/:serverId/screening/approve/:userId', async ({ headers, cookie, params, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
+    const access = await serverAccess(user, params.serverId, true);
+    if ('error' in access) { set.status = access.status; return { error: access.error }; }
+    const ok = await admitScreenedMember(access.server.id, params.userId);
+    if (!ok) { set.status = 404; return { error: 'Member not found' }; }
+    const pendingApp = await ServerMemberApplication.findOne({ serverId: access.server.id, userId: params.userId, status: 'pending' }).catch(() => null);
+    if (pendingApp) {
+      await ServerMemberApplication.updateById(pendingApp.id, { status: 'approved', processedBy: user.id, processedAt: new Date() });
+    }
+    notifyOnboardingChange(access.server.id, params.userId);
+    return { success: true };
+  }, { params: t.Object({ serverId: t.String(), userId: t.String() }) })
   // ─── Templates (server side) ───────────────────────────────────────────────
   .get('/servers/:serverId/template', async ({ headers, cookie, params, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);

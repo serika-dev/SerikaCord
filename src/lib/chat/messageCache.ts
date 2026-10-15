@@ -22,10 +22,29 @@ const LS_PERSIST_TAIL = 50;
 const LS_MAX_PERSISTED = 30;
 const LS_INDEX_KEY = "sc:msgcache:index";
 
+/**
+ * End-to-end encrypted messages are persisted as their envelope only (no
+ * decrypted text, files, sticker or reply preview); the next fetch decrypts
+ * them again in memory.
+ */
+function withoutPlaintext(m: ChatMessage): ChatMessage {
+  if (!m.e2ee) return m;
+  const ref = m.referencedMessage ? { ...m.referencedMessage, content: "" } : undefined;
+  return {
+    ...m,
+    content: "",
+    attachments: [],
+    sticker: undefined,
+    mentionedUserIds: [],
+    referencedMessage: ref,
+    e2ee: { status: "pending", envelope: m.e2ee.envelope },
+  };
+}
+
 function lsPersist(key: string, messages: ChatMessage[]): void {
   if (typeof localStorage === "undefined") return;
   try {
-    const tail = messages.slice(-LS_PERSIST_TAIL);
+    const tail = messages.slice(-LS_PERSIST_TAIL).map(withoutPlaintext);
     localStorage.setItem(LS_MSG_PREFIX + key, JSON.stringify(tail));
     // Maintain a small LRU index so we can evict old persisted contexts.
     const idx: string[] = JSON.parse(localStorage.getItem(LS_INDEX_KEY) || "[]");

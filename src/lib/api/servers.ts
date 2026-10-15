@@ -23,7 +23,11 @@ import { insertServerMember, removeServerMember, upsertServerBan } from '@/lib/s
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
 import { audit, listAuditLogs } from '@/lib/services/auditLog';
 import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChanges, diffMemberRoles, isAuditLogEventType, snapshotChanges } from '@/lib/audit/auditLog';
-import { invalidateServerGate, memberVerificationState } from '@/lib/services/serverGate';
+import { invalidateServerGate, memberVerificationState, pendingChannelAccess } from '@/lib/services/serverGate';
+import { isChannelAccessibleWhilePending, validateApplicationAnswers } from '@/lib/servers/community';
+import { admitScreenedMember, getScreeningConfig } from '@/lib/services/serverCommunity';
+import { fanoutToUsers } from '@/lib/api/activity';
+import { VERIFICATION_ACTIONS, VERIFICATION_MAX_MINUTES, normalizeVerificationOptions, type VerificationAction } from '@/lib/servers/verification';
 import { normalizeOverwrites } from '@/lib/permissions/overwriteEditor';
 import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
 
@@ -265,7 +269,7 @@ async function checkCanModerateMember(
 // Add a user to a server (used by invites, discovery joins, and application approvals).
 // Returns null when the user is banned from the server; `created` is false when
 // they were already a member (including a concurrent duplicate join).
-async function addUserToServer(serverId: string, userId: string) {
+async function addUserToServer(serverId: string, userId: string, opts: { pending?: boolean } = {}) {
   if (await ServerBan.findOne({ serverId, userId })) return null;
 
   const existingMembership = await ServerMember.findOne({ serverId, userId });
@@ -274,7 +278,13 @@ async function addUserToServer(serverId: string, userId: string) {
   const everyoneRole = await Role.findOne({ serverId, isDefault: true });
   return insertServerMember(serverId, userId, {
     roles: everyoneRole ? [everyoneRole.id] : [],
+    ...(opts.pending !== undefined ? { pending: opts.pending } : {}),
   });
+}
+
+/** Tells a user's open apps that their onboarding / screening state in a server changed. */
+function notifyOnboardingChange(serverId: string, userId: string) {
+  void fanoutToUsers({ userIds: [normalizeId(userId)] }, { type: 'server_onboarding_update', serverId }).catch(() => {});
 }
 
 interface PopulatedRole {
@@ -428,6 +438,35 @@ function normalizeMemberDto(member: {
     highestHoistedRole,
     iconRole,
   };
+}
+
+/**
+ * A join code for a partnered server's homepage card: its vanity URL, else a
+ * permanent unlimited invite (reused; created once, attributed to the owner,
+ * on the system channel or the first text channel).
+ */
+async function partnerJoinCode(server: { id: string; ownerId: string; vanityUrlCode?: string | null; systemChannelId?: string | null }): Promise<string | null> {
+  if (server.vanityUrlCode) return server.vanityUrlCode;
+  const invites = await Invite.find({ serverId: server.id });
+  const existing = invites.find((i) => (i.metadata as { source?: string } | null)?.source === 'partner_homepage' && !i.expiresAt && !i.maxUses)
+    ?? invites.find((i) => !i.expiresAt && !i.maxUses && !i.isVanity);
+  if (existing) return existing.code;
+  const channels = await Channel.find({ serverId: server.id });
+  const channel = channels.find((c) => c.id === server.systemChannelId && c.type === 'text')
+    ?? channels.filter((c) => c.type === 'text').sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+  if (!channel) return null;
+  const invite = await Invite.create({
+    code: nanoid(8),
+    serverId: server.id,
+    channelId: channel.id,
+    inviterId: server.ownerId,
+    maxUses: 0,
+    maxAge: 0,
+    temporary: false,
+    expiresAt: null,
+    metadata: { source: 'partner_homepage' },
+  });
+  return invite?.code ?? null;
 }
 
 export const serverRoutes = new Elysia({ prefix: '/servers' })
@@ -793,12 +832,17 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     channels.sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
     roles.sort((a: any, b: any) => (b.position ?? 0) - (a.position ?? 0));
+    // Rules screening with restricted channels: don't reveal hidden channels.
+    const pendingAccess = await pendingChannelAccess(server.id, user, membership).catch(() => null);
+    const visibleChannels = pendingAccess
+      ? channels.filter((c) => isChannelAccessibleWhilePending(c, channels.find((p) => p.id === c.parentId) ?? null, pendingAccess, channels))
+      : channels;
 
     return {
       server: {
         ...server,
         settings: publicServerSettings(server.settings),
-        channels,
+        channels: visibleChannels,
         roles,
         member: membership,
       },
@@ -1208,6 +1252,34 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           if (v !== undefined) staged.push(() => {
             section('moderation').verificationLevel = v;
             server.verificationLevel = v as typeof server.verificationLevel;
+          });
+          break;
+        }
+        case 'moderation.verification.accountAgeMinutes':
+        case 'moderation.verification.memberAgeMinutes': {
+          const v = expectIntInRange(key, 1, VERIFICATION_MAX_MINUTES);
+          const field = key.endsWith('accountAgeMinutes') ? 'accountAgeMinutes' : 'memberAgeMinutes';
+          if (v !== undefined) staged.push(() => {
+            const mod = section('moderation');
+            mod.verification = { ...normalizeVerificationOptions(mod.verification), [field]: v };
+          });
+          break;
+        }
+        case 'moderation.verification.restrict.send':
+        case 'moderation.verification.restrict.attach':
+        case 'moderation.verification.restrict.links':
+        case 'moderation.verification.restrict.react':
+        case 'moderation.verification.restrict.voice':
+        case 'moderation.verification.restrict.threads': {
+          const v = expectBoolean(key);
+          const action = key.slice('moderation.verification.restrict.'.length) as VerificationAction;
+          if (v !== undefined) staged.push(() => {
+            const mod = section('moderation');
+            const current = normalizeVerificationOptions(mod.verification);
+            const restrict = v
+              ? [...new Set([...current.restrict, action])]
+              : current.restrict.filter((a) => a !== action);
+            mod.verification = { ...current, restrict: VERIFICATION_ACTIONS.filter((a) => restrict.includes(a)) };
           });
           break;
         }
@@ -1997,7 +2069,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       isOwner: false,
       permissions: effective.toString(),
       verification: verification
-        ? { level: verification.level, blocked: verification.blocked, reason: verification.reason, until: verification.until }
+        ? {
+            level: verification.level,
+            blocked: verification.blocked,
+            reason: verification.reason,
+            until: verification.until,
+            restrict: verification.options.restrict,
+            accountAgeMinutes: verification.options.accountAgeMinutes,
+            memberAgeMinutes: verification.options.memberAgeMinutes,
+          }
         : null,
     };
   }, {
@@ -2213,9 +2293,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       });
       return (perms & PERMISSION_BITS.VIEW_CHANNEL) === PERMISSION_BITS.VIEW_CHANNEL;
     };
+    // Rules screening with restricted channels: pending members only see the
+    // listed channels / categories until they're let in.
+    const pendingAccess = await pendingChannelAccess(params.serverId, user, membership).catch(() => null);
+    const channelNodes = allChannels as Array<{ id: string; type?: string | null; parentId?: string | null; permissionOverwrites?: unknown }>;
     const visibleIds = new Set(
-      (allChannels as Array<{ id: string; type?: string | null; permissionOverwrites?: unknown }>)
+      channelNodes
         .filter((ch) => ch.type !== 'public_thread' && ch.type !== 'private_thread' && canViewNonThread(ch))
+        .filter((ch) => !pendingAccess || isChannelAccessibleWhilePending(ch, null, pendingAccess, channelNodes))
         .map((ch) => ch.id as string),
     );
 
@@ -4232,6 +4317,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const userMap = new Map(users.map((u: any) => [u.id, u]));
 
     applications.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Which applicants are already in the server, waiting in rules screening.
+    const waiting = userIds.length > 0
+      ? new Set((await ServerMember.find({ serverId: server.id, userId: { in: userIds } }).catch(() => []))
+        .filter((m) => m.pending).map((m) => normalizeId(m.userId)))
+      : new Set<string>();
 
     return {
       applications: applications.map((app: any) => {
@@ -4249,6 +4339,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           answers: app.answers,
           createdAt: app.createdAt,
           processedAt: app.processedAt,
+          rejectionReason: app.rejectionReason ?? null,
+          waitingInServer: waiting.has(normalizeId(app.userId)),
         };
       }),
     };
@@ -4309,21 +4401,41 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You already have a pending application' };
     }
 
-    const { answers } = body as { answers: { question: string; answer: string }[] };
-    if (!Array.isArray(answers) || answers.length === 0) {
+    // The form is the server's rules screening: its rules must be accepted and
+    // its application questions answered. Without configured questions the
+    // legacy free-form { question, answer } list is still accepted.
+    const screening = await getScreeningConfig(server.id).catch(() => null);
+    if (screening?.enabled && body.acceptRules !== true) {
       set.status = 400;
-      return { error: 'Application answers are required' };
+      return { error: 'You must accept the server rules' };
+    }
+    let stored: { question: string; answer: string; isPrivate: boolean }[];
+    if (screening && screening.questions.length > 0) {
+      const checked = validateApplicationAnswers(screening.questions, body.answers);
+      if ('error' in checked) {
+        set.status = 400;
+        return { error: checked.error, questionId: checked.questionId };
+      }
+      // Labels were escaped when the questions were saved.
+      stored = checked.answers.map((a) => ({ question: a.question, answer: sanitizeInput(a.answer), isPrivate: true }));
+    } else {
+      const answers = (body.answers || []).filter((a) => typeof a.answer === 'string' && a.answer.trim());
+      if (answers.length === 0) {
+        set.status = 400;
+        return { error: 'Application answers are required' };
+      }
+      stored = answers.slice(0, 10).map((a) => ({
+        question: sanitizeInput((a.question || '').slice(0, 200)),
+        answer: sanitizeInput((a.answer || '').slice(0, 2000)),
+        isPrivate: true,
+      }));
     }
 
     const application = await ServerMemberApplication.create({
       serverId: server.id,
       userId: user.id,
       status: 'pending',
-      answers: answers.map((a) => ({
-        question: sanitizeInput(a.question || ''),
-        answer: sanitizeInput(a.answer || ''),
-        isPrivate: true,
-      })),
+      answers: stored,
     });
 
     return {
@@ -4338,9 +4450,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     params: t.Object({ serverId: t.String() }),
     body: t.Object({
       answers: t.Array(t.Object({
-        question: t.String({ maxLength: 200 }),
+        questionId: t.Optional(t.String({ maxLength: 64 })),
+        question: t.Optional(t.String({ maxLength: 200 })),
         answer: t.String({ maxLength: 2000 }),
-      })),
+      }), { maxItems: 20 }),
+      acceptRules: t.Optional(t.Boolean()),
     }),
   })
   // Get current user's application for a server
@@ -4413,7 +4527,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Application not found' };
     }
 
-    const { status, rejectionReason } = body as { status: string; rejectionReason?: string };
+    const { status, rejectionReason, removeMember } = body as { status: string; rejectionReason?: string; removeMember?: boolean };
     if (!['approved', 'rejected', 'interviewed'].includes(status)) {
       set.status = 400;
       return { error: 'Invalid status' };
@@ -4428,16 +4542,47 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       updates.rejectionReason = sanitizeInput(rejectionReason).slice(0, 500);
     }
 
-    // If approved, add user to server (never re-admits a user banned after applying)
+    // Approved: an applicant who isn't in yet joins (they accepted the rules in
+    // the application, so not as pending); a member waiting in rules screening
+    // with manual approval is let in. Never re-admits a user banned since.
+    const existingMember = await ServerMember.findOne({ serverId: server.id, userId: application.userId });
     if (status === 'approved') {
-      const added = await addUserToServer(server.id, application.userId);
-      if (!added) {
+      if (existingMember) {
+        await admitScreenedMember(server.id, application.userId);
+      } else if ((server.joinMode || 'invite_only') !== 'apply_to_join') {
+        // A rules-screening application whose author has since left: approving
+        // it must not pull them back in.
+        set.status = 409;
+        return { error: 'This person is no longer in the server' };
+      } else {
+        const added = await addUserToServer(server.id, application.userId, { pending: false });
+        if (!added) {
+          set.status = 403;
+          return { error: 'This user is banned from this server' };
+        }
+      }
+    }
+    // Rejected: optionally remove a member who is still waiting to be let in.
+    let removed = false;
+    if (status === 'rejected' && removeMember && existingMember?.pending && !sameId(server.ownerId, application.userId)) {
+      // Removing is a kick: same permission and role-hierarchy rules.
+      if (!(await canKickMembers(server, user.id))) {
         set.status = 403;
-        return { error: 'This user is banned from this server' };
+        return { error: 'You need Kick Members permission to remove them' };
+      }
+      const hierarchyError = await checkCanModerateMember(server, user.id, application.userId);
+      if (hierarchyError) {
+        set.status = 403;
+        return { error: hierarchyError };
+      }
+      removed = await removeServerMember(server.id, application.userId);
+      if (removed) {
+        audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.MEMBER_KICK, targetId: application.userId, changes: [], reason: updates.rejectionReason ? String(updates.rejectionReason) : 'Application rejected' });
       }
     }
 
     await ServerMemberApplication.updateById(application.id, updates);
+    notifyOnboardingChange(server.id, application.userId);
 
     return {
       success: true,
@@ -4446,12 +4591,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         status,
         processedAt: updates.processedAt,
       },
+      removed,
     };
   }, {
     params: t.Object({ serverId: t.String(), applicationId: t.String() }),
     body: t.Object({
       status: t.String(),
       rejectionReason: t.Optional(t.String({ maxLength: 500 })),
+      removeMember: t.Optional(t.Boolean()),
     }),
   })
   // Join server by ID (for explore page)
@@ -4559,23 +4706,36 @@ function convertDiscordOverwrites(
 
 // Public partnered servers list (no auth required)
 export const partnerRoutes = new Elysia({ prefix: '/servers' })
+  // Homepage: up to 12 partnered servers, each with a serika.cc join code
+  // (vanity, else a permanent invite made for the homepage once).
   .get('/partnered', async ({ set }) => {
     try {
+      const cacheKey = 'partnered:homepage:v2';
+      const cached = await cache.get<Record<string, unknown>>(cacheKey).catch(() => null);
+      if (cached) return cached;
       const allServers = await Server.find({ isPartnered: true });
       const servers = allServers
+        .filter((s) => !s.isAgeGated)
         .sort((a: any, b: any) => new Date(a.partneredAt || 0).getTime() - new Date(b.partneredAt || 0).getTime())
-        .slice(0, 20);
+        .slice(0, 12);
 
-      return {
-        servers: servers.map((s: any) => ({
+      const joinCodes = await Promise.all(servers.map((s) => partnerJoinCode(s).catch(() => null)));
+      const onlineCounts = await computeOnlineCounts(servers.map((s) => s.id)).catch(() => new Map<string, number>());
+      const response = {
+        servers: servers.map((s: any, i) => ({
           id: s.id,
           name: s.name,
           icon: s.icon ?? null,
-          description: s.description ?? null,
+          banner: s.banner ?? null,
+          description: s.discoveryDescription || s.description || null,
           memberCount: s.memberCount ?? 0,
+          onlineCount: onlineCounts.get(normalizeId(s.id)) ?? onlineCounts.get(s.id) ?? 0,
           vanityUrlCode: s.vanityUrlCode ?? null,
+          joinCode: joinCodes[i],
         })),
       };
+      await cache.set(cacheKey, response, 300).catch(() => {});
+      return response;
     } catch {
       set.status = 500;
       return { error: 'Failed to fetch partnered servers' };
@@ -5129,11 +5289,16 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       }
     }
 
+    // Discord webhook URLs carry the webhook token: encrypted at rest, and
+    // decrypted only where the bridge posts (channels.ts replicateToDiscord).
+    const { encryptField } = await import('@/lib/security/fieldEncryption');
+    const sealedWebhooks: Record<string, string> = {};
+    for (const [channelId, url] of Object.entries(discordWebhooks)) sealedWebhooks[channelId] = await encryptField(url);
     const nextSettings = {
       ...(server.settings as IServerSettings | undefined || {}),
       integrations: {
         ...(server.settings as IServerSettings | undefined)?.integrations || {},
-        discordWebhooks,
+        discordWebhooks: sealedWebhooks,
         discordChannelsMap,
       }
     };
@@ -5303,7 +5468,13 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
       return { error: 'Invite not found or expired' };
     }
 
-    const onlineCount = await computeOnlineCount(resolved.serverId);
+    const [onlineCount, connections] = await Promise.all([
+      computeOnlineCount(resolved.serverId),
+      // The owner's linked accounts (verified domains, OAuth) on the invite card.
+      import('@/lib/api/community')
+        .then((m) => m.serverConnectionsView(server.id, server.ownerId))
+        .catch(() => []),
+    ]);
 
     // Best-effort: if the requester is authenticated, tell them whether they're
     // already a member so the invite UI can offer "Open Server" instead of
@@ -5332,6 +5503,8 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
         onlineCount,
         isPartnered: server.isPartnered,
         joinMode: server.joinMode || 'invite_only',
+        createdAt: server.createdAt ?? null,
+        connections,
       },
       expiresAt: resolved.kind === 'invite' ? resolved.invite.expiresAt : null,
     };

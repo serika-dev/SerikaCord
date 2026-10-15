@@ -213,6 +213,9 @@ export const channels = pgTable('channels', {
   recipientIds: uuid('recipient_ids').array().default([]),
   // Group DM icon (CDN URL). Added at boot by ensureGroupDmSchema().
   icon: text('icon'),
+  // DM / group DM is end-to-end encrypted (one-way switch). Added at boot by
+  // ensureE2eeSchema() (drizzle/manual_e2ee.sql). Null = false.
+  e2ee: boolean('e2ee').default(false),
   permissionOverwrites: jsonb('permission_overwrites').default([]),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
@@ -263,6 +266,11 @@ export const messages = pgTable('messages', {
   // Discord message flags (lib/chat/messageFlags): 1<<12 = @silent. Added at
   // boot by ensureMessageFlagsSchema() (drizzle/manual_message_flags.sql).
   flags: integer('flags').notNull().default(0),
+  // End-to-end encrypted envelope (lib/e2ee Envelope; content is then ''), or
+  // { v: 1, notice: 'enabled' } on the "turned on encryption" system row.
+  // Nullable, no default (metadata-only add on the big table). Added at boot by
+  // ensureE2eeSchema() (drizzle/manual_e2ee.sql).
+  e2ee: jsonb('e2ee'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
@@ -343,8 +351,38 @@ export const serverScreening = pgTable('server_screening', {
   enabled: boolean('enabled').notNull().default(false),
   description: text('description'),
   rules: jsonb('rules').notNull().default([]),
+  // Pending members only see these channels/categories (restrictChannels on).
+  restrictChannels: boolean('restrict_channels').notNull().default(false),
+  accessibleChannelIds: jsonb('accessible_channel_ids').notNull().default([]),
+  // Submitting the rules queues a server_member_applications row to approve.
+  manualApproval: boolean('manual_approval').notNull().default(false),
+  questions: jsonb('questions').notNull().default([]),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+// Server Onboarding + Server Guide (OnboardingConfig, src/lib/servers/onboarding.ts)
+// and the owner's connections the server shows. One row per server. Added at
+// boot by ensureCommunitySchema() (drizzle/manual_server_onboarding.sql).
+export const serverOnboarding = pgTable('server_onboarding', {
+  serverId: uuid('server_id').primaryKey(),
+  config: jsonb('config').notNull().default({}),
+  linkedConnectionIds: jsonb('linked_connection_ids').notNull().default([]),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// A member's onboarding picks and Server Guide progress. rolesApplied stays
+// false while rules screening still blocks them (roles would bypass it).
+export const serverOnboardingResponses = pgTable('server_onboarding_responses', {
+  serverId: uuid('server_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  optionIds: jsonb('option_ids').notNull().default([]),
+  completedAt: timestamp('completed_at'),
+  rolesApplied: boolean('roles_applied').notNull().default(false),
+  todosDone: jsonb('todos_done').notNull().default([]),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.serverId, t.userId] }),
+}));
 
 // Server templates (one per server, Discord-style). `serialized` is a
 // ServerSnapshot (src/lib/servers/community.ts). Added at boot by
@@ -1180,3 +1218,130 @@ export type BugReportInsert = typeof bugReports.$inferInsert;
 export { staffRoles, staffRoleAssignments } from './staffSchema';
 
 export { changelogAnnouncements, changelogReceipts } from './changelogSchema';
+
+// ─── Trust & Safety (drizzle/manual_trust_safety.sql, ensureTrustSafetySchema) ─
+// Account strikes, temporary restrictions, automated safety incidents
+// (PhotoDNA / scam-image matches), appeals and the scam image hash list.
+export const accountStrikes = pgTable('account_strikes', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  category: text('category').notNull().default('other'),
+  reason: text('reason').notNull(),
+  source: text('source').notNull().default('staff'),
+  issuedBy: uuid('issued_by'),
+  incidentId: uuid('incident_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  expiresAt: timestamp('expires_at'),
+  revokedAt: timestamp('revoked_at'),
+  revokedBy: uuid('revoked_by'),
+  revokeReason: text('revoke_reason'),
+}, (t) => ({
+  userIdx: index('account_strikes_user_id_idx').on(t.userId),
+}));
+
+export const accountRestrictions = pgTable('account_restrictions', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  type: text('type').notNull().default('chat'),
+  reason: text('reason').notNull(),
+  source: text('source').notNull().default('staff'),
+  issuedBy: uuid('issued_by'),
+  incidentId: uuid('incident_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  until: timestamp('until').notNull(),
+  liftedAt: timestamp('lifted_at'),
+  liftedBy: uuid('lifted_by'),
+}, (t) => ({
+  userIdx: index('account_restrictions_user_id_idx').on(t.userId),
+}));
+
+export const safetyIncidents = pgTable('safety_incidents', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  kind: text('kind').notNull(),
+  status: text('status').notNull().default('open'),
+  isTest: boolean('is_test').notNull().default(false),
+  details: jsonb('details').notNull().default({}),
+  fileName: text('file_name'),
+  contentType: text('content_type'),
+  fileSize: integer('file_size'),
+  sha256: text('sha256'),
+  uploadCategory: text('upload_category'),
+  channelId: uuid('channel_id'),
+  ip: text('ip'),
+  hashId: uuid('hash_id'),
+  actionTaken: text('action_taken'),
+  notes: text('notes'),
+  reviewedBy: uuid('reviewed_by'),
+  reviewedAt: timestamp('reviewed_at'),
+  ncmecReportedAt: timestamp('ncmec_reported_at'),
+  ncmecReportId: text('ncmec_report_id'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index('safety_incidents_user_id_idx').on(t.userId),
+  statusIdx: index('safety_incidents_status_idx').on(t.status, t.createdAt),
+}));
+
+export const accountAppeals = pgTable('account_appeals', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  userId: uuid('user_id').notNull(),
+  targetType: text('target_type').notNull(),
+  targetId: uuid('target_id'),
+  message: text('message').notNull(),
+  status: text('status').notNull().default('open'),
+  staffNote: text('staff_note'),
+  reviewedBy: uuid('reviewed_by'),
+  reviewedAt: timestamp('reviewed_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  userIdx: index('account_appeals_user_id_idx').on(t.userId),
+  statusIdx: index('account_appeals_status_idx').on(t.status, t.createdAt),
+}));
+
+export const scamImageHashes = pgTable('scam_image_hashes', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  hash: text('hash').notNull(),
+  label: text('label').notNull(),
+  maxDistance: integer('max_distance').notNull().default(6),
+  addedBy: uuid('added_by'),
+  matchCount: integer('match_count').notNull().default(0),
+  lastMatchedAt: timestamp('last_matched_at'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (t) => ({
+  hashUnique: uniqueIndex('scam_image_hashes_hash_unique').on(t.hash),
+}));
+
+// ─── End-to-end encryption (drizzle/manual_e2ee.sql, ensureE2eeSchema) ───────
+// Public keys only, plus the passphrase-sealed key backup. See
+// docs/architecture/e2ee.md.
+export const e2eeIdentities = pgTable('e2ee_identities', {
+  userId: uuid('user_id').primaryKey(),
+  identityPub: text('identity_pub').notNull(),
+  backupPub: text('backup_pub').notNull(),
+  // Identity-key signature over the backup key (clients only wrap to a backup
+  // key that verifies).
+  backupSig: text('backup_sig').notNull(),
+  backupBlob: text('backup_blob'),
+  backupSalt: text('backup_salt'),
+  backupIters: integer('backup_iters'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Revoked devices are kept (revoked_at set) so signatures on messages they
+// sent can still be verified (history, franking reports).
+export const e2eeDevices = pgTable('e2ee_devices', {
+  id: text('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  ecdhPub: text('ecdh_pub').notNull(),
+  signPub: text('sign_pub').notNull(),
+  deviceSig: text('device_sig').notNull(),
+  // The identity key that signed device_sig (changes on "Reset encryption").
+  identityPub: text('identity_pub').notNull(),
+  name: text('name'),
+  createdAt: timestamp('created_at').defaultNow(),
+  lastSeenAt: timestamp('last_seen_at').defaultNow(),
+  revokedAt: timestamp('revoked_at'),
+}, (t) => ({
+  userIdx: index('e2ee_devices_user_id_idx').on(t.userId),
+}));

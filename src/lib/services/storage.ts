@@ -14,6 +14,10 @@ import { config } from '../config';
 import { nanoid } from 'nanoid';
 import crypto from 'crypto';
 import { sanitizeSvgBuffer } from '../security/svgSanitizer';
+import { ContentBlockedError, scanUploadedImage } from '@/lib/services/trustSafety';
+import { sniffImageType } from '@/lib/safety/imageHash';
+
+export { ContentBlockedError };
 
 // Initialize S3 client for Backblaze B2
 const s3Client = new S3Client({
@@ -56,6 +60,13 @@ interface UploadOptions {
   contentType: string;
   data: Buffer | Uint8Array | ReadableStream<Uint8Array>;
   size: number;
+  /** Uploader IP, recorded on Trust & Safety incidents. */
+  ip?: string;
+  /**
+   * Who is uploading, for the Trust & Safety scan, when `userId` isn't set
+   * (it also shapes the storage key, e.g. server icons are keyed by server).
+   */
+  scanUserId?: string;
 }
 
 // Validate file type based on category
@@ -202,6 +213,25 @@ export class StorageService {
     }
 
     const hash = await calculateHash(buffer);
+
+    // Trust & Safety: user images are checked against PhotoDNA (known CSAM)
+    // and the staff scam-image hash list BEFORE anything is stored. Detected
+    // by content, not just the declared type, so a renamed image is scanned.
+    const scanUser = options.scanUserId ?? options.userId;
+    if (scanUser) {
+      const declared = contentType.toLowerCase().split(';')[0].trim();
+      const scanType = declared.startsWith('image/') && declared !== 'image/svg+xml' ? declared : sniffImageType(buffer);
+      if (scanType) {
+        const verdict = await scanUploadedImage(buffer, scanType, {
+          userId: scanUser,
+          fileName: filename,
+          category,
+          channelId: options.channelId ?? null,
+          ip: options.ip ?? null,
+        });
+        if (verdict.blocked) throw new ContentBlockedError(verdict.kind, verdict.message);
+      }
+    }
 
     // Sanitize SVGs server-side to strip <script>, event handlers, etc.
     // This makes SVG uploads safe even if opened directly in a browser tab.
@@ -364,7 +394,7 @@ export class StorageService {
   async uploadFromFormData(
     file: File,
     category: UploadCategory,
-    options: { userId?: string; serverId?: string; channelId?: string; contentType?: string } = {}
+    options: { userId?: string; serverId?: string; channelId?: string; contentType?: string; ip?: string; scanUserId?: string } = {}
   ): Promise<UploadResult> {
     const buffer = Buffer.from(await file.arrayBuffer());
     

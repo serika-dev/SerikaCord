@@ -36,6 +36,11 @@ const BUILD_SHA = (process.env.NEXT_PUBLIC_BUILD_SHA = resolveBuildSha());
 const BUILD_TIME = (process.env.NEXT_PUBLIC_BUILD_TIME ||= new Date().toISOString());
 
 const nextConfig: NextConfig = {
+  // Dev only: extra hosts (e.g. a Tailscale name / IP) allowed to load dev
+  // assets, as a comma-separated DEV_ALLOWED_ORIGINS. Unset = Next's default.
+  ...(process.env.DEV_ALLOWED_ORIGINS
+    ? { allowedDevOrigins: process.env.DEV_ALLOWED_ORIGINS.split(',').map((h) => h.trim()).filter(Boolean) }
+    : {}),
   // Static export for mobile builds; otherwise the default build, served by our
   // custom server (server.ts) which also hosts the bot gateway on the same port.
   output: isMobileBuild ? 'export' : undefined,

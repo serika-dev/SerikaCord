@@ -129,7 +129,8 @@ background proxy in `auth.ts`).
 
 ## Secrets and data
 
-- Secrets come from environment variables via `src/lib/config.ts`; never log
+- Secrets come from environment variables via `src/lib/config.ts`
+  (`FIELD_ENCRYPTION_KEY` is read directly by `fieldEncryption.ts`); never log
   tokens, keys or message plaintext, and never return `password_hash`,
   `bot_token`, private keys, verification/reset tokens or other users'
   emails from an endpoint.
@@ -144,6 +145,92 @@ background proxy in `auth.ts`).
   `settings.dataPrivacy.discordBridgeOutbound`); decline and `/forgetme` erase
   bridged data.
 
+## Encryption at rest
+
+Two layers, both AES-256-GCM:
+
+- **Message content**: `encryptForStorage` / `decryptFromStorage`
+  (`src/lib/security/encryption.ts`), keyed by the platform key in
+  `platform_settings.encryption_key`.
+- **Sensitive fields**: `src/lib/security/fieldEncryption.ts` (async, server
+  only) over the pure core `fieldCrypto.ts`. Values are self-describing:
+  `enc:<keyId>:<base64url>` (randomized), `encd:<keyId>:<base64url>`
+  (deterministic, for secrets looked up by equality) and `{ "enc": "enc:..." }`
+  for a whole jsonb value. The key id and mode are bound into the GCM tag.
+
+Keys: `p` is derived from the platform key (always available). If
+`FIELD_ENCRYPTION_KEY` (32+ chars) is set in the environment, key `e1` derived
+from it encrypts all new writes, so a database dump alone no longer decrypts
+them; `p` stays available for reading older values. Once set, that variable
+must never change or disappear.
+
+**Legacy plaintext.** Rows written before encryption are plaintext, and no
+column type changed. Every read path is decrypt-if-encrypted: a value without
+the prefix (or one that only looks sealed but doesn't authenticate, e.g. a note
+someone typed as `enc:...`) is returned unchanged. Writes always encrypt, so
+old values are converted the next time they are saved.
+`scripts/encrypt-legacy-fields.ts` converts the rest in one go; it is opt-in
+(report-only unless `--apply`), never prints values, and must be run
+deliberately against production after a backup. Deterministic lookups match
+both the ciphertext and the legacy plaintext (`fieldLookupCandidates`), except
+that an input which itself looks sealed never matches as plaintext (so a stored
+ciphertext can't be replayed as a token).
+
+| Column | Mode | Written by | Read (decrypted) by |
+|--------|------|------------|---------------------|
+| `user_connections.metadata` token keys (`CONNECTION_SECRET_KEYS`: OAuth access/refresh tokens, Last.fm `sessionKey`, ...) | per key; `oauthVerified`, `domainVerification`, `serikaMoeId` stay readable | `UserConnection.create/updateById/updateByIdForUser` (OAuth callbacks in `api/auth.ts`, `api/index.ts`) | every `UserConnection` read; metadata never leaves the server (`toOwnConnection`, public view strips it) |
+| `applications.bot_token` | deterministic | `Application.create/updateById` (`ensureBotProvisioned`, reset token) | `Application.findOne({ botToken })` (bot API, gateway IDENTIFY, `/gateway/bot`), developer portal |
+| `applications.client_secret`, `applications.private_key_pem` | randomized | `Application` model | OAuth token exchange, interaction signing, developer portal |
+| `channel_webhooks.token` | deterministic | `ChannelWebhook.create` | `ChannelWebhook.findOne({ channelId, token })` (execute route), webhook lists for managers |
+| `channel_webhooks.url` (embeds the token) | randomized | `ChannelWebhook` model | webhook lists for managers |
+| `app_webhooks.secret` | randomized | `AppWebhook` model | `AppWebhook` model |
+| `instances.secret_key` (`api_key` is already a SHA-256 hash) | randomized | `Instance` model | `Instance` model |
+| `server_member_applications.answers` | jsonb `{ enc }` | `ServerMemberApplication.create/updateById` | every `ServerMemberApplication` read (review queue, own status) |
+| `server_member_applications.rejection_reason` | randomized | same | same |
+| `user_notes.note` | randomized | `setUserNote` | `listUserNotes`, `getUserNote` |
+| `account_appeals.message`, `account_appeals.staff_note` | randomized | `createAppeal`, `decideAppeal` | `listAppealsForUser`, `getAppeal`, `listAppeals`, `getStanding` |
+| `safety_incidents.ip`, `safety_incidents.notes` | randomized | `recordIncident`, `updateIncident` | `listIncidents` (staff panel) |
+| `push_devices.token` | deterministic (unique index still works) | `registerPushDevice` (removes a legacy plaintext duplicate first) | `devicesFor`; unregister and dead-token cleanup match both forms |
+| `servers.settings.integrations.discordWebhooks.*` (Discord webhook URLs) | randomized per value | Discord channel sync in `api/servers.ts` | `replicateToDiscord` in `api/channels.ts` |
+
+Rules for new code: read and write these columns through the model or service
+listed above, never with a raw `db.select()` that hands the stored value to a
+client. A new secret column gets a `FieldSpec` entry in its model (or explicit
+`encryptField` / `decryptField` in its service), a row in this table, and the
+backfill script entry.
+
+Intentionally plaintext:
+
+- `users.email`: looked up by value for login and unique, and owned by the
+  accounts service; a blind index would need a new column and a coordinated
+  change there.
+- `users.verification_token` / `reset_token`: only the legacy local auth flow
+  (unused; serika-accounts handles both) writes them; short-lived.
+- `users.password_hash` (bcrypt), `instances.api_key` (SHA-256): already
+  one-way hashes.
+- Moderation reasons (`server_bans.reason`, `admin_logs.reason`,
+  `users.ban_reason`, strike/restriction reasons): shown to moderators and to
+  the user, read by many SQL paths.
+- `bug_reports.*`: owned by the bug report feature, not covered yet.
+- Message attachments/embeds metadata (filenames, URLs): read on many paths and
+  served from the public CDN anyway.
+- `applications.public_key`, scheduled event text, server/channel names: public.
+
+### Data minimization
+
+- IPs stored for longer than a rate-limit window are truncated with
+  `anonymizeIp` (`src/lib/security/ipPrivacy.ts`: IPv4 /24, IPv6 /48):
+  `user_device_sessions.ip_address` and the Redis `session:<sid>` record.
+  Rate-limit keys keep the full IP; they expire within minutes.
+- `safety_incidents.ip` keeps the full address (needed for legal reports) but
+  encrypted.
+- Logs never contain message content, author names of bridged messages or
+  identifiers of users who declined the Discord bridge.
+
+DMs, group DMs and their calls can additionally be **end-to-end encrypted**
+(the server never sees their plaintext); see [e2ee.md](e2ee.md). Rollout is
+gated by `E2EE_ENABLED`.
+
 ## Review checklist for a diff
 
 - [ ] Every new route authenticates and returns 401 early.
@@ -157,3 +244,5 @@ background proxy in `auth.ts`).
 - [ ] Realtime fan-out only reaches users who can see the source channel.
 - [ ] No secrets or other users' private fields in responses or logs.
 - [ ] Schema changes additive and idempotent.
+- [ ] New secret or private columns are encrypted at rest (see "Encryption at
+      rest") and every reader tolerates legacy plaintext.

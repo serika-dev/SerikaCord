@@ -110,6 +110,18 @@ export const rateLimiters_config = {
   channelFollow: { points: 20, duration: 600 },
   // Domain connections: DNS TXT lookups per user
   domainVerify: { points: 10, duration: 300 },
+  // Rules screening submissions with manual approval, per member per server
+  screeningSubmit: { points: 5, duration: 600 },
+  // Onboarding picks (each rewrite touches roles + the audit log)
+  onboardingResponse: { points: 10, duration: 600 },
+  // Account Standing appeals, per user
+  appeal: { points: 5, duration: 86400 },
+  // End-to-end encryption (per user): public key lookups (opening DMs, calls),
+  // key/device/backup writes, and enabling encryption on a conversation
+  e2eeRead: { points: 240, duration: 60 },
+  e2eeWrite: { points: 20, duration: 600 },
+  e2eeEnable: { points: 10, duration: 600 },
+  e2eeBlob: { points: 600, duration: 60 }, // encrypted attachment relay (viewing media)
 } as const;
 
 export async function checkRateLimit(

@@ -116,13 +116,23 @@ export interface MessageBarAttachment {
   contentType: string;
   size?: number;
   spoiler?: boolean;
+  /** End-to-end encrypted upload: the blob's key, and the real file facts. */
+  e2ee?: { key: string; iv: string; sha256: string };
+  original?: { name: string; type: string; size: number };
 }
+
+/** Encrypts a file before upload (end-to-end encrypted conversations). */
+export type EncryptFileForUpload = (file: File) => Promise<{
+  file: File;
+  secret: { key: string; iv: string; sha256: string };
+  meta: { name: string; type: string; size: number };
+}>;
 
 export interface MessageBarHandle {
   getAttachments: () => File[];
   clearAttachments: () => void;
   removeLatestAttachment: () => void;
-  uploadAttachments: () => Promise<MessageBarAttachment[]>;
+  uploadAttachments: (opts?: { encryptFile?: EncryptFileForUpload }) => Promise<MessageBarAttachment[]>;
   getComposer: () => RichComposerHandle | null;
   focus: () => void;
 }
@@ -701,20 +711,35 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       [channelId, uploadEndpoint]
     );
 
-    const uploadAttachments = useCallback(async (): Promise<MessageBarAttachment[]> => {
+    const uploadAttachments = useCallback(async (opts?: { encryptFile?: EncryptFileForUpload }): Promise<MessageBarAttachment[]> => {
       if (attachments.length === 0) return [];
       setIsUploading(true);
       setUploadProgress({});
+      // Encrypted conversations: each file becomes an opaque encrypted blob
+      // first; its key travels inside the message envelope.
+      const encryptFile = opts?.encryptFile;
+      const uploadOne = async (file: File, index: number): Promise<MessageBarAttachment | null> => {
+        if (!encryptFile) return uploadSingleFile(file, index);
+        let encrypted: Awaited<ReturnType<EncryptFileForUpload>>;
+        try {
+          encrypted = await encryptFile(file);
+        } catch {
+          toast.error(`${gt("Failed to upload")} ${file.name}`, { description: file.name });
+          return null;
+        }
+        const uploaded = await uploadSingleFile(encrypted.file, index);
+        return uploaded ? { ...uploaded, e2ee: encrypted.secret, original: encrypted.meta } : null;
+      };
       try {
         const results = await Promise.all(
-          attachments.map((file, index) => uploadSingleFile(file, index))
+          attachments.map((file, index) => uploadOne(file, index))
         );
         return results.filter((r): r is MessageBarAttachment => r !== null);
       } finally {
         setIsUploading(false);
         setUploadProgress({});
       }
-    }, [attachments, uploadSingleFile]);
+    }, [attachments, uploadSingleFile, gt]);
 
     // Expose uploadAttachments via a stable callback on the ref
     // We store it on a ref so the parent can call it
@@ -740,7 +765,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       },
       getComposer: () => composerRef.current,
       focus: () => composerRef.current?.focus(),
-      uploadAttachments: () => uploadRef.current(),
+      uploadAttachments: (opts) => uploadRef.current(opts),
     }), [attachments, spoilerFlags]);
 
     // ---- Handlers ----

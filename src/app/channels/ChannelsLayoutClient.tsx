@@ -83,15 +83,23 @@ const MobileProfileView = dynamic(
   () => import("@/components/mobile/MobileProfileView").then((m) => m.MobileProfileView),
   { loading: mobileFallback }
 );
+// Suspended accounts only ever see this screen (loaded on demand).
+const SuspendedScreen = dynamic(() => import("@/components/safety/SuspendedScreen"), {
+  loading: () => (
+    <div className="h-dvh bg-[var(--bg-app)] flex items-center justify-center">
+      <Loader size={48} />
+    </div>
+  ),
+});
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, refresh } = useAuth();
+  const { user, isLoading, suspended, refresh } = useAuth();
   const router = useRouter();
   const gt = useGT();
   const recheckRef = useRef(false);
 
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (!isLoading && !user && !suspended) {
       // Re-check auth once before redirecting, in case the auth cookie
       // was set by a login/register on another page but the context
       // hasn't refreshed yet. This prevents infinite redirect loops.
@@ -102,7 +110,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
       }
       router.push("/login");
     }
-  }, [user, isLoading, router, refresh]);
+  }, [user, isLoading, suspended, router, refresh]);
+
+  // Suspended: Account Standing + appeal + log out, instead of the app.
+  if (suspended && !user) return <SuspendedScreen />;
 
   if (isLoading) {
     return (

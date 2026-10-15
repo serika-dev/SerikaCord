@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
 import { GroupSystemRow } from "@/components/chat/GroupSystemRow";
+import { E2eeSystemRow } from "@/components/chat/E2eeSystemRow";
 import { ThreadSystemRow } from "@/components/chat/ThreadRows";
 import { PollResultRow } from "@/components/chat/PollResultRow";
 import { isGroupDmEventType } from "@/lib/chat/groupDm";
@@ -906,6 +907,11 @@ function MessageListInner<M extends ChatMessage>(
       currentUserId={currentUserId}
       formattedTimestamp={formattedTimestamps[idx]}
       onJumpToMessage={jumpToMessage}
+    />
+    ) : group.messages[0].type === "e2ee_enabled" ? (
+    <E2eeSystemRow
+      message={group.messages[0]}
+      formattedTimestamp={formattedTimestamps[idx]}
     />
     ) : isGroupDmEventType(group.messages[0].type) ? (
     <GroupSystemRow

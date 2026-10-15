@@ -10,10 +10,17 @@ import { PermissionsStore, type PermissionsSnapshot } from "@/lib/roles/permissi
 export interface VerificationState {
   level: string;
   blocked: boolean;
-  reason: "email" | "account_age" | "member_age" | null;
+  reason: "email" | "account_age" | "member_age" | "connection" | null;
   /** When a time-based restriction lifts on its own (ISO). */
   until: string | null;
+  /** What stays locked while blocked (older servers: missing, meaning everything). */
+  restrict?: VerificationAction[];
+  /** The server's waits, in minutes. */
+  accountAgeMinutes?: number;
+  memberAgeMinutes?: number;
 }
+
+export type VerificationAction = "send" | "attach" | "links" | "react" | "voice" | "threads";
 
 /**
  * One snapshot per server shared by every mounted consumer (sidebar, chat,

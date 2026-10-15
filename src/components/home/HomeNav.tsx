@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { cdnImage } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Download } from "lucide-react";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 
@@ -58,6 +58,19 @@ export function HomeNavActions() {
   );
 }
 
+/** The hero's first button for everyone: the desktop / mobile apps. */
+function DownloadClientButton({ label }: { label: string }) {
+  return (
+    <Link
+      href="/download"
+      className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white text-black hover:bg-white/90 rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_0_0_rgba(255,255,255,0)] hover:shadow-[0_0_40px_rgba(255,255,255,0.12)] flex items-center justify-center gap-2"
+    >
+      <Download className="w-4 h-4" aria-hidden />
+      {label}
+    </Link>
+  );
+}
+
 export function HomeHeroActions() {
   const { user, isLoading } = useAuth();
   const gt = useGT();
@@ -75,13 +88,7 @@ export function HomeHeroActions() {
   if (user) {
     return (
       <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-        <Link
-          href="/channels/me"
-          className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white text-black hover:bg-white/90 rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_0_0_rgba(255,255,255,0)] hover:shadow-[0_0_40px_rgba(255,255,255,0.12)] flex items-center justify-center gap-2"
-        >
-          {gt("Welcome back")}, {user.displayName || user.username}
-          <ArrowRight className="w-4 h-4" />
-        </Link>
+        <DownloadClientButton label={gt("Download client")} />
         <Link
           href="/channels/me"
           className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_30px_rgba(139,92,246,0.35)] hover:shadow-[0_0_50px_rgba(139,92,246,0.5)] flex items-center justify-center gap-2"
@@ -95,12 +102,7 @@ export function HomeHeroActions() {
 
   return (
     <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-      <Link
-        href="/register"
-        className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-white text-black hover:bg-white/90 rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_0_0_rgba(255,255,255,0)] hover:shadow-[0_0_40px_rgba(255,255,255,0.12)]"
-      >
-        {gt("Get Started — it's free")}
-      </Link>
+      <DownloadClientButton label={gt("Download client")} />
       <Link
         href="/channels/me"
         className="w-full sm:w-auto px-8 py-4 text-[15px] font-bold bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-full transition-all hover:scale-[1.03] active:scale-[0.98] shadow-[0_0_30px_rgba(139,92,246,0.35)] hover:shadow-[0_0_50px_rgba(139,92,246,0.5)] flex items-center justify-center gap-2"

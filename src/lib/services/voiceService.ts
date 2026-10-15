@@ -111,7 +111,11 @@ export type VoiceEvent =
   /** A moderator moved you to another voice channel. */
   | { type: "moved_by_moderator"; channelName: string }
   /** Screen share resolution / frame rate changed. */
-  | { type: "stream_quality_changed"; quality: StreamQuality };
+  | { type: "stream_quality_changed"; quality: StreamQuality }
+  /** End-to-end encryption state of the call changed (see callE2ee). */
+  | { type: "e2ee_changed" }
+  /** A peer's DTLS certificate couldn't be verified: their connection was dropped. */
+  | { type: "e2ee_warning"; userId: string };
 
 type VoiceListener = (event: VoiceEvent) => void;
 
@@ -212,6 +216,13 @@ class VoiceService {
   private speakingAnalysers: Map<string, { analyser: AnalyserNode; ctx: AudioContext }> = new Map();
   private speakingInterval: NodeJS.Timeout | null = null;
   private speakingState: Map<string, boolean> = new Map();
+  // End-to-end encrypted calls (DM / group DM rooms of encrypted
+  // conversations): every SDP offer/answer carries the sender device's
+  // signature over its DTLS fingerprints (lib/e2ee/dtls), checked before the
+  // SDP is applied, so the signalling server can't sit in the middle.
+  private e2eeRooms: Map<string, boolean> = new Map();
+  private peerE2ee: Map<string, "verified" | "unverified" | "failed"> = new Map();
+  private signalChains: Map<string, Promise<void>> = new Map();
 
   // User-configurable audio constraints (updated from settings before join)
   private audioConstraints: MediaTrackConstraints = {
@@ -749,6 +760,62 @@ class VoiceService {
     return () => { this.listeners.delete(fn); };
   }
 
+  /** Whether calls in `roomId` must be end-to-end verified (set by the DM / group DM page). */
+  setRoomE2ee(roomId: string, required: boolean) {
+    if (this.e2eeRooms.get(roomId) === required) return;
+    this.e2eeRooms.set(roomId, required);
+    if (roomId === this.roomId) this.emit({ type: "e2ee_changed" });
+  }
+
+  /** The current call's encryption: required here, and every connected peer verified. */
+  get callE2ee(): { required: boolean; verified: boolean } {
+    const roomId = this.roomId;
+    const required = roomId ? this.e2eeRooms.get(roomId) === true : false;
+    const peers = Array.from(this.peers.keys());
+    return { required, verified: required && peers.length > 0 && peers.every((u) => this.peerE2ee.get(u) === "verified") };
+  }
+
+  private static isDmRoom(roomId: string): boolean {
+    return roomId.startsWith("dm:") || roomId.startsWith("gdm:");
+  }
+
+  /**
+   * Offer/answer from a peer in a DM room: check its DTLS fingerprint
+   * signature before applying it. Signals from one peer stay in order (ICE
+   * waits behind the SDP being verified).
+   */
+  private enqueueVerifiedSignal(roomId: string, fromUserId: string, signal: RemoteSignal, pcId: string | null) {
+    const prev = this.signalChains.get(fromUserId) ?? Promise.resolve();
+    const next = prev.then(async () => {
+      const sdp = typeof signal.sdp === "string" ? signal.sdp : null;
+      let clean: RemoteSignal = signal;
+      if (sdp) {
+        const { e2ee: proof, ...rest } = signal as RemoteSignal & { e2ee?: unknown };
+        clean = rest;
+        const required = this.e2eeRooms.get(roomId) === true;
+        let state: "verified" | "unverified" | "failed" = "unverified";
+        if (proof) {
+          const session = await import("@/lib/e2ee/client/session");
+          state = (await session.verifyCallSdp(roomId, fromUserId, sdp, proof).catch(() => false)) ? "verified" : "failed";
+        }
+        if (this.roomId !== roomId) return;
+        if (state === "failed" || (required && state !== "verified")) {
+          this.destroyPeer(fromUserId);
+          this.peerE2ee.set(fromUserId, "failed");
+          this.emit({ type: "e2ee_warning", userId: fromUserId });
+          this.emitParticipants();
+          return;
+        }
+        this.peerE2ee.set(fromUserId, state);
+        this.emit({ type: "e2ee_changed" });
+      } else if (this.peerE2ee.get(fromUserId) === "failed") {
+        return; // ICE for a connection we refused
+      }
+      this.handleRemoteSignal(fromUserId, clean, pcId);
+    }).catch(() => { /* a bad signal never blocks the next one */ });
+    this.signalChains.set(fromUserId, next);
+  }
+
   private emit(event: VoiceEvent) {
     this.listeners.forEach((fn) => fn(event));
   }
@@ -802,6 +869,8 @@ class VoiceService {
     const seq = ++this.joinSeq;
     const cancelled = () => seq !== this.joinSeq;
     this.roomId = channelId;
+    this.peerE2ee.clear();
+    this.signalChains.clear();
     this.meta = meta;
     this.sessionId = newSessionId();
     this.reconnectAttempt = 0;
@@ -1144,7 +1213,9 @@ class VoiceService {
         const fromUserId = msg.fromUserId as string;
         const signal = (msg.type === "voice:ice" ? msg.candidate : msg.signal) as RemoteSignal | undefined;
         if (!fromUserId || !signal || typeof signal !== "object") break;
-        this.handleRemoteSignal(fromUserId, signal, typeof msg.pcId === "string" ? msg.pcId : null);
+        const pcId = typeof msg.pcId === "string" ? msg.pcId : null;
+        if (this.roomId && VoiceService.isDmRoom(this.roomId)) this.enqueueVerifiedSignal(this.roomId, fromUserId, signal, pcId);
+        else this.handleRemoteSignal(fromUserId, signal, pcId);
         break;
       }
       case "voice:soundboard": {
@@ -1306,14 +1377,27 @@ class VoiceService {
     // Events from a connection we've since replaced must be ignored.
     const current = () => this.peers.get(targetUserId) === peer && this.roomId === roomId;
 
+    // Signals leave in order; in DM rooms an offer/answer first gets this
+    // device's signature over its DTLS fingerprints (end-to-end encryption).
+    let sendChain: Promise<void> = Promise.resolve();
     peer.on("signal", (signal) => {
       if (!current()) return;
-      // Every signal (offer, answer, ICE, renegotiation) goes through one relay;
-      // the receiver routes it by `signal.type` and `pcId`.
-      fetch(`/api/voice/signal/${roomId}/offer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetUserId, signal, pcId }),
+      sendChain = sendChain.then(async () => {
+        let payload: unknown = signal;
+        const sdp = (signal as { sdp?: unknown }).sdp;
+        if (typeof sdp === "string" && VoiceService.isDmRoom(roomId)) {
+          const session = await import("@/lib/e2ee/client/session").catch(() => null);
+          const proof = session ? await session.signCallSdp(roomId, sdp).catch(() => null) : null;
+          if (proof) payload = { ...signal, e2ee: proof };
+        }
+        if (!current()) return;
+        // Every signal (offer, answer, ICE, renegotiation) goes through one relay;
+        // the receiver routes it by `signal.type` and `pcId`.
+        fetch(`/api/voice/signal/${roomId}/offer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetUserId, signal: payload, pcId }),
+        }).catch(() => {});
       }).catch(() => {});
     });
 

@@ -1,0 +1,328 @@
+"use client";
+
+/**
+ * Small pieces shared by the join flow, the Server Guide, the join preview and
+ * the invite page: server icon tile, banner (or accent gradient), online /
+ * member counts, the "Est." date, the owner's linked connections, the rules
+ * list and the Apply to Join / rules screening question fields.
+ */
+
+import type { CSSProperties, ReactNode } from "react";
+import { useGT, useLocale } from "gt-next";
+import { BadgeCheck } from "lucide-react";
+import { getConnectionColor, getConnectionHref, getConnectionIcon } from "@/components/user/ConnectionIcon";
+import type { ApplicationQuestionView, ServerConnectionView } from "@/hooks/useServerOnboarding";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { cdnImage, cn } from "@/lib/utils";
+
+/** Mirrors APPLICATION_SHORT_MAX / APPLICATION_PARAGRAPH_MAX in src/lib/servers/community.ts. */
+export const APPLICATION_SHORT_MAX = 150;
+export const APPLICATION_PARAGRAPH_MAX = 1000;
+
+/** Accent gradient used where a server has no banner. */
+export const ACCENT_GRADIENT: CSSProperties = {
+  background:
+    "linear-gradient(135deg, var(--app-accent) 0%, color-mix(in srgb, var(--app-accent) 55%, var(--bg-app)) 60%, color-mix(in srgb, var(--app-accent) 25%, var(--bg-app)) 100%)",
+};
+
+export function serverInitials(name: string): string {
+  const words = decodeHtmlEntities(name).trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+export function ServerIconTile({
+  name,
+  icon,
+  className,
+  textClassName,
+}: {
+  name: string;
+  icon: string | null | undefined;
+  className?: string;
+  textClassName?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "overflow-hidden bg-[var(--app-surface-alt)] flex items-center justify-center font-semibold text-[var(--text-primary)] shrink-0 select-none",
+        className,
+      )}
+    >
+      {icon ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={cdnImage(icon)} alt="" className="w-full h-full object-cover" draggable={false} />
+      ) : (
+        <span className={textClassName} aria-hidden>{serverInitials(name)}</span>
+      )}
+    </div>
+  );
+}
+
+/** The server banner, or an accent gradient when it has none. */
+export function ServerBannerArt({ banner, className, children }: { banner: string | null | undefined; className?: string; children?: ReactNode }) {
+  return (
+    <div className={cn("relative overflow-hidden", className)} style={banner ? undefined : ACCENT_GRADIENT}>
+      {banner && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={cdnImage(banner)} alt="" className="absolute inset-0 w-full h-full object-cover" draggable={false} />
+      )}
+      {children}
+    </div>
+  );
+}
+
+/** "Est. Mar 2024" from the server's creation date (null when unknown). */
+export function useEstablishedLabel(createdAt: string | null | undefined): string | null {
+  const gt = useGT();
+  const locale = useLocale();
+  if (!createdAt) return null;
+  const time = Date.parse(createdAt);
+  if (!Number.isFinite(time)) return null;
+  let date: string;
+  try {
+    date = new Intl.DateTimeFormat(locale || undefined, { month: "short", year: "numeric" }).format(new Date(time));
+  } catch {
+    date = new Date(time).getFullYear().toString();
+  }
+  return gt("Est. {date}", { date });
+}
+
+/** ● 12 Online  ● 340 Members */
+export function ServerStats({ online, members, className }: { online?: number | null; members?: number | null; className?: string }) {
+  const gt = useGT();
+  return (
+    <div className={cn("flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--text-secondary)]", className)}>
+      {typeof online === "number" && (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" aria-hidden />
+          {gt("{count} Online", { count: online.toLocaleString() })}
+        </span>
+      )}
+      {typeof members === "number" && (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full bg-[var(--text-muted)]" aria-hidden />
+          {members === 1 ? gt("1 Member") : gt("{count} Members", { count: members.toLocaleString() })}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function connectionLabel(c: ServerConnectionView): string {
+  return decodeHtmlEntities(c.displayName || c.username || c.accountId || c.provider);
+}
+
+/** The owner's linked accounts (verified domains, OAuth) with verified checks. */
+export function ServerConnectionsList({
+  connections,
+  variant = "list",
+  className,
+}: {
+  connections: ServerConnectionView[];
+  /** "list": one row each (profile card); "chips": compact wrapping pills (invite card). */
+  variant?: "list" | "chips";
+  className?: string;
+}) {
+  const gt = useGT();
+  if (connections.length === 0) return null;
+  return (
+    <ul className={cn(variant === "chips" ? "flex flex-wrap gap-1.5" : "space-y-1", className)}>
+      {connections.map((c) => {
+        const Icon = getConnectionIcon(c.provider);
+        const href = getConnectionHref(c.provider, c.accountId);
+        const label = connectionLabel(c);
+        const body = (
+          <>
+            <Icon size={variant === "chips" ? 14 : 16} className="shrink-0" style={{ color: getConnectionColor(c.provider) }} aria-hidden />
+            <span className="min-w-0 truncate">{label}</span>
+            {c.verified && (
+              <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-[var(--app-accent)]" aria-label={gt("Verified")} />
+            )}
+          </>
+        );
+        const cls = cn(
+          "flex items-center gap-2 min-w-0 text-[var(--text-primary)] transition-colors",
+          variant === "chips"
+            ? "h-7 px-2.5 rounded-full bg-[var(--app-surface-alt)] border border-[var(--border-subtle)] text-xs max-w-[220px]"
+            : "h-9 px-2 rounded-md text-sm",
+          href !== "#" && (variant === "chips" ? "hover:bg-[var(--bg-hover)]" : "hover:bg-[var(--bg-hover)]"),
+        );
+        return (
+          <li key={c.id} className="min-w-0">
+            {href !== "#" ? (
+              <a href={href} target="_blank" rel="noopener noreferrer nofollow" className={cls} title={label}>
+                {body}
+              </a>
+            ) : (
+              <span className={cls} title={label}>{body}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** A unicode emoji, or `fallback` for empty / custom (`<:name:id>`) values. */
+export function EmojiOrIcon({ emoji, fallback, className }: { emoji: string | null | undefined; fallback: ReactNode; className?: string }) {
+  const value = emoji?.trim();
+  if (value && !value.startsWith("<") && value.length <= 16) {
+    return <span className={cn("leading-none", className)} aria-hidden>{value}</span>;
+  }
+  return <>{fallback}</>;
+}
+
+/** Numbered server rules. */
+export function RulesList({ rules, className }: { rules: string[]; className?: string }) {
+  return (
+    <ol className={cn("space-y-3", className)}>
+      {rules.map((rule, i) => (
+        <li key={i} className="flex gap-3 text-sm text-[var(--text-primary)]">
+          <span
+            className="w-6 h-6 shrink-0 rounded-full bg-[var(--app-surface-alt)] text-[var(--text-secondary)] text-xs font-semibold tabular-nums flex items-center justify-center"
+            aria-hidden
+          >
+            {i + 1}
+          </span>
+          <span className="pt-0.5 whitespace-pre-wrap break-words min-w-0">{decodeHtmlEntities(rule)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
+ * The application questions a server asks (Apply to Join and rules
+ * screening with manual approval): short input, paragraph, or choice pills.
+ */
+export function ApplicationQuestionFields({
+  questions,
+  answers,
+  onChange,
+  errors,
+  idPrefix,
+  disabled,
+}: {
+  questions: ApplicationQuestionView[];
+  answers: Record<string, string>;
+  onChange: (questionId: string, value: string) => void;
+  /** questionId → message. */
+  errors?: Record<string, string>;
+  idPrefix: string;
+  disabled?: boolean;
+}) {
+  const gt = useGT();
+  return (
+    <div className="space-y-4">
+      {questions.map((q) => {
+        const id = `${idPrefix}-${q.id}`;
+        const value = answers[q.id] ?? "";
+        const error = errors?.[q.id];
+        const label = decodeHtmlEntities(q.label);
+        const fieldCls = cn(
+          "w-full rounded-lg bg-[var(--bg-input)] border px-3 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40",
+          error ? "border-red-500" : "border-[var(--border-subtle)] focus:border-[var(--app-accent)]",
+        );
+        return (
+          <div key={q.id} data-question-id={q.id}>
+            {q.type === "choice" ? (
+              <fieldset aria-describedby={error ? `${id}-error` : undefined}>
+                <legend className="mb-2 text-sm font-semibold text-[var(--text-primary)]">
+                  {label}
+                  {q.required && <span className="text-red-500 ml-0.5" aria-hidden>*</span>}
+                </legend>
+                <div role="radiogroup" aria-label={label} aria-required={q.required} className="flex flex-wrap gap-2">
+                  {q.choices.map((choice, i) => {
+                    const checked = value === choice;
+                    return (
+                      <label
+                        key={`${choice}-${i}`}
+                        className={cn(
+                          "relative inline-flex items-center min-h-9 px-3.5 py-1.5 rounded-full border text-sm cursor-pointer select-none transition-colors",
+                          "has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--app-accent)]/50",
+                          checked
+                            ? "border-[var(--app-accent)] bg-[var(--app-accent)]/15 text-[var(--text-primary)] font-medium"
+                            : "border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]",
+                          disabled && "opacity-60 cursor-not-allowed",
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name={id}
+                          value={choice}
+                          checked={checked}
+                          disabled={disabled}
+                          onChange={() => onChange(q.id, choice)}
+                          className="sr-only"
+                        />
+                        {decodeHtmlEntities(choice)}
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            ) : (
+              <>
+                <label htmlFor={id} className="mb-2 block text-sm font-semibold text-[var(--text-primary)]">
+                  {label}
+                  {q.required && <span className="text-red-500 ml-0.5" aria-hidden>*</span>}
+                </label>
+                {q.type === "paragraph" ? (
+                  <textarea
+                    id={id}
+                    value={value}
+                    rows={4}
+                    maxLength={APPLICATION_PARAGRAPH_MAX}
+                    disabled={disabled}
+                    required={q.required}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? `${id}-error` : undefined}
+                    onChange={(e) => onChange(q.id, e.target.value)}
+                    placeholder={gt("Your answer")}
+                    className={cn(fieldCls, "py-2.5 resize-y min-h-[96px]")}
+                  />
+                ) : (
+                  <input
+                    id={id}
+                    type="text"
+                    value={value}
+                    maxLength={APPLICATION_SHORT_MAX}
+                    disabled={disabled}
+                    required={q.required}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={error ? `${id}-error` : undefined}
+                    onChange={(e) => onChange(q.id, e.target.value)}
+                    placeholder={gt("Your answer")}
+                    className={cn(fieldCls, "h-10")}
+                  />
+                )}
+              </>
+            )}
+            {error && (
+              <p id={`${id}-error`} role="alert" className="mt-1.5 text-xs text-red-500">{error}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** First required question left empty, or null. */
+export function firstMissingAnswer(questions: ApplicationQuestionView[], answers: Record<string, string>): string | null {
+  for (const q of questions) {
+    if (q.required && !(answers[q.id] ?? "").trim()) return q.id;
+  }
+  return null;
+}
+
+/** Focuses (and scrolls to) a question's field inside `root`. */
+export function focusQuestion(root: HTMLElement | null, questionId: string) {
+  if (!root) return;
+  const wrap = root.querySelector<HTMLElement>(`[data-question-id="${CSS.escape(questionId)}"]`);
+  if (!wrap) return;
+  wrap.scrollIntoView({ block: "center", behavior: "smooth" });
+  wrap.querySelector<HTMLElement>("input, textarea")?.focus({ preventScroll: true });
+}

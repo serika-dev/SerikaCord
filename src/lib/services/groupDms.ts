@@ -96,6 +96,9 @@ export async function serializeGroup(channel: GroupChannel) {
     memberCount: ids.length,
     lastMessageId: channel.lastMessageId,
     updatedAt: channel.updatedAt,
+    // End-to-end encryption state (lib/services/e2ee).
+    e2ee: channel.e2ee === true,
+    e2eeAuto: channel.e2ee === null && process.env.E2EE_ENABLED === '1',
   };
 }
 

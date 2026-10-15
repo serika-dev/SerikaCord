@@ -11,6 +11,8 @@ import android.os.Build;
 public final class NotificationChannels {
     public static final String MESSAGES = "messages";
     public static final String CALLS = "calls";
+    /** Server @mentions (rich message pushes); DMs stay on MESSAGES. */
+    public static final String MENTIONS = "mentions";
 
     private NotificationChannels() {}
 
@@ -29,6 +31,18 @@ public final class NotificationChannels {
             messages.enableVibration(true);
             messages.setShowBadge(true);
             nm.createNotificationChannel(messages);
+        }
+
+        if (nm.getNotificationChannel(MENTIONS) == null) {
+            NotificationChannel mentions = new NotificationChannel(
+                MENTIONS,
+                ctx.getString(R.string.channel_mentions_name),
+                NotificationManager.IMPORTANCE_HIGH
+            );
+            mentions.setDescription(ctx.getString(R.string.channel_mentions_description));
+            mentions.enableVibration(true);
+            mentions.setShowBadge(true);
+            nm.createNotificationChannel(mentions);
         }
 
         if (nm.getNotificationChannel(CALLS) == null) {

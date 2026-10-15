@@ -10,7 +10,7 @@ import { readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon, Search } from "lucide-react";
+import { Phone, Video, Pin, Users,  ArrowLeft, Shield, UserPlus, Clock, Bell, BellOff, Inbox as InboxIcon, Search, Lock } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import Link from "next/link";
@@ -47,6 +47,7 @@ import { MessageRequestBar, useMessageRequestFor } from "@/components/dm/Message
 import dynamic from "next/dynamic";
 import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
 import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
+import { E2eeConversationBanner } from "@/components/e2ee/E2eeConversationBanner";
 
 const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 
@@ -118,6 +119,8 @@ export default function DMConversationPage() {
     user,
     messageBarRef,
     emojiLookup: availableServerEmojis,
+    // End-to-end encrypted DMs (lib/e2ee): decrypt + encrypt in the chat engine.
+    encryptedChat: true,
     onShouldScrollToBottom: () => {
       if (messageListRef.current?.isAtBottom()) {
         requestAnimationFrame(() => messageListRef.current?.scrollToBottom());
@@ -145,8 +148,8 @@ export default function DMConversationPage() {
   // it from loaded messages. Wire it into the unread engine so DM read state
   // persists to the DB and syncs across devices.
   const dmChannelId = useMemo(
-    () => chat.messages.find((m) => m.channelId)?.channelId ?? null,
-    [chat.messages]
+    () => chat.conversation?.channelId ?? chat.messages.find((m) => m.channelId)?.channelId ?? null,
+    [chat.conversation?.channelId, chat.messages]
   );
   // Message search in this conversation (same engine as server search).
   const searchScope = useMemo(
@@ -298,6 +301,14 @@ export default function DMConversationPage() {
   }, [user?.id]);
 
   const callRoomId = user?.id && recipientId ? dmCallRoomId(user.id, recipientId) : null;
+  // Calls in an encrypted DM require signed DTLS fingerprints (voiceService).
+  useEffect(() => {
+    if (callRoomId) voiceService.setRoomE2ee(callRoomId, chat.e2eeActive);
+  }, [callRoomId, chat.e2eeActive]);
+  const e2eeMembers = useMemo(
+    () => (recipient && recipient.id === recipientId ? [{ id: recipient.id, name: recipient.displayName || recipient.username }] : []),
+    [recipient, recipientId],
+  );
   const recipientName = recipient?.displayName || recipient?.username;
   // Latest profile for the call handlers below without re-running them on
   // every profile refresh.
@@ -609,6 +620,15 @@ export default function DMConversationPage() {
               </span>
               <SystemPill isSystem={recipient?.isSystem} />
               <StaffPill badges={recipient?.badges} />
+              {chat.e2eeActive && (
+                <span
+                  className="inline-flex text-[var(--text-secondary)]"
+                  title={gt("Messages are end-to-end encrypted")}
+                  aria-label={gt("Messages are end-to-end encrypted")}
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                </span>
+              )}
             </div>
           </div>
 
@@ -752,6 +772,12 @@ export default function DMConversationPage() {
 
         {/* Message input */}
         <div className="pt-0">
+          <E2eeConversationBanner
+            conversation={chat.conversation}
+            active={chat.e2eeActive}
+            members={e2eeMembers}
+            unsupported={Boolean(recipient?.isSystem || recipient?.isBot)}
+          />
           {pendingRequest ? (
             <MessageRequestBar channelId={pendingRequest.channelId} userId={pendingRequest.user.id} name={recipientName || pendingRequest.user.username} />
           ) : recipient?.isSystem ? (
@@ -783,7 +809,7 @@ export default function DMConversationPage() {
               onCancelReply={() => chat.actions.setReplyToMessage(null)}
               pollApiBase={apiBase ?? undefined}
               draftKey={recipientId ? `dm:${recipientId}` : undefined}
-              onSendVoice={chat.handleVoiceSend}
+              onSendVoice={chat.e2eeActive ? undefined : chat.handleVoiceSend}
             />
           )}
 

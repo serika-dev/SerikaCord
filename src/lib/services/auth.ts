@@ -4,6 +4,7 @@ import { cache } from '../db';
 import { accountsInternalVerify } from './accountsClient';
 import { BoundedMap } from '../utils/boundedMap';
 import { canAdoptLocalUser, dedupeUsername } from './authPolicy';
+import { anonymizeIp } from '../security/ipPrivacy';
 import * as jose from 'jose';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -57,6 +58,8 @@ interface AuthResult {
   user: IUser | null;
   error?: string;
   session?: Session;
+  /** Set when the account is suspended (the error is then 'Account banned'). */
+  banned?: boolean;
 }
 
 // Generate JWT secret from config
@@ -250,7 +253,8 @@ export async function createSession(
     createdAt: now,
     expiresAt,
     userAgent: options?.userAgent,
-    ipAddress: options?.ipAddress,
+    // Sessions live for 90 days: keep only the network part of the address.
+    ipAddress: anonymizeIp(options?.ipAddress) ?? undefined,
   };
 
   // Store session in Redis
@@ -300,7 +304,8 @@ function mongoIdToUUID(mongoId: string): string {
 // Authenticate request and return user
 export async function authenticateRequest(
   authHeader: string | null,
-  cookies: Record<string, string>
+  cookies: Record<string, string>,
+  opts: { allowBanned?: boolean } = {},
 ): Promise<AuthResult> {
   // Get token from Authorization header or cookie
   let token: string | undefined;
@@ -424,11 +429,13 @@ export async function authenticateRequest(
     await cache.set(cacheKey, user, 300);
   }
 
-  // Check if user is banned
-  if (user.isBanned) {
+  // Suspended accounts are refused everywhere except Account Standing /
+  // appeals, which opt in with allowBanned.
+  if (user.isBanned && !opts.allowBanned) {
     return {
       user: null,
       error: 'Account banned',
+      banned: true,
     };
   }
 
@@ -560,10 +567,8 @@ export async function login(
     return { error: 'Invalid credentials' };
   }
 
-  // Check if banned
-  if (user.isBanned) {
-    return { error: 'Account banned' };
-  }
+  // Suspended accounts may still sign in: authenticateRequest only lets them
+  // reach Account Standing and appeals (allowBanned), nothing else.
 
   // Create session
   const { tokens } = await createSession(user.id, options);

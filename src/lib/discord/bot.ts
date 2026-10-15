@@ -820,7 +820,7 @@ export async function startDiscordBot() {
             // who has not granted data-processing consent. Ask for it (and
             // optionally restrict them) instead.
             if (serikaUser.consentStatus !== 'granted') {
-              console.log(`[Discord Consent] Skipping message from unconsented user ${d.author.username} (${d.author.id}).`);
+              console.log('[Discord Consent] Skipping a message from an unconsented user.');
               await handleUnconsentedMessage(server, { discordId: serikaUser.discordId, consentStatus: serikaUser.consentStatus }, d.channel_id);
               return;
             }
@@ -884,7 +884,8 @@ export async function startDiscordBot() {
             };
 
             publishToChannel(serikaChannelId, { type: 'message', message: messageResponse });
-            console.log(`[Discord Bot] Forwarded message from ${d.author.username} (content: "${content.slice(0, 50)}") to Serika channel #${chan.name}`);
+            // Never log message content or author names (privacy; see security.md).
+            console.log(`[Discord Bot] Forwarded message ${d.id} to Serika channel ${chan.id}`);
           }
 
           if (t === 'MESSAGE_UPDATE') {

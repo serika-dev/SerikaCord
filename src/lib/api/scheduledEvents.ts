@@ -271,7 +271,7 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
     }
     try {
       const { storage } = await import('@/lib/services/storage');
-      const result = await storage.uploadFromFormData(file, 'event-covers', { serverId: params.serverId });
+      const result = await storage.uploadFromFormData(file, 'event-covers', { serverId: params.serverId, scanUserId: user.id });
       return { url: result.url };
     } catch (err) {
       console.error('[events] cover upload failed:', err);

@@ -4,6 +4,7 @@
  * who should get a push at all. No I/O here — see
  * src/lib/services/pushNotifications.ts for the sending side.
  */
+import { renderMentionText, type MentionNames } from "@/lib/chat/mentionText";
 
 export interface FcmServiceAccount {
   projectId: string;
@@ -44,6 +45,57 @@ export function parseServiceAccount(raw: string | null | undefined): FcmServiceA
 /** Android notification channels created by the app (MainActivity). */
 export const PUSH_CHANNEL_MESSAGES = "messages";
 export const PUSH_CHANNEL_CALLS = "calls";
+/** Server @mentions (APKs that render pushes natively; see NotificationChannels.java). */
+export const PUSH_CHANNEL_MENTIONS = "mentions";
+
+/**
+ * Push protocol a registered device speaks, carried in `push_devices.platform`:
+ *  - "android" / "ios" (1): system-rendered `notification` pushes (old APKs).
+ *  - "android-2" (2): data-only message pushes the app renders itself
+ *    (MessagingStyle, avatars, inline Reply / Mark as read).
+ * Unknown values fall back to 1, so a device only gets data-only pushes once
+ * its APK said it can draw them.
+ */
+export const RICH_PUSH_PROTOCOL = 2;
+
+export function pushProtocolOf(platform: string | null | undefined): number {
+  const m = /^android-(\d{1,3})$/.exec(platform ?? "");
+  return m ? Number(m[1]) : 1;
+}
+
+/** Normalise the `platform` a client registers with (unknown → "android"). */
+export function normalizePushPlatform(raw: unknown): string {
+  if (raw === "ios") return "ios";
+  if (typeof raw === "string") {
+    const n = pushProtocolOf(raw);
+    if (n >= RICH_PUSH_PROTOCOL && n <= 99) return `android-${n}`;
+  }
+  return "android";
+}
+
+/** Everything the Android app needs to draw a message notification itself. */
+export interface RichMessageInfo {
+  kind: "dm" | "group_dm" | "channel";
+  channelId: string;
+  serverId?: string | null;
+  /** DM: the author; group: the group name; server: "#channel · Server". */
+  conversationTitle: string;
+  authorId: string;
+  authorName: string;
+  /** Small square avatar URL (see pushImageUrl). */
+  authorAvatar?: string | null;
+  /** Server icon / group DM icon. */
+  icon?: string | null;
+  messageId?: string | null;
+  /** First (non-spoiler) image attachment, for an inline picture. */
+  image?: string | null;
+  /** The recipient was pinged (server @mention / role mention). */
+  mention?: boolean;
+  /** Message time, ms since epoch. */
+  timestamp?: number;
+  /** Inline Reply is offered (posts to /api/channels/:channelId/messages). */
+  canReply?: boolean;
+}
 
 export type PushPayload =
   | {
@@ -54,6 +106,8 @@ export type PushPayload =
       route: string;
       /** Groups / replaces notifications per conversation; cleared once read. */
       tag: string;
+      /** Set for conversation messages: rich data-only push on capable APKs. */
+      rich?: RichMessageInfo;
     }
   | {
       kind: "call_ring";
@@ -72,11 +126,102 @@ const MAX_BODY = 240;
 
 function clip(text: string, max: number): string {
   const t = text.replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+  if (t.length <= max) return t;
+  let end = max - 1;
+  // Never cut an emoji (surrogate pair) in half.
+  const code = t.charCodeAt(end - 1);
+  if (code >= 0xd800 && code <= 0xdbff) end -= 1;
+  return `${t.slice(0, end)}…`;
 }
 
-/** One FCM v1 `message` object for a device token. */
-export function buildFcmMessage(token: string, payload: PushPayload): Record<string, unknown> {
+/** FCM caps the whole data payload at 4096 bytes; stay well under it. */
+export const RICH_DATA_BUDGET = 3600;
+const MAX_URL = 600;
+const MAX_ID = 64;
+
+function utf8Length(text: string): number {
+  return Buffer.byteLength(text, "utf8");
+}
+
+function dataSize(data: Record<string, string>): number {
+  let n = 0;
+  for (const [k, v] of Object.entries(data)) n += utf8Length(k) + utf8Length(v);
+  return n;
+}
+
+function safeUrl(url: string | null | undefined): string {
+  if (!url || url.length > MAX_URL) return "";
+  return /^https:\/\/[^\s]+$/.test(url) ? url : "";
+}
+
+function shortId(id: string | null | undefined): string {
+  return id ? String(id).slice(0, MAX_ID) : "";
+}
+
+/**
+ * The data map of a rich (data-only) message push. Values are strings, the
+ * total stays under RICH_DATA_BUDGET bytes: optional pictures are dropped
+ * first, then the body is shortened.
+ */
+export function buildRichMessageData(payload: Extract<PushPayload, { kind: "message" }>): Record<string, string> {
+  const r = payload.rich;
+  if (!r) return { type: "message", route: payload.route, tag: payload.tag };
+  const data: Record<string, string> = {
+    type: "message",
+    v: String(RICH_PUSH_PROTOCOL),
+    tag: payload.tag,
+    route: payload.route,
+    kind: r.kind,
+    channelId: shortId(r.channelId),
+    serverId: shortId(r.serverId),
+    title: clip(r.conversationTitle || payload.title, MAX_TITLE),
+    authorId: shortId(r.authorId),
+    authorName: clip(r.authorName || payload.title, MAX_TITLE),
+    avatar: safeUrl(r.authorAvatar),
+    icon: safeUrl(r.icon),
+    messageId: shortId(r.messageId),
+    body: clip(payload.body, MAX_BODY),
+    image: safeUrl(r.image),
+    mention: r.mention ? "1" : "0",
+    ts: String(Math.max(0, Math.floor(r.timestamp ?? Date.now()))),
+    replyChannelId: r.canReply === false ? "" : shortId(r.channelId),
+    canReply: r.canReply === false ? "0" : "1",
+  };
+  for (const key of ["image", "icon", "avatar"] as const) {
+    if (dataSize(data) <= RICH_DATA_BUDGET) break;
+    data[key] = "";
+  }
+  if (dataSize(data) > RICH_DATA_BUDGET) data.route = data.route.slice(0, 200);
+  let bodyMax = MAX_BODY;
+  while (dataSize(data) > RICH_DATA_BUDGET && bodyMax > 20) {
+    bodyMax = Math.floor(bodyMax / 2);
+    data.body = clip(payload.body, bodyMax);
+    data.title = clip(data.title, Math.min(MAX_TITLE, bodyMax));
+    data.authorName = clip(data.authorName, Math.min(MAX_TITLE, bodyMax));
+  }
+  return data;
+}
+
+/**
+ * One FCM v1 `message` object for a device token. `protocol` is the device's
+ * push protocol (pushProtocolOf its platform): message pushes become
+ * data-only rich pushes only for devices that can render them.
+ */
+export function buildFcmMessage(
+  token: string,
+  payload: PushPayload,
+  opts: { protocol?: number } = {},
+): Record<string, unknown> {
+  if (payload.kind === "message" && payload.rich && (opts.protocol ?? 1) >= RICH_PUSH_PROTOCOL) {
+    // Data-only + high priority: the app draws a MessagingStyle notification
+    // (avatars, history, inline Reply / Mark as read) even when it's closed.
+    // No collapse_key: each message must arrive to build the conversation.
+    return {
+      token,
+      data: buildRichMessageData(payload),
+      android: { priority: "HIGH", ttl: "86400s" },
+    };
+  }
   if (payload.kind === "message") {
     const title = clip(payload.title, MAX_TITLE);
     const body = clip(payload.body, MAX_BODY);
@@ -174,20 +319,104 @@ export function shouldPushToUser(input: {
   return (input.now ?? Date.now()) - at > ACTIVE_HEARTBEAT_MS;
 }
 
-/** Plain-text push body from stored (HTML-escaped, markup-bearing) message text. */
-export function pushPreview(raw: string | null | undefined, max = MAX_BODY): string {
+/**
+ * Plain-text push body from stored (HTML-escaped, markup-bearing) message
+ * text. Mentions use `names` when given ("@Alice"), spoilers stay hidden.
+ */
+export function pushPreview(raw: string | null | undefined, max = MAX_BODY, names?: MentionNames | null): string {
   if (!raw) return "";
-  const text = raw
+  const decoded = raw
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;/g, "'")
     .replace(/&amp;/g, "&")
-    .replace(/<@&[\w-]+>/g, "@role")
-    .replace(/<@!?[\w-]+>/g, "@user")
-    .replace(/<#[\w-]+>/g, "#channel")
-    .replace(/<a?:(\w+):[\w-]+>/g, ":$1:");
-  return clip(text, max);
+    .replace(/\|\|[\s\S]+?\|\|/g, "[spoiler]");
+  return clip(renderMentionText(decoded, names), max);
+}
+
+/** The attachment fields a push preview looks at (stored message attachments). */
+export interface PushAttachment {
+  url?: string | null;
+  filename?: string | null;
+  contentType?: string | null;
+  spoiler?: boolean | null;
+  sensitive?: boolean | null;
+  durationSecs?: number | null;
+}
+
+function attachmentKind(a: PushAttachment): "image" | "gif" | "video" | "audio" | "voice" | "file" {
+  const type = (a.contentType ?? "").toLowerCase();
+  const name = (a.filename ?? "").toLowerCase();
+  if (type === "image/gif" || name.endsWith(".gif")) return "gif";
+  if (type.startsWith("image/") || /\.(png|jpe?g|webp|avif|heic|bmp)$/.test(name)) return "image";
+  if (type.startsWith("video/") || /\.(mp4|webm|mov|mkv|m4v)$/.test(name)) return "video";
+  if (a.durationSecs != null && a.durationSecs > 0 && (type.startsWith("audio/") || /\.(ogg|opus|m4a|webm)$/.test(name))) {
+    return "voice";
+  }
+  if (type.startsWith("audio/") || /\.(mp3|ogg|opus|wav|flac|m4a|aac)$/.test(name)) return "audio";
+  return "file";
+}
+
+/**
+ * A short label for a message's media ("📷 Photo", "🎥 Video", "📎 report.pdf")
+ * plus the first safe image to show inline (never a spoiler / sensitive one).
+ * English like the other server-side push fallbacks.
+ */
+export function attachmentPreview(
+  attachments: readonly PushAttachment[] | null | undefined,
+  sticker?: { name?: string | null } | null,
+): { label: string; image: string | null } {
+  const list = (attachments ?? []).filter(Boolean);
+  if (list.length === 0) {
+    if (sticker) return { label: sticker.name ? `Sticker: ${clip(sticker.name, 40)}` : "Sticker", image: null };
+    return { label: "", image: null };
+  }
+  const kinds = list.map(attachmentKind);
+  const first = kinds[0];
+  const same = kinds.every((k) => k === first);
+  const n = list.length;
+  let label: string;
+  if (same && (first === "image" || first === "gif")) {
+    label = first === "gif" ? (n > 1 ? `🖼️ ${n} GIFs` : "🖼️ GIF") : n > 1 ? `📷 ${n} photos` : "📷 Photo";
+  } else if (same && first === "video") {
+    label = n > 1 ? `🎥 ${n} videos` : "🎥 Video";
+  } else if (first === "voice" && n === 1) {
+    label = "🎤 Voice message";
+  } else if (same && first === "audio") {
+    label = n > 1 ? `🎵 ${n} audio files` : "🎵 Audio";
+  } else if (n === 1) {
+    label = `📎 ${clip(list[0].filename || "File", 60)}`;
+  } else {
+    label = `📎 ${n} attachments`;
+  }
+  if (list.some((a) => a.spoiler)) label = `${label} (spoiler)`;
+  const pic = list.find((a, i) => kinds[i] === "image" && !a.spoiler && !a.sensitive && safeUrl(a.url));
+  return { label, image: pic?.url ?? null };
+}
+
+/**
+ * A small CDN rendition for a notification picture: on our CDN host (wsrv
+ * transforms, like cdnImage) request a still, resized WebP; other https URLs
+ * pass through; anything else is dropped.
+ */
+export function pushImageUrl(url: string | null | undefined, size: number, cdnHost = "cdn.serika.chat"): string | null {
+  if (!url || !/^https:\/\//.test(url)) return null;
+  try {
+    const u = new URL(url);
+    // Only our CDN: an arbitrary host would learn the phone's IP and when the push arrived.
+    if (u.hostname !== cdnHost) return null;
+    u.searchParams.set("w", String(size));
+    u.searchParams.set("h", String(size));
+    u.searchParams.set("fit", size <= 256 ? "cover" : "inside");
+    u.searchParams.set("n", "1");
+    if (!u.searchParams.has("format") && !u.searchParams.has("output") && !u.searchParams.has("fm")) {
+      u.searchParams.set("format", "webp");
+    }
+    return safeUrl(u.toString()) || null;
+  } catch {
+    return null;
+  }
 }
 
 const FCM_TOKEN_RE = /^[A-Za-z0-9_:\-.]{20,4096}$/;

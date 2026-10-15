@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId, useRef } from "react";
 import { cdnImage } from "@/lib/utils";
 import { useRouter, useParams } from "next/navigation";
 import Image from "next/image";
@@ -15,11 +15,24 @@ import {
   Shield,
   ChevronLeft,
   Clock,
+  CalendarDays,
+  ScrollText,
 } from "lucide-react";
 
 import { ServerBadge } from "@/components/ui/badges";
 import { ShareInviteButton } from "@/components/invite/ShareInviteButton";
 import { useGT } from "gt-next";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import type { ApplicationQuestionView, ServerConnectionView } from "@/hooks/useServerOnboarding";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
+import {
+  ApplicationQuestionFields,
+  RulesList,
+  ServerConnectionsList,
+  firstMissingAnswer,
+  focusQuestion,
+  useEstablishedLabel,
+} from "@/components/server/community/serverProfileBits";
 
 interface InviteInfo {
   code: string;
@@ -34,9 +47,20 @@ interface InviteInfo {
     description?: string;
     isPartnered?: boolean;
     joinMode?: string;
+    createdAt?: string | null;
+    connections?: ServerConnectionView[];
   };
   expiresAt?: string;
 }
+
+/** GET /api/servers/:id/application-form */
+interface ApplicationForm {
+  rules: string[];
+  description: string;
+  questions: ApplicationQuestionView[];
+}
+
+const LEGACY_APPLY_QUESTION = "Why would you like to join?";
 
 import { isReservedSlug } from "@/lib/constants/reserved";
 import { Loader } from "@/components/ui/Loader";
@@ -70,6 +94,16 @@ export default function InvitePage() {
   const [showApplyDialog, setShowApplyDialog] = useState(false);
   const [applyAnswer, setApplyAnswer] = useState("");
   const [isSubmittingApply, setIsSubmittingApply] = useState(false);
+  // Apply to Join form: the server's rules + application questions.
+  const [applyForm, setApplyForm] = useState<ApplicationForm | null>(null);
+  const [applyFormLoading, setApplyFormLoading] = useState(false);
+  const [applyAnswers, setApplyAnswers] = useState<Record<string, string>>({});
+  const [applyErrors, setApplyErrors] = useState<Record<string, string>>({});
+  const [applyAgreed, setApplyAgreed] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const applyFormRef = useRef<HTMLDivElement>(null);
+  const applyId = useId();
+  const established = useEstablishedLabel(invite?.server.createdAt);
 
   const fetchInvite = useCallback(async () => {
     try {
@@ -102,6 +136,10 @@ export default function InvitePage() {
     checkAuth();
   }, [fetchInvite, checkAuth]);
 
+  useEffect(() => {
+    handleJoinRef.current = handleJoin;
+  });
+
   const navigateTo = useCallback((target: string) => {
     if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
       window.location.href = `https://serika.chat${target}`;
@@ -109,6 +147,19 @@ export default function InvitePage() {
       router.push(target);
     }
   }, [router]);
+
+  // Links like serika.cc/<code>?join=1 (homepage partner cards) join in one
+  // step for signed-in visitors instead of waiting for a click.
+  const autoJoinTried = useRef(false);
+  useEffect(() => {
+    if (autoJoinTried.current || !invite || isAuthenticated !== true || invite.isMember) return;
+    if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("join") !== "1") return;
+    if (invite.server.joinMode === "apply_to_join") return;
+    autoJoinTried.current = true;
+    const timer = setTimeout(() => void handleJoinRef.current?.(), 0);
+    return () => clearTimeout(timer);
+  }, [invite, isAuthenticated]);
+  const handleJoinRef = useRef<(() => Promise<void>) | null>(null);
 
   const handleJoin = async () => {
     // Already a member — just open the server instead of pretending to join.
@@ -118,7 +169,8 @@ export default function InvitePage() {
     }
 
     if (!isAuthenticated) {
-      const loginUrl = `/login?redirect=/${inviteCode}`;
+      // Come back with ?join=1 so the join finishes right after signing in.
+      const loginUrl = `/login?redirect=${encodeURIComponent(`/${inviteCode}?join=1`)}`;
       if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
         window.location.href = `https://serika.chat${loginUrl}`;
       } else {
@@ -128,8 +180,7 @@ export default function InvitePage() {
     }
 
     if (invite?.server.joinMode === "apply_to_join") {
-      setShowApplyDialog(true);
-      setApplyAnswer("");
+      void openApplyDialog(invite.server.id);
       return;
     }
 
@@ -162,29 +213,84 @@ export default function InvitePage() {
     }
   };
 
-  const handleSubmitApplication = async () => {
-    if (!invite) return;
-    setIsSubmittingApply(true);
+  const openApplyDialog = async (serverId: string) => {
+    setShowApplyDialog(true);
+    setApplyAnswer("");
+    setApplyAnswers({});
+    setApplyErrors({});
+    setApplyAgreed(false);
+    setApplyError(null);
+    setApplyForm(null);
+    setApplyFormLoading(true);
     try {
+      const res = await fetch(`/api/servers/${serverId}/application-form`, { credentials: "include" });
+      const data = res.ok ? ((await res.json()) as Partial<ApplicationForm>) : null;
+      setApplyForm({
+        rules: Array.isArray(data?.rules) ? data.rules : [],
+        description: typeof data?.description === "string" ? data.description : "",
+        questions: Array.isArray(data?.questions) ? data.questions : [],
+      });
+    } catch {
+      // Fall back to the free-form question.
+      setApplyForm({ rules: [], description: "", questions: [] });
+    } finally {
+      setApplyFormLoading(false);
+    }
+  };
+
+  const applyQuestions = applyForm?.questions ?? [];
+  const applyRules = applyForm?.rules ?? [];
+  const applyReady = Boolean(applyForm) && !applyFormLoading
+    && (applyRules.length === 0 || applyAgreed)
+    && (applyQuestions.length > 0 ? !firstMissingAnswer(applyQuestions, applyAnswers) : applyAnswer.trim().length > 0);
+
+  const setApplyQuestionAnswer = (questionId: string, value: string) => {
+    setApplyAnswers((prev) => ({ ...prev, [questionId]: value }));
+    if (applyErrors[questionId]) {
+      setApplyErrors((prev) => {
+        const next = { ...prev };
+        delete next[questionId];
+        return next;
+      });
+    }
+  };
+
+  const handleSubmitApplication = async () => {
+    if (!invite || !applyForm) return;
+    const missing = firstMissingAnswer(applyQuestions, applyAnswers);
+    if (missing) {
+      setApplyErrors({ [missing]: gt("This question is required.") });
+      focusQuestion(applyFormRef.current, missing);
+      return;
+    }
+    setIsSubmittingApply(true);
+    setApplyError(null);
+    try {
+      const answers = applyQuestions.length > 0
+        ? applyQuestions.map((q) => ({ questionId: q.id, answer: (applyAnswers[q.id] ?? "").trim() }))
+        : [{ question: LEGACY_APPLY_QUESTION, answer: applyAnswer.trim() }];
       const res = await fetch(`/api/servers/${invite.server.id}/applications`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          answers: [
-            { question: "Why would you like to join?", answer: applyAnswer.trim() },
-          ],
-        }),
+        body: JSON.stringify({ answers, acceptRules: true }),
       });
       if (res.ok) {
         setShowApplyDialog(false);
         setApplyAnswer("");
+        setApplyAnswers({});
         setError(gt("Application submitted! You will be notified when it is reviewed."));
       } else {
-        const data = await res.json();
-        setError(data.error || gt("Failed to submit application."));
+        const data = await res.json().catch(() => ({}));
+        const message = typeof data.error === "string" && data.error ? data.error : gt("Failed to submit application.");
+        if (typeof data.questionId === "string" && applyQuestions.some((q) => q.id === data.questionId)) {
+          setApplyErrors({ [data.questionId]: message });
+          focusQuestion(applyFormRef.current, data.questionId);
+        } else {
+          setApplyError(message);
+        }
       }
     } catch {
-      setError(gt("Failed to submit application."));
+      setApplyError(gt("Failed to submit application."));
     } finally {
       setIsSubmittingApply(false);
     }
@@ -401,6 +507,17 @@ export default function InvitePage() {
                   )}
                 </motion.div>
 
+                {/* Established + the owner's linked accounts */}
+                {established && (
+                  <div className="flex items-center gap-1.5 mt-3 text-xs text-[var(--app-muted-2)]">
+                    <CalendarDays className="w-3.5 h-3.5" />
+                    {established}
+                  </div>
+                )}
+                {invite.server.connections && invite.server.connections.length > 0 && (
+                  <ServerConnectionsList connections={invite.server.connections} variant="chips" className="mt-3" />
+                )}
+
                 {/* Expiry */}
                 {expiry && (
                   <div
@@ -506,39 +623,103 @@ export default function InvitePage() {
         ) : null}
       </AnimatePresence>
 
-      {showApplyDialog && invite && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md bg-[#111214] rounded-xl border border-[#1f1f22] p-6 space-y-4">
-            <div>
-              <h3 className="text-xl font-bold text-white">{gt("Apply to join {name}", { name: invite.server.name })}</h3>
-              <p className="text-sm text-[#949ba4] mt-1">
-                {gt("This server requires an application. Tell them a bit about yourself.")}
-              </p>
+      {invite && (
+        <Dialog open={showApplyDialog} onOpenChange={(next) => { if (!isSubmittingApply) setShowApplyDialog(next); }}>
+          <DialogContent className="p-0 gap-0 overflow-hidden sm:max-w-lg max-h-[90dvh] flex flex-col bg-[var(--app-surface)] border-[var(--app-border)] max-sm:overflow-hidden">
+            <div className="px-6 pt-6 pb-3 shrink-0">
+              <DialogTitle className="text-xl font-bold text-[var(--app-text)] pr-8">
+                {gt("Apply to join {name}", { name: invite.server.name })}
+              </DialogTitle>
+              <DialogDescription className="text-sm text-[var(--app-muted)] mt-1 whitespace-pre-wrap">
+                {applyForm?.description
+                  ? decodeHtmlEntities(applyForm.description)
+                  : gt("This server requires an application. Tell them a bit about yourself.")}
+              </DialogDescription>
             </div>
-            <textarea
-              value={applyAnswer}
-              onChange={(e) => setApplyAnswer(e.target.value)}
-              placeholder={gt("Why would you like to join?")}
-              rows={4}
-              className="w-full p-3 rounded-lg bg-[#1f1f22] border border-[#2b2d31] text-white placeholder:text-[#949ba4] focus:outline-none focus:border-[#5865F2] resize-none"
-            />
-            <div className="flex justify-end gap-3">
+
+            <div ref={applyFormRef} className="flex-1 min-h-0 overflow-y-auto px-6 pb-4 space-y-4">
+              {applyFormLoading || !applyForm ? (
+                <div className="flex justify-center py-10">
+                  <Loader size={28} />
+                </div>
+              ) : (
+                <>
+                  {applyRules.length > 0 && (
+                    <section className="rounded-xl bg-[var(--app-surface-alt)] border border-[var(--app-border)] p-4" aria-labelledby={`${applyId}-rules`}>
+                      <h4 id={`${applyId}-rules`} className="flex items-center gap-2 text-sm font-semibold text-[var(--app-text)] mb-3">
+                        <ScrollText className="w-4 h-4 text-[var(--app-accent)]" />
+                        {gt("Server Rules")}
+                      </h4>
+                      <RulesList rules={applyRules} />
+                    </section>
+                  )}
+                  {applyQuestions.length > 0 ? (
+                    <ApplicationQuestionFields
+                      questions={applyQuestions}
+                      answers={applyAnswers}
+                      onChange={setApplyQuestionAnswer}
+                      errors={applyErrors}
+                      idPrefix={applyId}
+                      disabled={isSubmittingApply}
+                    />
+                  ) : (
+                    <div>
+                      <label htmlFor={`${applyId}-why`} className="mb-2 block text-sm font-semibold text-[var(--app-text)]">
+                        {gt("Why would you like to join?")}
+                      </label>
+                      <textarea
+                        id={`${applyId}-why`}
+                        value={applyAnswer}
+                        onChange={(e) => setApplyAnswer(e.target.value)}
+                        placeholder={gt("Tell the moderators a bit about yourself.")}
+                        rows={4}
+                        maxLength={2000}
+                        disabled={isSubmittingApply}
+                        className="w-full p-3 rounded-lg bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-sm text-[var(--app-text)] placeholder:text-[var(--app-muted)] outline-none focus:border-[var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/40 resize-none"
+                      />
+                    </div>
+                  )}
+                  {applyRules.length > 0 && (
+                    <label className="flex items-start gap-3 p-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-alt)] text-sm text-[var(--app-text)] cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={applyAgreed}
+                        onChange={(e) => setApplyAgreed(e.target.checked)}
+                        className="mt-0.5 w-5 h-5 shrink-0 accent-[var(--app-accent)]"
+                      />
+                      <span>{gt("I have read and agree to the rules")}</span>
+                    </label>
+                  )}
+                  {applyError && (
+                    <div role="alert" className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-500">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>{applyError}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div className="shrink-0 flex justify-end gap-3 px-6 py-4 pb-[max(1rem,var(--safe-area-bottom,0px))] border-t border-[var(--app-border)] bg-[var(--app-surface-alt)]">
               <button
+                type="button"
                 onClick={() => setShowApplyDialog(false)}
-                className="px-4 py-2 text-white hover:bg-[#2b2d31] rounded-lg transition-colors"
+                disabled={isSubmittingApply}
+                className="h-10 px-4 text-sm text-[var(--app-text)] hover:bg-[var(--app-surface)] rounded-lg transition-colors"
               >
                 {gt("Cancel")}
               </button>
               <button
+                type="button"
                 onClick={() => void handleSubmitApplication()}
-                disabled={!applyAnswer.trim() || isSubmittingApply}
-                className="px-4 py-2 bg-[#5865F2] hover:bg-[#4752c4] disabled:opacity-60 text-white rounded-lg transition-colors"
+                disabled={!applyReady || isSubmittingApply}
+                className="h-10 px-4 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-lg transition-all"
               >
                 {isSubmittingApply ? gt("Submitting...") : gt("Submit Application")}
               </button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

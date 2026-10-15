@@ -18,6 +18,7 @@ export type SystemNotifyKind =
   | 'badge'
   | 'suspension'
   | 'unsuspension'
+  | 'safety'
   | 'system';
 
 interface SendSystemDMOptions {
@@ -216,7 +217,7 @@ export async function notifySuspension(
     '',
     `**Reason:** ${reason?.trim() || 'No reason provided'}`,
     '',
-    'If you believe this is a mistake, you can appeal by contacting support.',
+    'You can still sign in to see your **Account Standing** and appeal if you believe this is a mistake.',
   ].join('\n');
   await sendSystemDM(userId, body, { kind: 'suspension' });
 }

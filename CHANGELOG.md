@@ -8,14 +8,26 @@
 
 ### Features
 - **Verified domains** — website connections now need a DNS TXT record before they appear on your profile, and you can link several domains at once. Settings → Connections shows the exact record to add and a Check button; verified domains get a green check on your profile. Websites added before this stay hidden until verified.
+- **Server onboarding and Server Guide** — servers can ask new members questions that hand out roles, and show a Server Guide page with a welcome message, new-member to-dos, resources and the server's profile. Admins can preview the whole join experience (invite, onboarding, rules, guide) as a new member before saving.
+- **Better Rules Screening** — hide every channel except the ones you pick (like an Info category) until members accept the rules, and optionally approve each member by hand: their answers to your application questions land in Member Applications, where you approve or reject (and remove) them. Apply to Join now uses the same rules and questions.
+- **Customizable verification level** — set how old an account must be and how long someone must be a member before they can talk, and choose exactly what stays locked meanwhile (messages, files, links, reactions, voice, threads). Highest now requires a verified linked account.
+- **Server connections** — server owners can show their verified accounts and domains on the server's invite page and Server Guide.
+- **Trust & Safety** — image uploads are checked with PhotoDNA and against a staff-managed list of known scam images. Accounts can get strikes and temporary chat restrictions; suspended accounts can still sign in to see their Account Standing and appeal. Staff get a Trust & Safety panel for incidents, appeals, strikes, restrictions and scam hashes.
+- **Richer Android notifications** — conversation-style notifications with avatars, the latest messages, picture previews, a Mentions channel, and Reply / Mark as read buttons (needs the updated app).
+- **End-to-end encrypted DMs and calls** — DMs, group DMs and their voice and video calls can be end-to-end encrypted, with signed device keys, safety numbers and a recovery passphrase for new devices. Rolls out once enabled on the server.
+- **Homepage** — up to 12 partnered communities you can join in one click, an open-source section linking our GitHub, and a Download client button for everyone.
 
 ### Changes
+- Server Settings: Safety Setup (spam and raid protection, shortcuts to AutoMod, Rules Screening and Onboarding) is now separate from Moderation (verification level and media filter).
+- Rewritten Terms of Service, Privacy Policy and Community Guidelines (Dutch law, 16+, EU Digital Services Act, Account Standing and appeals). They apply to existing accounts from 15 November 2026.
 
 ### Bug Fixes
+- Product names like Windows and Discord are no longer translated (Dutch showed "Download for Ramen").
 
 ### Performance
 
 ### Security
+- **More private data at rest** — connection tokens, bot and webhook tokens, private notes, join-application answers, appeals and push tokens can be stored encrypted, and stored IP addresses are shortened.
 
 ### Removed
 

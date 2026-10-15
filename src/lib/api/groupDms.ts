@@ -13,6 +13,7 @@
 //   DELETE /group-dms/:channelId                   leave
 //   …/messages, /stream, /typing, /pins           the conversation itself
 import { Elysia, t } from 'elysia';
+import { chatRestrictionDenial } from '@/lib/services/trustSafety';
 import { and, eq, sql } from 'drizzle-orm';
 import { Message, ServerMember, User } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
@@ -56,6 +57,12 @@ import {
   serializeGroup,
   type GroupChannel,
 } from '@/lib/services/groupDms';
+import {
+  canJoinEncrypted,
+  checkE2eeChannelSend,
+  conversationE2eeFlags,
+  initialConversationE2ee,
+} from '@/lib/services/e2ee';
 
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
   const authHeader = headers.authorization ?? null;
@@ -173,6 +180,8 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       recipientIds: plan.memberIds,
       ownerId: user.id,
       position: 0,
+      // End-to-end encrypted from the start when every member has keys.
+      e2ee: await initialConversationE2ee(users),
     }).returning();
 
     // Shows up in everyone's DM list right away.
@@ -255,7 +264,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 400;
       return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
     }
-    const uploaded = await storage.uploadFromFormData(file, 'group-icons', { channelId: channel.id });
+    const uploaded = await storage.uploadFromFormData(file, 'group-icons', { channelId: channel.id, scanUserId: user.id });
     const result = await updateGroupLocked(channel.id, (row) => (isMember(row, user.id) ? { icon: uploaded.url } : { error: NOT_FOUND.error, status: 404 }));
     if ('error' in result) {
       set.status = result.status;
@@ -307,13 +316,21 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       return { error: 'Invalid user id' };
     }
     const friends = await freshFriendIds(user.id);
+    // Bots / system accounts can't be in an end-to-end encrypted group.
+    const candidates = await User.find({ id: { in: body.userIds } });
+    const unencryptable = new Set(candidates.filter((u) => !canJoinEncrypted(u)).map((u) => u.id.toLowerCase()));
     let added: string[] = [];
     const result = await updateGroupLocked(params.channelId, (channel) => {
       if (!isMember(channel, user.id)) return { error: NOT_FOUND.error, status: 404 };
       const plan = planGroupAdd(channel.recipientIds, user.id, body.userIds, friends);
       if (!plan.ok) return { error: plan.error, status: 400 };
+      const addsUnencryptable = plan.added.some((id) => unencryptable.has(id.toLowerCase()));
+      if (addsUnencryptable && channel.e2ee === true) {
+        return { error: "Bots can't be added to an end-to-end encrypted group", status: 400 };
+      }
       added = plan.added;
-      return { recipientIds: plan.memberIds };
+      // A pending auto-upgrade (e2ee null) never happens once a bot is in.
+      return { recipientIds: plan.memberIds, ...(addsUnencryptable && channel.e2ee === null ? { e2ee: false } : {}) };
     });
     if ('error' in result) {
       set.status = result.status;
@@ -374,7 +391,11 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return NOT_FOUND;
     }
-    return { messages: await loadDmMessagesPage(channel.id, query, cursorMsg, user.id), channelId: channel.id };
+    return {
+      messages: await loadDmMessagesPage(channel.id, query, cursorMsg, user.id),
+      channelId: channel.id,
+      ...conversationE2eeFlags(channel),
+    };
   }, { params: t.Object({ channelId: t.String() }) })
   .post('/:channelId/messages', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Cookie);
@@ -386,6 +407,12 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
     if (!rateLimit.success) {
       set.status = 429;
       return { error: 'Too many messages', retryAfter: rateLimit.retryAfter };
+    }
+    // Trust & Safety: a temporary chat restriction (e.g. after a scam-image strike).
+    const restricted = await chatRestrictionDenial(user.id);
+    if (restricted) {
+      set.status = restricted.status;
+      return restricted.body;
     }
     const channel = await loadGroupForMember(params.channelId, user.id);
     if (!channel) {
@@ -399,6 +426,13 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       return preparedResult.error.body;
     }
     const prepared = preparedResult.prepared;
+    // End-to-end encryption: plaintext into an encrypted group (or an envelope
+    // into a plain one) is refused; envelopes must come from a live device.
+    const e2eeGate = await checkE2eeChannelSend(user.id, channel, prepared.e2ee);
+    if (e2eeGate) {
+      set.status = e2eeGate.status;
+      return { error: e2eeGate.error };
+    }
     const [memberships, encryptedContent, spam] = await Promise.all([
       ServerMember.find({ userId: user.id }),
       encryptForStorage(prepared.sanitizedContent),
@@ -437,6 +471,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
         createdAt: message.createdAt,
         group: await groupNotifyInfo(channel),
         silent: prepared.silent,
+        encrypted: Boolean(prepared.e2ee),
       });
     })().catch(() => { /* best-effort */ });
 
@@ -479,12 +514,13 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return { error: 'Message not found' };
     }
-    const reply = await editDmMessage(channel, user, params.messageId, body.content);
+    const reply = await editDmMessage(channel, user, params.messageId, body.content, body.e2ee);
     set.status = reply.status;
     return reply.body;
   }, {
     params: t.Object({ channelId: t.String(), messageId: t.String() }),
-    body: t.Object({ content: t.String({ maxLength: 4000 }) }),
+    // e2ee: end-to-end encrypted edit (content must then be '').
+    body: t.Object({ content: t.String({ maxLength: 4000 }), e2ee: t.Optional(t.Unknown()) }),
   })
   .post('/:channelId/messages/:messageId/suppress-embeds', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Cookie);

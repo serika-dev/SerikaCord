@@ -7,7 +7,8 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
-import { ArrowLeft, Bell, BellOff, Inbox as InboxIcon, Phone, Pin, Search, UserPlus, Users, Video } from "lucide-react";
+import { ArrowLeft, Bell, BellOff, Inbox as InboxIcon, Lock, Phone, Pin, Search, UserPlus, Users, Video } from "lucide-react";
+import { E2eeConversationBanner } from "@/components/e2ee/E2eeConversationBanner";
 import { useAuth } from "@/contexts/AuthContext";
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
@@ -123,6 +124,8 @@ export default function GroupDMPage() {
     user,
     messageBarRef,
     emojiLookup: availableServerEmojis,
+    // End-to-end encrypted group DMs (lib/e2ee): decrypt + encrypt in the chat engine.
+    encryptedChat: true,
     onShouldScrollToBottom: () => {
       if (messageListRef.current?.isAtBottom()) {
         requestAnimationFrame(() => messageListRef.current?.scrollToBottom());
@@ -294,6 +297,12 @@ export default function GroupDMPage() {
 
   // ── Calls ────────────────────────────────────────────────────────────────
   const callRoomId = channelId ? groupCallRoomId(channelId) : null;
+  // Calls in an encrypted group require signed DTLS fingerprints (voiceService).
+  useEffect(() => {
+    if (callRoomId) voiceService.setRoomE2ee(callRoomId, chat.e2eeActive);
+  }, [callRoomId, chat.e2eeActive]);
+  const e2eeMembers = useMemo(() => others.map((m) => ({ id: m.id, name: m.displayName || m.username })), [others]);
+  const e2eeUnsupported = useMemo(() => members.some((m) => m.isBot || m.isSystem), [members]);
   const groupIcon = group?.icon ?? null;
   const callGroup = useMemo<CallGroup | undefined>(
     () => (channelId ? { channelId, name: title || gt("Group"), icon: groupIcon, memberCount: members.length } : undefined),
@@ -550,6 +559,15 @@ export default function GroupDMPage() {
                 >
                   {title}
                 </button>
+                {chat.e2eeActive && (
+                  <span
+                    className="inline-flex shrink-0 text-[var(--text-secondary)]"
+                    title={gt("Messages are end-to-end encrypted")}
+                    aria-label={gt("Messages are end-to-end encrypted")}
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                  </span>
+                )}
                 <span className="hidden sm:inline shrink-0 text-xs text-[var(--text-muted)]">
                   {gt("{count} Members", { count: members.length })}
                 </span>
@@ -658,6 +676,12 @@ export default function GroupDMPage() {
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />
 
         <div className="pt-0">
+          <E2eeConversationBanner
+            conversation={chat.conversation}
+            active={chat.e2eeActive}
+            members={e2eeMembers}
+            unsupported={e2eeUnsupported}
+          />
           <MessageBar
             ref={messageBarRef}
             placeholder={`${gt("Message")} ${title || "..."}`}
@@ -681,7 +705,7 @@ export default function GroupDMPage() {
             onCancelReply={() => chat.actions.setReplyToMessage(null)}
             pollApiBase={channelId ? `/api/group-dms/${channelId}` : undefined}
             draftKey={channelId ? `gdm:${channelId}` : undefined}
-            onSendVoice={chat.handleVoiceSend}
+            onSendVoice={chat.e2eeActive ? undefined : chat.handleVoiceSend}
           />
           <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
         </div>

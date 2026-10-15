@@ -25,6 +25,10 @@ import { canStartDm } from '@/lib/chat/dmAccess';
 import { getRolePermissions } from '@/lib/permissions/serverPermissions';
 import { computeChannelPermissions, hasBit, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
+import { pendingChannelAccess } from '@/lib/services/serverGate';
+import { chatRestrictionDenial } from '@/lib/services/trustSafety';
+import { isChannelAccessibleWhilePending } from '@/lib/servers/community';
+import { containsLink } from '@/lib/servers/verification';
 import {
   buildPollView,
   isPollClosed,
@@ -79,7 +83,7 @@ type Destination = { channel: IChannel; membership: Membership };
  * SEND_MESSAGES (+ ATTACH_FILES when the post carries files) and, for 1:1 DMs,
  * blocks and DM privacy.
  */
-async function resolveDestination(user: AuthUser, channelId: string, opts: { attach?: boolean } = {}): Promise<{ dest: Destination } | Fail> {
+async function resolveDestination(user: AuthUser, channelId: string, opts: { attach?: boolean; hasLink?: boolean } = {}): Promise<{ dest: Destination } | Fail> {
   if (!isValidObjectId(channelId)) return { status: 400, error: 'Invalid channel' };
   const { checkChannelAccess, checkCanSpeak, checkCanPostInChannel } = await import('@/lib/api/channels');
   const access = await checkChannelAccess(user.id, channelId);
@@ -88,7 +92,9 @@ async function resolveDestination(user: AuthUser, channelId: string, opts: { att
   if (!POSTABLE_TYPES.has(String(channel.type))) return { status: 400, error: 'You cannot send messages here' };
   const membership = (access.membership ?? null) as Membership;
   if (channel.serverId) {
-    const denial = await checkCanSpeak(channel as never, membership as never, user.id, opts.attach ? ['send', 'attach'] : ['send']);
+    const denial = await checkCanSpeak(channel as never, membership as never, user.id, opts.attach ? ['send', 'attach'] : ['send'], {
+      verification: [opts.attach ? 'attach' : 'send', 'send', ...(opts.hasLink ? ['links' as const] : [])],
+    });
     if (denial) return { status: denial.status, error: String(denial.body.error ?? 'Forbidden') };
   }
   // SEND_MESSAGES was checked just above; this adds the DM block/privacy rules.
@@ -102,6 +108,8 @@ async function resolveDmDestination(user: AuthUser, recipientId: string): Promis
   if (!isValidObjectId(recipientId)) return { status: 400, error: 'Invalid recipient ID' };
   const recipient = await User.findById(recipientId);
   if (!recipient) return { status: 404, error: 'User not found' };
+  const restricted = await chatRestrictionDenial(user.id);
+  if (restricted) return { status: 403, error: String(restricted.body.error) };
   const denied = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id) });
   if (denied) return { status: 403, error: denied };
   const { findDMChannel, getOrCreateDMChannel } = await import('@/lib/api/dms');
@@ -322,6 +330,18 @@ async function listForwardTargets(user: AuthUser): Promise<ForwardTarget[]> {
     Channel.find({ serverId: { in: serverIds }, type: { in: ['text', 'announcement'] } }),
     Role.find({ serverId: { in: serverIds }, isDefault: true }),
   ]);
+  // Members still in rules screening may have channels hidden (restrictChannels).
+  const hiddenWhilePending = new Map<string, Set<string>>();
+  await Promise.all(memberships.filter((m) => m.pending).map(async (m) => {
+    const allowed = await pendingChannelAccess(m.serverId, user.id, m).catch(() => null);
+    if (allowed) hiddenWhilePending.set(m.serverId, allowed);
+  }));
+  if (hiddenWhilePending.size > 0) {
+    for (let i = channels.length - 1; i >= 0; i--) {
+      const allowed = channels[i].serverId ? hiddenWhilePending.get(channels[i].serverId as string) : undefined;
+      if (allowed && !isChannelAccessibleWhilePending(channels[i], null, allowed)) channels.splice(i, 1);
+    }
+  }
   const serverById = new Map(servers.map((s) => [s.id, s]));
   const everyoneByServer = new Map(defaultRoles.map((r) => [r.serverId, r.id]));
   const memberByServer = new Map(memberships.map((m) => [m.serverId, m]));
@@ -371,7 +391,7 @@ export const messageExtrasRoutes = new Elysia()
   .post('/channels/:channelId/polls', async ({ headers, cookie, params, body, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
-    const result = await createPoll(user, await resolveDestination(user, params.channelId), body);
+    const result = await createPoll(user, await resolveDestination(user, params.channelId, { hasLink: containsLink(JSON.stringify(body)) }), body);
     if ('error' in result) { set.status = result.status; return { error: result.error }; }
     return result.body;
   }, { params: t.Object({ channelId: t.String() }), body: POLL_BODY })
@@ -385,7 +405,7 @@ export const messageExtrasRoutes = new Elysia()
   .post('/group-dms/:channelId/polls', async ({ headers, cookie, params, body, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
-    const resolved = await resolveDestination(user, params.channelId);
+    const resolved = await resolveDestination(user, params.channelId, { hasLink: containsLink(JSON.stringify(body)) });
     const dest = 'dest' in resolved && resolved.dest.channel.type !== 'group_dm'
       ? ({ status: 404, error: 'Group DM not found' } as Fail)
       : resolved;
@@ -516,7 +536,10 @@ export const messageExtrasRoutes = new Elysia()
 
     // Resolve every destination first so one bad pick doesn't half-send.
     const resolved = await Promise.all(targets.targets.map((id) =>
-      resolveDestination(user, id, { attach: snapshot.attachments.length > 0 })));
+      resolveDestination(user, id, {
+        attach: snapshot.attachments.length > 0,
+        hasLink: containsLink(snapshot.content) || containsLink(note),
+      })));
     const failed = resolved
       .map((r, i) => ('error' in r ? { channelId: targets.targets[i], error: r.error } : null))
       .filter(Boolean);

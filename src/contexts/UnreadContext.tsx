@@ -774,6 +774,13 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // A moderator approved / rejected you in a server's rules screening.
+      if (data.type === "server_onboarding_update") {
+        const serverId = (data as { serverId?: string }).serverId;
+        if (serverId) window.dispatchEvent(new CustomEvent("serika:server-onboarding", { detail: { serverId } }));
+        return;
+      }
+
       if (data.type === "relationships_changed") {
         void refreshRelationships();
         return;

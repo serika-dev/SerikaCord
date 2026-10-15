@@ -4,7 +4,7 @@ export const STAFF_PERMISSIONS = [
   'servers.view', 'servers.manage', 'settings.manage', 'broadcast.send',
   'logs.view', 'experiments.manage', 'instances.manage', 'tts.manage',
   'translations.manage', 'reports.manage', 'changelog.manage', 'changelog.publish',
-  'staff.manage',
+  'staff.manage', 'safety.review',
 ] as const;
 
 export type StaffPermission = typeof STAFF_PERMISSIONS[number];

@@ -1,6 +1,7 @@
 import { eq, and, type SQL } from 'drizzle-orm';
 import { normalizeId } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
+import { decryptRow, decryptRows, encryptRow, type FieldSpec } from '../security/fieldEncryption';
 import crypto from 'crypto';
 
 export type InstanceType = 'host' | 'self_hosted';
@@ -10,12 +11,18 @@ export const HOST_DOMAINS = ['serika.chat', 'waifu.ws', 'serika.dev'];
 
 export type IInstance = typeof schema.instances.$inferSelect;
 
+/**
+ * The instance secret is encrypted at rest (the API key is already stored as
+ * a SHA-256 hash); rows come back decrypted.
+ */
+const FIELDS: FieldSpec = { text: ['secretKey'] };
+
 export const Instance = {
   table: schema.instances,
 
   async findById(id: string) {
     const [row] = await db.select().from(schema.instances).where(eq(schema.instances.id, normalizeId(id))).limit(1);
-    return row || null;
+    return decryptRow(FIELDS, row || null);
   },
 
   async findOne(filter: Record<string, unknown>) {
@@ -35,7 +42,7 @@ export const Instance = {
       query = query.where(and(...conditions)) as typeof query;
     }
     const [row] = await query.limit(1);
-    return row || null;
+    return decryptRow(FIELDS, row || null);
   },
 
   async find(filter: Record<string, unknown> = {}) {
@@ -54,17 +61,17 @@ export const Instance = {
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as typeof query;
     }
-    return query;
+    return decryptRows(FIELDS, await query);
   },
 
   async create(data: typeof schema.instances.$inferInsert) {
-    const [row] = await db.insert(schema.instances).values(data).returning();
-    return row;
+    const [row] = await db.insert(schema.instances).values(await encryptRow(FIELDS, data)).returning();
+    return decryptRow(FIELDS, row);
   },
 
   async updateById(id: string, data: Partial<typeof schema.instances.$inferInsert>) {
-    const [row] = await db.update(schema.instances).set({ ...data, updatedAt: new Date() }).where(eq(schema.instances.id, normalizeId(id))).returning();
-    return row || null;
+    const [row] = await db.update(schema.instances).set({ ...(await encryptRow(FIELDS, data)), updatedAt: new Date() }).where(eq(schema.instances.id, normalizeId(id))).returning();
+    return decryptRow(FIELDS, row || null);
   },
 };
 

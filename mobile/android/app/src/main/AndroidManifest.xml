@@ -53,6 +53,11 @@
             android:name=".CallActionReceiver"
             android:exported="false" />
 
+        <!-- Reply / Mark as read on message notifications (MessageNotifications). -->
+        <receiver
+            android:name=".MessageActionReceiver"
+            android:exported="false" />
+
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="messages" />

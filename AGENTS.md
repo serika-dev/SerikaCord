@@ -5,6 +5,11 @@ working in SerikaCord. `CLAUDE.md` has the full architecture map, conventions
 and gotchas; `docs/architecture/` has the deep dives. The rules below stand on
 their own.
 
+> **Required reading:** also read [`AI-READ-THIS.md`](AI-READ-THIS.md) before
+> making changes. It holds the full i18n guide (every new string must be added
+> to `public/_gt/*.json`), the changelog and release flow, and fork/branch
+> rules. Instructions there apply on top of this file.
+
 ## Project in one paragraph
 
 SerikaCord is a Discord-style chat app. A single Bun process (`server.ts`)

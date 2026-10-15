@@ -10,15 +10,21 @@ import { config } from '@/lib/config';
 import { db, schema } from '@/lib/db/postgres';
 import { getRedis } from '@/lib/db/redis';
 import { normalizeId } from '@/lib/db/normalizeId';
+import { decryptField, encryptLookupField, fieldLookupCandidates } from '@/lib/security/fieldEncryption';
 import {
+  attachmentPreview,
   buildFcmMessage,
   classifyFcmResponse,
   parseServiceAccount,
+  pushImageUrl,
   pushPreview,
+  pushProtocolOf,
   shouldPushToUser,
   type FcmServiceAccount,
+  type PushAttachment,
   type PushPayload,
 } from '@/lib/push/fcm';
+import type { MentionNames } from '@/lib/chat/mentionText';
 import { decideMessageAlert, resolveNotification } from '@/lib/notifications/levels';
 
 const table = schema.pushDevices;
@@ -144,13 +150,21 @@ async function accessToken(account: FcmServiceAccount): Promise<string | null> {
 
 // ─── Devices ──────────────────────────────────────────────────────────────────
 
+// Device tokens are encrypted at rest, deterministically, so the unique index
+// and the lookups below still work on the stored value. Rows registered
+// before that hold the plaintext token; every query matches both forms.
+
 /** Store (or move to this user) a device token. Keeps the newest few per user. */
 export async function registerPushDevice(userId: string, token: string, platform: string): Promise<void> {
   await ensurePushSchema();
   const uid = normalizeId(userId);
+  const stored = await encryptLookupField(token);
+  // A legacy plaintext row for this device would otherwise stay next to the
+  // encrypted one and get every push twice.
+  if (stored !== token) await db.delete(table).where(eq(table.token, token));
   await db
     .insert(table)
-    .values({ userId: uid, token, platform })
+    .values({ userId: uid, token: stored, platform })
     .onConflictDoUpdate({ target: table.token, set: { userId: uid, platform, updatedAt: new Date() } });
   const rows = await db
     .select({ id: table.id, updatedAt: table.updatedAt })
@@ -168,26 +182,35 @@ export async function registerPushDevice(userId: string, token: string, platform
 /** Forget a device token (sign-out / notifications turned off on the phone). */
 export async function unregisterPushDevice(userId: string, token: string): Promise<void> {
   await ensurePushSchema();
-  await db.delete(table).where(and(eq(table.userId, normalizeId(userId)), eq(table.token, token)));
+  await db.delete(table).where(and(eq(table.userId, normalizeId(userId)), inArray(table.token, await fieldLookupCandidates(token))));
 }
 
 async function deleteTokens(tokens: string[]): Promise<void> {
   if (tokens.length === 0) return;
-  await db.delete(table).where(inArray(table.token, tokens)).catch(() => {});
+  try {
+    const stored = (await Promise.all(tokens.map((t) => fieldLookupCandidates(t)))).flat();
+    await db.delete(table).where(inArray(table.token, stored));
+  } catch {
+    // Best effort: a dead token is retried (and dropped) on the next push.
+  }
 }
 
-async function devicesFor(userIds: string[]): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>();
+/** A registered phone: its FCM token and the push protocol its APK speaks. */
+type PushDevice = { token: string; protocol: number };
+
+async function devicesFor(userIds: string[]): Promise<Map<string, PushDevice[]>> {
+  const out = new Map<string, PushDevice[]>();
   if (userIds.length === 0) return out;
   await ensurePushSchema();
   const ids = [...new Set(userIds.map(normalizeId))];
   const rows = await db
-    .select({ userId: table.userId, token: table.token })
+    .select({ userId: table.userId, token: table.token, platform: table.platform })
     .from(table)
     .where(inArray(table.userId, ids));
-  for (const r of rows) {
+  const tokens = await Promise.all(rows.map((r) => decryptField(r.token)));
+  for (const [i, r] of rows.entries()) {
     const list = out.get(r.userId) ?? [];
-    list.push(r.token);
+    list.push({ token: tokens[i], protocol: pushProtocolOf(r.platform) });
     out.set(r.userId, list);
   }
   return out;
@@ -240,7 +263,7 @@ export function dismissReadPush(userId: string, channelId: string): void {
     const removed = await redis.del(shownKey(userId, channelId)).catch(() => 0);
     if (!removed) return;
     const devices = await devicesFor([userId]);
-    await sendToTokens(devices.get(userId) ?? [], { kind: 'message_read', tag: `message-${channelId}` });
+    await sendToDevices(devices.get(userId) ?? [], { kind: 'message_read', tag: `message-${channelId}` });
   });
 }
 
@@ -286,7 +309,7 @@ async function filterInactive(userIds: string[], opts: { messages?: boolean } = 
 
 // ─── Sending ──────────────────────────────────────────────────────────────────
 
-async function sendOne(account: FcmServiceAccount, token: string, payload: PushPayload): Promise<'ok' | 'dead' | 'error'> {
+async function sendOne(account: FcmServiceAccount, device: PushDevice, payload: PushPayload): Promise<'ok' | 'dead' | 'error'> {
   const bearer = await accessToken(account);
   if (!bearer) return 'error';
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -294,7 +317,7 @@ async function sendOne(account: FcmServiceAccount, token: string, payload: PushP
       const res = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.projectId)}/messages:send`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: buildFcmMessage(token, payload) }),
+        body: JSON.stringify({ message: buildFcmMessage(device.token, payload, { protocol: device.protocol }) }),
         signal: AbortSignal.timeout(10_000),
       });
       const body = res.ok ? null : await res.json().catch(() => null);
@@ -311,18 +334,18 @@ async function sendOne(account: FcmServiceAccount, token: string, payload: PushP
   return 'error';
 }
 
-async function sendToTokens(tokens: string[], payload: PushPayload): Promise<void> {
+async function sendToDevices(devices: PushDevice[], payload: PushPayload): Promise<void> {
   const account = serviceAccount();
-  if (!account || tokens.length === 0) return;
+  if (!account || devices.length === 0) return;
   const dead: string[] = [];
   let next = 0;
   const worker = async () => {
-    while (next < tokens.length) {
-      const token = tokens[next++];
-      if ((await sendOne(account, token, payload)) === 'dead') dead.push(token);
+    while (next < devices.length) {
+      const device = devices[next++];
+      if ((await sendOne(account, device, payload)) === 'dead') dead.push(device.token);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(SEND_CONCURRENCY, tokens.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(SEND_CONCURRENCY, devices.length) }, worker));
   await deleteTokens(dead);
 }
 
@@ -338,20 +361,73 @@ const FALLBACK_NEW_MESSAGE = 'New message';
 const FALLBACK_ATTACHMENT = 'Sent an attachment';
 const FALLBACK_STICKER = 'Sent a sticker';
 
+const AVATAR_PX = 128;
+const IMAGE_PX = 720;
+
+function cdnHost(): string {
+  try {
+    return new URL(config.CDN_URL).hostname;
+  } catch {
+    return 'cdn.serika.chat';
+  }
+}
+
+/** A message's attachments / sticker, for "📷 Photo" previews and inline pictures. */
+async function loadMessageMedia(messageId: string | undefined): Promise<{ label: string; image: string | null }> {
+  if (!messageId) return { label: '', image: null };
+  try {
+    const [row] = await db
+      .select({ attachments: schema.messages.attachments, sticker: schema.messages.sticker })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, messageId))
+      .limit(1);
+    if (!row) return { label: '', image: null };
+    const attachments = Array.isArray(row.attachments) ? (row.attachments as PushAttachment[]) : [];
+    const sticker = row.sticker && typeof row.sticker === 'object' ? (row.sticker as { name?: string }) : null;
+    const media = attachmentPreview(attachments, sticker);
+    return { label: media.label, image: pushImageUrl(media.image, IMAGE_PX, cdnHost()) };
+  } catch {
+    return { label: '', image: null };
+  }
+}
+
+/** Preview text + media label ("look at this · 📷 Photo"). */
+function previewWithMedia(text: string, mediaLabel: string): string {
+  if (!mediaLabel) return text;
+  return text ? `${text} · ${mediaLabel}` : mediaLabel;
+}
+
+function timestampOf(value: string | Date | null | undefined): number {
+  const t = value ? new Date(value).getTime() : NaN;
+  return Number.isNaN(t) ? Date.now() : t;
+}
+
+/** Push body for end-to-end encrypted DMs (the server can't read them). */
+const ENCRYPTED_MESSAGE_BODY = 'New encrypted message';
+
 /** A DM (or group DM) message: push the recipients who aren't in the app. */
 export function pushDmActivity(recipientIds: string[], event: {
   channelId: string;
   messageId?: string;
   authorId: string;
   authorName?: string;
+  authorAvatar?: string | null;
   preview?: string;
+  mentionNames?: MentionNames;
   hasAttachments?: boolean;
   hasSticker?: boolean;
   isCall?: boolean;
+  /** Group DM membership / rename rows: badge only, no notification. */
+  isSystem?: boolean;
+  /** Set for group DMs: notifications name the group and open its page. */
+  group?: { channelId: string; name: string; icon: string | null; memberCount?: number } | null;
+  createdAt?: string;
   /** "@silent" message: badge only, no push. */
   silent?: boolean;
+  /** End-to-end encrypted: no preview, no picture, no inline reply (it would be plaintext). */
+  encrypted?: boolean;
 }): void {
-  if (event.isCall || event.silent || !isPushConfigured()) return;
+  if (event.isCall || event.isSystem || event.silent || !isPushConfigured()) return;
   const others = [...new Set(recipientIds)].filter((id) => id && id !== event.authorId);
   if (others.length === 0) return;
   run(async () => {
@@ -360,13 +436,17 @@ export function pushDmActivity(recipientIds: string[], event: {
     const targets = await filterInactive([...devices.keys()], { messages: true });
     if (targets.length === 0) return;
     const { getNotificationSettings } = await import('@/lib/services/notificationSettings');
-    const route = event.messageId
-      ? `/dm/${event.authorId}?jump=${encodeURIComponent(event.messageId)}`
-      : `/dm/${event.authorId}`;
-    const body =
-      pushPreview(event.preview) ||
-      (event.hasAttachments ? FALLBACK_ATTACHMENT : event.hasSticker ? FALLBACK_STICKER : FALLBACK_NEW_MESSAGE);
-    const tokens: string[] = [];
+    const group = event.group?.channelId ? event.group : null;
+    const base = group ? `/dm/group/${group.channelId}` : `/dm/${event.authorId}`;
+    const route = event.messageId ? `${base}?jump=${encodeURIComponent(event.messageId)}` : base;
+    const media = !event.encrypted && (event.hasAttachments || event.hasSticker) ? await loadMessageMedia(event.messageId) : { label: '', image: null };
+    const text = event.encrypted ? '' : pushPreview(event.preview, undefined, event.mentionNames);
+    const body = event.encrypted
+      ? ENCRYPTED_MESSAGE_BODY
+      : previewWithMedia(text, media.label) ||
+        (event.hasAttachments ? FALLBACK_ATTACHMENT : event.hasSticker ? FALLBACK_STICKER : FALLBACK_NEW_MESSAGE);
+    const authorName = event.authorName || FALLBACK_NEW_MESSAGE;
+    const tokens: PushDevice[] = [];
     const pushed: string[] = [];
     for (const userId of targets) {
       const doc = await getNotificationSettings(userId).catch(() => null);
@@ -378,12 +458,28 @@ export function pushDmActivity(recipientIds: string[], event: {
       tokens.push(...(devices.get(userId) ?? []));
       pushed.push(userId);
     }
-    await sendToTokens(tokens, {
+    await sendToDevices(tokens, {
       kind: 'message',
-      title: event.authorName || FALLBACK_NEW_MESSAGE,
+      // Old APKs show this title: keep naming the group like before.
+      title: group ? `${authorName} (${group.name})` : authorName,
       body,
       route,
       tag: `message-${event.channelId}`,
+      rich: {
+        kind: group ? 'group_dm' : 'dm',
+        channelId: event.channelId,
+        conversationTitle: group ? group.name : authorName,
+        authorId: event.authorId,
+        authorName,
+        authorAvatar: pushImageUrl(event.authorAvatar, AVATAR_PX, cdnHost()),
+        icon: group ? pushImageUrl(group.icon, AVATAR_PX, cdnHost()) : null,
+        messageId: event.messageId ?? null,
+        image: media.image,
+        mention: false,
+        timestamp: timestampOf(event.createdAt),
+        // A reply from the notification would be sent unencrypted.
+        canReply: !event.encrypted,
+      },
     });
     await markShown(pushed, event.channelId);
   });
@@ -398,9 +494,12 @@ export function pushChannelActivity(event: {
   messageId: string;
   authorId: string;
   authorName?: string;
+  authorAvatar?: string | null;
   mentionedUserIds: string[];
   roleMentionUserIds?: string[];
   preview?: string;
+  mentionNames?: MentionNames;
+  createdAt?: string;
   /** "@silent" message: no push. */
   silent?: boolean;
 }): void {
@@ -422,12 +521,12 @@ export function pushChannelActivity(event: {
     ]);
     const serverDefaults = await getServerDefaultLevels([event.serverId]).catch(() => ({} as Record<string, never>));
     const [server] = await db
-      .select({ name: schema.servers.name })
+      .select({ name: schema.servers.name, icon: schema.servers.icon })
       .from(schema.servers)
       .where(eq(schema.servers.id, event.serverId))
       .limit(1)
       .catch(() => []);
-    const tokens: string[] = [];
+    const tokens: PushDevice[] = [];
     const pushed: string[] = [];
     for (const userId of targets) {
       const access = await checkChannelAccess(userId, event.channelId, { lean: true }).catch(() => ({ hasAccess: false }));
@@ -453,13 +552,33 @@ export function pushChannelActivity(event: {
       tokens.push(...(devices.get(userId) ?? []));
       pushed.push(userId);
     }
+    if (tokens.length === 0) return;
     const where = [event.channelName ? `#${event.channelName}` : '', server?.name ?? ''].filter(Boolean).join(', ');
-    await sendToTokens(tokens, {
+    const authorName = event.authorName || FALLBACK_NEW_MESSAGE;
+    const media = await loadMessageMedia(event.messageId);
+    const conversationTitle =
+      [event.channelName ? `#${event.channelName}` : '', server?.name ?? ''].filter(Boolean).join(' · ') || authorName;
+    await sendToDevices(tokens, {
       kind: 'message',
-      title: where ? `${event.authorName || FALLBACK_NEW_MESSAGE} (${where})` : event.authorName || FALLBACK_NEW_MESSAGE,
-      body: pushPreview(event.preview) || FALLBACK_NEW_MESSAGE,
+      title: where ? `${authorName} (${where})` : authorName,
+      body: previewWithMedia(pushPreview(event.preview, undefined, event.mentionNames), media.label) || FALLBACK_NEW_MESSAGE,
       route: `/channels/${event.serverId}/${event.channelId}?jump=${encodeURIComponent(event.messageId)}`,
       tag: `message-${event.channelId}`,
+      rich: {
+        kind: 'channel',
+        channelId: event.channelId,
+        serverId: event.serverId,
+        conversationTitle,
+        authorId: event.authorId,
+        authorName,
+        authorAvatar: pushImageUrl(event.authorAvatar, AVATAR_PX, cdnHost()),
+        icon: pushImageUrl(server?.icon, AVATAR_PX, cdnHost()),
+        messageId: event.messageId,
+        image: media.image,
+        mention: true,
+        timestamp: timestampOf(event.createdAt),
+        canReply: true,
+      },
     });
     await markShown(pushed, event.channelId);
   });
@@ -482,7 +601,7 @@ export function pushCallRing(userIds: string[], ring: {
     const route = !ring.group && callerId ? `/dm/${callerId}` : '/channels/messages';
     const answerRoute = !ring.group && callerId ? `/dm/${callerId}?call=${ring.video ? 'video' : 'voice'}` : route;
     const callerName = ring.caller?.displayName || ring.caller?.username || '';
-    await sendToTokens(tokens, {
+    await sendToDevices(tokens, {
       kind: 'call_ring',
       roomId: ring.roomId,
       callerName: ring.group?.name ? `${callerName} (${ring.group.name})` : callerName,
@@ -504,7 +623,8 @@ export function pushServerNotice(userIds: string[], notice: { title: string; bod
     if (devices.size === 0) return;
     const targets = await filterInactive([...devices.keys()]);
     const tokens = targets.flatMap((id) => devices.get(id) ?? []);
-    await sendToTokens(tokens, { kind: 'message', ...notice });
+    // No `rich` block: notices stay system-rendered on every APK.
+    await sendToDevices(tokens, { kind: 'message', ...notice });
   });
 }
 
@@ -514,6 +634,6 @@ export function pushCallCancel(userIds: string[], roomId: string): void {
   run(async () => {
     const devices = await devicesFor(userIds);
     const tokens = [...devices.values()].flat();
-    await sendToTokens(tokens, { kind: 'call_cancel', roomId });
+    await sendToDevices(tokens, { kind: 'call_cancel', roomId });
   });
 }

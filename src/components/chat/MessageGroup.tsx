@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, memo, useMemo } from "react";
-import { BellOff, Pin, Reply, Clock } from "lucide-react";
+import { BellOff, Pin, Reply, Clock, Lock, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
 import { MessageContent } from "@/components/chat/MessageContent";
@@ -22,6 +22,24 @@ import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
 import type { RoleIconData } from "@/components/chat/RoleIcon";
+import type { ChatGt } from "./ChatGtContext";
+
+/** Why an end-to-end encrypted message can't be shown (lib/e2ee/client DecryptFailure). */
+function e2eeFailureText(gt: ChatGt, reason: string | undefined): string {
+  switch (reason) {
+    case "restore":
+    case "not_ready":
+      return gt("Set up encryption on this device to read this message.");
+    case "no_key":
+      return gt("This message wasn't encrypted for this device.");
+    case "signature":
+    case "unknown_device":
+    case "revoked_device":
+      return gt("Couldn't verify who sent this message.");
+    default:
+      return gt("Couldn't decrypt this message.");
+  }
+}
 
 interface MentionUser {
   id: string;
@@ -304,6 +322,8 @@ function MessageGroupInner<M extends ChatMessage>({
                               serverId={serverId}
                               className="inline"
                             />
+                          ) : message.referencedMessage.encrypted ? (
+                            gt("Encrypted message")
                           ) : (
                             gt("(attachment)")
                           )}
@@ -311,6 +331,22 @@ function MessageGroupInner<M extends ChatMessage>({
                       </div>
                     )}
 
+                    {message.e2ee && message.e2ee.status !== "ok" ? (
+                      // End-to-end encrypted, not readable (yet) on this device.
+                      <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]">
+                        {message.e2ee.status === "pending" ? (
+                          <>
+                            <Lock className="w-3.5 h-3.5 animate-pulse" />
+                            {gt("Decrypting…")}
+                          </>
+                        ) : (
+                          <>
+                            <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+                            {e2eeFailureText(gt, message.e2ee.reason)}
+                          </>
+                        )}
+                      </span>
+                    ) : (
                     <MessageContent
                       content={message.content}
                       serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
@@ -323,7 +359,22 @@ function MessageGroupInner<M extends ChatMessage>({
                       className="chat-message-body text-[var(--app-text)]"
                       onMediaClick={({ src, alt }) => onMediaClick(src, alt, message.id)}
                       messageId={message.id}
+                      noLinkPreviews={Boolean(message.e2ee)}
                     />
+                    )}
+
+                    {message.e2ee?.status === "ok" && (
+                      <span
+                        className={cn(
+                          "inline-flex items-center ml-1 align-middle",
+                          message.e2ee.verified ? "text-[var(--app-muted)] opacity-60" : "text-amber-400",
+                        )}
+                        title={message.e2ee.verified ? gt("End-to-end encrypted") : gt("End-to-end encrypted, but the sender's security code isn't confirmed")}
+                        aria-label={message.e2ee.verified ? gt("End-to-end encrypted") : gt("End-to-end encrypted, but the sender's security code isn't confirmed")}
+                      >
+                        <Lock className="w-3 h-3" />
+                      </span>
+                    )}
 
                     {isSilentMessage(message.flags) && (
                       <span
@@ -389,7 +440,8 @@ function MessageGroupInner<M extends ChatMessage>({
                     />
                     )}
 
-                    {inlineEmbedsEnabled && !message.suppressEmbeds && (
+                    {/* No link previews for encrypted messages: they'd send the links to the server. */}
+                    {inlineEmbedsEnabled && !message.suppressEmbeds && !message.e2ee && (
                     <LinkEmbed
                       content={message.content}
                       embeds={message.embeds}

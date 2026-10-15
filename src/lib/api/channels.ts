@@ -51,10 +51,14 @@ import {
 } from '@/lib/chat/threads';
 import { loadMessageExtras } from '@/lib/services/messageExtras';
 import { flagSensitiveMedia } from '@/lib/servers/verification';
-import { shouldFlagAuthorMedia, verificationDenial } from '@/lib/services/serverGate';
+import { pendingChannelAccess, shouldFlagAuthorMedia, verificationDenial } from '@/lib/services/serverGate';
+import { chatRestrictionDenial } from '@/lib/services/trustSafety';
+import { isChannelAccessibleWhilePending } from '@/lib/servers/community';
+import { containsLink, type VerificationAction } from '@/lib/servers/verification';
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, CHANNEL_AUDIT_KEYS, auditReason, diffChanges, diffOverwrites, snapshotChanges } from '@/lib/audit/auditLog';
 import { childrenToResync, normalizeOverwrites, overwritesInSync } from '@/lib/permissions/overwriteEditor';
+import { e2eeMismatch, storedEnvelope } from '@/lib/services/e2ee';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
@@ -263,6 +267,17 @@ async function canViewChannel(
 type SpeakAction = 'send' | 'attach' | 'react' | 'voice';
 type SpeakDenial = { status: number; body: Record<string, unknown> };
 
+/** Verification-level actions a speak check covers (voice messages are attachments). */
+function verificationActionsFor(actions: readonly SpeakAction[]): VerificationAction[] {
+  const out = new Set<VerificationAction>();
+  for (const a of actions) {
+    if (a === 'send') out.add('send');
+    else if (a === 'attach' || a === 'voice') out.add('attach');
+    else if (a === 'react') out.add('react');
+  }
+  return out.size > 0 ? [...out] : ['send'];
+}
+
 /**
  * Shared "may this member speak here" gate for every write that puts content in
  * a server channel (messages, forum posts, reactions, slash commands): rejects
@@ -275,6 +290,7 @@ export async function checkCanSpeak(
   membership: { roles?: string[] | null; communicationDisabledUntil?: Date | string | null; joinedAt?: Date | string | null } | null | undefined,
   userId: string,
   actions: SpeakAction[],
+  opts: { verification?: VerificationAction[] } = {},
 ): Promise<SpeakDenial | null> {
   if (!channel.serverId) return null;
   const disabledUntil = membership?.communicationDisabledUntil;
@@ -284,9 +300,16 @@ export async function checkCanSpeak(
       body: { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() },
     };
   }
-  // Server verification level (verified email, account age, member age):
-  // blocks every way of talking, including joining an existing reaction.
-  const unverified = await verificationDenial(channel.serverId, userId, membership ?? null);
+  // Trust & Safety: a platform chat restriction stops messages / threads
+  // (reactions stay allowed).
+  const verificationActions = opts.verification ?? verificationActionsFor(actions);
+  if (verificationActions.some((a) => a === 'send' || a === 'attach' || a === 'threads' || a === 'links')) {
+    const restricted = await chatRestrictionDenial(userId);
+    if (restricted) return restricted;
+  }
+  // Server verification level (verified email, account age, member age,
+  // verified connection): blocks the actions the server chose to lock.
+  const unverified = await verificationDenial(channel.serverId, userId, membership ?? null, verificationActions);
   if (unverified) return unverified;
   if (actions.length === 0) return null;
   const [source, serverOwnerId] = await Promise.all([
@@ -349,6 +372,10 @@ export async function checkCanPostInChannel(
     return null;
   }
 
+  if (channel.type === 'dm' || channel.type === 'group_dm') {
+    const restricted = await chatRestrictionDenial(user.id);
+    if (restricted) return restricted;
+  }
   if (channel.type === 'dm') {
     const otherId = ((channel.recipientIds || []) as string[]).find((r) => !compareIds(r, user.id));
     if (!otherId) return null;
@@ -825,6 +852,13 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
       }
     }
 
+    // Rules screening with restricted channels: until they're let in, pending
+    // members only open the channels the server listed (e.g. the Info category).
+    const pendingAccess = await pendingChannelAccess(channel.serverId, userId, membership).catch(() => null);
+    if (pendingAccess && !isChannelAccessibleWhilePending(channel, parent, pendingAccess)) {
+      return { hasAccess: false, error: 'Accept the server rules to view this channel' };
+    }
+
     // VIEW_CHANNEL from base role permissions + overwrites. Threads have no
     // overwrites of their own: a post in a private forum is as private as the forum.
     const serverOwnerId = server?.ownerId ?? null;
@@ -861,6 +895,7 @@ export async function listViewableServerChannels(userId: string, serverId: strin
   if (!membership) return null;
   const isOwner = Boolean(serverOwnerId && compareIds(serverOwnerId, userId));
   const byId = new Map(channels.map((c) => [c.id, c]));
+  const pendingAccess = await pendingChannelAccess(serverId, userId, membership).catch(() => null);
   const memberRoles = (membership.roles || []) as string[];
   const canViewSource = new Map<string, boolean>();
   const out: IChannel[] = [];
@@ -868,6 +903,7 @@ export async function listViewableServerChannels(userId: string, serverId: strin
     if (channel.type === 'category' || channel.type === 'dm' || channel.type === 'group_dm') continue;
     const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
     const parent = isThread && channel.parentId ? byId.get(channel.parentId) ?? null : null;
+    if (pendingAccess && !isChannelAccessibleWhilePending(channel, parent, pendingAccess)) continue;
     if (channel.type === 'private_thread' && !isOwner) {
       const isCreator = compareIds(channel.ownerId ?? '', userId);
       const isMember = (channel.threadMemberIds || []).some((m: string) => compareIds(m, userId));
@@ -919,6 +955,46 @@ const hasOverwrites = (c: { permissionOverwrites?: unknown }) =>
  * visible without a check, as before. Pass `memberships` when already loaded.
  */
 export async function filterViewableServerChannels<C extends ViewableCandidate>(
+  userId: string,
+  channels: C[],
+  memberships?: ReadonlyArray<{ serverId: string; roles?: string[] | null; pending?: boolean | null }>,
+): Promise<C[]> {
+  const visible = await filterByPermissions(userId, channels, memberships);
+  return filterPendingRestricted(userId, visible, memberships);
+}
+
+/**
+ * Drops channels hidden from members still in rules screening (servers with
+ * restricted channels). Only servers where the user is pending cost a lookup.
+ */
+async function filterPendingRestricted<C extends ViewableCandidate>(
+  userId: string,
+  channels: C[],
+  memberships?: ReadonlyArray<{ serverId: string; roles?: string[] | null; pending?: boolean | null }>,
+): Promise<C[]> {
+  const serverIds = [...new Set(channels.map((c) => c.serverId).filter((id): id is string => Boolean(id)))];
+  if (serverIds.length === 0) return channels;
+  const rows = memberships && memberships.every((m) => 'pending' in m)
+    ? memberships
+    : await ServerMember.find({ userId }).catch(() => []);
+  const pendingRows = rows.filter((m) => m.pending && serverIds.some((sid) => compareIds(sid, m.serverId)));
+  if (pendingRows.length === 0) return channels;
+  const access = new Map<string, Set<string>>();
+  await Promise.all(pendingRows.map(async (m) => {
+    const allowed = await pendingChannelAccess(m.serverId, userId, m).catch(() => null);
+    if (allowed) access.set(normalizeId(m.serverId), allowed);
+  }));
+  if (access.size === 0) return channels;
+  const byId = new Map<string, ViewableCandidate>(channels.map((c) => [c.id, c]));
+  return channels.filter((c) => {
+    const allowed = c.serverId ? access.get(normalizeId(c.serverId)) : undefined;
+    if (!allowed) return true;
+    const parent = c.parentId ? byId.get(c.parentId) ?? null : null;
+    return isChannelAccessibleWhilePending(c, parent, allowed);
+  });
+}
+
+async function filterByPermissions<C extends ViewableCandidate>(
   userId: string,
   channels: C[],
   memberships?: ReadonlyArray<{ serverId: string; roles?: string[] | null }>,
@@ -1074,9 +1150,12 @@ async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelI
     }
 
     const guildId = integrations.discordGuildId;
-    const webhookUrl = (integrations.discordWebhooks as Record<string, string> | undefined)?.[channelId];
-
-    if (!webhookUrl) return;
+    // Stored encrypted (servers.ts discord sync); older servers hold plaintext.
+    const storedWebhookUrl = (integrations.discordWebhooks as Record<string, string> | undefined)?.[channelId];
+    if (!storedWebhookUrl) return;
+    const { decryptField } = await import('@/lib/security/fieldEncryption');
+    const webhookUrl = await decryptField(storedWebhookUrl);
+    if (!webhookUrl.startsWith('https://')) return;
 
     console.log(`[Discord Bridge] Replicating ${action} on channel #${channel.name} to Discord (Guild: ${guildId})`);
 
@@ -1328,7 +1407,11 @@ async function createChannelThread(
   body: { name: string; content?: string; messageId?: string; type?: 'public' | 'private'; autoArchiveDuration?: number },
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   // Timed-out members can't start threads.
-  const timedOut = await checkCanSpeak(parent, membership, user.id, []);
+  // A starter message is a message: it's gated like one (send, links).
+  const starterText = typeof body.content === 'string' ? body.content.trim() : '';
+  const timedOut = await checkCanSpeak(parent, membership, user.id, [], {
+    verification: starterText ? ['threads', 'send', ...(containsLink(starterText) ? ['links' as const] : [])] : ['threads'],
+  });
   if (timedOut) return timedOut;
 
   const fromMessage = Boolean(body.messageId);
@@ -2153,7 +2236,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // A post is a message: same timeout / SEND_MESSAGES / rate limit / slowmode
     // rules as POST /messages.
-    const speakDenial = await checkCanSpeak(forum, membership, user.id, ['send']);
+    const speakDenial = await checkCanSpeak(forum, membership, user.id, ['send'], {
+      verification: containsLink(body.content) ? ['send', 'threads', 'links'] : ['send', 'threads'],
+    });
     if (speakDenial) {
       set.status = speakDenial.status;
       return speakDenial.body;
@@ -2570,6 +2655,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         threadId: msg.threadId ?? undefined,
         thread: msg.threadId ? (threadSummaries.get(msg.threadId) ?? null) : undefined,
         ...extrasMap.get(msg.id),
+        // End-to-end encrypted DM message (content is ''); see lib/e2ee.
+        ...(storedEnvelope(msg.e2ee) ? { e2ee: storedEnvelope(msg.e2ee) } : {}),
       };
     });
 
@@ -2654,15 +2741,29 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
 
+    // End-to-end encryption: this generic route only takes plaintext, so it
+    // refuses encrypted conversations (envelopes go to /api/dms/:recipientId
+    // or /api/group-dms/:channelId, which check devices and keep previews
+    // out of signals) and never stores an envelope in a plain channel.
+    {
+      const e2eeDenied = body.e2ee !== undefined
+        ? (channel.e2ee === true
+          ? { status: 400, error: 'Send encrypted messages through the direct message endpoints' }
+          : { status: 400, error: 'This conversation is not end-to-end encrypted' })
+        : e2eeMismatch(channel, false);
+      if (e2eeDenied) {
+        set.status = e2eeDenied.status;
+        return { error: e2eeDenied.error };
+      }
+    }
+
     // Timeout, SEND_MESSAGES and (with attachments) ATTACH_FILES on server channels.
-    const speakDenial = await checkCanSpeak(
-      channel,
-      membership,
-      user.id,
-      (body.attachments?.length ?? 0) > 0
-        ? (isVoiceFlagRequested(body.flags) ? ['send', 'attach', 'voice'] : ['send', 'attach'])
-        : ['send'],
-    );
+    const speakActions: SpeakAction[] = (body.attachments?.length ?? 0) > 0
+      ? (isVoiceFlagRequested(body.flags) ? ['send', 'attach', 'voice'] : ['send', 'attach'])
+      : ['send'];
+    const speakDenial = await checkCanSpeak(channel, membership, user.id, speakActions, {
+      verification: [...verificationActionsFor(speakActions), ...(containsLink(body.content) ? ['links' as const] : [])],
+    });
     if (speakDenial) {
       set.status = speakDenial.status;
       return speakDenial.body;
@@ -3208,6 +3309,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         serverId: t.Optional(t.String()),
         serverName: t.Optional(t.String()),
       })),
+      // Refused here (see the e2ee gate above); declared so it isn't stripped.
+      e2ee: t.Optional(t.Unknown()),
     }),
   })
   // Get pinned messages for channel
@@ -3475,6 +3578,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'You can only edit your own messages' };
     }
 
+    // End-to-end encrypted conversations are edited through the DM endpoints
+    // (a new envelope per edit); plaintext never lands in them.
+    if (channel.e2ee === true) {
+      set.status = 400;
+      return { error: 'Edit encrypted messages through the direct message endpoints' };
+    }
+
+    // A platform chat restriction stops edits everywhere (servers, DMs, groups).
+    const restrictedEdit = await chatRestrictionDenial(user.id);
+    if (restrictedEdit) {
+      set.status = restrictedEdit.status;
+      return restrictedEdit.body;
+    }
+
     // In a 1:1 DM, a block (or DM privacy) also stops rewriting old messages.
     if (channel.type === 'dm') {
       const editDenied = await checkCanPostInChannel(channel, user, null);
@@ -3496,6 +3613,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
 
       if (channel.serverId) {
+        // The verification level's send / links locks apply to edits too
+        // (otherwise: post "hi", then edit a link in).
+        const unverified = await verificationDenial(channel.serverId, user.id, editMembership ?? null, containsLink(content) ? ['send', 'links'] : ['send']);
+        if (unverified) {
+          set.status = unverified.status;
+          return unverified.body;
+        }
         const { enforceAutoMod } = await import('@/lib/services/automod');
         const blocked = await enforceAutoMod({ serverId: channel.serverId, channel, user, membership: editMembership, content, source: 'edit' });
         if (blocked) {
@@ -3878,7 +4002,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Timed-out members can't react; ADD_REACTIONS gates starting a new reaction
     // (joining an existing one is allowed, as on Discord).
     const startsNewReaction = !((message.reactions || []) as StoredReaction[]).some(matchReactionEmoji(emojiData));
-    const speakDenial = await checkCanSpeak(channel, membership, user.id, startsNewReaction ? ['react'] : []);
+    const speakDenial = await checkCanSpeak(channel, membership, user.id, startsNewReaction ? ['react'] : [], { verification: ['react'] });
     if (speakDenial) {
       set.status = speakDenial.status;
       return speakDenial.body;
@@ -4119,7 +4243,25 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
     const reason = isMessageReportReason(body.reason) ? body.reason : 'other';
     const details = (body.details ?? '').trim().slice(0, 1000);
-    const content = message.content ? (await decryptFromStorage(message.content)).slice(0, 1500) : '';
+    let content = message.content ? (await decryptFromStorage(message.content)).slice(0, 1500) : '';
+    // End-to-end encrypted message: the reporter discloses the message key and
+    // plaintext (message franking). Only a disclosure that verifies against
+    // the stored envelope is accepted; disclosed images are scanned as the
+    // sender's uploads. See docs/architecture/e2ee.md.
+    let frankingLines: string[] = [];
+    if (storedEnvelope(message.e2ee)) {
+      const { frankEncryptedReport } = await import('@/lib/services/e2ee');
+      const franked = await frankEncryptedReport(message, body.e2ee);
+      if (!franked.ok) {
+        set.status = franked.status;
+        return { error: franked.error };
+      }
+      content = franked.payload.content.slice(0, 1500);
+      frankingLines = [
+        'End-to-end encrypted message: content verified by message franking (commitment, decryption and sender device signature).',
+        ...franked.attachmentNotes.map((n) => `Encrypted attachment: ${n}`),
+      ];
+    }
     const author = await User.findById(message.authorId).catch(() => null);
     const { BugReport } = await import('@/lib/models');
     await BugReport.create({
@@ -4134,6 +4276,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         channel.serverId ? `Server: ${channel.serverId}` : null,
         `Author: ${message.authorId}${author ? ` (@${author.username})` : ''}`,
         `Sent: ${message.createdAt ? new Date(message.createdAt).toISOString() : 'unknown'}`,
+        ...frankingLines,
         '',
         'Content:',
         content || '(no text)',
@@ -4141,7 +4284,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       category: 'security',
       priority: reason === 'self_harm' || reason === 'illegal' ? 'high' : 'medium',
       status: 'open',
-      attachments: Array.isArray(message.attachments)
+      // Encrypted blobs are useless to staff (the scan notes above cover them).
+      attachments: Array.isArray(message.attachments) && !storedEnvelope(message.e2ee)
         ? (message.attachments as Array<{ url?: string; contentType?: string; filename?: string }>)
             .filter((a) => typeof a?.url === 'string')
             .slice(0, 10)
@@ -4154,6 +4298,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     body: t.Object({
       reason: t.String({ maxLength: 32 }),
       details: t.Optional(t.String({ maxLength: 1000 })),
+      // Franking disclosure for an end-to-end encrypted message: { key, payload }.
+      e2ee: t.Optional(t.Object({
+        key: t.String({ maxLength: 64 }),
+        payload: t.String({ maxLength: 40_000 }),
+      })),
     }),
   })
   // Typing indicator

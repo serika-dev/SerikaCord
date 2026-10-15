@@ -42,6 +42,17 @@ export function isSelfDeclarableProvider(provider: unknown): boolean {
  */
 export const OAUTH_VERIFIED_KEY = 'oauthVerified';
 
+/**
+ * Metadata keys that hold credentials (OAuth tokens, Last.fm session keys).
+ * The UserConnection model encrypts them at rest; every other key (e.g.
+ * `oauthVerified`, `domainVerification`) stays readable.
+ */
+export const CONNECTION_SECRET_KEYS = [
+  'accessToken', 'refreshToken', 'sessionKey', 'idToken',
+  'access_token', 'refresh_token', 'session_key', 'id_token',
+  'token', 'secret', 'apiKey',
+] as const;
+
 export function isOAuthVerifiedConnection(conn: { metadata?: unknown } | null | undefined): boolean {
   const meta = conn?.metadata;
   return !!meta && typeof meta === 'object' && (meta as Record<string, unknown>)[OAUTH_VERIFIED_KEY] === true;

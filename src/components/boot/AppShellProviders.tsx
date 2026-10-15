@@ -9,6 +9,10 @@ import { NativeAppBridge } from "@/components/native/NativeAppBridge";
 import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
 import { UserActionsHost } from "@/components/user/UserActionsHost";
 import { ChangelogHost } from "@/components/changelog/ChangelogHost";
+import dynamic from "next/dynamic";
+
+// End-to-end encryption setup + dialogs: its own chunk, started when idle.
+const E2eeHost = dynamic(() => import("@/components/e2ee/E2eeHost"), { ssr: false });
 
 // Heavy dialogs are code-split so they don't slow the first paint, but the
 // first click must not wait on a download: warm their chunks once the browser
@@ -65,6 +69,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
           <NativeAppBridge />
           <UserActionsHost />
           <ChangelogHost />
+          <E2eeHost />
         </ConfirmProvider>
       </UnreadProvider>
     </ServerProvider>

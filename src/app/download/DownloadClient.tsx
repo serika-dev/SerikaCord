@@ -142,11 +142,12 @@ export default function DownloadClient({ release }: { release: ReleaseInfo }) {
   const gt = useGT();
   const detected = useSyncExternalStore<Detected>(noopSubscribe, detectPlatform, () => "unknown");
 
+  // Product names are never translated (gt() turned "Windows" into "Ramen" in Dutch).
   const names: Record<Platform, string> = {
-    windows: gt("Windows"),
-    mac: gt("macOS"),
-    linux: gt("Linux"),
-    android: gt("Android"),
+    windows: "Windows",
+    mac: "macOS",
+    linux: "Linux",
+    android: "Android",
   };
   const requirements: Record<Platform, string> = {
     windows: gt("Windows 10 or newer, 64-bit"),

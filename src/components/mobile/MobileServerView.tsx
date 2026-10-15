@@ -31,6 +31,7 @@ import { filterMobileChannelGroups, groupMobileChannels } from "@/lib/mobile/cha
 import { useLongPress } from "./useLongPress";
 import { Bone } from "./Bone";
 import { ServerEventsEntry } from "@/components/events/ServerEventsEntry";
+import { ServerGuideEntry } from "@/components/server/community/ServerGuideEntry";
 
 const MobileServerSheet = dynamic(() => import("./MobileServerSheet").then((m) => m.MobileServerSheet), { ssr: false });
 const MobileChannelSheet = dynamic(() => import("./MobileChannelSheet").then((m) => m.MobileChannelSheet), { ssr: false });
@@ -253,6 +254,7 @@ export function MobileServerView() {
         </div>
       </div>
 
+      <ServerGuideEntry key={`guide:${currentServer.id}`} serverId={currentServer.id} variant="mobile" />
       <ServerEventsEntry key={currentServer.id} serverId={currentServer.id} variant="mobile" />
 
       {/* Channel List */}

@@ -12,6 +12,10 @@ import { useAppHotkeys } from "@/hooks/useAppHotkeys";
 import { onHotkey } from "@/lib/keybinds";
 import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
 import { QuickSwitcher } from "@/components/QuickSwitcher";
+import { useAuth } from "@/contexts/AuthContext";
+
+// Suspended accounts only ever see this screen (loaded on demand).
+const SuspendedScreen = dynamic(() => import("@/components/safety/SuspendedScreen"), { ssr: false });
 
 // Loaded on first open only (UserSettingsDialog alone is several hundred KB).
 const CreateServerDialog = dynamic(
@@ -119,6 +123,9 @@ function DMContent({ children }: { children: React.ReactNode }) {
 }
 
 export default function DMLayoutClient({ children }: { children: React.ReactNode }) {
+  const { user, suspended } = useAuth();
+  // Suspended: Account Standing + appeal + log out, instead of the app.
+  if (suspended && !user) return <SuspendedScreen />;
   // Server/unread providers live in AppProviders (root layout) so they
   // survive switching between DMs and servers.
   return <DMContent>{children}</DMContent>;

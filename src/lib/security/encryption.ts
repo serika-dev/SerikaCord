@@ -25,6 +25,14 @@ async function getFastKey(): Promise<Buffer> {
   return cachedFastKey;
 }
 
+/**
+ * The SHA-256 of the platform key, for other at-rest encryption helpers
+ * (`fieldEncryption.ts` derives its own subkeys from it). Never log or return it.
+ */
+export async function getStorageKeyMaterial(): Promise<Buffer> {
+  return getFastKey();
+}
+
 // ── Decryption cache ────────────────────────────────────────────────────────
 // Ciphertext is immutable (an edit produces new ciphertext), so caching
 // ciphertext→plaintext is safe and makes re-fetches, pagination, prefetch, and

@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useGT } from "gt-next";
-import { Headphones, HeadphoneOff, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Video, VideoOff } from "lucide-react";
+import { Headphones, HeadphoneOff, Lock, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Video, VideoOff } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { getCallSnapshot, getServerCallSnapshot, hangUp, subscribeCall } from "@/lib/services/dmCallController";
@@ -23,6 +24,17 @@ const subscribeRoom = (onChange: () => void) => voiceService.subscribe((e) => {
 });
 const getRoom = () => voiceService.currentRoomId ?? "";
 const getServerRoom = () => "";
+
+// End-to-end encryption of the current call ("required:verified" so the
+// snapshot is a stable primitive).
+const subscribeCallE2ee = (onChange: () => void) => voiceService.subscribe((e) => {
+  if (e.type === "e2ee_changed" || e.type === "participants_changed" || e.type === "connected" || e.type === "disconnected") onChange();
+});
+const getCallE2ee = () => {
+  const { required, verified } = voiceService.callE2ee;
+  return `${required ? 1 : 0}:${verified ? 1 : 0}`;
+};
+const getServerCallE2ee = () => "0:0";
 
 /** Re-render once a second while `active` (the call timer). */
 function useNow(active: boolean): number {
@@ -57,6 +69,13 @@ export function DmCallPanel({
 }) {
   const gt = useGT();
   const voiceRoom = useSyncExternalStore(subscribeRoom, getRoom, getServerRoom);
+  const callE2ee = useSyncExternalStore(subscribeCallE2ee, getCallE2ee, getServerCallE2ee);
+  const callVerified = callE2ee === "1:1";
+  // Names for the call-encryption warning (read inside the voice subscription).
+  const knownPeopleRef = useRef<Person[]>([]);
+  useEffect(() => {
+    knownPeopleRef.current = [...(peers ?? []), ...(peer ? [peer] : [])];
+  });
   const call = useSyncExternalStore(subscribeCall, getCallSnapshot, getServerCallSnapshot);
   const callState = call.state.phase !== "idle" && call.state.roomId === roomId ? call.state : null;
   const active = voiceRoom === roomId || callState !== null;
@@ -79,6 +98,14 @@ export function DmCallPanel({
       case "deafen_toggled": setDeafened(event.deafened); if (event.deafened) setMuted(true); break;
       case "video_toggled": setVideoOn(event.enabled); break;
       case "screen_share_toggled": setSharing(event.enabled); break;
+      case "e2ee_warning": {
+        // Their DTLS certificate didn't match their encryption keys: dropped.
+        const who = knownPeopleRef.current.find((p) => p.id.toLowerCase() === event.userId.toLowerCase());
+        toast.error(gt("Couldn't verify {name}'s call encryption, so they were disconnected.", { name: who?.name ?? gt("someone") }), {
+          description: gt("Check their safety number in the conversation before calling again."),
+        });
+        break;
+      }
       case "connected":
         setParticipants(voiceService.currentParticipants);
         setMuted(voiceService.muted);
@@ -96,7 +123,7 @@ export function DmCallPanel({
         setSharing(false);
         break;
     }
-  }), []);
+  }), [gt]);
 
   const group = !!groupName;
   const others = peers ?? (peer ? [peer] : []);
@@ -193,6 +220,15 @@ export function DmCallPanel({
       >
         {status}
       </p>
+      {callVerified && voiceRoom === roomId && (
+        <p
+          className="mt-1 flex items-center justify-center gap-1 text-center text-xs text-[var(--text-secondary)]"
+          title={gt("Every participant's encryption keys were verified")}
+        >
+          <Lock className="h-3 w-3" aria-hidden />
+          {gt("End-to-end encrypted")}
+        </p>
+      )}
 
       {listenOnly && voiceRoom === roomId && (
         <p

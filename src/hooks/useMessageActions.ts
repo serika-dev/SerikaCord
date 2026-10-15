@@ -25,6 +25,8 @@ interface UseMessageActionsOptions<M extends ChatMessage> {
   emojiLookup?: EmojiLookupEntry[];
   /** Called after a successful pin/unpin so callers can refresh pin lists. */
   onPinsChanged?: () => void;
+  /** End-to-end encrypted conversations: builds the PATCH body (a new envelope). */
+  buildEditBody?: (message: M, content: string) => Promise<Record<string, unknown>>;
 }
 
 /**
@@ -38,6 +40,7 @@ export function useMessageActions<M extends ChatMessage>({
   userId,
   emojiLookup,
   onPinsChanged,
+  buildEditBody,
 }: UseMessageActionsOptions<M>) {
   const gt = useGT();
   const [editingMessage, setEditingMessage] = useState<M | null>(null);
@@ -99,6 +102,7 @@ export function useMessageActions<M extends ChatMessage>({
 
     const messageId = editingMessage.id;
     const nextContent = editContent;
+    const edited = editingMessage;
     let previous: M | undefined;
     setMessages((prev) =>
       prev.map((m) => {
@@ -117,21 +121,26 @@ export function useMessageActions<M extends ChatMessage>({
     };
 
     try {
+      const body = buildEditBody ? await buildEditBody(edited, nextContent) : { content: nextContent };
       const response = await fetch(`${apiBase}/messages/${messageId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: nextContent }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         rollback();
         toast.error(data?.error || gt("Failed to edit message"));
       }
-    } catch {
+    } catch (err) {
       rollback();
-      toast.error(gt("Failed to edit message. Check your connection."));
+      // Encryption refused (e.g. a contact's security code changed).
+      const blocked = err instanceof Error && err.name === "E2eeSendBlockedError";
+      toast.error(blocked
+        ? gt("This edit couldn't be encrypted. Check the security notice in this conversation.")
+        : gt("Failed to edit message. Check your connection."));
     }
-  }, [apiBase, editingMessage, editContent, setMessages, gt]);
+  }, [apiBase, editingMessage, editContent, setMessages, gt, buildEditBody]);
 
   const handleEditKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

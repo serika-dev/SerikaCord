@@ -577,7 +577,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         set.status = 403;
         return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(disabledUntil).toISOString() };
       }
-      const unverified = await verificationDenial(auth.serverId, user, member);
+      const unverified = await verificationDenial(auth.serverId, user, member, ['voice']);
       if (unverified) {
         set.status = unverified.status;
         return unverified.body;

@@ -130,7 +130,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
             )}
             {author.isDiscord && (
               <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">
-                {gt("Discord")}
+                Discord
               </span>
             )}
             {author.isBot && !author.isSystem && !author.isDiscord && (
@@ -154,7 +154,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
           )}
           {author.isDiscord && (
             <span className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left bg-[#5865F2] text-white">
-              {gt("Discord")}
+              Discord
             </span>
           )}
           {author.isBot && !author.isSystem && !author.isDiscord && (

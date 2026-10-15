@@ -6,7 +6,7 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit } from '@/lib/security';
-import { isPlausibleDeviceToken } from '@/lib/push/fcm';
+import { isPlausibleDeviceToken, normalizePushPlatform } from '@/lib/push/fcm';
 import { registerPushDevice, setPushAway, unregisterPushDevice } from '@/lib/services/pushNotifications';
 
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
@@ -16,8 +16,6 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
   if (typeof authToken === 'string') cookies.auth_token = authToken;
   return authenticateRequest(authHeader, cookies);
 }
-
-const PLATFORMS = new Set(['android', 'ios']);
 
 export const pushRoutes = new Elysia({ prefix: '/users/@me/push-devices' })
   .post('/', async ({ headers, cookie, body, set }) => {
@@ -35,7 +33,8 @@ export const pushRoutes = new Elysia({ prefix: '/users/@me/push-devices' })
       set.status = 400;
       return { error: 'Invalid token' };
     }
-    const platform = PLATFORMS.has(body.platform ?? '') ? (body.platform as string) : 'android';
+    // 'android-2'+ = the APK draws rich message notifications itself (fcm.ts).
+    const platform = normalizePushPlatform(body.platform);
     try {
       await registerPushDevice(user.id, body.token, platform);
       return { success: true };

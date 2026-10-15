@@ -75,6 +75,7 @@ import {
   ShieldAlert,
   MessageSquareHeart,
   UserPlus,
+  Gavel,
 } from "lucide-react";
 import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
 import { requestNotificationPermission } from "@/lib/services/notificationService";
@@ -110,9 +111,15 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDeviceSettings";
 import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
 import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
+// End-to-end encryption settings (own chunk; only once the feature is on).
+import { KeyRound as E2eeKeyIcon } from "lucide-react";
+import { useE2ee } from "@/hooks/useE2ee";
+const E2eeSettingsPanel = dynamic(() => import("@/components/e2ee/E2eeSettingsPanel"), { ssr: false });
 
 const AdminStaffPanel = dynamic(() => import("@/components/settings/AdminStaffPanel"));
 const AdminChangelogsPanel = dynamic(() => import("@/components/settings/AdminChangelogsPanel").then((module) => module.AdminChangelogsPanel));
+const AccountStanding = dynamic(() => import("@/components/safety/AccountStanding").then((module) => module.AccountStanding));
+const AdminTrustSafetyPanel = dynamic(() => import("@/components/settings/AdminTrustSafetyPanel"));
 
 const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-users": ["users.view"],
@@ -129,6 +136,7 @@ const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-translations": ["translations.manage"],
   "admin-stats": ["stats.view"],
   "admin-bug-reports": ["reports.manage"],
+  "admin-trust-safety": ["safety.review"],
 };
 
 interface UserSettingsDialogProps {
@@ -144,8 +152,10 @@ type SettingsTab =
   | "friend-requests"
   | "activity-privacy"
   | "data-privacy"
+  | "account-standing"
   | "authorized-apps"
   | "devices"
+  | "encryption"
   | "connections"
   | "notifications"
   | "appearance"
@@ -172,7 +182,8 @@ type SettingsTab =
   | "admin-translations"
   | "admin-stats"
   | "bug-reports"
-  | "admin-bug-reports";
+  | "admin-bug-reports"
+  | "admin-trust-safety";
 
 const statusOptions = [
   { value: "online", label: "Online", color: "#8B5CF6" },
@@ -2016,6 +2027,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     );
   };
 
+  // Settings → Encryption shows once E2EE is on (server flag) or this device has keys.
+  const e2eeState = useE2ee();
+  const e2eeVisible = e2eeState.enabled || e2eeState.phase === "ready" || e2eeState.phase === "needs-restore";
+
   // Build the (translated) menu once per locale/staff change instead of on
   // every keystroke — this array runs ~35 gt() lookups, which is a big chunk
   // of the per-render cost while typing in any settings field.
@@ -2029,8 +2044,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           { id: "friend-requests" as SettingsTab, label: gt("Friend Requests"), icon: UserPlus },
           { id: "activity-privacy" as SettingsTab, label: gt("Activity Privacy"), icon: Activity },
           { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock },
+          { id: "account-standing" as SettingsTab, label: gt("Account Standing"), icon: ShieldCheck },
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
           { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
+          ...(e2eeVisible ? [{ id: "encryption" as SettingsTab, label: gt("Encryption"), icon: E2eeKeyIcon }] : []),
           { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
           { id: "bug-reports" as SettingsTab, label: gt("Feedback & Bugs"), icon: MessageSquareHeart },
         ],
@@ -2066,6 +2083,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           { id: "admin-users" as SettingsTab, label: gt("User Management"), icon: Users },
           { id: "admin-staff" as SettingsTab, label: gt("Staff Roles"), icon: ShieldCheck },
           { id: "admin-badges" as SettingsTab, label: gt("Badge Management"), icon: Award },
+          { id: "admin-trust-safety" as SettingsTab, label: gt("Trust & Safety"), icon: Gavel },
         ],
       });
       sections.push({
@@ -2093,7 +2111,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     return sections.map((section) => ({ ...section,
       items: section.items.filter((item) => !item.id.startsWith("admin-") || canOpenAdminTab(item.id)),
     })).filter((section) => section.items.length > 0);
-  }, [gt, isStaff, canOpenAdminTab]);
+  }, [gt, isStaff, canOpenAdminTab, e2eeVisible]);
 
   // Filter menu items based on search — only recompute when the query or the
   // (memoized) menu actually changes.
@@ -3613,7 +3631,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               )}
 
               {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-staff", "admin-changelogs", "admin-stats", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports"].includes(activeTab) && (
+              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-staff", "admin-changelogs", "admin-stats", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports", "account-standing", "admin-trust-safety"].includes(activeTab) && (
                 <div>
                   <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">
                     {/* The sidebar label, not the tab id: "text-images" read as "Text Images" (CORD-40). */}
@@ -3653,6 +3671,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                         </div>
                       ))}
                     </div>
+                  ) : activeTab === "encryption" ? (
+                    <E2eeSettingsPanel />
                   ) : activeTab === "devices" ? (
                     <div className="space-y-2">
                       {deviceSessions.length === 0 && (
@@ -5142,6 +5162,16 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               {activeTab === "admin-bug-reports" && canOpenAdminTab(activeTab) && (
                 <AdminBugReportsPanel />
               )}
+
+              {/* Account Standing - strikes, restrictions, appeals */}
+              <MountWhenOpened open={activeTab === "account-standing"}>
+                {activeTab === "account-standing" && <AccountStanding key={user?.id} showTitle />}
+              </MountWhenOpened>
+
+              {/* Admin Panel - Trust & Safety */}
+              <MountWhenOpened open={activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab)}>
+                {activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab) && <AdminTrustSafetyPanel key={user?.id} />}
+              </MountWhenOpened>
             </div>
           </ScrollArea>
 

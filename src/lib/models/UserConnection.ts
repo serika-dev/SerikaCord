@@ -1,15 +1,25 @@
 import { eq, and, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
+import { decryptRow, decryptRows, encryptRow, type FieldSpec } from '../security/fieldEncryption';
+import { CONNECTION_SECRET_KEYS } from '../connections/policy';
 
 export type IUserConnection = typeof schema.userConnections.$inferSelect;
+
+/**
+ * Token-bearing keys of `metadata` (CONNECTION_SECRET_KEYS: OAuth tokens,
+ * Last.fm session keys) are encrypted at rest; the rest (`oauthVerified`,
+ * `domainVerification`, `serikaMoeId`) stays readable. Rows come back from
+ * this model decrypted, and legacy plaintext rows pass through unchanged.
+ */
+const FIELDS: FieldSpec = { secretKeys: { metadata: CONNECTION_SECRET_KEYS } };
 
 export const UserConnection = {
   table: schema.userConnections,
 
   async findById(id: string) {
     const [row] = await db.select().from(schema.userConnections).where(eq(schema.userConnections.id, normalizeId(id))).limit(1);
-    return row || null;
+    return decryptRow(FIELDS, row || null);
   },
 
   async findOne(filter: Record<string, unknown>) {
@@ -28,7 +38,7 @@ export const UserConnection = {
       query = query.where(and(...conditions)) as typeof query;
     }
     const [row] = await query.limit(1);
-    return row || null;
+    return decryptRow(FIELDS, row || null);
   },
 
   async find(filter: Record<string, unknown> = {}) {
@@ -45,17 +55,17 @@ export const UserConnection = {
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as typeof query;
     }
-    return query;
+    return decryptRows(FIELDS, await query);
   },
 
   async create(data: typeof schema.userConnections.$inferInsert) {
-    const [row] = await db.insert(schema.userConnections).values(data).returning();
-    return row;
+    const [row] = await db.insert(schema.userConnections).values(await encryptRow(FIELDS, data)).returning();
+    return decryptRow(FIELDS, row);
   },
 
   async updateById(id: string, data: Partial<typeof schema.userConnections.$inferInsert>) {
-    const [row] = await db.update(schema.userConnections).set({ ...data, updatedAt: new Date() }).where(eq(schema.userConnections.id, normalizeId(id))).returning();
-    return row || null;
+    const [row] = await db.update(schema.userConnections).set({ ...(await encryptRow(FIELDS, data)), updatedAt: new Date() }).where(eq(schema.userConnections.id, normalizeId(id))).returning();
+    return decryptRow(FIELDS, row || null);
   },
 
   async deleteById(id: string) {
@@ -65,10 +75,10 @@ export const UserConnection = {
   /** Update a connection only if it belongs to `userId`; null when no such row. */
   async updateByIdForUser(id: string, userId: string, data: Partial<typeof schema.userConnections.$inferInsert>) {
     const [row] = await db.update(schema.userConnections)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...(await encryptRow(FIELDS, data)), updatedAt: new Date() })
       .where(and(eq(schema.userConnections.id, normalizeId(id)), eq(schema.userConnections.userId, normalizeId(userId))))
       .returning();
-    return row || null;
+    return decryptRow(FIELDS, row || null);
   },
 
   /** Delete a connection only if it belongs to `userId`; false when no such row. */

@@ -34,10 +34,13 @@ import {
   Crown,
   Link as LinkIcon,
   MonitorSmartphone,
+  ShieldCheck,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { VERSION_LABEL } from "@/lib/version";
+import { KeyRound } from "lucide-react";
+import { useE2ee } from "@/hooks/useE2ee";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 
 const MobileStatusSheet = dynamic(() => import("./MobileStatusSheet").then((m) => m.MobileStatusSheet), { ssr: false });
@@ -89,6 +92,10 @@ export function MobileProfileView() {
 
   const openExternal = (url: string) => window.open(url, "_blank", "noopener,noreferrer");
 
+  // Settings → Encryption once E2EE is on (server flag) or this device has keys.
+  const e2ee = useE2ee();
+  const showEncryption = e2ee.enabled || e2ee.phase === "ready" || e2ee.phase === "needs-restore";
+
   const settingsSections: SettingsSection[] = [
     {
       title: gt("Account"),
@@ -96,6 +103,8 @@ export function MobileProfileView() {
         { icon: User, label: gt("My Account"), href: "/channels/settings/account" },
         { icon: LinkIcon, label: gt("Connections"), href: "/channels/settings/connections" },
         { icon: Shield, label: gt("Privacy & Safety"), href: "/channels/settings/privacy" },
+        { icon: ShieldCheck, label: gt("Account Standing"), href: "/channels/settings/account-standing" },
+        ...(showEncryption ? [{ icon: KeyRound, label: gt("Encryption"), href: "/channels/settings/encryption" }] : []),
         { icon: Lock, label: gt("Authorized Apps"), href: "/channels/settings/apps" },
       ],
     },

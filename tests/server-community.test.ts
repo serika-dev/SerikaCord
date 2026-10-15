@@ -47,7 +47,7 @@ describe("rules screening", () => {
   test("config drops empty rules and can't be enabled without rules", () => {
     expect(normalizeScreeningConfig({ enabled: true, rules: ["", "  "] }).enabled).toBe(false);
     const cfg = normalizeScreeningConfig({ enabled: true, description: "Read these", rules: [" Be nice ", "No spam", 3] });
-    expect(cfg).toEqual({ enabled: true, description: "Read these", rules: ["Be nice", "No spam"] });
+    expect(cfg).toMatchObject({ enabled: true, description: "Read these", rules: ["Be nice", "No spam"] });
     expect(normalizeScreeningConfig({ rules: Array.from({ length: 40 }, (_, i) => `r${i}`) }).rules.length).toBe(16);
   });
 

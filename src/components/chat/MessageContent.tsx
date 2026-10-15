@@ -62,6 +62,8 @@ interface MessageContentProps {
   /** Inline mode (e.g. reply previews): render emoji/mentions inline, but never
    *  expand into full-size images/stickers. */
   inline?: boolean;
+  /** No link previews will render (end-to-end encrypted messages): keep GIF page links visible. */
+  noLinkPreviews?: boolean;
 }
 
 // Check if a string is only a URL (possibly with whitespace)
@@ -115,6 +117,7 @@ export const MessageContent = memo(function MessageContent({
   onImageClick,
   messageId,
   inline = false,
+  noLinkPreviews = false,
 }: MessageContentProps) {
   const gt = useChatGt();
   const animateMedia = useAnimatedMedia();
@@ -457,7 +460,7 @@ export const MessageContent = memo(function MessageContent({
     if (part.type === "link" && part.url) {
       // GIF-provider page links (giphy/tenor/klipy) are rendered as an
       // actual GIF by LinkEmbed, so don't also show the raw URL text.
-      if (isGifProviderUrl(part.url)) {
+      if (isGifProviderUrl(part.url) && !noLinkPreviews) {
         return null;
       }
       return (

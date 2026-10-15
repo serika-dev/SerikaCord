@@ -73,7 +73,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "New": gt("New"),
       // MessageGroupHeader
       "Unknown": gt("Unknown"),
-      "Discord": gt("Discord"),
+      "Discord": "Discord", // product name, never translated
       "Bot": gt("Bot"),
       // MessageReactions
       "more": gt("more"),
@@ -183,6 +183,17 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "There were no votes": gt("There were no votes"),
       "The results were tied": gt("The results were tied"),
       "View Poll": gt("View Poll"),
+      // End-to-end encryption (MessageGroup, MessageAttachments, E2eeSystemRow)
+      "Decrypting…": gt("Decrypting…"),
+      "Couldn't decrypt this file": gt("Couldn't decrypt this file"),
+      "Encrypted message": gt("Encrypted message"),
+      "End-to-end encrypted": gt("End-to-end encrypted"),
+      "End-to-end encrypted, but the sender's security code isn't confirmed": gt("End-to-end encrypted, but the sender's security code isn't confirmed"),
+      "Set up encryption on this device to read this message.": gt("Set up encryption on this device to read this message."),
+      "This message wasn't encrypted for this device.": gt("This message wasn't encrypted for this device."),
+      "Couldn't verify who sent this message.": gt("Couldn't verify who sent this message."),
+      "Couldn't decrypt this message.": gt("Couldn't decrypt this message."),
+      "{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.": gt("{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.", { actor: "{actor}" }),
     };
 
     return (str, params) => {

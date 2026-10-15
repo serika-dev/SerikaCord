@@ -50,6 +50,8 @@ import {
   Bot,
   Sparkles,
   ChevronRight,
+  Compass,
+  BadgeCheck,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
@@ -57,7 +59,7 @@ import { hasPermissionBit, setPermissionBit } from "@/lib/roles/bitfield";
 import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
 import { UnsavedChangesBar } from "@/components/ui/unsaved-changes-bar";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
-import { T, useGT } from "gt-next";
+import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import dynamic from "next/dynamic";
@@ -71,6 +73,15 @@ import {
   MobileSettingsScreen,
   type MobileSettingsGroup,
 } from "@/components/settings/MobileSettingsShell";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
+import {
+  VERIFICATION_ACTIONS,
+  VERIFICATION_LEVEL_RANK,
+  VERIFICATION_MAX_MINUTES,
+  normalizeVerificationLevel,
+  normalizeVerificationOptions,
+  type VerificationAction,
+} from "@/lib/servers/verification";
 import {
   mobileSettingsBack,
   openMobileDetail,
@@ -89,7 +100,10 @@ const AutoModPanel = dynamic(
   () => import("@/components/dialogs/ServerAutoModPanel").then((m) => m.ServerAutoModPanel),
   { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
 );
-// Community tabs (welcome screen, rules screening, server template) load on first open.
+// Community tabs (onboarding, welcome screen, rules screening, connections,
+// server template) load on first open.
+const ServerOnboardingPanel = dynamic(() => import("@/components/server/community/ServerOnboardingPanel"), { ssr: false });
+const ServerConnectionsPanel = dynamic(() => import("@/components/server/community/ServerConnectionsPanel"), { ssr: false });
 const ServerWelcomeScreenPanel = dynamic(() => import("@/components/server/community/ServerWelcomeScreenPanel"), { ssr: false });
 const ServerScreeningPanel = dynamic(() => import("@/components/server/community/ServerScreeningPanel"), { ssr: false });
 const ServerTemplatePanel = dynamic(() => import("@/components/server/community/ServerTemplatePanel"), { ssr: false });
@@ -133,6 +147,77 @@ const ColorInput = memo(function ColorInput({
   );
 });
 
+type WaitUnit = "minutes" | "hours" | "days";
+const WAIT_UNIT_MINUTES: Record<WaitUnit, number> = { minutes: 1, hours: 60, days: 1440 };
+
+function unitFor(totalMinutes: number): WaitUnit {
+  if (totalMinutes % 1440 === 0) return "days";
+  if (totalMinutes % 60 === 0) return "hours";
+  return "minutes";
+}
+
+function clampWait(totalMinutes: number): number {
+  return Math.min(VERIFICATION_MAX_MINUTES, Math.max(1, Math.round(totalMinutes)));
+}
+
+/** A verification wait as number + unit (minutes / hours / days), stored in minutes. */
+function DurationInput({
+  value,
+  onChange,
+  label,
+  id,
+}: {
+  value: number;
+  onChange: (minutes: number) => void;
+  label: string;
+  id: string;
+}) {
+  const gt = useGT();
+  const [unit, setUnit] = useState<WaitUnit>(() => unitFor(value));
+  // Raw text while typing, so the field can be cleared and retyped.
+  const [typing, setTyping] = useState<string | null>(null);
+  const factor = WAIT_UNIT_MINUTES[unit];
+  const shown = typing ?? String(Math.round((value / factor) * 100) / 100);
+  return (
+    <div>
+      <label htmlFor={id} className="block text-xs font-bold uppercase text-[var(--text-secondary)] mb-1.5">{label}</label>
+      <div className="flex gap-2">
+        <input
+          id={id}
+          type="number"
+          inputMode="decimal"
+          min={unit === "minutes" ? 1 : 0.1}
+          step={unit === "minutes" ? 1 : "any"}
+          value={shown}
+          onChange={(e) => {
+            setTyping(e.target.value);
+            const n = Number(e.target.value);
+            if (e.target.value.trim() && Number.isFinite(n) && n > 0) onChange(clampWait(n * factor));
+          }}
+          onBlur={() => setTyping(null)}
+          className="h-10 w-24 sm:w-28 px-3 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)]"
+        />
+        <select
+          value={unit}
+          onChange={(e) => {
+            const next = e.target.value as WaitUnit;
+            const n = Number(shown);
+            setUnit(next);
+            setTyping(null);
+            if (Number.isFinite(n) && n > 0) onChange(clampWait(n * WAIT_UNIT_MINUTES[next]));
+          }}
+          aria-label={gt("Unit")}
+          className="h-10 flex-1 sm:flex-none sm:w-36 px-3 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)]"
+        >
+          <option value="minutes">{gt("Minutes")}</option>
+          <option value="hours">{gt("Hours")}</option>
+          <option value="days">{gt("Days")}</option>
+        </select>
+      </div>
+    </div>
+  );
+}
+
 interface ServerSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -157,8 +242,10 @@ type SettingsTab =
   | "access"
   | "applications"
   | "app_discovery"
+  | "onboarding"
   | "welcome"
   | "screening"
+  | "connections"
   | "template";
 
 /** Tabs whose content is a multi-column / table layout and needs full width. */
@@ -272,6 +359,7 @@ interface ServerApplication {
 export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialogProps) {
   const { currentServer, fetchServers, channels } = useServer();
   const gt = useGT();
+  const locale = useLocale();
   const confirmDialog = useConfirm();
   const { user } = useAuth();
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
@@ -365,6 +453,8 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const [pendingAppCount, setPendingAppCount] = useState(0);
   const [applications, setApplications] = useState<ServerApplication[]>([]);
   const [applicationFilter, setApplicationFilter] = useState<"all" | "pending" | "approved" | "rejected" | "interviewed">("all");
+  // Inline reject form on one application: optional reason + remove-from-server.
+  const [rejecting, setRejecting] = useState<{ id: string; reason: string; remove: boolean } | null>(null);
   const [discoverableApps, setDiscoverableApps] = useState<any[]>([]);
   const [appSearch, setAppSearch] = useState("");
 
@@ -464,6 +554,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     setFieldErrors({});
 
     let cancelled = false;
+    const defaultVerification = normalizeVerificationOptions(undefined);
     const load = async () => {
       const base: SettingsDraft = {
         name: currentServer.name,
@@ -478,6 +569,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         "moderation.verificationLevel": "none",
         "moderation.explicitContentFilter": "disabled",
         "moderation.require2FA": false,
+        "moderation.verification.accountAgeMinutes": defaultVerification.accountAgeMinutes,
+        "moderation.verification.memberAgeMinutes": defaultVerification.memberAgeMinutes,
+        ...Object.fromEntries(VERIFICATION_ACTIONS.map((a) => [`moderation.verification.restrict.${a}`, defaultVerification.restrict.includes(a)])),
         "safety.raidProtection": false,
         "safety.antiSpam": true,
         "safety.mentionSpamLimit": 5,
@@ -510,6 +604,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           base["moderation.verificationLevel"] = s.moderation?.verificationLevel || "none";
           base["moderation.explicitContentFilter"] = s.moderation?.explicitContentFilter || "disabled";
           base["moderation.require2FA"] = Boolean(s.moderation?.require2FA);
+          const verification = normalizeVerificationOptions(s.moderation?.verification);
+          base["moderation.verification.accountAgeMinutes"] = verification.accountAgeMinutes;
+          base["moderation.verification.memberAgeMinutes"] = verification.memberAgeMinutes;
+          for (const a of VERIFICATION_ACTIONS) base[`moderation.verification.restrict.${a}`] = verification.restrict.includes(a);
           base["safety.raidProtection"] = Boolean(s.safety?.raidProtection);
           base["safety.antiSpam"] = s.safety?.antiSpam ?? true;
           base["safety.mentionSpamLimit"] = s.safety?.mentionSpamLimit ?? 5;
@@ -591,6 +689,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       try {
         switch (activeTab) {
           case "roles":
+          case "onboarding":
             await fetchRolesData();
             break;
           case "invites": {
@@ -882,6 +981,14 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     "moderation.verificationLevel": gt("Verification level"),
     "moderation.explicitContentFilter": gt("Content filter"),
     "moderation.require2FA": gt("2FA requirement"),
+    "moderation.verification.accountAgeMinutes": gt("Minimum account age"),
+    "moderation.verification.memberAgeMinutes": gt("Minimum time in the server"),
+    "moderation.verification.restrict.send": gt("Verification: send messages"),
+    "moderation.verification.restrict.attach": gt("Verification: upload files"),
+    "moderation.verification.restrict.links": gt("Verification: post links"),
+    "moderation.verification.restrict.react": gt("Verification: add reactions"),
+    "moderation.verification.restrict.voice": gt("Verification: join voice"),
+    "moderation.verification.restrict.threads": gt("Verification: create threads"),
     "safety.raidProtection": gt("Raid protection"),
     "safety.antiSpam": gt("Anti-spam"),
     "safety.mentionSpamLimit": gt("Mention spam limit"),
@@ -1651,21 +1758,23 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
   const handleReviewApplication = async (
     applicationId: string,
     status: "approved" | "rejected" | "interviewed",
-    rejectionReason?: string
-  ) => {
-    if (!currentServer) return;
+    rejectionReason?: string,
+    removeMember?: boolean,
+  ): Promise<boolean> => {
+    if (!currentServer) return false;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/applications/${applicationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, rejectionReason }),
+        body: JSON.stringify({ status, rejectionReason, removeMember: status === "rejected" && removeMember ? true : undefined }),
       });
 
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         toast.error(data?.error || gt("Failed to update application"));
-        return;
+        return false;
       }
+      const result = await response.json().catch(() => null);
 
       setApplications((prev) =>
         prev.map((app) =>
@@ -1679,13 +1788,17 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         toast.success(gt("Application approved. User has been added to the server."));
       } else if (status === "rejected") {
         setPendingAppCount((prev) => Math.max(0, prev - 1));
-        toast.success(gt("Application rejected."));
+        toast.success(result?.removed === true
+          ? gt("Application rejected and the member was removed from the server.")
+          : gt("Application rejected."));
       } else {
         toast.success(gt("Application marked for interview."));
       }
+      return true;
     } catch (error) {
       console.error("Failed to review application:", error);
       toast.error(gt("Failed to update application"));
+      return false;
     }
   };
 
@@ -1757,8 +1870,10 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
     {
       title: gt("Community"),
       items: [
+        { id: "onboarding" as SettingsTab, label: gt("Onboarding"), icon: Compass },
         { id: "welcome" as SettingsTab, label: gt("Welcome Screen"), icon: Smile },
         { id: "screening" as SettingsTab, label: gt("Rules Screening"), icon: ClipboardList },
+        { id: "connections" as SettingsTab, label: gt("Server Connections"), icon: BadgeCheck },
         { id: "template" as SettingsTab, label: gt("Server Template"), icon: Folder },
       ],
     },
@@ -3074,11 +3189,23 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         rejected: "bg-red-500/10 text-red-500",
         interviewed: "bg-blue-500/10 text-blue-500",
       };
+      const labels = {
+        pending: gt("Pending"),
+        approved: gt("Approved"),
+        rejected: gt("Rejected"),
+        interviewed: gt("Interviewed"),
+      };
       return (
-        <span className={cn("px-2 py-0.5 rounded text-xs font-medium", styles[status])}>
-          {status.charAt(0).toUpperCase() + status.slice(1)}
+        <span className={cn("px-2 py-0.5 rounded text-xs font-medium shrink-0", styles[status])}>
+          {labels[status]}
         </span>
       );
+    };
+
+    const submitReject = async () => {
+      if (!rejecting) return;
+      const ok = await handleReviewApplication(rejecting.id, "rejected", rejecting.reason.trim() || undefined, rejecting.remove);
+      if (ok) setRejecting(null);
     };
 
     return (
@@ -3087,6 +3214,9 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           <div>
             <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Member Applications</T></h2>
             <p className="text-sm text-[var(--text-secondary)]"><T>Review and manage server member applications</T></p>
+            <p className="text-xs text-[var(--text-muted)] mt-1">
+              <T>Members waiting in Rules Screening with manual approval show up here too.</T>
+            </p>
           </div>
           <select
             value={applicationFilter}
@@ -3123,61 +3253,123 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
                 className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3"
               >
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <Avatar className="w-10 h-10">
                       <AvatarImage src={cdnImage(app.user.avatar)} />
-                      <AvatarFallback className="bg-[#8B5CF6] text-white">
+                      <AvatarFallback className="bg-[var(--app-accent)] text-white">
                         {(app.user.displayName || app.user.username || "?").charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div>
-                      <p className="text-[var(--text-primary)] font-medium">
+                    <div className="min-w-0">
+                      <p className="text-[var(--text-primary)] font-medium truncate">
                         {app.user.displayName || app.user.username}
                       </p>
-                      <p className="text-xs text-[var(--text-secondary)]">@{app.user.username}</p>
+                      <p className="text-xs text-[var(--text-secondary)] truncate">@{app.user.username}</p>
                     </div>
                   </div>
                   {statusBadge(app.status)}
                 </div>
 
-                <div className="space-y-2">
-                  {app.answers.map((answer, index) => (
-                    <div key={index}>
-                      <p className="text-xs text-[var(--text-secondary)] uppercase">{answer.question}</p>
-                      <p className="text-sm text-[var(--text-primary)]">{answer.answer}</p>
-                    </div>
-                  ))}
-                </div>
+                {app.answers.length > 0 ? (
+                  <dl className="divide-y divide-[var(--border-subtle)] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)]">
+                    {app.answers.map((answer, index) => {
+                      const reply = decodeHtmlEntities(answer.answer ?? "").trim();
+                      return (
+                        <div key={index} className="px-3 py-2.5">
+                          <dt className="text-xs font-semibold text-[var(--text-secondary)]">
+                            {decodeHtmlEntities(answer.question ?? "")}
+                          </dt>
+                          <dd className={cn("mt-1 text-sm whitespace-pre-wrap break-words", reply ? "text-[var(--text-primary)]" : "italic text-[var(--text-muted)]")}>
+                            {reply || gt("No answer")}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                ) : (
+                  <p className="text-sm text-[var(--text-muted)]"><T>Accepted the rules without answering any questions.</T></p>
+                )}
 
-                {app.status === "pending" && (
-                  <div className="flex flex-wrap gap-2 pt-2">
+                {app.status === "pending" && rejecting?.id !== app.id && (
+                  <div className="flex flex-wrap gap-2 pt-1">
                     <button
-                      onClick={() => handleReviewApplication(app.id, "approved")}
-                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md"
+                      type="button"
+                      onClick={() => void handleReviewApplication(app.id, "approved")}
+                      className="h-10 px-4 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md max-sm:flex-1"
                     >
                       <T>Approve</T>
                     </button>
                     <button
-                      onClick={() => handleReviewApplication(app.id, "interviewed")}
-                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md"
+                      type="button"
+                      onClick={() => void handleReviewApplication(app.id, "interviewed")}
+                      className="h-10 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md max-sm:flex-1"
                     >
                       <T>Interview</T>
                     </button>
                     <button
-                      onClick={() => {
-                        const reason = window.prompt(gt("Rejection reason (optional):"));
-                        if (reason === null) return;
-                        void handleReviewApplication(app.id, "rejected", reason || undefined);
-                      }}
-                      className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-md"
+                      type="button"
+                      onClick={() => setRejecting({ id: app.id, reason: "", remove: false })}
+                      className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md max-sm:flex-1"
                     >
                       <T>Reject</T>
                     </button>
                   </div>
                 )}
 
+                {app.status === "pending" && rejecting?.id === app.id && (
+                  <div className="space-y-3 p-3 rounded-md border border-red-500/40 bg-red-500/5">
+                    <div>
+                      <label htmlFor={`reject-reason-${app.id}`} className="block text-xs font-bold uppercase text-[var(--text-secondary)] mb-1.5">
+                        <T>Reason (optional)</T>
+                      </label>
+                      <Textarea
+                        id={`reject-reason-${app.id}`}
+                        value={rejecting.reason}
+                        maxLength={500}
+                        rows={2}
+                        autoFocus
+                        onChange={(e) => setRejecting({ ...rejecting, reason: e.target.value })}
+                        placeholder={gt("Shown to the applicant")}
+                        className="bg-[var(--bg-input)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] resize-none"
+                      />
+                    </div>
+                    <label className="flex items-start gap-3 min-h-10 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={rejecting.remove}
+                        onChange={(e) => setRejecting({ ...rejecting, remove: e.target.checked })}
+                        className="mt-0.5 w-4 h-4 shrink-0 accent-[var(--app-accent)]"
+                      />
+                      <span>
+                        <span className="block text-sm text-[var(--text-primary)]"><T>Also remove them from the server</T></span>
+                        <span className="block text-xs text-[var(--text-muted)]">
+                          <T>Only applies if they joined and are still waiting to be let in. They can join again with an invite.</T>
+                        </span>
+                      </span>
+                    </label>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRejecting(null)}
+                        className="h-10 px-4 rounded-md text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] max-sm:flex-1"
+                      >
+                        <T>Cancel</T>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void submitReject()}
+                        className="h-10 px-4 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-medium max-sm:flex-1"
+                      >
+                        <T>Reject application</T>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {app.rejectionReason && (
-                  <p className="text-xs text-red-400">{gt("Reason")}: {app.rejectionReason}</p>
+                  <p className="text-xs text-red-400 whitespace-pre-wrap break-words">
+                    {gt("Reason: {reason}", { reason: decodeHtmlEntities(app.rejectionReason) })}
+                  </p>
                 )}
 
                 <p className="text-xs text-[var(--text-muted)]">
@@ -3346,6 +3538,126 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
 
   const renderAuditLog = () => (currentServer ? <ServerAuditLogPanel serverId={currentServer.id} roles={roles} /> : null);
 
+  /** "5 minutes", "2 hours", "3 days". */
+  const formatWait = (totalMinutes: number) => {
+    const m = Math.max(1, Math.round(totalMinutes));
+    if (m % 1440 === 0) {
+      const n = m / 1440;
+      return n === 1 ? gt("1 day") : gt("{n} days", { n });
+    }
+    if (m % 60 === 0) {
+      const n = m / 60;
+      return n === 1 ? gt("1 hour") : gt("{n} hours", { n });
+    }
+    return m === 1 ? gt("1 minute") : gt("{n} minutes", { n: m });
+  };
+
+  const joinList = (items: string[], type: "conjunction" | "disjunction") => {
+    try {
+      return new Intl.ListFormat(locale, { style: "long", type }).format(items);
+    } catch {
+      return items.join(", ");
+    }
+  };
+
+  // Waits and locked actions for members who don't meet the level yet.
+  const renderVerificationOptions = () => {
+    const level = normalizeVerificationLevel(draftString("moderation.verificationLevel", "none"));
+    const rank = VERIFICATION_LEVEL_RANK[level];
+    if (rank === 0) return null;
+    const accountAge = draftNumber("moderation.verification.accountAgeMinutes", 5);
+    const memberAge = draftNumber("moderation.verification.memberAgeMinutes", 10);
+    const actions: Record<VerificationAction, { label: string; summary: string }> = {
+      send: { label: gt("Send messages"), summary: gt("send messages") },
+      attach: { label: gt("Upload files"), summary: gt("upload files") },
+      links: { label: gt("Post links"), summary: gt("post links") },
+      react: { label: gt("Add reactions"), summary: gt("add reactions") },
+      voice: { label: gt("Join voice"), summary: gt("join voice") },
+      threads: { label: gt("Create threads or forum posts"), summary: gt("create threads or forum posts") },
+    };
+    const restricted = VERIFICATION_ACTIONS.filter((a) => draftBool(`moderation.verification.restrict.${a}`, true));
+    const conditions = [gt("verify their email")];
+    if (rank >= 2) conditions.push(gt("have an account older than {time}", { time: formatWait(accountAge) }));
+    if (rank >= 3) conditions.push(gt("have been in the server for {time}", { time: formatWait(memberAge) }));
+    if (rank >= 4) conditions.push(gt("link a verified account"));
+    const summary = restricted.length === 0
+      ? gt("Nothing is locked, so this verification level has no effect. Pick at least one action below.")
+      : gt("Until new members {conditions}, they can't {actions}. Members with a role are exempt.", {
+          conditions: joinList(conditions, "conjunction"),
+          actions: joinList(restricted.map((a) => actions[a].summary), "disjunction"),
+        });
+    const baseline = settingsDraft.baseline;
+    return (
+      <div className="mt-4 pt-4 border-t border-[var(--border-subtle)] space-y-4">
+        {rank >= 2 && (
+          <div className="space-y-2">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DurationInput
+                key={`account-${String(baseline["moderation.verification.accountAgeMinutes"])}`}
+                id="verification-account-age"
+                label={gt("Account older than")}
+                value={accountAge}
+                onChange={(minutes) => settingsDraft.update("moderation.verification.accountAgeMinutes", minutes)}
+              />
+              {rank >= 3 && (
+                <DurationInput
+                  key={`member-${String(baseline["moderation.verification.memberAgeMinutes"])}`}
+                  id="verification-member-age"
+                  label={gt("Member of the server for")}
+                  value={memberAge}
+                  onChange={(minutes) => settingsDraft.update("moderation.verification.memberAgeMinutes", minutes)}
+                />
+              )}
+            </div>
+            <p className="text-xs text-[var(--text-muted)]"><T>Each wait can be up to 30 days.</T></p>
+          </div>
+        )}
+
+        <div>
+          <p className="text-sm font-medium text-[var(--text-primary)] mb-2"><T>While waiting, members can&apos;t:</T></p>
+          <div className="grid gap-1 sm:grid-cols-2">
+            {VERIFICATION_ACTIONS.map((a) => {
+              const key = `moderation.verification.restrict.${a}`;
+              const checked = draftBool(key, true);
+              return (
+                <label
+                  key={a}
+                  className="flex items-center gap-3 min-h-10 px-2 rounded-md cursor-pointer hover:bg-[var(--bg-hover)]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => settingsDraft.update(key, e.target.checked)}
+                    className="w-4 h-4 shrink-0 accent-[var(--app-accent)]"
+                  />
+                  <span className="text-sm text-[var(--text-primary)]">{actions[a].label}</span>
+                </label>
+              );
+            })}
+          </div>
+          <p className="text-xs text-[var(--text-muted)] mt-2">
+            <T>Tip: let new members react but not chat by unchecking Add reactions and keeping Send messages checked.</T>
+          </p>
+        </div>
+
+        <p
+          className={cn(
+            "flex items-start gap-2 p-3 rounded-md text-sm",
+            restricted.length === 0
+              ? "bg-yellow-500/10 text-[var(--text-primary)]"
+              : "bg-[var(--app-accent)]/10 text-[var(--text-primary)]",
+          )}
+          aria-live="polite"
+        >
+          {restricted.length === 0
+            ? <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-yellow-500" />
+            : <Shield className="w-4 h-4 shrink-0 mt-0.5 text-[var(--app-accent)]" />}
+          <span>{summary}</span>
+        </p>
+      </div>
+    );
+  };
+
   const renderModeration = () => (
     <div className="space-y-6">
       <div>
@@ -3359,15 +3671,15 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
             <span className="text-[var(--text-primary)] font-medium"><T>Verification Level</T></span>
           </div>
           <p className="text-sm text-[var(--text-secondary)] mb-3">
-            <T>Members of the server must meet these criteria before they can send messages, react or join voice. Members with a role are exempt.</T>
+            <T>New members must meet these criteria before they can do the things you lock. Members with a role are exempt.</T>
           </p>
           <div role="radiogroup" aria-label={gt("Verification level")} className="space-y-2">
             {([
               { value: "none", label: gt("None"), desc: gt("Unrestricted") },
               { value: "low", label: gt("Low"), desc: gt("Must have a verified email on their account.") },
-              { value: "medium", label: gt("Medium"), desc: gt("Must also be registered on SerikaCord for longer than 5 minutes.") },
-              { value: "high", label: gt("High"), desc: gt("Must also be a member of this server for longer than 10 minutes.") },
-              { value: "very_high", label: gt("Highest"), desc: gt("Phone verification isn't available on SerikaCord, so this works like High.") },
+              { value: "medium", label: gt("Medium"), desc: gt("Must also be registered on SerikaCord for longer than {time}.", { time: formatWait(draftNumber("moderation.verification.accountAgeMinutes", 5)) }) },
+              { value: "high", label: gt("High"), desc: gt("Must also be a member of this server for longer than {time}.", { time: formatWait(draftNumber("moderation.verification.memberAgeMinutes", 10)) }) },
+              { value: "very_high", label: gt("Highest"), desc: gt("Must also have a verified linked account: a connection like GitHub or Discord, or a website domain verified with DNS.") },
             ] as const).map((opt) => {
               const selected = draftString("moderation.verificationLevel", "none") === opt.value;
               return (
@@ -3391,6 +3703,7 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
               );
             })}
           </div>
+          {renderVerificationOptions()}
         </div>
 
         <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
@@ -3430,6 +3743,45 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
           </div>
         </div>
 
+      </div>
+    </div>
+  );
+
+  const goTab = (tab: SettingsTab) => (isMobile ? openMobileTab(tab) : setActiveTab(tab));
+
+  // Safety Setup (Discord): spam + raid protection, and shortcuts to every
+  // other protection tool. Who may talk lives on the Moderation tab.
+  const renderSafetySetup = () => (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Safety Setup</T></h2>
+        <p className="text-sm text-[var(--text-secondary)]"><T>Protect your server from spam, raids and unwanted content</T></p>
+      </div>
+
+      <div className="space-y-4">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)]"><T>DM and spam protection</T></h3>
+        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[var(--text-primary)] font-medium"><T>Mention Spam Limit</T></span>
+            <span className="text-sm text-[var(--text-secondary)]">{draftNumber("safety.mentionSpamLimit", 5)}</span>
+          </div>
+          <p className="text-sm text-[var(--text-secondary)] mb-3"><T>Messages that mention more people than this are blocked.</T></p>
+          <input
+            type="range"
+            min={2}
+            max={20}
+            value={draftNumber("safety.mentionSpamLimit", 5)}
+            onChange={(e) => settingsDraft.update("safety.mentionSpamLimit", Number(e.target.value))}
+            aria-label={gt("Mention spam limit")}
+            className="w-full accent-[var(--app-accent)]"
+          />
+          <label className="mt-3 flex items-center justify-between cursor-pointer">
+            <span className="text-sm text-[var(--text-secondary)]"><T>Enable anti-spam checks</T></span>
+            <ToggleSwitch size="sm" checked={draftBool("safety.antiSpam", true)} onCheckedChange={(checked) => settingsDraft.update("safety.antiSpam", checked)} />
+          </label>
+        </div>
+
+        <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)] pt-2"><T>Raid protection</T></h3>
         {/* Not enforced by the server yet: shown read-only so owners don't
             rely on protection that doesn't exist. */}
         <p className="text-sm text-[var(--app-muted)]">
@@ -3482,24 +3834,28 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
         </div>
         </fieldset>
 
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[var(--text-primary)] font-medium"><T>Mention Spam Limit</T></span>
-            <span className="text-sm text-[var(--text-secondary)]">{draftNumber("safety.mentionSpamLimit", 5)}</span>
-          </div>
-          <input
-            type="range"
-            min={2}
-            max={20}
-            value={draftNumber("safety.mentionSpamLimit", 5)}
-            onChange={(e) => settingsDraft.update("safety.mentionSpamLimit", Number(e.target.value))}
-            aria-label="Mention spam limit"
-            className="w-full accent-[#8B5CF6]"
-          />
-          <label className="mt-3 flex items-center justify-between cursor-pointer">
-            <span className="text-sm text-[var(--text-secondary)]"><T>Enable anti-spam checks</T></span>
-            <ToggleSwitch size="sm" checked={draftBool("safety.antiSpam", true)} onCheckedChange={(checked) => settingsDraft.update("safety.antiSpam", checked)} />
-          </label>
+
+        <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)] pt-2"><T>More protection</T></h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {([
+            { tab: "moderation", title: gt("Verification level"), desc: gt("Decide who can talk, react or join voice, and for how long new members wait."), icon: Shield },
+            { tab: "automod", title: gt("AutoMod"), desc: gt("Block keywords, spam and harmful links automatically."), icon: AlertTriangle },
+            { tab: "screening", title: gt("Rules Screening"), desc: gt("Make new members accept your rules, or approve them by hand."), icon: ClipboardList },
+            { tab: "onboarding", title: gt("Onboarding"), desc: gt("Ask new members questions and give them roles."), icon: Smile },
+          ] as const).map((card) => (
+            <button
+              key={card.tab}
+              type="button"
+              onClick={() => goTab(card.tab)}
+              className="flex items-start gap-3 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:border-[var(--app-accent)] text-left transition-colors"
+            >
+              <card.icon className="w-5 h-5 text-[var(--app-accent)] shrink-0 mt-0.5" aria-hidden />
+              <span>
+                <span className="block text-sm font-medium text-[var(--text-primary)]">{card.title}</span>
+                <span className="block text-xs text-[var(--text-secondary)] mt-0.5">{card.desc}</span>
+              </span>
+            </button>
+          ))}
         </div>
       </div>
     </div>
@@ -3918,16 +4274,26 @@ export function ServerSettingsDialog({ open, onOpenChange }: ServerSettingsDialo
       case "soundboard":
         return renderSoundboard();
       case "moderation":
-      case "safety":
         return renderModeration();
+      case "safety":
+        return renderSafetySetup();
       case "integrations":
         return renderIntegrations();
       case "access":
         return renderAccess();
+      case "onboarding":
+        return <ServerOnboardingPanel serverId={currentServer.id} roles={roles} />;
       case "welcome":
         return <ServerWelcomeScreenPanel serverId={currentServer.id} />;
       case "screening":
-        return <ServerScreeningPanel serverId={currentServer.id} />;
+        return (
+          <ServerScreeningPanel
+            serverId={currentServer.id}
+            onOpenApplications={() => (isMobile ? openMobileTab("applications") : setActiveTab("applications"))}
+          />
+        );
+      case "connections":
+        return <ServerConnectionsPanel serverId={currentServer.id} isOwner={isOwner} />;
       case "template":
         return <ServerTemplatePanel serverId={currentServer.id} serverName={currentServer.name} />;
       case "applications":

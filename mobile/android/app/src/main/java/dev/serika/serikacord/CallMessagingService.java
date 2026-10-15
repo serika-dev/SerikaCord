@@ -10,8 +10,11 @@ import java.util.Map;
 /**
  * Replaces the push plugin's FCM service (see AndroidManifest) so data-only
  * call messages can raise a native incoming-call notification even when the
- * app is closed, and "message_read" can remove a notification read on another
- * device. Everything else is still forwarded to the Capacitor plugin.
+ * app is closed, data-only "message" pushes (protocol 2) render as native
+ * conversation notifications with Reply / Mark as read, and "message_read"
+ * can remove a notification read on another device. Everything else
+ * (including old system-rendered message pushes) is still forwarded to the
+ * Capacitor plugin.
  */
 public class CallMessagingService extends MessagingService {
 
@@ -23,10 +26,20 @@ public class CallMessagingService extends MessagingService {
             CallNotifications.show(this, data);
         } else if ("call_cancel".equals(type)) {
             CallNotifications.cancel(this, data.get("roomId"));
+        } else if ("message".equals(type) && remoteMessage.getNotification() == null && data.get("v") != null) {
+            // Rich data-only message push: drawn natively, not forwarded (the
+            // web app gets the same message over its own live stream).
+            try {
+                MessageNotifications.show(this, data);
+            } catch (RuntimeException e) {
+                android.util.Log.w("SerikaMessages", "Could not show message notification", e);
+            }
+            return;
         } else if ("message_read".equals(type)) {
-            // Read on another device: FCM shows message notifications with
-            // id 0 under their tag, so cancel that one.
+            // Read on another device: message notifications (system-rendered
+            // and native ones) live at id 0 under their tag.
             String tag = data.get("tag");
+            if (tag != null) MessageNotifications.dismiss(this, tag);
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (tag != null && nm != null) nm.cancel(tag, 0);
             return;

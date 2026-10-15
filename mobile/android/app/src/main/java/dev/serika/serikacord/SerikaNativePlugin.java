@@ -204,6 +204,9 @@ public class SerikaNativePlugin extends Plugin {
         boolean firebase = ctx.getResources().getIdentifier("google_app_id", "string", ctx.getPackageName()) != 0;
         ret.put("firebase", firebase);
         ret.put("fullScreenCalls", true);
+        // Draws data-only message pushes itself (MessagingStyle, inline Reply /
+        // Mark as read). The web app registers its token as "android-<n>".
+        ret.put("pushProtocol", 2);
         call.resolve(ret);
     }
 
@@ -220,6 +223,7 @@ public class SerikaNativePlugin extends Plugin {
     public void clearNotifications(PluginCall call) {
         String tag = call.getString("tag");
         cancelMatching(tag, false);
+        if (tag != null) MessageNotifications.dismiss(getContext(), tag);
         call.resolve();
     }
 
@@ -227,7 +231,10 @@ public class SerikaNativePlugin extends Plugin {
     @PluginMethod
     public void setBadge(PluginCall call) {
         Integer count = call.getInt("count", 0);
-        if (count == null || count <= 0) cancelMatching(null, true);
+        if (count == null || count <= 0) {
+            cancelMatching(null, true);
+            MessageNotifications.forgetAll();
+        }
         call.resolve();
     }
 

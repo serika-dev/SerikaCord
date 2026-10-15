@@ -6,6 +6,7 @@ import { config } from '@/lib/config';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
+import { anonymizeIp } from '@/lib/security/ipPrivacy';
 import { User, type IUser, type IUserSettings, type IPendingFriendRequests, type IRole, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
 import type { IAllowedFileType } from '@/lib/models/PlatformSettings';
 import { RichPresence, type IRichPresence } from '@/lib/models/RichPresence';
@@ -19,6 +20,9 @@ import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
 import { automodRoutes } from './automod';
 import { communityRoutes } from './community';
+import { trustSafetyRoutes } from './trustSafety';
+// End-to-end encryption keys / devices / backups (docs/architecture/e2ee.md).
+import { e2eeRoutes } from './e2ee';
 import { scheduledEventRoutes } from './scheduledEvents';
 import { announcementRoutes } from './announcements';
 import { searchRoutes } from './search';
@@ -908,8 +912,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
     };
   })
   .get('/@me', async ({ headers, cookie, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user, error: authError, banned } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
+      // Suspended: the app shows Account Standing instead of signing out.
+      if (banned) {
+        set.status = 403;
+        return { error: 'Account banned', code: 'account_banned' };
+      }
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
@@ -2115,7 +2124,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         deviceName,
         platform,
         browser: uaFingerprint,
-        ipAddress: getClientIP(request),
+        ipAddress: anonymizeIp(getClientIP(request)),
       });
     } else {
       await UserDeviceSession.create({
@@ -2123,7 +2132,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         deviceName,
         platform,
         browser: uaFingerprint,
-        ipAddress: getClientIP(request),
+        ipAddress: anonymizeIp(getClientIP(request)),
         current: true,
         lastActiveAt: new Date(),
       });
@@ -4313,6 +4322,9 @@ export const api = new Elysia({ prefix: '/api' })
   .use(messageExtrasRoutes)
   .use(automodRoutes)
   .use(communityRoutes)
+  .use(trustSafetyRoutes)
+  // End-to-end encryption (keys, devices, backups, enabling per DM).
+  .use(e2eeRoutes)
   .use(scheduledEventRoutes)
   .use(announcementRoutes)
   .use(voiceRoutes)
@@ -4358,6 +4370,10 @@ export async function initializeAPI() {
     // messages.flags (@silent). Idempotent, never throws.
     const { ensureMessageFlagsSchema } = await import('@/lib/services/messageFlagsSchema');
     await ensureMessageFlagsSchema();
+    // E2EE: channels.e2ee / messages.e2ee (read by every message query) +
+    // key tables. Idempotent, never throws.
+    const { ensureE2eeSchema } = await import('@/lib/services/e2ee');
+    await ensureE2eeSchema();
     // Group DMs: system message types + channels.icon. Idempotent, never throws.
     const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
     await ensureGroupDmSchema();
@@ -4382,6 +4398,8 @@ export async function initializeAPI() {
     // not awaited (screening reads fall back to "off" until it exists).
     const { ensureCommunitySchema } = await import('@/lib/services/serverCommunity');
     void ensureCommunitySchema();
+    const { ensureTrustSafetySchema } = await import('@/lib/services/trustSafety');
+    void ensureTrustSafetySchema();
     // Message search blind index table, then (a minute after boot, so it
     // never competes with startup) the gentle leader-locked history backfill.
     // Idempotent, never throws, not awaited.

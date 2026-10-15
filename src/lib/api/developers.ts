@@ -1180,6 +1180,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     }
     const result = await storage.uploadFromFormData(file, kind === 'banner' ? 'banners' : 'avatars', {
       userId: botUser.id,
+      // The developer uploading is accountable, not the bot.
+      scanUserId: user.id,
     });
     await User.updateById(botUser.id, kind === 'banner' ? { banner: result.url } : { avatar: result.url });
     return { success: true, url: result.url };

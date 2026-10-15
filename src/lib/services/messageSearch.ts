@@ -109,6 +109,8 @@ type IndexableMessage = {
   embeds?: unknown;
   attachments?: unknown;
   isDeleted?: boolean | null;
+  /** End-to-end encrypted rows are never indexed (the server can't read them). */
+  e2ee?: unknown;
 };
 
 /** The plaintext a message is searchable by (content + embed text + file names). */
@@ -143,7 +145,7 @@ async function buildIndexRow(msg: IndexableMessage) {
 /** Index (or re-index) one message. Deleted messages are removed instead. */
 export async function indexMessage(msg: IndexableMessage): Promise<void> {
   if (!(await ensureMessageSearchSchema())) return;
-  if (msg.isDeleted) {
+  if (msg.isDeleted || msg.e2ee) {
     await removeFromSearchIndex(msg.id);
     return;
   }
@@ -274,6 +276,7 @@ async function runBackfill(instanceId: string): Promise<void> {
         embeds: m.embeds,
         attachments: m.attachments,
         isDeleted: m.isDeleted,
+        e2ee: m.e2ee,
         createdAt: m.createdAt,
         indexed: sql<boolean>`EXISTS (SELECT 1 FROM message_search_index si WHERE si.message_id = ${m.id})`,
       })
@@ -282,7 +285,7 @@ async function runBackfill(instanceId: string): Promise<void> {
       .orderBy(desc(m.createdAt))
       .limit(BACKFILL_BATCH);
 
-    const todo = rows.filter((r) => !r.indexed && !r.isDeleted);
+    const todo = rows.filter((r) => !r.indexed && !r.isDeleted && !r.e2ee);
     if (todo.length > 0) {
       const values = await Promise.all(todo.map((r) => buildIndexRow(r)));
       await db.insert(s).values(values).onConflictDoNothing();

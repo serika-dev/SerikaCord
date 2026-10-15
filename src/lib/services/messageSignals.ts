@@ -82,10 +82,12 @@ export async function signalDmMessage(opts: {
   requestRecipientIds?: string[];
   /** "@silent" (SUPPRESS_NOTIFICATIONS): badge without push / sound / notification. */
   silent?: boolean;
+  /** End-to-end encrypted: no preview anywhere (DM list, notifications, pushes). */
+  encrypted?: boolean;
 }): Promise<void> {
   try {
     const createdAt = new Date(opts.createdAt ?? Date.now()).toISOString();
-    const text = opts.content ?? '';
+    const text = opts.encrypted ? '' : (opts.content ?? '');
     const requestIds = new Set(opts.requestRecipientIds ?? []);
     const others = opts.recipientIds.filter((id) => id !== opts.authorId && !requestIds.has(id));
     const { emitDmListUpdate } = await import('@/lib/api/dms');
@@ -106,7 +108,13 @@ export async function signalDmMessage(opts: {
         type: 'dm:list:update',
         channelId: opts.channelId,
         recipientId: counterpart,
-        message: { id: opts.messageId, content: text.slice(0, 180), authorId: opts.authorId, createdAt },
+        message: {
+          id: opts.messageId,
+          content: opts.encrypted ? 'Encrypted message' : text.slice(0, 180),
+          authorId: opts.authorId,
+          createdAt,
+          ...(opts.encrypted ? { encrypted: true } : {}),
+        },
       });
     }
     if (others.length === 0) return;
@@ -127,6 +135,7 @@ export async function signalDmMessage(opts: {
       ...(opts.isSystem ? { isSystem: true } : {}),
       ...(opts.group ? { group: opts.group } : {}),
       ...(opts.silent ? { silent: true } : {}),
+      ...(opts.encrypted ? { encrypted: true } : {}),
     });
   } catch {
     /* best-effort */

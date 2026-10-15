@@ -19,6 +19,7 @@ type AttachmentLike =
       filename?: string;
       contentType?: string;
       type?: string;
+      e2ee?: unknown;
     };
 
 type AttachmentObject = {
@@ -29,6 +30,8 @@ type AttachmentObject = {
   filename?: string;
   contentType?: string;
   type?: string;
+  /** End-to-end encrypted: `url` is ciphertext, opened from its decrypted copy instead. */
+  e2ee?: unknown;
 };
 
 export interface GalleryMessageLike {
@@ -150,7 +153,7 @@ function extractAttachmentMedia(attachments: AttachmentLike[] | null | undefined
   for (const rawAttachment of attachments) {
     const attachment = toAttachmentObject(rawAttachment);
     const src = attachment.url || attachment.imageUrl;
-    if (!src) continue;
+    if (!src || attachment.e2ee) continue;
 
     const contentType = attachment.contentType || attachment.type;
     const isImageAttachment = typeof contentType === "string" ? contentType.startsWith("image/") : false;

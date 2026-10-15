@@ -34,6 +34,7 @@ import {
   MessagesSquare,
   Archive,
   Lock,
+  Info,
 } from "lucide-react";
 import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { toast } from "sonner";
@@ -49,7 +50,7 @@ import { readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { useChatSession } from "@/hooks/useChatSession";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
-import { usePermissions } from "@/hooks/usePermissions";
+import { usePermissions, type VerificationAction } from "@/hooks/usePermissions";
 import { useServerOnboarding } from "@/hooks/useServerOnboarding";
 import { ServerOnboardingGate } from "@/components/server/community/ServerOnboardingGate";
 import { playTts } from "@/lib/chat/tts";
@@ -612,25 +613,88 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   // re-enables the moment the timeout expires.
   const selfTimeout = useTimeoutRemaining(selfTimeoutUntil);
 
-  // Server verification level (Discord): unverified email, a brand-new
-  // account or a brand-new member can't talk yet. Time-based waits tick down
-  // and lift on their own; members who get a role are exempt (server-checked).
+  // Server verification level (Discord): unverified email, no verified
+  // linked account, a brand-new account or a brand-new member can't do some
+  // things yet (the server picks which: `restrict`). Time-based waits tick
+  // down and lift on their own; members who get a role are exempt
+  // (server-checked).
   const verification = perms.verification;
   const verificationWait = useTimeoutRemaining(verification?.blocked ? verification.until : null);
-  const verificationBlocked = Boolean(
-    currentServer && verification?.blocked && (verification.reason === "email" || verificationWait.active),
+  const verificationActive = Boolean(
+    currentServer &&
+      verification?.blocked &&
+      (verification.reason === "email" || verification.reason === "connection" || verificationWait.active),
   );
-  const verificationMessage = !verificationBlocked
+  const verificationRestrict = useMemo<VerificationAction[]>(
+    () => (verificationActive ? verification?.restrict ?? ["send", "attach", "links", "react", "voice", "threads"] : []),
+    [verificationActive, verification?.restrict],
+  );
+  // Only a locked "send" disables the composer; anything else is a notice.
+  const verificationBlocked = verificationRestrict.includes("send");
+  const formatVerificationWait = useCallback((minutes: number): string => {
+    const m = Math.max(1, Math.round(minutes));
+    if (m % 1440 === 0) return m === 1440 ? gt("1 day") : gt("{count} days", { count: m / 1440 });
+    if (m % 60 === 0) return m === 60 ? gt("1 hour") : gt("{count} hours", { count: m / 60 });
+    if (m >= 2880) return gt("{count} days", { count: Math.round(m / 1440) });
+    if (m >= 180) return gt("{count} hours", { count: Math.round(m / 60) });
+    return m === 1 ? gt("1 minute") : gt("{count} minutes", { count: m });
+  }, [gt]);
+  const verificationMessage = !verificationActive
     ? ""
     : verification?.reason === "email"
       ? gt("This server requires a verified email address before you can talk here.")
-      : verification?.reason === "account_age"
-        ? gt("This server requires your account to be older than 5 minutes. You can talk in {time}.", { time: verificationWait.label })
-        : gt("This server requires you to be a member for 10 minutes. You can talk in {time}.", { time: verificationWait.label });
+      : verification?.reason === "connection"
+        ? gt("This server requires a verified linked account. Link one in User Settings → Connections.")
+        : verification?.reason === "account_age"
+          ? gt("This server requires your account to be older than {age}. You can talk in {time}.", {
+              age: formatVerificationWait(verification.accountAgeMinutes ?? 5),
+              time: verificationWait.label,
+            })
+          : gt("This server requires you to be a member for {age}. You can talk in {time}.", {
+              age: formatVerificationWait(verification?.memberAgeMinutes ?? 10),
+              time: verificationWait.label,
+            });
+  // Some actions locked but chatting allowed: a quiet line naming them.
+  const verificationNotice = useMemo(() => {
+    if (!verificationActive || verificationBlocked) return "";
+    const labels = verificationRestrict.map((action) =>
+      action === "attach" ? gt("upload files")
+        : action === "links" ? gt("post links")
+        : action === "react" ? gt("add reactions")
+        : action === "voice" ? gt("join voice channels")
+        : action === "threads" ? gt("start threads")
+        : "",
+    ).filter(Boolean);
+    if (labels.length === 0) return "";
+    let actions = labels.join(", ");
+    try {
+      actions = new Intl.ListFormat(locale || undefined, { style: "long", type: "conjunction" }).format(labels);
+    } catch {
+      // older engines: plain comma list
+    }
+    const lead = gt("New members can't {actions} here yet.", { actions });
+    const hint = verification?.reason === "email"
+      ? gt("Verify your email address to unlock this.")
+      : verification?.reason === "connection"
+        ? gt("Link a verified account in User Settings → Connections to unlock this.")
+        : verificationWait.label
+          ? gt("Unlocks in {time}.", { time: verificationWait.label })
+          : "";
+    return hint ? `${lead} ${hint}` : lead;
+  }, [verificationActive, verificationBlocked, verificationRestrict, verification?.reason, verificationWait.label, locale, gt]);
+  const openConnectionsSettings = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("openUserSettings", { detail: { tab: "connections" } }));
+  }, []);
   // Rules screening (Discord): new members accept the rules before talking.
   // The banner + rules modal live in ServerOnboardingGate.
   const screening = useServerOnboarding(currentServer?.id);
   const screeningBlocked = Boolean(currentServer && screening.blocked && !verificationBlocked);
+  const screeningAppStatus = screening.data?.member.application?.status;
+  const screeningPlaceholder = screeningAppStatus === "pending" || screeningAppStatus === "interviewed"
+    ? gt("Your application is being reviewed by the moderators.")
+    : screeningAppStatus === "rejected"
+      ? gt("Your application was not approved.")
+      : gt("Accept the server rules to start talking.");
 
   const emojiLookup = useMemo(
     () => [...serverEmojis, ...allServerEmojis],
@@ -2040,7 +2104,32 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       {verificationBlocked && canSendInCurrentChannel && !selfTimeout.active && currentChannel?.type !== "voice" && currentChannel?.type !== "stage" && (
         <div role="status" className="mx-4 mb-2 px-4 py-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-500">
           <Shield className="w-4 h-4 shrink-0" />
-          <span>{verificationMessage}</span>
+          <span className="flex-1 min-w-0">{verificationMessage}</span>
+          {verification?.reason === "connection" && (
+            <button
+              type="button"
+              onClick={openConnectionsSettings}
+              className="shrink-0 h-7 px-2.5 rounded-md bg-[var(--app-accent)] text-[var(--text-on-accent)] text-xs font-semibold hover:brightness-110"
+            >
+              {gt("Link an account")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {!verificationBlocked && verificationNotice && canSendInCurrentChannel && !selfTimeout.active && currentChannel?.type !== "voice" && currentChannel?.type !== "stage" && (
+        <div role="status" className="mx-4 mb-1.5 px-1 flex items-center gap-2 text-xs text-[var(--text-muted)]">
+          <Info className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 min-w-0">{verificationNotice}</span>
+          {verification?.reason === "connection" && (
+            <button
+              type="button"
+              onClick={openConnectionsSettings}
+              className="shrink-0 text-xs font-semibold text-[var(--app-accent)] hover:underline"
+            >
+              {gt("Link an account")}
+            </button>
+          )}
         </div>
       )}
 
@@ -2056,7 +2145,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             : verificationBlocked
             ? verificationMessage
             : screeningBlocked
-            ? gt("Accept the server rules to start talking.")
+            ? screeningPlaceholder
             : lockedOut
             ? gt("This thread is locked.")
             : !canSendInCurrentChannel
@@ -2071,7 +2160,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             : verificationBlocked
             ? verificationMessage
             : screeningBlocked
-            ? gt("Accept the server rules to start talking.")
+            ? screeningPlaceholder
             : lockedOut
             ? gt("This thread is locked.")
             : !canSendInCurrentChannel
@@ -2103,7 +2192,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         channelId={currentChannel?.id}
         pollApiBase={currentChannel ? `/api/channels/${currentChannel.id}` : undefined}
         draftKey={currentChannel ? `channel:${currentChannel.id}` : undefined}
-        onSendVoice={canAttachInCurrentChannel ? chat.handleVoiceSend : undefined}
+        onSendVoice={canAttachInCurrentChannel && !verificationRestrict.includes("attach") ? chat.handleVoiceSend : undefined}
       />
       </div>
 

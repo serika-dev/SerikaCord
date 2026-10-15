@@ -4,6 +4,11 @@ Guide for Claude Code and other coding agents working in SerikaCord. Read this
 first; the deep dives live in `docs/architecture/`. `AGENTS.md` is the
 tool-agnostic summary of the same rules.
 
+> **Required reading:** also read [`AI-READ-THIS.md`](AI-READ-THIS.md) before
+> making changes. It holds the full i18n guide (every new string must be added
+> to `public/_gt/*.json`), the changelog and release flow, and fork/branch
+> rules. Instructions there apply on top of this file.
+
 ## What this is
 
 SerikaCord (serika.chat) is a Discord-style chat platform: servers, channels,

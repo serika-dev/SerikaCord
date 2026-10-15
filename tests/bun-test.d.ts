@@ -23,6 +23,11 @@ declare module "bun:test" {
     toBeLessThan(expected: number | bigint): void;
     toMatch(expected: RegExp | string): void;
     toThrow(expected?: unknown): void;
+    toBeInstanceOf(expected: unknown): void;
+    toHaveProperty(path: string, value?: unknown): void;
+    /** Awaited: `await expect(promise).rejects.toMatchObject(...)`. */
+    rejects: Matchers;
+    resolves: Matchers;
   }
 
   type TestFn = () => void | Promise<unknown>;

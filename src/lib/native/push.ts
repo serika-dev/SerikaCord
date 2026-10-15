@@ -32,11 +32,21 @@ function storeToken(token: string | null) {
   }
 }
 
+/** Push format the APK renders: 2+ draws rich message notifications natively. */
+let pushProtocol = 0;
+
 async function firebaseAvailable(): Promise<boolean> {
   // Older APKs without our plugin can't tell; registering there could crash
   // when google-services.json is missing, so don't.
-  const caps = await callNative<{ firebase?: boolean }>("SerikaNative", "getCapabilities");
+  const caps = await callNative<{ firebase?: boolean; pushProtocol?: number }>("SerikaNative", "getCapabilities");
+  pushProtocol = typeof caps?.pushProtocol === "number" ? caps.pushProtocol : 0;
   return caps?.firebase === true;
+}
+
+/** Platform sent on every registration (re-registering must not downgrade a rich-push device). */
+function pushPlatform(): string {
+  const base = nativePlatform();
+  return base === "android" && pushProtocol >= 2 ? `android-${Math.floor(pushProtocol)}` : base;
 }
 
 let registering: Promise<void> | null = null;
@@ -63,7 +73,7 @@ export function registerForPush(): Promise<void> {
         void fetch("/api/users/@me/push-devices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, platform: nativePlatform() }),
+          body: JSON.stringify({ token, platform: pushPlatform() }),
         })
           .then((res) => {
             if (!res.ok) return;

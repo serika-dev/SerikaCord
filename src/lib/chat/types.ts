@@ -45,6 +45,22 @@ export interface MessageAttachment {
   /** Voice messages (flags & IS_VOICE_MESSAGE): length and base64 waveform. */
   durationSecs?: number;
   waveform?: string;
+  /**
+   * End-to-end encrypted file: `url` is the ciphertext blob; these decrypt it
+   * in the browser (lib/e2ee). filename / contentType / size are the real ones.
+   */
+  e2ee?: { key: string; iv: string; sha256: string };
+}
+
+/** End-to-end encryption state of a message (decrypted in memory only). */
+export interface MessageE2ee {
+  status: "pending" | "ok" | "error";
+  /** Why it couldn't be decrypted / verified (lib/e2ee/client DecryptFailure). */
+  reason?: string;
+  /** Sender device signature checked against a trusted identity key. */
+  verified?: boolean;
+  /** The stored envelope (kept so a cached copy can be decrypted again). */
+  envelope?: unknown;
 }
 
 export interface MessageReaction {
@@ -104,12 +120,14 @@ export interface ReferencedMessage {
     isDiscord?: boolean;
   };
   createdAt?: string;
+  /** The referenced message is end-to-end encrypted (its text comes from the reply's own envelope). */
+  encrypted?: boolean;
 }
 
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | GroupDmEventType;
+  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | "e2ee_enabled" | GroupDmEventType;
   authorId: string;
   author: MessageAuthor;
   channelId: string;
@@ -155,6 +173,8 @@ export interface ChatMessage {
   pollResult?: PollResultData | null;
   /** A forwarded message: the frozen copy of the original. */
   forward?: ForwardView | null;
+  /** End-to-end encrypted message (DMs / group DMs): decryption status. */
+  e2ee?: MessageE2ee;
 }
 
 /** Details of a group DM system row (the actor is the message author). */

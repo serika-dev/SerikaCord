@@ -15,6 +15,7 @@ import {
   Megaphone,
   Zap,
 } from "lucide-react";
+import { SiGithub } from "@icons-pack/react-simple-icons";
 
 export const metadata = buildMetadata({
   title: "SerikaCord — Free Community Chat & Voice Platform",
@@ -204,6 +205,30 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Open source */}
+      <section id="open-source" className="py-20 px-4 sm:px-6 lg:px-8">
+        <div className="max-w-5xl mx-auto rounded-3xl border border-white/[0.06] bg-[#080a0f] p-8 sm:p-12 flex flex-col md:flex-row items-start md:items-center gap-8">
+          <div className="w-14 h-14 rounded-2xl bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 flex items-center justify-center shrink-0">
+            <SiGithub className="w-7 h-7 text-[#8B5CF6]" aria-hidden />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-2xl sm:text-3xl font-bold mb-2"><T>Open source, in the open</T></h2>
+            <p className="text-[#666] leading-relaxed">
+              <T>SerikaCord is open source. Read the code, report issues, suggest features or contribute on GitHub. No hidden tracking, no lock-in.</T>
+            </p>
+          </div>
+          <a
+            href="https://github.com/serika-dev/SerikaCord"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-white/10 hover:border-[#8B5CF6]/40 hover:bg-[#8B5CF6]/10 text-sm font-semibold transition-colors shrink-0"
+          >
+            <SiGithub className="w-4 h-4" aria-hidden />
+            <T>View on GitHub</T>
+          </a>
+        </div>
+      </section>
+
       {/* CTA Section */}
       <section className="py-24 px-4 sm:px-6 lg:px-8 relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
@@ -260,6 +285,7 @@ export default async function HomePage() {
                 <li><a href="mailto:support@serika.dev" className="hover:text-white transition-colors"><T>Support</T></a></li>
                 <li><Link href="#safety" className="hover:text-white transition-colors"><T>Safety</T></Link></li>
                 <li><Link href="https://status.serika.dev" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>Service Status</T></Link></li>
+                <li><a href="https://github.com/serika-dev/SerikaCord" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors"><T>Source code (GitHub)</T></a></li>
               </ul>
             </div>
             <div>

@@ -91,27 +91,164 @@ export const SCREENING_DESCRIPTION_MAX = 300;
 export const SCREENING_RULE_MAX = 300;
 export const SCREENING_RULES_MAX = 16;
 
+export const APPLICATION_QUESTIONS_MAX = 5;
+export const APPLICATION_LABEL_MAX = 150;
+export const APPLICATION_CHOICES_MAX = 8;
+export const APPLICATION_CHOICE_MAX = 80;
+export const APPLICATION_SHORT_MAX = 150;
+export const APPLICATION_PARAGRAPH_MAX = 1000;
+export const ACCESSIBLE_CHANNELS_MAX = 25;
+
+export type ApplicationQuestionType = 'short' | 'paragraph' | 'choice';
+
+/** A question asked with the rules when manual approval is on (Discord's membership screening fields). */
+export interface ApplicationQuestion {
+  id: string;
+  type: ApplicationQuestionType;
+  label: string;
+  required: boolean;
+  /** `choice` only. */
+  choices: string[];
+}
+
 export interface ScreeningConfig {
   enabled: boolean;
   description: string;
   rules: string[];
+  /** Pending members only see `accessibleChannelIds` (and their children) until they're let in. */
+  restrictChannels: boolean;
+  /** Channels or categories readable before accepting the rules. */
+  accessibleChannelIds: string[];
+  /** Submitting the rules queues an application a moderator must approve. */
+  manualApproval: boolean;
+  questions: ApplicationQuestion[];
 }
 
-export const EMPTY_SCREENING: ScreeningConfig = { enabled: false, description: '', rules: [] };
+export const EMPTY_SCREENING: ScreeningConfig = {
+  enabled: false,
+  description: '',
+  rules: [],
+  restrictChannels: false,
+  accessibleChannelIds: [],
+  manualApproval: false,
+  questions: [],
+};
 
-export function normalizeScreeningConfig(input: unknown): ScreeningConfig {
-  if (!input || typeof input !== 'object') return { ...EMPTY_SCREENING, rules: [] };
+const ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+
+/** A client-supplied stable id, or a positional fallback. */
+export function stableId(value: unknown, fallback: string): string {
+  return typeof value === 'string' && ID_RE.test(value) ? value : fallback;
+}
+
+export function normalizeApplicationQuestions(input: unknown): ApplicationQuestion[] {
+  const out: ApplicationQuestion[] = [];
+  const seen = new Set<string>();
+  for (const [i, entry] of (Array.isArray(input) ? input : []).entries()) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const label = str(e.label, APPLICATION_LABEL_MAX);
+    if (!label) continue;
+    let id = stableId(e.id, `q${i}`);
+    if (seen.has(id)) id = `q${i}_${out.length}`;
+    seen.add(id);
+    const type: ApplicationQuestionType = e.type === 'paragraph' || e.type === 'choice' ? e.type : 'short';
+    const choices = type === 'choice'
+      ? [...new Set((Array.isArray(e.choices) ? e.choices : []).map((c) => str(c, APPLICATION_CHOICE_MAX)).filter(Boolean))].slice(0, APPLICATION_CHOICES_MAX)
+      : [];
+    // A multiple-choice question needs at least two answers to pick from.
+    if (type === 'choice' && choices.length < 2) continue;
+    out.push({ id, type, label, required: e.required !== false, choices });
+    if (out.length >= APPLICATION_QUESTIONS_MAX) break;
+  }
+  return out;
+}
+
+export function normalizeScreeningConfig(input: unknown, validChannelIds?: ReadonlySet<string>): ScreeningConfig {
+  if (!input || typeof input !== 'object') return { ...EMPTY_SCREENING, rules: [], accessibleChannelIds: [], questions: [] };
   const raw = input as Record<string, unknown>;
   const rules = (Array.isArray(raw.rules) ? raw.rules : [])
     .map((r) => multiline(r, SCREENING_RULE_MAX))
     .filter((r) => r.length > 0)
     .slice(0, SCREENING_RULES_MAX);
+  const accessibleChannelIds = [...new Set((Array.isArray(raw.accessibleChannelIds) ? raw.accessibleChannelIds : [])
+    .filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 64)
+    .filter((id) => !validChannelIds || validChannelIds.has(id)))]
+    .slice(0, ACCESSIBLE_CHANNELS_MAX);
   // Screening without a single rule would gate members behind nothing.
   return {
     enabled: raw.enabled === true && rules.length > 0,
     description: multiline(raw.description, SCREENING_DESCRIPTION_MAX),
     rules,
+    restrictChannels: raw.restrictChannels === true,
+    accessibleChannelIds,
+    manualApproval: raw.manualApproval === true,
+    questions: normalizeApplicationQuestions(raw.questions),
   };
+}
+
+export interface ApplicationAnswer {
+  questionId: string;
+  question: string;
+  answer: string;
+}
+
+/**
+ * Validates answers against the questions: required ones must be filled,
+ * choices must be one of the options, text is trimmed to the field's limit.
+ * Returns the answers in question order (with the label snapshotted, so an
+ * edited question doesn't rewrite old applications) or an error.
+ */
+export function validateApplicationAnswers(
+  questions: readonly ApplicationQuestion[],
+  input: unknown,
+): { answers: ApplicationAnswer[] } | { error: string; questionId: string } {
+  const byId = new Map<string, unknown>();
+  for (const entry of Array.isArray(input) ? input : []) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.questionId === 'string') byId.set(e.questionId, e.answer ?? e.value);
+  }
+  const answers: ApplicationAnswer[] = [];
+  for (const q of questions) {
+    const rawAnswer = byId.get(q.id);
+    let answer = '';
+    if (q.type === 'choice') {
+      answer = typeof rawAnswer === 'string' && q.choices.includes(rawAnswer.trim()) ? rawAnswer.trim() : '';
+    } else {
+      answer = q.type === 'paragraph'
+        ? multiline(rawAnswer, APPLICATION_PARAGRAPH_MAX)
+        : str(rawAnswer, APPLICATION_SHORT_MAX);
+    }
+    if (!answer && q.required) return { error: `Please answer: ${q.label}`, questionId: q.id };
+    answers.push({ questionId: q.id, question: q.label, answer });
+  }
+  return { answers };
+}
+
+interface ChannelNode { id: string; parentId?: string | null; type?: string | null }
+
+/**
+ * Whether a pending member may open `channel` while access is restricted:
+ * it, its category, or (threads) its parent channel / parent's category is
+ * listed. Categories are allowed when listed or when any listed channel is in them.
+ */
+export function isChannelAccessibleWhilePending(
+  channel: ChannelNode,
+  parent: ChannelNode | null | undefined,
+  allowed: ReadonlySet<string>,
+  allChannels?: readonly ChannelNode[],
+): boolean {
+  if (allowed.has(channel.id)) return true;
+  if (channel.parentId && allowed.has(channel.parentId)) return true;
+  if (parent) {
+    if (allowed.has(parent.id)) return true;
+    if (parent.parentId && allowed.has(parent.parentId)) return true;
+  }
+  if (channel.type === 'category' && allChannels) {
+    return allChannels.some((c) => c.parentId === channel.id && allowed.has(c.id));
+  }
+  return false;
 }
 
 export interface ScreeningGateInput {

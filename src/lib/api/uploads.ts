@@ -1,7 +1,10 @@
 import { Elysia, t } from 'elysia';
 import { checkAttachmentWhitelist, storedAttachmentType } from '@/lib/chat/uploadPolicy';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
-import { storage, keyFromUrl } from '@/lib/services/storage';
+import { storage, keyFromUrl, ContentBlockedError } from '@/lib/services/storage';
+import { sniffImageType } from '@/lib/safety/imageHash';
+import { ATTACHMENT_BLOB_NAME_RE, ATTACHMENT_BLOB_TYPE, hasAttachmentMagic } from '@/lib/e2ee';
+import { e2eeEnabled } from '@/lib/services/e2ee';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { config } from '@/lib/config';
@@ -41,8 +44,20 @@ function isValidImageType(type: string): type is "image/jpeg" | "image/png" | "i
   return config.ALLOWED_IMAGE_TYPES.includes(type as typeof config.ALLOWED_IMAGE_TYPES[number]);
 }
 
+/**
+ * An end-to-end encrypted attachment blob (`e2ee-<random>.bin`, octet-stream):
+ * opaque ciphertext the server can't type-check or scan. The real file type
+ * lives in the encrypted message; uploads must start with the E2EE magic
+ * header (checked on the bytes), so nothing else can hide behind the name.
+ */
+function isE2eeBlobUpload(name: string, type: string): boolean {
+  // Only while E2EE is on; otherwise blobs go through the normal whitelist.
+  return e2eeEnabled() && ATTACHMENT_BLOB_NAME_RE.test(name) && (type || ATTACHMENT_BLOB_TYPE).toLowerCase() === ATTACHMENT_BLOB_TYPE;
+}
+
 /** Whitelist check for an attachment, with the user-facing error. */
 async function attachmentCheck(name: string, type: string): Promise<{ allowed: boolean; error?: string; warning?: string }> {
+  if (isE2eeBlobUpload(name, type)) return { allowed: true };
   const platformSettings = await getPlatformSettings();
   const whitelist = (platformSettings.allowedFileTypes as IAllowedFileType[] | undefined) ?? [];
   const result = checkAttachmentWhitelist(name, type, whitelist, config.ALLOWED_FILE_TYPES);
@@ -93,6 +108,9 @@ function tooLargeError(maxSize: number, premium: boolean): string {
   return `File too large. The maximum size is ${maxMB >= 1024 ? `${maxMB / 1024}GB` : `${maxMB}MB`}${premium ? ' (Serika+)' : ', or more with Serika+'}.`;
 }
 
+/** Blocked by Trust & Safety scanning → 403 (the message is safe to show); otherwise 500. */
+const uploadErrorStatus = (error: unknown) => (error instanceof ContentBlockedError ? 403 : 500);
+
 export const uploadRoutes = new Elysia({ prefix: '/upload' })
   // Upload avatar
   .post('/avatar', async ({ headers, cookie, body, request, set }) => {
@@ -140,6 +158,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     try {
       // Upload new avatar
       const result = await storage.uploadFromFormData(file, 'avatars', {
+        ip: getClientIP(request),
         userId: user.id,
       });
 
@@ -158,7 +177,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload avatar';
       console.error('Avatar upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -213,6 +232,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     try {
       // Upload new banner
       const result = await storage.uploadFromFormData(file, 'banners', {
+        ip: getClientIP(request),
         userId: user.id,
       });
 
@@ -229,7 +249,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload banner';
       console.error('Banner upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -276,6 +296,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     try {
       const result = await storage.uploadFromFormData(file, 'avatars', {
+        ip: getClientIP(request),
         userId: user.id,
         serverId: params.serverId,
       });
@@ -289,7 +310,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to upload avatar';
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -343,6 +364,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     try {
       const result = await storage.uploadFromFormData(file, 'banners', {
+        ip: getClientIP(request),
         userId: user.id,
         serverId: params.serverId,
       });
@@ -356,7 +378,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to upload banner';
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -417,6 +439,8 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     try {
       // Upload new icon
       const result = await storage.uploadFromFormData(file, 'server-icons', {
+        ip: getClientIP(request),
+        scanUserId: user.id,
         serverId: params.serverId,
       });
 
@@ -431,7 +455,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload server icon';
       console.error('Server icon upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -490,6 +514,8 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     try {
       const result = await storage.uploadFromFormData(file, 'server-banners', {
+        ip: getClientIP(request),
+        scanUserId: user.id,
         serverId: params.serverId,
       });
 
@@ -503,7 +529,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload server banner';
       console.error('Server banner upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -545,6 +571,10 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       set.status = 400;
       return { error: check.error };
     }
+    if (isE2eeBlobUpload(file.name, file.type) && !hasAttachmentMagic(new Uint8Array(await file.slice(0, 8).arrayBuffer()))) {
+      set.status = 400;
+      return { error: 'Not an encrypted attachment' };
+    }
     const storedType = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
     const warning = check.warning;
 
@@ -557,6 +587,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     try {
       const result = await storage.uploadFromFormData(file, 'attachments', {
+        ip: getClientIP(request),
         userId: user.id,
         channelId,
         contentType: storedType,
@@ -577,7 +608,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload attachment';
       console.error('Attachment upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -614,6 +645,16 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     if (size > maxSize) {
       set.status = 413;
       return { error: tooLargeError(maxSize, Boolean(user.isPremium)), maxSize };
+    }
+    // The chunked path stores bytes without the Trust & Safety image scan, so
+    // it only takes big non-image files; images go through POST /attachment.
+    if (size <= CHUNK_PART_SIZE) {
+      set.status = 400;
+      return { error: 'Use a normal upload for files this small' };
+    }
+    if (String(type || '').toLowerCase().startsWith('image/')) {
+      set.status = 400;
+      return { error: 'Images this large cannot be uploaded' };
     }
     const storedType = storedAttachmentType(type, config.ALLOWED_FILE_TYPES);
     try {
@@ -674,6 +715,12 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     if (bytes.byteLength !== expected) {
       set.status = 400;
       return { error: 'Part size mismatch' };
+    }
+    // An image renamed to something else would skip the scanners.
+    if (part === 1 && (sniffImageType(bytes) || (isE2eeBlobUpload(session.filename, session.storedType) && !hasAttachmentMagic(bytes)))) {
+      await storage.abortMultipart(session.key, session.uploadId).catch(() => null);
+      set.status = 400;
+      return { error: 'Images this large cannot be uploaded' };
     }
     try {
       const etag = await storage.uploadPart(session.key, session.uploadId, part, bytes);
@@ -795,6 +842,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     try {
       const result = await storage.uploadFromFormData(file, 'stickers', {
+        ip: getClientIP(request),
         serverId: params.serverId,
         userId: user.id,
       });
@@ -806,7 +854,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload sticker';
       console.error('Sticker upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -855,6 +903,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
     try {
       const result = await storage.uploadFromFormData(file, 'emojis', {
+        ip: getClientIP(request),
         userId: user.id,
       });
 
@@ -865,7 +914,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload emoji';
       console.error('Emoji upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {
@@ -904,7 +953,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload audio';
       console.error('Audio upload error:', error);
-      set.status = 500;
+      set.status = uploadErrorStatus(error);
       return { error: message };
     }
   }, {

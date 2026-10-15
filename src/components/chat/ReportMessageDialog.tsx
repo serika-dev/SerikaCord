@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Flag } from "lucide-react";
+import { Flag, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import type { MessageReportReason } from "@/lib/chat/messageReport";
 import type { ChatMessage } from "@/lib/chat/types";
+import { loadE2eeSession } from "@/lib/e2ee/client/state";
 
 interface ReportMessageDialogProps {
   message: ChatMessage | null;
@@ -44,10 +45,20 @@ export function ReportMessageDialog({ message, onClose }: ReportMessageDialogPro
     if (!message || !reason) return;
     setSending(true);
     try {
+      // End-to-end encrypted: disclose the message key + plaintext so the
+      // safety team can verify the report (message franking).
+      let e2ee: { key: string; payload: string } | null = null;
+      if (message.e2ee) {
+        e2ee = message.e2ee.status === "ok" ? (await loadE2eeSession()).frankingDisclosure(message.id) : null;
+        if (!e2ee) {
+          toast.error(gt("This encrypted message can't be reported from this device because it couldn't be decrypted here."));
+          return;
+        }
+      }
       const res = await fetch(`/api/channels/${message.channelId}/messages/${message.id}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason, details: details.trim() || undefined }),
+        body: JSON.stringify({ reason, details: details.trim() || undefined, ...(e2ee ? { e2ee } : {}) }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -84,6 +95,12 @@ export function ReportMessageDialog({ message, onClose }: ReportMessageDialogPro
             </div>
             <div className="line-clamp-4 whitespace-pre-wrap break-words">{preview || gt("(attachment)")}</div>
           </div>
+        )}
+        {message?.e2ee && (
+          <p className="flex items-start gap-2 text-xs text-[var(--app-muted)]">
+            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            {gt("This message is end-to-end encrypted. Reporting it shares its text and files with the SerikaCord safety team, with a proof that the sender really sent it.")}
+          </p>
         )}
         <div className="flex flex-col gap-1" role="radiogroup" aria-label={gt("Reason")}>
           {reasons.map((r) => (

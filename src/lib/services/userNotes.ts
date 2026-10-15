@@ -1,9 +1,12 @@
 // Private notes a user keeps about other users ("Note — only visible to you"),
 // one row per (owner, target) in `user_notes`. Never exposed to the target.
+// The note text is encrypted at rest (fieldEncryption); notes saved before
+// that are plaintext and read back unchanged.
 import { and, eq, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { normalizeUserNote } from '@/lib/social/userNotes';
+import { decryptField, encryptField } from '@/lib/security/fieldEncryption';
 
 // ─── Boot-time schema ensure ──────────────────────────────────────────────────
 // Mirrors drizzle/manual_user_notes_message_requests.sql. Additive + idempotent,
@@ -43,7 +46,8 @@ export async function listUserNotes(ownerId: string): Promise<Record<string, str
   await ensureUserNotesSchema();
   const rows = await db.select().from(table).where(eq(table.ownerId, normalizeId(ownerId)));
   const out: Record<string, string> = {};
-  for (const r of rows) out[r.targetId] = r.note;
+  const notes = await Promise.all(rows.map((r) => decryptField(r.note)));
+  rows.forEach((r, i) => { out[r.targetId] = notes[i]; });
   return out;
 }
 
@@ -54,7 +58,7 @@ export async function getUserNote(ownerId: string, targetId: string): Promise<st
     .from(table)
     .where(and(eq(table.ownerId, normalizeId(ownerId)), eq(table.targetId, normalizeId(targetId))))
     .limit(1);
-  return row?.note ?? '';
+  return row?.note ? decryptField(row.note) : '';
 }
 
 /** Save (or, when empty, delete) a note. Returns what is stored. */
@@ -67,9 +71,10 @@ export async function setUserNote(ownerId: string, targetId: string, raw: unknow
     await db.delete(table).where(and(eq(table.ownerId, owner), eq(table.targetId, target)));
     return '';
   }
+  const stored = await encryptField(note);
   await db
     .insert(table)
-    .values({ ownerId: owner, targetId: target, note, updatedAt: new Date() })
-    .onConflictDoUpdate({ target: [table.ownerId, table.targetId], set: { note, updatedAt: new Date() } });
+    .values({ ownerId: owner, targetId: target, note: stored, updatedAt: new Date() })
+    .onConflictDoUpdate({ target: [table.ownerId, table.targetId], set: { note: stored, updatedAt: new Date() } });
   return note;
 }

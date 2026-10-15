@@ -26,6 +26,18 @@ import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings 
 import { StreamerModeSettings } from "@/components/settings/StreamerModeSettings";
 import { useStreamerHides } from "@/hooks/useStreamerMode";
 import { maskEmail } from "@/lib/streamer/streamerMode";
+import dynamic from "next/dynamic";
+// End-to-end encryption settings (own chunk).
+const E2eeSettingsPanel = dynamic(() => import("@/components/e2ee/E2eeSettingsPanel"), { ssr: false });
+
+// Loaded only when this section is opened.
+const AccountStanding = dynamic(() => import("@/components/safety/AccountStanding").then((m) => m.AccountStanding), {
+  loading: () => (
+    <div className="flex justify-center py-12">
+      <Loader size={32} />
+    </div>
+  ),
+});
 
 const sectionTitles: Record<string, string> = {
   privacy: "Privacy & Safety",
@@ -42,6 +54,7 @@ const sectionTitles: Record<string, string> = {
   status: "Status",
   profiles: "Profiles",
   connections: "Connections",
+  "account-standing": "Account Standing",
 };
 
 function getSectionTitle(section: string, gt: (s: string) => string): string {
@@ -61,6 +74,8 @@ function getSectionTitle(section: string, gt: (s: string) => string): string {
     status: gt("Status"),
     profiles: gt("Profiles"),
     connections: gt("Connections"),
+    "account-standing": gt("Account Standing"),
+    encryption: gt("Encryption"),
   };
   return titles[section] || sectionTitles[section] || section;
 }
@@ -428,7 +443,7 @@ export default function MobileSettingsSectionPage() {
             />
             <ToggleRow
               label={gt("Activity status")}
-              checked={Boolean(settings.privacy?.showActivity)}
+              checked={settings.privacy?.showActivity !== false}
               onChange={(checked) => saveSettings({ privacy: { ...(settings.privacy || {}), showActivity: checked } })}
             />
             <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
@@ -604,6 +619,10 @@ export default function MobileSettingsSectionPage() {
         )}
 
         {section === "status" && statusSection}
+
+        {section === "account-standing" && <AccountStanding />}
+
+        {section === "encryption" && <E2eeSettingsPanel />}
 
         {section === "account" && (
           <div className="space-y-4">

@@ -58,6 +58,11 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
+  /**
+   * The signed-in account is suspended (/api/users/@me answered 403
+   * account_banned). `user` stays null; the app shell shows SuspendedScreen.
+   */
+  suspended: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (data: { email: string; username: string; password: string; displayName?: string }) => Promise<void>;
   logout: () => Promise<void>;
@@ -71,6 +76,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [suspended, setSuspended] = useState(false);
   const statusUpdatePending = useRef(false);
   const refreshInFlight = useRef(false);
 
@@ -140,7 +146,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
+      // Suspended accounts keep their session but only get Account Standing.
+      if (response.status === 403) {
+        const body = await response.clone().json().catch(() => null);
+        if (body?.code === "account_banned") {
+          setSuspended(true);
+          setUser(null);
+          return;
+        }
+      }
+
       if (response.ok) {
+        setSuspended(false);
         const data = await response.json();
         const rawStatus = data?.status as string | undefined;
         // The UI models Invisible as "offline" (the server stores "invisible").
@@ -161,6 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
         }
       } else {
+        setSuspended(false);
         setUser(null);
       }
     } catch {
@@ -291,6 +309,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { await unregisterPush(); } catch {}
     try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
     clearMessageCache();
+    setSuspended(false);
     setUser(null);
   }, []);
 
@@ -299,8 +318,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, isLoading, login, register, logout, refresh, updateUser, setOnlineStatus }),
-    [user, isLoading, login, register, logout, refresh, updateUser, setOnlineStatus]
+    () => ({ user, isLoading, suspended, login, register, logout, refresh, updateUser, setOnlineStatus }),
+    [user, isLoading, suspended, login, register, logout, refresh, updateUser, setOnlineStatus]
   );
 
   return (

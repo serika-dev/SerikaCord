@@ -2,19 +2,26 @@
 // content filter (rules in src/lib/servers/verification.ts). The per-server
 // settings are cached briefly in Redis; the settings routes drop the key.
 import { cache } from '@/lib/db';
-import { Role, Server, User } from '@/lib/models';
+import { Role, Server, User, UserConnection } from '@/lib/models';
 import { sameId } from '@/lib/servers/guards';
 import {
+  VERIFICATION_ACTIONS,
   evaluateVerificationGate,
   normalizeContentFilter,
   normalizeVerificationLevel,
+  normalizeVerificationOptions,
+  restrictsAny,
   shouldFilterMedia,
   verificationErrorMessage,
   type ExplicitContentFilter,
+  type VerificationAction,
   type VerificationGateResult,
   type VerificationLevel,
+  type VerificationOptions,
 } from '@/lib/servers/verification';
 import { isScreeningBlocked, SCREENING_ERROR } from '@/lib/servers/community';
+import { OAUTH_ONLY_PROVIDERS } from '@/lib/connections/policy';
+import { isVerifiedDomainConnection } from '@/lib/connections/domain';
 import { getScreeningConfig } from '@/lib/services/serverCommunity';
 
 export interface ServerGate {
@@ -22,6 +29,8 @@ export interface ServerGate {
   verificationLevel: VerificationLevel;
   explicitContentFilter: ExplicitContentFilter;
   everyoneRoleId: string | null;
+  /** Custom waits and which actions stay locked (settings.moderation.verification). */
+  verificationOptions?: VerificationOptions;
 }
 
 const gateKey = (serverId: string) => `server:gate:${serverId}`;
@@ -31,7 +40,7 @@ export async function getServerGate(serverId: string): Promise<ServerGate | null
   if (cached) return cached;
   const server = await Server.findById(serverId);
   if (!server) return null;
-  const settings = (server.settings || {}) as { moderation?: { verificationLevel?: unknown; explicitContentFilter?: unknown } };
+  const settings = (server.settings || {}) as { moderation?: { verificationLevel?: unknown; explicitContentFilter?: unknown; verification?: unknown } };
   const everyone = await Role.findOne({ serverId, isDefault: true }).catch(() => null);
   const gate: ServerGate = {
     ownerId: server.ownerId ?? null,
@@ -48,6 +57,7 @@ export async function getServerGate(serverId: string): Promise<ServerGate | null
         : settings.moderation?.explicitContentFilter,
     ),
     everyoneRoleId: (everyone?.id as string | undefined) ?? null,
+    verificationOptions: normalizeVerificationOptions(settings.moderation?.verification),
   };
   await cache.set(gateKey(serverId), gate, 60).catch(() => {});
   return gate;
@@ -64,48 +74,70 @@ function realRoleCount(member: GateMember, everyoneRoleId: string | null): numbe
   return (member?.roles || []).filter((r) => !everyoneRoleId || !sameId(r, everyoneRoleId)).length;
 }
 
+/** Whether the user has an account verified through a sign-in flow or a DNS-verified domain. */
+async function hasVerifiedConnection(userId: string): Promise<boolean> {
+  const rows = await UserConnection.find({ userId }).catch(() => []);
+  return rows.some((c) => (OAUTH_ONLY_PROVIDERS as readonly string[]).includes(c.provider) || isVerifiedDomainConnection(c));
+}
+
+export type MemberVerificationState = VerificationGateResult & {
+  level: VerificationLevel;
+  options: VerificationOptions;
+};
+
 /** The verification state of a member (for the composer banner and the API gate). */
 export async function memberVerificationState(
   serverId: string,
   userOrId: GateUser | string,
   member: GateMember,
-): Promise<VerificationGateResult & { level: VerificationLevel }> {
+): Promise<MemberVerificationState> {
   const open = { blocked: false, reason: null, until: null };
   const gate = await getServerGate(serverId);
-  if (!gate || gate.verificationLevel === 'none') return { ...open, level: gate?.verificationLevel ?? 'none' };
+  const options = normalizeVerificationOptions(gate?.verificationOptions);
+  if (!gate || gate.verificationLevel === 'none') return { ...open, level: gate?.verificationLevel ?? 'none', options };
   const userId = typeof userOrId === 'string' ? userOrId : userOrId.id;
   const roleCount = realRoleCount(member, gate.everyoneRoleId);
-  if ((gate.ownerId && sameId(gate.ownerId, userId)) || roleCount > 0) return { ...open, level: gate.verificationLevel };
+  if ((gate.ownerId && sameId(gate.ownerId, userId)) || roleCount > 0) return { ...open, level: gate.verificationLevel, options };
   const user: GateUser | null = typeof userOrId === 'string' || userOrId.createdAt === undefined
     ? ((await User.findById(userId).catch(() => null)) as GateUser | null)
     : userOrId;
-  if (!user) return { ...open, level: gate.verificationLevel };
+  if (!user) return { ...open, level: gate.verificationLevel, options };
+  const exempt = Boolean(user.isBot || user.isSystem);
   const result = evaluateVerificationGate({
     level: gate.verificationLevel,
-    exempt: Boolean(user.isBot || user.isSystem),
+    exempt,
     roleCount,
     emailVerified: Boolean(user.isVerified),
     accountCreatedAt: user.createdAt ?? null,
     memberJoinedAt: member?.joinedAt ?? null,
+    hasVerifiedConnection: gate.verificationLevel === 'very_high' && !exempt ? await hasVerifiedConnection(userId) : undefined,
+    options,
   });
-  return { ...result, level: gate.verificationLevel };
+  return { ...result, level: gate.verificationLevel, options };
 }
 
-/** 403 body when the server's verification level stops this member from talking, else null. */
+/**
+ * 403 body when the server's verification level stops this member from doing
+ * one of `actions` (default: anything), else the rules-screening denial (or null).
+ */
 export async function verificationDenial(
   serverId: string,
   userOrId: GateUser | string,
   member: GateMember,
+  actions: readonly VerificationAction[] = VERIFICATION_ACTIONS,
 ): Promise<{ status: number; body: Record<string, unknown> } | null> {
   const state = await memberVerificationState(serverId, userOrId, member).catch(() => null);
-  if (!state || !state.blocked || !state.reason) return screeningDenial(serverId, userOrId, member);
+  if (!state || !state.blocked || !state.reason || !restrictsAny(state.options, actions)) {
+    return screeningDenial(serverId, userOrId, member);
+  }
   return {
     status: 403,
     body: {
-      error: verificationErrorMessage(state.reason),
+      error: verificationErrorMessage(state.reason, state.options),
       code: 'verification_level',
       verificationReason: state.reason,
       verificationUntil: state.until,
+      verificationRestrict: state.options.restrict,
     },
   };
 }
@@ -167,4 +199,21 @@ export async function shouldFlagAuthorMedia(
     channelNsfw,
     exempt: Boolean(gate.ownerId && sameId(gate.ownerId, userId)),
   });
+}
+
+/**
+ * While rules screening blocks a member and the server restricts channels,
+ * the channel / category ids they may still open; null when nothing is hidden.
+ */
+export async function pendingChannelAccess(
+  serverId: string,
+  userOrId: GateUser | string,
+  member: GateMember,
+): Promise<Set<string> | null> {
+  if (!member?.pending) return null;
+  const config = await getScreeningConfig(serverId).catch(() => null);
+  if (!config?.enabled || !config.restrictChannels) return null;
+  // On a lookup error keep the channels hidden (fail closed for pending members).
+  const blocked = await memberScreeningBlocked(serverId, userOrId, member).catch(() => true);
+  return blocked ? new Set(config.accessibleChannelIds) : null;
 }
