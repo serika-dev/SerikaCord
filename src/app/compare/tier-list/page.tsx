@@ -159,12 +159,12 @@ export default async function TierListPage() {
         );
       })}
 
-      <section id="matrix" aria-labelledby="matrix-title" className="mb-14 scroll-mt-20">
+      <section id="matrix" aria-labelledby="matrix-title" className="mb-14 min-w-0 scroll-mt-20">
         <h2 id="matrix-title" className="mb-2 text-2xl font-bold tracking-tight sm:text-3xl">{gt("Every ranking at a glance")}</h2>
         <p className="mb-5 max-w-3xl leading-relaxed text-[var(--app-muted)]">
           {gt("Apps in overall order; the numbered columns are the twelve sections above. Scroll sideways on a phone.")}
         </p>
-        <div className="overflow-x-auto rounded-2xl border border-[var(--app-border)]">
+        <div className="relative w-full max-w-full overflow-x-auto rounded-2xl border border-[var(--app-border)]">
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <caption className="sr-only">{gt("Tier of every app in every section")}</caption>
             <thead className="bg-[var(--app-surface-alt)]">
