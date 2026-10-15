@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.1.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.2.
 
 ---
 
@@ -11,13 +11,21 @@
 ### Changes
 
 ### Bug Fixes
-- **Domain verification finds new DNS records right away** — the check now asks the domain's own nameservers, so a TXT record you just added isn't hidden by a cached "not found" from an earlier check. If a serika-verification record with an old code is found, it tells you to replace it.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.2 — 2026-10-15
+
+**Tag:** `v2.1.2` · **Commit:** `c98d9ad`
+
+### Bug Fixes
+- **Domain verification finds new DNS records right away** — the check now asks the domain's own nameservers, so a TXT record you just added isn't hidden by a cached "not found" from an earlier check. If a serika-verification record with an old code is found, it tells you to replace it.
 
 ---
 
