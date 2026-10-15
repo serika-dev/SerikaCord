@@ -326,6 +326,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     } else {
       if (typeof raw !== 'string') { set.status = 400; return { error: 'Invalid URL' }; }
       const url = raw.trim();
+      const { checkRateLimit } = await import('@/lib/security');
+      if (!(await checkRateLimit('interactionsEndpointVerify', user.id)).success) { set.status = 429; return { error: 'Too many attempts. Try again later.' }; }
       const { interactionsEndpointUrlProblem, verifyInteractionEndpoint } = await import('@/lib/services/interactions');
       const problem = await interactionsEndpointUrlProblem(url);
       if (problem) { set.status = 400; return { error: problem }; }
@@ -451,6 +453,9 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     return { interactionsEndpointUrl: null };
   }
 
+  // Each save sends a signed PING: limit per user.
+  const { checkRateLimit } = await import('@/lib/security');
+  if (!(await checkRateLimit('interactionsEndpointVerify', user.id)).success) { set.status = 429; return { error: 'Too many attempts. Try again later.' }; }
   // https, public address only (SSRF): checked here and again on every delivery.
   const { interactionsEndpointUrlProblem } = await import('@/lib/services/interactions');
   const problem = await interactionsEndpointUrlProblem(url);

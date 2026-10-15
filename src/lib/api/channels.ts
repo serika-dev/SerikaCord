@@ -4642,7 +4642,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const { ChannelWebhook } = await import('@/lib/models');
     const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
     return webhooks.map((w) => {
-      const showSecret = canManage || Boolean(w.creatorId && compareIds(w.creatorId, user.id));
+      // An app's own webhook token (it can send that app's buttons) stays with the app.
+      const appOwned = Boolean((w as { applicationId?: string | null }).applicationId);
+      const showSecret = !appOwned && (canManage || Boolean(w.creatorId && compareIds(w.creatorId, user.id)));
       return {
         id: w.id,
         type: 1,

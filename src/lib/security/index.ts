@@ -63,6 +63,12 @@ export const rateLimiters_config = {
   // modal submits) and autocomplete requests while typing an option, per user.
   interactionCreate: { points: 20, duration: 10 },
   interactionAutocomplete: { points: 60, duration: 10 },
+  // Interaction-token routes (callback, followups, @original), per interaction
+  // and per application (they carry no bot token, so bot limits don't apply).
+  interactionToken: { points: 5, duration: 2 },
+  interactionApp: { points: 50, duration: 1 },
+  // Saving an interactions endpoint sends a signed PING, per user.
+  interactionsEndpointVerify: { points: 10, duration: 600 },
 
   // Bot API (/api/v10), per bot: see src/lib/security/botRateLimit.ts
   ...BOT_LIMITS,
@@ -429,8 +435,11 @@ export function hashData(data: string): string {
 
 // Timing-safe string comparison
 export function secureCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  // Byte lengths: equal-length strings with multi-byte characters must not throw.
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
 }
 
 // Re-export encryption utilities

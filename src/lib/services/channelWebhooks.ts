@@ -14,7 +14,7 @@ import { checkRateLimit, isValidObjectId, sanitizeInput, secureCompare } from '@
 import { FE, FormErrors, formError } from '@/lib/botapi/formErrors';
 import { ButtonStyle, ComponentType, walkComponents, type MessageComponent } from '@/lib/botapi/components';
 import {
-  finalizeComponents, isEmptyOutgoing, parseOutgoingMessage, uploadOutgoingFiles, type ApiFailure,
+  finalizeComponents, isEmptyOutgoing, parseOutgoingMessage, resolveEmbeds, uploadOutgoingFiles, type ApiFailure,
 } from '@/lib/services/outgoingMessage';
 import { createAppMessage, deleteAppMessage, editAppMessage, type AppAuthor } from '@/lib/services/appMessages';
 import { discordMessageFromRow, loadLiveMessage } from '@/lib/services/interactionPayload';
@@ -35,6 +35,16 @@ function applicationIdOf(w: WebhookRow): string | null {
 /** The webhook's execute URL (Discord shape: /webhooks/{id}/{token}). */
 export function webhookUrl(w: Pick<WebhookRow, 'id' | 'token'>): string {
   return `${config.API_BASE_URL}/api/webhooks/${w.id}/${w.token}`;
+}
+
+/**
+ * May `viewerAppId` see this webhook's token? An application-owned webhook's
+ * token (which can send that app's interactive components) only goes to that
+ * app; other webhooks' tokens go to whoever may manage them.
+ */
+export function mayShowWebhookToken(w: WebhookRow, viewerAppId: string | null): boolean {
+  const owner = applicationIdOf(w);
+  return !owner || (!!viewerAppId && same(owner, viewerAppId));
 }
 
 /** Discord webhook object. `withToken` only for whoever may manage it (or used the token). */
@@ -85,7 +95,8 @@ const isThread = (c: Pick<IChannel, 'type'>) => c.type === 'public_thread' || c.
 /** Where a webhook message goes: its channel, or a thread under it (thread_id). */
 async function targetChannel(w: WebhookRow, threadId: string | undefined): Promise<IChannel | WebhookResult> {
   const channel = await Channel.findById(w.channelId).catch(() => null);
-  if (!channel) return UNKNOWN_WEBHOOK;
+  // Server channels only: a DM webhook would outlive its creator's membership.
+  if (!channel || !channel.serverId) return UNKNOWN_WEBHOOK;
   if (!threadId) return channel;
   if (!isValidObjectId(threadId)) return { status: 400, body: formError(['thread_id'], FE.BAD_TYPE, 'Value is not snowflake.') };
   const thread = await Channel.findById(threadId).catch(() => null);
@@ -157,7 +168,9 @@ export async function executeWebhook(
   const fin = finalizeComponents(components, uploaded.attachments);
   if (!fin.ok) return apiFailure(fin);
   components = fin.components;
-  if (isEmptyOutgoing({ ...m, content, components }, uploaded.attachments.length)) {
+  const emb = resolveEmbeds(m, uploaded.attachments);
+  if (!emb.ok) return apiFailure(emb);
+  if (isEmptyOutgoing({ ...m, content, components, embeds: emb.embeds }, uploaded.attachments.length)) {
     return { status: 400, body: { code: 50006, message: 'Cannot send an empty message' } };
   }
 
@@ -189,7 +202,7 @@ export async function executeWebhook(
     channel,
     body: {
       content,
-      embeds: m.embeds,
+      embeds: emb.embeds,
       components,
       attachments: uploaded.attachments,
       flags: m.flags,
@@ -274,7 +287,7 @@ export async function editWebhookMessage(
   const found = await webhookMessage(w, messageId, query.thread_id);
   if (!found) return UNKNOWN_MESSAGE;
   const existing = (found.message.attachments ?? []) as IncomingAttachment[];
-  const parsed = parseOutgoingMessage(body, { mode: 'edit', existingAttachmentIds: existing.map((a) => String(a.id)), existingFlags: found.message.flags ?? 0 });
+  const parsed = parseOutgoingMessage(body, { mode: 'edit', existingAttachmentIds: existing.map((a) => String(a.id)), existingAttachmentNames: existing.map((a) => a.filename), existingFlags: found.message.flags ?? 0 });
   if (!parsed.ok) return apiFailure(parsed);
   const m = parsed.message;
   let components = m.has.components && (query.with_components === 'true' || applicationIdOf(w)) ? m.components : undefined;
@@ -290,6 +303,8 @@ export async function editWebhookMessage(
     if (!fin.ok) return apiFailure(fin);
     components = fin.components;
   }
+  const emb = resolveEmbeds(m, attachments);
+  if (!emb.ok) return apiFailure(emb);
   const { sanitizeMessageContent } = await import('@/lib/api/channels');
   const r = await editAppMessage({
     channel: found.channel,
@@ -297,7 +312,7 @@ export async function editWebhookMessage(
     author: authorOf(w),
     patch: {
       ...(m.has.content ? { content: m.content ? sanitizeMessageContent(m.content) : '', mentionedUserIds: m.allowedUserIds ?? [] } : {}),
-      ...(m.has.embeds ? { embeds: m.embeds } : {}),
+      ...(m.has.embeds ? { embeds: emb.embeds } : {}),
       ...(components !== undefined ? { components: components ?? [] } : {}),
       ...(m.has.attachments ? { attachments } : {}),
       ...(m.has.flags ? { flags: m.flags } : {}),

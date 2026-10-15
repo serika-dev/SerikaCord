@@ -2464,9 +2464,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
   const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_WEBHOOKS);
   if (!g.ok) { set.status = g.status; return g.body; }
-  const { serializeWebhook } = await import('@/lib/services/channelWebhooks');
+  const { serializeWebhook, mayShowWebhookToken } = await import('@/lib/services/channelWebhooks');
   const webhooks = await ChannelWebhook.find({ serverId: params.guildId });
-  return webhooks.map((w) => serializeWebhook(w, { withToken: true }));
+  return webhooks.map((w) => serializeWebhook(w, { withToken: mayShowWebhookToken(w, auth.app.id) }));
 })
 .get('/channels/:channelId/webhooks', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -2477,9 +2477,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!c.ok) { set.status = c.status; return c.body; }
   const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
-  const { serializeWebhook } = await import('@/lib/services/channelWebhooks');
+  const { serializeWebhook, mayShowWebhookToken } = await import('@/lib/services/channelWebhooks');
   const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
-  return webhooks.map((w) => serializeWebhook(w, { withToken: true }));
+  return webhooks.map((w) => serializeWebhook(w, { withToken: mayShowWebhookToken(w, auth.app.id) }));
 })
 .post('/channels/:channelId/webhooks', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
@@ -2531,8 +2531,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 404; return { code: 10015, message: 'Unknown Webhook' };
   }
   const creator = webhook.creatorId ? await User.findById(webhook.creatorId) : null;
-  const { serializeWebhook } = await import('@/lib/services/channelWebhooks');
-  return serializeWebhook(webhook, { withToken: isCreator || canManage, user: creator ? formatUser(creator) : undefined });
+  const { serializeWebhook, mayShowWebhookToken } = await import('@/lib/services/channelWebhooks');
+  return serializeWebhook(webhook, { withToken: (isCreator || canManage) && mayShowWebhookToken(webhook, auth.app.id), user: creator ? formatUser(creator) : undefined });
 })
 .patch('/webhooks/:webhookId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);

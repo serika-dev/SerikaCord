@@ -23,6 +23,7 @@ import {
 } from '@/lib/chat/botMultipart';
 import type { IncomingAttachment } from '@/lib/chat/attachmentPolicy';
 import { MESSAGE_FLAGS } from '@/lib/chat/messageFlags';
+import { validateEmbeds } from '@/lib/chat/embedValidation';
 
 export const FLAG_EPHEMERAL = 1 << 6;
 export const FLAG_LOADING = 1 << 7;
@@ -36,7 +37,10 @@ export interface OutgoingMessage {
   /** Fields present in the request (an edit only changes these). */
   has: { content: boolean; embeds: boolean; components: boolean; flags: boolean; attachments: boolean };
   content: string;
+  /** Embeds validated with placeholder URLs for new files; resolveEmbeds() gives the final ones. */
   embeds: unknown[];
+  /** The request's embeds as sent (re-validated once the files' URLs are known). */
+  rawEmbeds: unknown;
   components: MessageComponent[] | null;
   flags: number;
   ephemeral: boolean;
@@ -71,7 +75,14 @@ export function allowedUserMentions(content: string, allowed: unknown): string[]
  * Parse an app-sent message body. `mode: 'edit'` keeps absent fields;
  * `existingAttachmentIds` lets an edit keep attachments by id.
  */
-export interface OutgoingOptions { mode: 'create' | 'edit'; existingAttachmentIds?: string[]; existingFlags?: number; allowEphemeral?: boolean }
+export interface OutgoingOptions {
+  mode: 'create' | 'edit';
+  existingAttachmentIds?: string[];
+  /** Edit: file names of the message's attachments (attachment:// in embeds). */
+  existingAttachmentNames?: string[];
+  existingFlags?: number;
+  allowEphemeral?: boolean;
+}
 export type OutgoingParse = ({ ok: true; message: OutgoingMessage; files: Array<{ index: number; file: FileLike }>; fileMeta: Map<number, AttachmentMeta> }) | ApiFailure;
 
 export function parseOutgoingMessage(body: unknown, opts: OutgoingOptions): OutgoingParse {
@@ -104,13 +115,23 @@ export function parseOutgoingPayload(
     else content = p.content;
   }
 
+  // Same embed rules as bot messages (lib/chat/embedValidation: http(s) URLs
+  // only, known fields only, Discord's limits). attachment:// may name a file
+  // of this request; resolveEmbeds() swaps in the real URL after upload.
   let embeds: unknown[] = [];
+  let embedErrors: unknown = null;
   if (p.embeds !== undefined && p.embeds !== null) {
-    if (!Array.isArray(p.embeds) || p.embeds.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) errors.add(['embeds'], FE.BAD_TYPE, 'Must be an array of objects.');
-    else if (p.embeds.length > MAX_EMBEDS) errors.add(['embeds'], FE.MAX_LENGTH, `Must be ${MAX_EMBEDS} or fewer in length.`);
-    else if (JSON.stringify(p.embeds).length > MAX_EMBEDS_JSON) errors.add(['embeds'], FE.MAX_LENGTH, 'Embed size exceeds maximum size of 6000');
-    else embeds = p.embeds;
+    if (Array.isArray(p.embeds) && JSON.stringify(p.embeds).length > MAX_EMBEDS_JSON) errors.add(['embeds'], FE.MAX_LENGTH, 'Embed size exceeds maximum size of 6000');
+    else {
+      const placeholders = new Map<string, string>();
+      for (const f of files) placeholders.set(f.file.name || `file${f.index}`, 'https://attachment.invalid/');
+      for (const name of opts.existingAttachmentNames ?? []) placeholders.set(name, 'https://attachment.invalid/');
+      const checked = validateEmbeds(p.embeds, { attachments: placeholders });
+      if (checked.ok) embeds = checked.embeds;
+      else embedErrors = checked.errors;
+    }
   }
+  void MAX_EMBEDS;
 
   let flags = opts.mode === 'edit' ? (opts.existingFlags ?? 0) : 0;
   if (p.flags !== undefined && p.flags !== null) {
@@ -154,6 +175,10 @@ export function parseOutgoingPayload(
   }
   if (parsed.files.length > MAX_BOT_FILES) errors.add(['files'], FE.MAX_LENGTH, `Must be ${MAX_BOT_FILES} or fewer in length.`);
 
+  if (embedErrors) {
+    const body = errors.toBody();
+    return { ok: false, status: 400, body: { ...body, errors: { ...(body.errors as object), ...(embedErrors as object) } } as DiscordFormError };
+  }
   if (!errors.ok) return { ok: false, status: 400, body: errors.toBody() };
   return {
     ok: true,
@@ -163,6 +188,7 @@ export function parseOutgoingPayload(
       has,
       content,
       embeds,
+      rawEmbeds: p.embeds,
       components,
       flags,
       ephemeral: (flags & FLAG_EPHEMERAL) !== 0,
@@ -176,6 +202,27 @@ export function parseOutgoingPayload(
       attachmentRefs,
     },
   };
+}
+
+/** The final embeds once the message's attachments (and their URLs) are known. */
+export function resolveEmbeds(m: OutgoingMessage, attachments: IncomingAttachment[]): { ok: true; embeds: unknown[] } | ApiFailure {
+  if (m.rawEmbeds === undefined || m.rawEmbeds === null) return { ok: true, embeds: m.embeds };
+  const urls = new Map<string, string>();
+  for (const a of attachments) if (typeof a.filename === 'string' && typeof a.url === 'string') urls.set(a.filename, a.url);
+  const checked = validateEmbeds(m.rawEmbeds, { attachments: urls });
+  if (!checked.ok) return { ok: false, status: 400, body: { code: 50035, message: 'Invalid Form Body', errors: checked.errors } as unknown as DiscordFormError };
+  return { ok: true, embeds: checked.embeds };
+}
+
+/**
+ * Message text from an app, prepared like bot messages (HTML-escaped the way
+ * user text is stored, custom emoji normalized).
+ */
+export async function prepareAppContent(content: string): Promise<string> {
+  if (!content) return '';
+  const { sanitizeMessageContent } = await import('@/lib/api/channels');
+  const { normalizeEmojiFormat } = await import('@/lib/services/emoji');
+  return normalizeEmojiFormat(sanitizeMessageContent(content));
 }
 
 /** A create must have something to show. */

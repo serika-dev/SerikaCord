@@ -35,8 +35,8 @@ import {
 } from '@/lib/botapi/components';
 import { FormErrors, formError, FE } from '@/lib/botapi/formErrors';
 import {
-  FLAG_EPHEMERAL, FLAG_LOADING, finalizeComponents, isEmptyOutgoing, parseOutgoingPayload, uploadOutgoingFiles,
-  type ApiFailure, type OutgoingMessage,
+  FLAG_EPHEMERAL, FLAG_LOADING, finalizeComponents, isEmptyOutgoing, parseOutgoingPayload, prepareAppContent, resolveEmbeds,
+  uploadOutgoingFiles, type ApiFailure, type OutgoingMessage,
 } from '@/lib/services/outgoingMessage';
 import {
   createAppMessage, deleteAppMessage, deleteEphemeral, editAppMessage, editEphemeral, ephemeralToDiscord, notifyInvoker,
@@ -148,7 +148,11 @@ export async function postSignedInteraction(
     const timestamp = String(Math.floor(Date.now() / 1000));
     const signature = signInteraction(app.privateKeyPem, timestamp + body);
     const { safeFetch } = await import('@/lib/security/ssrf');
-    const res = await safeFetch(app.interactionsEndpointUrl, {
+    // The DNS check inside safeFetch isn't covered by the fetch's AbortSignal:
+    // bound the whole call so a slow resolver can't hold a slot.
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    const timedOut = new Promise<null>((resolve) => { deadline = setTimeout(() => resolve(null), ACK_DEADLINE_MS + 250); });
+    const res = await Promise.race([timedOut, safeFetch(app.interactionsEndpointUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -158,7 +162,9 @@ export async function postSignedInteraction(
       },
       body,
       signal: AbortSignal.timeout(ACK_DEADLINE_MS),
-    }, { maxRedirects: 0 });
+    }, { maxRedirects: 0 })]);
+    if (deadline) clearTimeout(deadline);
+    if (!res) return null;
     if (res.status >= 300 && res.status < 400) return { ok: false, status: res.status, body: null };
     const json = await readJsonLimited(res);
     return { ok: res.ok, status: res.status, body: json };
@@ -331,13 +337,16 @@ async function materialize(
   uploaderId: string,
   channelId: string,
   keep: IncomingAttachment[],
-): Promise<{ ok: true; attachments: IncomingAttachment[]; components: OutgoingMessage['components'] } | ApiFailure> {
+): Promise<{ ok: true; attachments: IncomingAttachment[]; components: OutgoingMessage['components']; embeds: unknown[]; content: string } | ApiFailure> {
   const uploaded = await uploadOutgoingFiles({ files: parsed.files, meta: parsed.fileMeta, uploaderId, channelId });
   if (!uploaded.ok) return uploaded;
   const attachments = [...keep, ...uploaded.attachments];
   const fin = finalizeComponents(parsed.message.components, attachments);
   if (!fin.ok) return fin;
-  return { ok: true, attachments, components: fin.components };
+  const emb = resolveEmbeds(parsed.message, attachments);
+  if (!emb.ok) return emb;
+  const content = await prepareAppContent(parsed.message.content);
+  return { ok: true, attachments, components: fin.components, embeds: emb.embeds, content };
 }
 
 function botAuthorOf(state: InteractionState): AppAuthor {
@@ -400,7 +409,7 @@ async function applyCallback(
         const created = await createAppMessage({
           author: botAuthorOf(state),
           channel,
-          body: { content: p.message.content, embeds: p.message.embeds, components: mat.components, attachments: mat.attachments, flags: p.message.flags, mentionedUserIds: p.message.ephemeral ? [] : p.message.allowedUserIds ?? [] },
+          body: { content: mat.content, embeds: mat.embeds, components: mat.components, attachments: mat.attachments, flags: p.message.flags, mentionedUserIds: p.message.ephemeral ? [] : p.message.allowedUserIds ?? [] },
           interaction: interactionRef(state),
           ephemeralFor: p.message.ephemeral ? { userId: state.invokerId, store, interactionId: state.id, applicationId: state.applicationId, botId: state.botId } : null,
         });
@@ -544,10 +553,10 @@ function keepAttachments(existing: IncomingAttachment[], keepIds: string[] | nul
   return existing.filter((a) => keepIds.includes(String(a.id)));
 }
 
-function patchFrom(m: OutgoingMessage, mat: { attachments: IncomingAttachment[]; components: OutgoingMessage['components'] }) {
+function patchFrom(m: OutgoingMessage, mat: { attachments: IncomingAttachment[]; components: OutgoingMessage['components']; embeds: unknown[]; content: string }) {
   return {
-    ...(m.has.content ? { content: m.content } : {}),
-    ...(m.has.embeds ? { embeds: m.embeds } : {}),
+    ...(m.has.content ? { content: mat.content } : {}),
+    ...(m.has.embeds ? { embeds: mat.embeds } : {}),
     ...(m.has.components ? { components: mat.components ?? [] } : {}),
     ...(m.has.attachments ? { attachments: mat.attachments } : {}),
     ...(m.has.flags ? { flags: m.flags } : {}),
@@ -568,6 +577,8 @@ export async function handleInteractionCallback(
   const store = interactionStore();
   const state = await store.getByToken(token);
   if (!state || !same(state.id, interactionId)) return { status: 404, body: { code: 10062, message: 'Unknown interaction' } };
+  const limited = await tokenRateLimited(state);
+  if (limited) return limited;
   const parsed = parseBotMessageBody(body);
   if (!parsed.ok) return { status: 400, body: { code: parsed.code, message: parsed.error } };
   return applyCallback(state, { payload: parsed.payload, files: parsed.files }, { withResponse: Boolean(opts.withResponse) });
@@ -579,6 +590,9 @@ export async function handleInteractionCallback(
 export async function resolveInteractionWebhook(applicationId: string, token: string): Promise<InteractionState | null> {
   const state = await interactionStore().getByToken(token);
   if (!state || !checkTokenAlive(state).ok) return null;
+  // Autocomplete and PING tokens never get messages (a type-8 answer isn't a
+  // reply the user asked for).
+  if (state.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE || state.type === InteractionType.PING) return null;
   if (same(state.applicationId, applicationId)) return state;
   // clientId alias for the application id.
   const app = await Application.findById(state.applicationId).catch(() => null);
@@ -616,10 +630,31 @@ async function findTarget(state: InteractionState, messageId: string): Promise<T
   return { kind: 'message', message: msg, author, original: isOriginal || same(id, response?.messageId) };
 }
 
+/**
+ * Token routes carry no bot token, so the per-bot limits don't apply: limit
+ * per interaction and per application here instead (Discord-shaped 429).
+ */
+async function tokenRateLimited(state: InteractionState): Promise<CallbackResult | null> {
+  const { checkRateLimit } = await import('@/lib/security');
+  for (const [limiter, key] of [['interactionToken', state.id], ['interactionApp', state.applicationId]] as const) {
+    const r = await checkRateLimit(limiter, key);
+    if (!r.success) {
+      const retry = Math.max(0.001, (r.resetAfterMs ?? (r.retryAfter ?? 1) * 1000) / 1000);
+      return { status: 429, body: { message: 'You are being rate limited.', retry_after: retry, global: false } };
+    }
+  }
+  return null;
+}
+
 /** POST /webhooks/{app}/{token}: a followup message. */
 export async function createFollowup(state: InteractionState, body: unknown): Promise<CallbackResult> {
+  const limited = await tokenRateLimited(state);
+  if (limited) return limited;
   const store = interactionStore();
   if (!(await store.isAcked(state.id))) return UNKNOWN_WEBHOOK;
+  const ack = await store.getResponse(state.id);
+  // A modal or autocomplete answer isn't a message to follow up on.
+  if (ack && (ack.type === CallbackType.MODAL || ack.type === CallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT)) return UNKNOWN_WEBHOOK;
   const parsedBody = parseBotMessageBody(body);
   if (!parsedBody.ok) return { status: 400, body: { code: parsedBody.code, message: parsedBody.error } };
   const p = parseOutgoingPayload(parsedBody.payload, parsedBody.files, { mode: 'create', allowEphemeral: true });
@@ -645,7 +680,7 @@ export async function createFollowup(state: InteractionState, body: unknown): Pr
   const created = await createAppMessage({
     author: botAuthorOf(state),
     channel,
-    body: { content: p.message.content, embeds: p.message.embeds, components: mat.components, attachments: mat.attachments, flags: p.message.flags, mentionedUserIds: p.message.ephemeral ? [] : p.message.allowedUserIds ?? [] },
+    body: { content: mat.content, embeds: mat.embeds, components: mat.components, attachments: mat.attachments, flags: p.message.flags, mentionedUserIds: p.message.ephemeral ? [] : p.message.allowedUserIds ?? [] },
     interaction: interactionRef(state),
     ephemeralFor: p.message.ephemeral ? { userId: state.invokerId, store, interactionId: state.id, applicationId: state.applicationId, botId: state.botId } : null,
   });
@@ -681,6 +716,8 @@ export async function getInteractionMessage(state: InteractionState, messageId: 
 
 /** PATCH /webhooks/{app}/{token}/messages/{@original|id}. */
 export async function editInteractionMessage(state: InteractionState, messageId: string, body: unknown): Promise<CallbackResult> {
+  const limited = await tokenRateLimited(state);
+  if (limited) return limited;
   const store = interactionStore();
   const target = await findTarget(state, messageId);
   if (!target) return UNKNOWN_MESSAGE;
@@ -690,6 +727,7 @@ export async function editInteractionMessage(state: InteractionState, messageId:
   const p = parseOutgoingPayload(parsedBody.payload, parsedBody.files, {
     mode: 'edit',
     existingAttachmentIds: ((existing.attachments ?? []) as IncomingAttachment[]).map((a) => String(a.id)),
+    existingAttachmentNames: ((existing.attachments ?? []) as IncomingAttachment[]).map((a) => a.filename),
     existingFlags: (existing.flags ?? 0) & ~FLAG_LOADING,
   });
   if (!p.ok) return failure(p);
@@ -706,6 +744,8 @@ export async function editInteractionMessage(state: InteractionState, messageId:
 
 /** DELETE /webhooks/{app}/{token}/messages/{@original|id}. */
 export async function deleteInteractionMessage(state: InteractionState, messageId: string): Promise<CallbackResult> {
+  const limited = await tokenRateLimited(state);
+  if (limited) return limited;
   const target = await findTarget(state, messageId);
   if (!target) return UNKNOWN_MESSAGE;
   if (target.kind === 'ephemeral') {

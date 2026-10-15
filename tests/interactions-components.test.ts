@@ -222,3 +222,25 @@ describe("modals", () => {
     expect(IS_COMPONENTS_V2).toBe(32768);
   });
 });
+
+describe("app message bodies (interaction responses, webhooks)", () => {
+  test("embeds go through the shared validator and attachment:// resolves after upload", async () => {
+    const { parseOutgoingMessage, resolveEmbeds } = await import("@/lib/services/outgoingMessage");
+    const bad = parseOutgoingMessage({ embeds: [{ title: "x", url: "javascript:alert(1)" }] }, { mode: "create" });
+    expect(bad.ok).toBeFalse();
+    const ok = parseOutgoingMessage({ embeds: [{ title: "x", image: { url: "attachment://a.png" } }] }, { mode: "create", existingAttachmentNames: ["a.png"] });
+    expect(ok.ok).toBeTrue();
+    if (!ok.ok) return;
+    const final = resolveEmbeds(ok.message, [{ id: "1", filename: "a.png", url: "https://cdn.example/a.png", contentType: "image/png" }]);
+    expect(final.ok && JSON.stringify(final.embeds)).toContain("https://cdn.example/a.png");
+  });
+
+  test("components v2 forbid content; ephemeral only where allowed", async () => {
+    const { parseOutgoingMessage } = await import("@/lib/services/outgoingMessage");
+    expect(parseOutgoingMessage({ content: "hi", flags: IS_COMPONENTS_V2, components: [{ type: 10, content: "x" }] }, { mode: "create" }).ok).toBeFalse();
+    const eph = parseOutgoingMessage({ content: "hi", flags: 64 }, { mode: "create" });
+    expect(eph.ok && eph.message.ephemeral).toBeFalse();
+    const eph2 = parseOutgoingMessage({ content: "hi", flags: 64 }, { mode: "create", allowEphemeral: true });
+    expect(eph2.ok && eph2.message.ephemeral).toBeTrue();
+  });
+});
