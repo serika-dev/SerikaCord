@@ -146,7 +146,9 @@ async function main() {
       }
 
       // ─── WebSocket upgrade for gateway ──────────────────────
-      if (pathname === GATEWAY_PATH) {
+      // A plain GET (no Upgrade header) is Discord's REST `GET /gateway`, which
+      // the Elysia bot API answers with `{ url }`.
+      if (pathname === GATEWAY_PATH && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
         return gateway.upgrade(req, server);
       }
 
