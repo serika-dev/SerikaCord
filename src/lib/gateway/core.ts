@@ -137,7 +137,7 @@ function gwlog(...args: unknown[]) {
 
 /** How long a closed session can be resumed (its state and replay buffer are kept). */
 const RESUME_WINDOW_MS = 5 * 60_000;
-const MAX_DETACHED = 10_000;
+const MAX_DETACHED = 2_000;
 
 async function toSnowflakes<T>(payload: T): Promise<T> {
   const { toSnowflakes: translate } = await import('@/lib/botapi/boundary');

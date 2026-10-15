@@ -88,7 +88,7 @@ export function isSupportedVersion(v: string | null | undefined): boolean {
 // ─── Replay buffer ────────────────────────────────────────────────────────────
 
 export const REPLAY_MAX_FRAMES = 1000;
-export const REPLAY_MAX_BYTES = 4 * 1024 * 1024;
+export const REPLAY_MAX_BYTES = 1024 * 1024;
 
 export interface ReplayBuffer {
   frames: Array<{ s: number; text: string }>;
