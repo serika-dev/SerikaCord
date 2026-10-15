@@ -258,7 +258,7 @@ async function webhookMessage(w: WebhookRow, messageId: string, threadId?: strin
 export async function getWebhookMessage(w: WebhookRow, messageId: string, threadId?: string): Promise<WebhookResult> {
   const found = await webhookMessage(w, messageId, threadId);
   if (!found) return UNKNOWN_MESSAGE;
-  return { status: 200, body: await discordMessageFromRow(found.message, { id: w.id, username: w.name, avatar: w.avatar ?? null, isBot: true }) };
+  return { status: 200, body: await discordMessageFromRow(found.message) };
 }
 
 export async function editWebhookMessage(

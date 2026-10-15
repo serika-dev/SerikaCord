@@ -558,12 +558,8 @@ async function deleteReportedMessage(messageId: string): Promise<'deleted' | 'al
     const { softDeleteChannelMessage } = await import('@/lib/api/channels');
     await softDeleteChannelMessage(channel, message);
   }
-  // Bots only hear about guild messages here: a guildId-less MESSAGE_DELETE
-  // would reach bots that aren't in the DM (the DM delete paths emit none).
-  if (channel.serverId) {
-    const { emitMessageDelete } = await import('@/lib/services/gatewayEvents');
-    void Promise.resolve(emitMessageDelete({ id: message.id, channelId: channel.id, guildId: channel.serverId })).catch(() => {});
-  }
+  // Both delete paths emit MESSAGE_DELETE to the bots that can see the
+  // conversation (channel viewers, or the DM's bot recipients).
   return 'deleted';
 }
 

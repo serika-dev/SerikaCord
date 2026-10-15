@@ -1,9 +1,12 @@
 import { getPublisher } from '@/lib/db';
 import { config } from '@/lib/config';
-import { toDiscordPoll, type PollResultData, type StoredPoll } from '@/lib/chat/polls';
+import type { PollResultData, StoredPoll } from '@/lib/chat/polls';
 import type { ForwardView } from '@/lib/chat/forward';
-import { toDiscordVoiceFields, type VoiceAttachmentMeta } from '@/lib/chat/voiceMessage';
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
+import { discordUser, serializeMessage, type UserLike } from '@/lib/chat/discordMessage';
+import { discordEmoji } from '@/lib/chat/reactionEmoji';
+import { processShared } from '@/lib/realtime/processShared';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 
 /**
  * Central bus that feeds the standalone bot Gateway (scripts/gateway.ts).
@@ -22,8 +25,12 @@ export const Intents = {
   GUILD_PRESENCES: 1 << 8,
   GUILD_MODERATION: 1 << 2,
   GUILD_MESSAGES: 1 << 9,
+  GUILD_MESSAGE_REACTIONS: 1 << 10,
+  GUILD_MESSAGE_TYPING: 1 << 11,
   GUILD_SCHEDULED_EVENTS: 1 << 16,
   DIRECT_MESSAGES: 1 << 12,
+  DIRECT_MESSAGE_REACTIONS: 1 << 13,
+  DIRECT_MESSAGE_TYPING: 1 << 14,
   MESSAGE_CONTENT: 1 << 15,
   AUTO_MODERATION_CONFIGURATION: 1 << 20,
   AUTO_MODERATION_EXECUTION: 1 << 21,
@@ -65,13 +72,38 @@ async function publish(dispatch: GatewayDispatch) {
  * only to the bots allowed to see that channel. Nothing is published when no
  * bot may see it (or the channel is unknown): default-deny.
  */
-async function publishChannelScoped(dispatch: Omit<GatewayDispatch, 'audience'>, channelId: string | null | undefined) {
+async function publishChannelScoped(
+  dispatch: Omit<GatewayDispatch, 'audience'>,
+  channelId: string | null | undefined,
+  opts: { excludeUserId?: string | null } = {},
+) {
+  return publishChannelScopedLazy({ t: dispatch.t, guildId: dispatch.guildId, intent: dispatch.intent }, channelId, async () => dispatch.d, opts);
+}
+
+/**
+ * Like publishChannelScoped, but the payload is only built (DB lookups, member
+ * objects) when at least one bot may receive it. `build` returning null drops
+ * the event. `excludeUserId` keeps an actor's own event away from it
+ * (TYPING_START of the bot itself).
+ */
+async function publishChannelScopedLazy(
+  meta: Omit<GatewayDispatch, 'audience' | 'd'>,
+  channelId: string | null | undefined,
+  build: () => Promise<unknown>,
+  opts: { excludeUserId?: string | null } = {},
+) {
   if (!channelId) return;
   try {
     const { channelAudience } = await import('./gatewayAudience');
-    const audience = await channelAudience(channelId, dispatch.guildId);
+    let audience = await channelAudience(channelId, meta.guildId);
+    if (opts.excludeUserId) {
+      const ex = opts.excludeUserId.toLowerCase();
+      audience = audience.filter((id) => id.toLowerCase() !== ex);
+    }
     if (audience.length === 0) return;
-    await publish({ ...dispatch, audience });
+    const d = await build();
+    if (d === null || d === undefined) return;
+    await publish({ ...meta, d, audience });
   } catch {
     // Best-effort, like publish().
   }
@@ -141,143 +173,93 @@ interface InternalMessage {
   interaction?: { id?: string; type?: number; name?: string; user?: { id: string; username?: string } } | null;
 }
 
-/** Discord message type numbers for our string types. */
-const MESSAGE_TYPE_NUMBERS: Record<string, number> = { default: 0, reply: 19, call: 3, poll_result: 46 };
-
-function iso(d?: Date | string | null): string | null {
-  if (!d) return null;
-  return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
-}
-
 export function toDiscordUser(a: NonNullable<InternalMessage['author']>) {
-  return {
-    id: a.id,
-    username: a.username ?? '',
-    global_name: a.displayName ?? a.username ?? null,
-    display_name: a.displayName ?? a.username ?? null,
-    avatar: a.avatar ?? null,
-    bot: a.isBot ?? false,
-    system: a.isSystem ?? false,
-    discriminator: '0',
-    public_flags: 0,
-  };
+  return discordUser({ id: a.id, username: a.username ?? null, displayName: a.displayName ?? null, avatar: a.avatar ?? null, isBot: a.isBot, isSystem: a.isSystem });
 }
 
+/**
+ * Discord message object from an in-memory payload (the shape channels.ts /
+ * dms.ts publish to web clients). Only a fallback: the emitters below
+ * re-read the stored row (src/lib/services/botMessages.ts) so the gateway
+ * sends exactly what GET /channels/{id}/messages/{id} returns.
+ */
 export function toDiscordMessage(m: InternalMessage) {
-  return {
+  const users = new Map<string, UserLike>();
+  // A webhook author is serialized as the webhook (webhook_id set), not a user.
+  const webhooks = new Map<string, { id: string; name?: string | null; avatar?: string | null }>();
+  if (m.author && m.webhookId && m.author.id.toLowerCase() === m.webhookId.toLowerCase()) {
+    webhooks.set(m.webhookId.toLowerCase(), { id: m.webhookId, name: m.author.username ?? null, avatar: m.author.avatar ?? null });
+  } else if (m.author) users.set(m.author.id.toLowerCase(), m.author);
+  return serializeMessage({
     id: m.id,
-    channel_id: m.channelId,
-    guild_id: m.serverId ?? null,
-    author: m.author ? toDiscordUser(m.author) : null,
+    channelId: m.channelId,
+    serverId: m.serverId ?? null,
+    authorId: m.author?.id ?? '',
     content: m.content ?? '',
-    timestamp: iso(m.createdAt),
-    edited_timestamp: m.edited ? iso(m.updatedAt) : null,
-    tts: false,
-    mention_everyone: m.mentionEveryone ?? false,
-    mentions: (m.mentionedUserIds ?? []).map((id) => ({ id })),
-    mention_roles: m.mentionedRoleIds ?? [],
-    attachments: (m.attachments ?? []).map((a) => ({
-      id: a.id ?? '0',
-      filename: a.filename,
-      size: a.size ?? 0,
-      url: a.url,
-      proxy_url: a.proxyUrl ?? a.url,
-      content_type: a.contentType,
-      width: a.width,
-      height: a.height,
-      ...(typeof a.description === 'string' ? { description: a.description } : {}),
-      ...toDiscordVoiceFields(a as VoiceAttachmentMeta),
-    })),
-    embeds: Array.isArray(m.embeds) ? m.embeds : [],
-    components: Array.isArray(m.components) ? m.components : [],
-    ...(m.webhookId ? { webhook_id: m.webhookId } : {}),
-    ...(m.applicationId ? { application_id: m.applicationId } : {}),
-    ...(m.interaction?.id ? {
-      interaction: {
-        id: m.interaction.id,
-        type: m.interaction.type ?? 2,
-        name: m.interaction.name ?? '',
-        user: m.interaction.user ? toDiscordUser({ id: m.interaction.user.id, username: m.interaction.user.username }) : null,
-      },
-      interaction_metadata: {
-        id: m.interaction.id,
-        type: m.interaction.type ?? 2,
-        user: m.interaction.user ? toDiscordUser({ id: m.interaction.user.id, username: m.interaction.user.username }) : null,
-        authorizing_integration_owners: m.serverId ? { '0': m.serverId } : {},
-      },
-    } : {}),
+    type: typeof m.type === 'string' ? m.type : 'default',
+    createdAt: m.createdAt ?? null,
+    updatedAt: m.updatedAt ?? null,
+    edited: m.edited ?? false,
+    attachments: m.attachments ?? [],
     reactions: m.reactions ?? [],
     pinned: m.pinned ?? false,
-    type: typeof m.type === 'number' ? m.type : (MESSAGE_TYPE_NUMBERS[String(m.type)] ?? 0),
-    flags: typeof m.flags === 'number' ? m.flags : 0,
-    ...(m.poll ? { poll: toDiscordPoll(m.poll) } : {}),
-    ...(m.pollResult ? {
-      embeds: [{
-        type: 'poll_result',
-        fields: [
-          { name: 'poll_question_text', value: m.pollResult.question, inline: false },
-          { name: 'total_votes', value: String(m.pollResult.totalVotes), inline: false },
-          ...(m.pollResult.winnerIds.length === 1 ? (() => {
-            const w = m.pollResult!.answers.find((a) => a.id === m.pollResult!.winnerIds[0]);
-            return w ? [
-              { name: 'victor_answer_id', value: String(w.id), inline: false },
-              { name: 'victor_answer_text', value: w.text, inline: false },
-              { name: 'victor_answer_votes', value: String(w.votes), inline: false },
-            ] : [];
-          })() : []),
-        ],
-      }],
-    } : {}),
-    ...(m.forward ? {
-      message_snapshots: [{
-        message: {
-          content: m.forward.content,
-          attachments: m.forward.attachments,
-          embeds: m.forward.embeds,
-          timestamp: m.forward.createdAt,
-          edited_timestamp: null,
-          type: 0,
-          flags: 0,
-        },
-      }],
-    } : {}),
-    referenced_message: m.referencedMessage
-      ? {
-          id: m.referencedMessage.id,
-          channel_id: m.channelId,
-          content: m.referencedMessage.content ?? '',
-          author: m.referencedMessage.author ? toDiscordUser(m.referencedMessage.author) : null,
-          timestamp: iso(m.referencedMessage.createdAt),
-        }
+    flags: m.flags ?? 0,
+    mentionEveryone: m.mentionEveryone ?? false,
+    mentionedUserIds: m.mentionedUserIds ?? [],
+    mentionedRoleIds: m.mentionedRoleIds ?? [],
+    referencedMessageId: m.referencedMessageId ?? null,
+    poll: m.pollResult ?? m.poll ?? null,
+    embeds: m.embeds ?? [],
+    components: m.components ?? [],
+    interaction: m.interaction?.id ? { ...m.interaction, applicationId: m.applicationId ?? null } : null,
+  }, {
+    users,
+    webhooks,
+    includeGuildId: true,
+    forward: m.forward
+      ? { messageId: m.forward.messageId, channelId: m.forward.channelId, content: m.forward.content, attachments: m.forward.attachments, embeds: m.forward.embeds, sticker: m.forward.sticker, createdAt: m.forward.createdAt }
       : null,
-    message_reference: m.forward
-      ? { type: 1, message_id: m.forward.messageId, channel_id: m.forward.channelId }
-      : m.referencedMessageId
-        ? { type: 0, message_id: m.referencedMessageId, channel_id: m.channelId, guild_id: m.serverId ?? undefined }
-        : undefined,
-  };
+  });
 }
 
 // ─── Public emitters ───────────────────────────────────────
 
-export function emitMessageCreate(message: InternalMessage) {
-  const isDM = !message.serverId;
-  return publishChannelScoped({
-    t: 'MESSAGE_CREATE',
-    guildId: message.serverId ?? null,
-    intent: isDM ? Intents.DIRECT_MESSAGES : Intents.GUILD_MESSAGES,
-    d: toDiscordMessage(message),
-  }, message.channelId);
+function messageIntent(guildId: string | null | undefined) {
+  return guildId ? Intents.GUILD_MESSAGES : Intents.DIRECT_MESSAGES;
 }
 
-export function emitMessageUpdate(message: InternalMessage) {
-  const isDM = !message.serverId;
-  return publishChannelScoped({
-    t: 'MESSAGE_UPDATE',
-    guildId: message.serverId ?? null,
-    intent: isDM ? Intents.DIRECT_MESSAGES : Intents.GUILD_MESSAGES,
-    d: toDiscordMessage(message),
-  }, message.channelId);
+/** The stored message as a gateway payload, falling back to the in-memory one. */
+async function gatewayMessagePayload(message: InternalMessage, extras: { nonce?: string | number | null } = {}) {
+  try {
+    const { loadGatewayMessage } = await import('./botMessages');
+    const loaded = await loadGatewayMessage(message.id, extras);
+    if (loaded) return loaded;
+  } catch {
+    // fall through to the in-memory shape
+  }
+  return { ...toDiscordMessage(message), ...(extras.nonce !== undefined && extras.nonce !== null ? { nonce: extras.nonce } : {}) };
+}
+
+/**
+ * MESSAGE_CREATE for any new message (user, bot, webhook, system, DM). The
+ * payload is the stored row serialized like the REST API (plus guild_id and
+ * the author's member), built only when some bot may see the channel.
+ */
+export function emitMessageCreate(message: InternalMessage, extras: { nonce?: string | number | null } = {}) {
+  return publishChannelScopedLazy(
+    { t: 'MESSAGE_CREATE', guildId: message.serverId ?? null, intent: messageIntent(message.serverId) },
+    message.channelId,
+    () => gatewayMessagePayload(message, extras),
+  );
+}
+
+/** MESSAGE_UPDATE with the full, current message (edits, embed suppression, flag changes). */
+export function emitMessageUpdate(message: Pick<InternalMessage, 'id' | 'channelId' | 'serverId'> & Partial<InternalMessage>) {
+  return publishChannelScopedLazy(
+    { t: 'MESSAGE_UPDATE', guildId: message.serverId ?? null, intent: messageIntent(message.serverId) },
+    message.channelId,
+    () => gatewayMessagePayload(message as InternalMessage),
+  );
 }
 
 /**
@@ -308,9 +290,150 @@ export function emitMessageDelete(opts: { id: string; channelId: string; guildId
   return publishChannelScoped({
     t: 'MESSAGE_DELETE',
     guildId: opts.guildId ?? null,
-    intent: opts.guildId ? Intents.GUILD_MESSAGES : Intents.DIRECT_MESSAGES,
-    d: { id: opts.id, channel_id: opts.channelId, guild_id: opts.guildId ?? null },
+    intent: messageIntent(opts.guildId),
+    d: { id: opts.id, channel_id: opts.channelId, ...(opts.guildId ? { guild_id: opts.guildId } : {}) },
   }, opts.channelId);
+}
+
+/** MESSAGE_DELETE_BULK (bot bulk delete, moderator /clear). */
+export function emitMessageDeleteBulk(opts: { ids: string[]; channelId: string; guildId?: string | null }) {
+  if (opts.ids.length === 0) return Promise.resolve();
+  return publishChannelScoped({
+    t: 'MESSAGE_DELETE_BULK',
+    guildId: opts.guildId ?? null,
+    intent: messageIntent(opts.guildId),
+    d: { ids: opts.ids, channel_id: opts.channelId, ...(opts.guildId ? { guild_id: opts.guildId } : {}) },
+  }, opts.channelId);
+}
+
+interface ReactionEmojiRef { name: string; id?: string | null; animated?: boolean | null }
+
+function reactionIntent(guildId: string | null | undefined) {
+  return guildId ? Intents.GUILD_MESSAGE_REACTIONS : Intents.DIRECT_MESSAGE_REACTIONS;
+}
+
+/** A guild member object (with user) for reaction / typing events, or undefined. */
+async function memberWithUser(guildId: string | null | undefined, userId: string) {
+  if (!guildId) return undefined;
+  try {
+    const { ServerMember, User } = await import('@/lib/models');
+    const [member, user] = await Promise.all([
+      ServerMember.findOne({ serverId: guildId, userId }),
+      User.findById(userId),
+    ]);
+    if (!member) return undefined;
+    const { discordPartialMember } = await import('@/lib/chat/discordMessage');
+    return { ...discordPartialMember(member), ...(user ? { user: discordUser(user) } : {}) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** MESSAGE_REACTION_ADD (user or bot reacted). */
+export function emitReactionAdd(opts: {
+  channelId: string;
+  guildId?: string | null;
+  messageId: string;
+  messageAuthorId?: string | null;
+  userId: string;
+  emoji: ReactionEmojiRef;
+}) {
+  return publishChannelScopedLazy(
+    { t: 'MESSAGE_REACTION_ADD', guildId: opts.guildId ?? null, intent: reactionIntent(opts.guildId) },
+    opts.channelId,
+    async () => ({
+      user_id: opts.userId,
+      channel_id: opts.channelId,
+      message_id: opts.messageId,
+      ...(opts.guildId ? { guild_id: opts.guildId, member: await memberWithUser(opts.guildId, opts.userId) } : {}),
+      emoji: discordEmoji(opts.emoji),
+      ...(opts.messageAuthorId ? { message_author_id: opts.messageAuthorId } : {}),
+      burst: false,
+      burst_colors: [],
+      type: 0,
+    }),
+  );
+}
+
+/** MESSAGE_REACTION_REMOVE (one user's reaction removed). */
+export function emitReactionRemove(opts: { channelId: string; guildId?: string | null; messageId: string; userId: string; emoji: ReactionEmojiRef }) {
+  return publishChannelScoped({
+    t: 'MESSAGE_REACTION_REMOVE',
+    guildId: opts.guildId ?? null,
+    intent: reactionIntent(opts.guildId),
+    d: {
+      user_id: opts.userId,
+      channel_id: opts.channelId,
+      message_id: opts.messageId,
+      ...(opts.guildId ? { guild_id: opts.guildId } : {}),
+      emoji: discordEmoji(opts.emoji),
+      burst: false,
+      type: 0,
+    },
+  }, opts.channelId);
+}
+
+/** MESSAGE_REACTION_REMOVE_ALL (every reaction cleared). */
+export function emitReactionRemoveAll(opts: { channelId: string; guildId?: string | null; messageId: string }) {
+  return publishChannelScoped({
+    t: 'MESSAGE_REACTION_REMOVE_ALL',
+    guildId: opts.guildId ?? null,
+    intent: reactionIntent(opts.guildId),
+    d: { channel_id: opts.channelId, message_id: opts.messageId, ...(opts.guildId ? { guild_id: opts.guildId } : {}) },
+  }, opts.channelId);
+}
+
+/** MESSAGE_REACTION_REMOVE_EMOJI (every reaction of one emoji cleared). */
+export function emitReactionRemoveEmoji(opts: { channelId: string; guildId?: string | null; messageId: string; emoji: ReactionEmojiRef }) {
+  return publishChannelScoped({
+    t: 'MESSAGE_REACTION_REMOVE_EMOJI',
+    guildId: opts.guildId ?? null,
+    intent: reactionIntent(opts.guildId),
+    d: { channel_id: opts.channelId, message_id: opts.messageId, ...(opts.guildId ? { guild_id: opts.guildId } : {}), emoji: discordEmoji(opts.emoji) },
+  }, opts.channelId);
+}
+
+/** CHANNEL_PINS_UPDATE after a pin or unpin (GUILDS intent in guilds, DIRECT_MESSAGES in DMs). */
+export function emitChannelPinsUpdate(opts: { channelId: string; guildId?: string | null; lastPinTimestamp?: Date | string | null }) {
+  const last = opts.lastPinTimestamp ? new Date(opts.lastPinTimestamp).toISOString() : null;
+  return publishChannelScoped({
+    t: 'CHANNEL_PINS_UPDATE',
+    guildId: opts.guildId ?? null,
+    intent: opts.guildId ? Intents.GUILDS : Intents.DIRECT_MESSAGES,
+    d: { channel_id: opts.channelId, ...(opts.guildId ? { guild_id: opts.guildId } : {}), last_pin_timestamp: last },
+  }, opts.channelId);
+}
+
+/** Last TYPING_START per typer + channel (clients ping every few seconds; Discord sends one per ~10 s). */
+const typingSent = processShared('gatewayEvents:typing', () => new BoundedMap<string, number>(20_000));
+const TYPING_EVENT_INTERVAL_MS = 8_000;
+
+/**
+ * TYPING_START when a user or bot starts typing. Never sent back to the typer
+ * itself. Guild events carry the typer's member object. Repeated typing pings
+ * within a few seconds are folded into one event.
+ */
+export function emitTypingStart(opts: { channelId: string; guildId?: string | null; userId: string; at?: Date }) {
+  const key = `${opts.userId.toLowerCase()}:${opts.channelId.toLowerCase()}`;
+  const now = Date.now();
+  const last = typingSent.get(key);
+  if (last !== undefined && now - last < TYPING_EVENT_INTERVAL_MS) return Promise.resolve();
+  typingSent.set(key, now);
+  return publishChannelScopedLazy(
+    {
+      t: 'TYPING_START',
+      guildId: opts.guildId ?? null,
+      intent: opts.guildId ? Intents.GUILD_MESSAGE_TYPING : Intents.DIRECT_MESSAGE_TYPING,
+    },
+    opts.channelId,
+    async () => ({
+      channel_id: opts.channelId,
+      ...(opts.guildId ? { guild_id: opts.guildId, member: await memberWithUser(opts.guildId, opts.userId) } : {}),
+      user_id: opts.userId,
+      timestamp: Math.floor((opts.at ?? new Date()).getTime() / 1000),
+    }),
+    { excludeUserId: opts.userId },
+  );
 }
 
 export function emitGuildMemberAdd(opts: { guildId: string; member: unknown }) {

@@ -1,4 +1,4 @@
-import { eq, ne, sql, and, or, desc, asc, lt, gt, gte, type SQL } from 'drizzle-orm';
+import { eq, ne, sql, and, or, desc, asc, lt, lte, gt, gte, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -107,6 +107,117 @@ export const Message = {
       query = query.limit(limit) as typeof query;
     }
     return query;
+  },
+
+  /**
+   * One page of a channel's live messages for the bot API, keyed by
+   * (created_at, id) so rows sharing a timestamp are neither skipped nor
+   * repeated. A message cursor is compared in SQL against that message's own
+   * row (full microsecond precision; a missing id matches nothing). A time
+   * cursor (from a Discord snowflake) compares created_at only.
+   * `before` / `after` are exclusive; `atOrBefore` includes the cursor row
+   * (the older half of `around`). Results come back newest first, except
+   * `after`, which returns the oldest rows after the cursor in ascending order.
+   */
+  async pageChannel(opts: {
+    channelId: string;
+    limit: number;
+    before?: { messageId?: string; at?: Date };
+    atOrBefore?: { messageId?: string; at?: Date };
+    after?: { messageId?: string; at?: Date };
+  }) {
+    const m = schema.messages;
+    const conds: SQL[] = [
+      eq(m.channelId, normalizeId(opts.channelId)),
+      eq(m.isDeleted, false),
+    ];
+    const cursorRow = (id: string) => sql`(SELECT c.created_at, c.id FROM messages c WHERE c.id = ${normalizeId(id)}::uuid)`;
+    const cursorAt = (id: string) => sql`(SELECT c.created_at FROM messages c WHERE c.id = ${normalizeId(id)}::uuid)`;
+    let ascending = false;
+    if (opts.before?.messageId) {
+      conds.push(sql`${m.createdAt} <= ${cursorAt(opts.before.messageId)}`);
+      conds.push(sql`(${m.createdAt}, ${m.id}) < ${cursorRow(opts.before.messageId)}`);
+    } else if (opts.before?.at) {
+      conds.push(lt(m.createdAt, opts.before.at));
+    }
+    if (opts.atOrBefore?.messageId) {
+      conds.push(sql`${m.createdAt} <= ${cursorAt(opts.atOrBefore.messageId)}`);
+      conds.push(sql`(${m.createdAt}, ${m.id}) <= ${cursorRow(opts.atOrBefore.messageId)}`);
+    } else if (opts.atOrBefore?.at) {
+      conds.push(lte(m.createdAt, opts.atOrBefore.at));
+    }
+    if (opts.after?.messageId) {
+      ascending = true;
+      conds.push(sql`${m.createdAt} >= ${cursorAt(opts.after.messageId)}`);
+      conds.push(sql`(${m.createdAt}, ${m.id}) > ${cursorRow(opts.after.messageId)}`);
+    } else if (opts.after?.at) {
+      ascending = true;
+      conds.push(gt(m.createdAt, opts.after.at));
+    }
+    const limit = Math.max(1, Math.min(100, Math.floor(opts.limit) || 1));
+    return db
+      .select()
+      .from(m)
+      .where(and(...conds))
+      .orderBy(...(ascending ? [asc(m.createdAt), asc(m.id)] : [desc(m.createdAt), desc(m.id)]))
+      .limit(limit);
+  },
+
+  /** Live pinned messages of a channel, most recently pinned first (pins without a pin time last). */
+  async listPinned(channelId: string, opts: { beforePinnedAt?: Date | null; limit: number }) {
+    const m = schema.messages;
+    const pinTime = sql`COALESCE(${m.pinnedAt}, ${m.createdAt})`;
+    return db
+      .select()
+      .from(m)
+      .where(and(
+        eq(m.channelId, normalizeId(channelId)),
+        eq(m.pinned, true),
+        eq(m.isDeleted, false),
+        opts.beforePinnedAt ? sql`${pinTime} < ${opts.beforePinnedAt.toISOString()}::timestamp` : undefined,
+      ))
+      .orderBy(sql`${pinTime} DESC`, desc(m.id))
+      .limit(Math.max(1, Math.min(250, Math.floor(opts.limit) || 1)));
+  },
+
+  /** Newest pin time of a channel's live pinned messages (CHANNEL_PINS_UPDATE), or null. */
+  async lastPinTimestamp(channelId: string): Promise<Date | null> {
+    const m = schema.messages;
+    const [row] = await db
+      .select({ at: sql<Date | null>`MAX(COALESCE(${m.pinnedAt}, ${m.createdAt}))`.mapWith(m.pinnedAt) })
+      .from(m)
+      .where(and(eq(m.channelId, normalizeId(channelId)), eq(m.pinned, true), eq(m.isDeleted, false)));
+    const at = row?.at ?? null;
+    return at ? new Date(at) : null;
+  },
+
+  /** Live pinned message count of a channel (Discord's pin limit). */
+  async countPinned(channelId: string): Promise<number> {
+    const m = schema.messages;
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(m)
+      .where(and(eq(m.channelId, normalizeId(channelId)), eq(m.pinned, true), eq(m.isDeleted, false)));
+    return Number(row?.n ?? 0);
+  },
+
+  /**
+   * Approximate positions of messages in a thread (Discord `position`): how
+   * many messages of the thread were created before each one.
+   */
+  async threadPositions(channelId: string, messageIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (messageIds.length === 0) return out;
+    const m = schema.messages;
+    const ids = sql.join(messageIds.map((id) => sql`${normalizeId(id)}::uuid`), sql`, `);
+    const res = await db.execute<{ id: string; position: number }>(sql`
+      SELECT t.id::text AS id,
+        (SELECT count(*)::int FROM messages p WHERE p.channel_id = t.channel_id AND p.created_at < t.created_at) AS position
+      FROM ${m} t
+      WHERE t.channel_id = ${normalizeId(channelId)}::uuid AND t.id IN (${ids})
+    `);
+    for (const r of res.rows) out.set(String(r.id).toLowerCase(), Number(r.position) || 0);
+    return out;
   },
 
   /**

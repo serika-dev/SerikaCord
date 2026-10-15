@@ -789,6 +789,11 @@ export async function persistDmMessage(
     flags: prepared.flags,
     ...(prepared.e2ee ? { e2ee: prepared.e2ee } : {}),
   };
+  // MESSAGE_CREATE for the DM's bot recipients (none in an all-human DM).
+  // Encrypted messages are serialized without their payload.
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: channel.id, serverId: null }))
+    .catch(() => {});
   return { message, messageData };
 }
 
@@ -824,6 +829,7 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
     await archiveReplacedEnvelope(message.id, message.e2ee);
     await Message.updateById(message.id, { content: '', e2ee: envelope, edited: true, editedTimestamp });
     publishToDm(channel.id, { type: 'edit', messageId, content: '', e2ee: envelope, editedTimestamp });
+    void import('@/lib/services/gatewayEvents').then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: channel.id, serverId: null })).catch(() => {});
     return ok();
   }
 
@@ -849,6 +855,7 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
     content: sanitizedEditContent,
     editedTimestamp: message.editedTimestamp,
   });
+  void import('@/lib/services/gatewayEvents').then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: channel.id, serverId: null })).catch(() => {});
   return ok();
 }
 
@@ -859,6 +866,7 @@ export async function suppressDmEmbeds(channel: DmChannelRef, user: AuthUser, me
   if (message.authorId !== user.id) return fail(403, 'You can only suppress embeds on your own messages');
   await Message.updateById(message.id, { suppressEmbeds: true });
   publishToDm(channel.id, { type: 'suppress_embeds', messageId });
+  void import('@/lib/services/gatewayEvents').then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: channel.id, serverId: null })).catch(() => {});
   return ok();
 }
 
@@ -885,6 +893,9 @@ export async function softDeleteDmMessage(
   const messageId = message.id;
   await Message.updateById(message.id, { isDeleted: true, deletedAt: new Date() });
   publishToDm(channel.id, { type: 'delete', messageId });
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageDelete }) => emitMessageDelete({ id: messageId, channelId: channel.id, guildId: null }))
+    .catch(() => {});
 
   // Newest remaining message: moves the DM-list preview pointer off the
   // deleted message (so its text never shows as the preview) and drives the
@@ -923,18 +934,25 @@ export async function addDmReaction(channel: DmChannelRef, user: AuthUser, messa
   if (!emojiData) return fail(400, 'Invalid emoji');
 
   // Row-locked so concurrent reactions can't overwrite each other.
-  const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) =>
-    addReaction(
+  let alreadyReacted = false;
+  const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+    alreadyReacted = current.find(matchReactionEmoji(emojiData))?.userIds?.some((id) => compareIds(id, user.id)) ?? false;
+    return addReaction(
       current,
       matchReactionEmoji(emojiData),
       { name: emojiData.name, id: emojiData.id, animated: emojiData.animated, url: emojiData.url },
       user.id,
       compareIds,
-    ).reactions,
-  );
+    ).reactions;
+  });
   if (!stored) return fail(404, 'Message not found');
 
   publishToDm(channel.id, { type: 'reaction_add', messageId, emoji, userId: user.id });
+  if (!alreadyReacted) {
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitReactionAdd }) => emitReactionAdd({ channelId: channel.id, guildId: null, messageId: message.id, messageAuthorId: message.authorId, userId: user.id, emoji: emojiData }))
+      .catch(() => {});
+  }
   return ok();
 }
 
@@ -947,12 +965,19 @@ export async function removeDmReaction(channel: DmChannelRef, user: AuthUser, me
 
   // Row-locked so concurrent reaction changes can't overwrite each other.
   const removeMatch = matchReactionEmoji({ name: emojiData?.name || emoji, id: emojiData?.id });
+  let removed = false;
   await Message.mutateReactions<StoredReaction>(message.id, (current) => {
     const result = removeReaction(current, removeMatch, user.id, compareIds);
+    removed = result.changed;
     return result.changed ? result.reactions : null;
   });
 
   publishToDm(channel.id, { type: 'reaction_remove', messageId, emoji, userId: user.id });
+  if (removed) {
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitReactionRemove }) => emitReactionRemove({ channelId: channel.id, guildId: null, messageId: message.id, userId: user.id, emoji: emojiData ?? { name: emoji } }))
+      .catch(() => {});
+  }
   return ok();
 }
 
@@ -996,8 +1021,9 @@ export async function listDmPins(channelId: string) {
 export async function setDmPinned(channel: DmChannelRef, messageId: string, pinned: boolean): Promise<DmReply> {
   const message = await findLiveMessage(channel.id, messageId);
   if (!message) return fail(404, 'Message not found');
-  await Message.updateById(message.id, { pinned });
+  await Message.updateById(message.id, { pinned, pinnedAt: pinned ? new Date() : null });
   publishToDm(channel.id, { type: 'pin_update', messageId, pinned });
+  void import('@/lib/services/botMessages').then((m) => m.notifyPinsChanged({ id: channel.id, serverId: null })).catch(() => {});
   return ok();
 }
 
@@ -1745,6 +1771,10 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
         username: user.username,
       }
     );
+    // TYPING_START for a bot on the other end (DIRECT_MESSAGE_TYPING).
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitTypingStart }) => emitTypingStart({ channelId: channel.id, guildId: null, userId: user.id }))
+      .catch(() => {});
 
     return { success: true };
   }, {

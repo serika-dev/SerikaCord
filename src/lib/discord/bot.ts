@@ -70,12 +70,14 @@ function mapEmbeds(d: any): any[] {
  * the reply renders natively in Serika. Returns null if the referenced message
  * isn't bridged (e.g. it predates the bridge or was from an unconsented user).
  */
-async function resolveReply(d: any): Promise<{ referencedMessageId: string; referencedMessage: any } | null> {
+async function resolveReply(d: any, serikaChannelId?: string): Promise<{ referencedMessageId: string; referencedMessage: any } | null> {
   const refId: string | undefined = d.message_reference?.message_id || d.referenced_message?.id;
   if (!refId) return null;
   const { Message } = await import('@/lib/models');
   const serikaRef = await Message.findByDiscordMessageId(refId);
   if (!serikaRef) return null;
+  // Replies stay within one bridged channel: never quote a message from another one.
+  if (serikaChannelId && String(serikaRef.channelId).toLowerCase() !== String(serikaChannelId).toLowerCase()) return null;
 
   // Best-effort author snapshot for the inline reply preview.
   let refAuthor: any = { id: serikaRef.authorId, username: 'user', displayName: 'User' };
@@ -830,7 +832,7 @@ export async function startDiscordBot() {
             const content = formatDiscordContentForSerika(rawContent);
             const attachments = mapAttachments(d);
             const embeds = mapEmbeds(d);
-            const reply = await resolveReply(d);
+            const reply = await resolveReply(d, serikaChannelId);
 
             if (!content && attachments.length === 0 && embeds.length === 0) {
               console.warn('[Discord Bot] ⚠️ MESSAGE_CREATE has empty content and no attachments — skipping.');
@@ -884,6 +886,9 @@ export async function startDiscordBot() {
             };
 
             publishToChannel(serikaChannelId, { type: 'message', message: messageResponse });
+            void import('@/lib/services/gatewayEvents')
+              .then(({ emitMessageCreate }) => emitMessageCreate({ id: msg.id, channelId: serikaChannelId, serverId: server.id }))
+              .catch(() => {});
             // Never log message content or author names (privacy; see security.md).
             console.log(`[Discord Bot] Forwarded message ${d.id} to Serika channel ${chan.id}`);
           }
@@ -929,6 +934,10 @@ export async function startDiscordBot() {
             if (newAttachments) update.attachments = newAttachments;
 
             await Message.updateById(serikaMsg.id, update);
+            // Content edits and Discord's own embed unfurls both reach Serika bots.
+            void import('@/lib/services/gatewayEvents')
+              .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: serikaMsg.id, channelId: serikaChannelId, serverId: serikaMsg.serverId ?? null }))
+              .catch(() => {});
 
             publishToChannel(serikaChannelId, {
               type: 'edit',
@@ -964,6 +973,9 @@ export async function startDiscordBot() {
               type: 'delete',
               messageId: serikaMsg.id,
             });
+            void import('@/lib/services/gatewayEvents')
+              .then(({ emitMessageDelete }) => emitMessageDelete({ id: serikaMsg.id, channelId: serikaChannelId, guildId: serikaMsg.serverId ?? null }))
+              .catch(() => {});
             console.log(`[Discord Bot] Forwarded message delete for Discord msg ${d.id} → Serika msg ${serikaMsg.id}`);
           }
         }

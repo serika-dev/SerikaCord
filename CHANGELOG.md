@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.15.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.16.
 
 ---
 
@@ -17,6 +17,23 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.16 — 2026-10-16
+
+**Tag:** `v2.1.16` · **Commit:** `64533eb`
+
+### Features
+- **Bots can page through message history, reply, forward, pin and react like on Discord** — history paging, replies and forwards, bulk delete, crossposting, poll voters and the new pin routes work for bots, and bot reactions, pins and deletes show up live for everyone.
+- **"Bot is typing…"** — bots that signal typing now show a typing indicator in channels and DMs, and bots are told when people type.
+
+### Bug Fixes
+- Bot messages no longer ping people they shouldn't: bots can choose who gets mentioned, and @everyone still needs the permission.
+- Removing all reactions, or every reaction for one emoji, now updates open chats right away.
+
+### Security
+- Bots can no longer forward or quote messages from private threads, tickets or other channels they can't open, and can't edit their old messages inside end-to-end encrypted DMs.
 
 ---
 

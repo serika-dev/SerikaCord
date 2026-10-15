@@ -140,6 +140,44 @@ async function crosspostToFollowers(
   }
 }
 
+/**
+ * Publish an announcement-channel message to every follower, exactly once
+ * (atomic CROSSPOSTED flag), and tell open clients. The caller has checked
+ * that the actor may publish it (their own message with SEND_MESSAGES, or
+ * MANAGE_MESSAGES). Shared by the app route and the bot API crosspost route.
+ */
+export async function crosspostMessage(
+  channel: IChannel,
+  message: typeof schema.messages.$inferSelect,
+): Promise<
+  | { ok: true; message: typeof schema.messages.$inferSelect }
+  | { ok: false; status: number; code: 'already_published' | 'rate_limited' | 'unavailable'; error: string; retryAfter?: number }
+> {
+  if (!canPublishMessage({ id: message.id, type: message.type, flags: message.flags }, channel.type)) {
+    return { ok: false, status: 400, code: 'already_published', error: 'This message has already been published' };
+  }
+  const rl = await checkRateLimit('crosspost', channel.id);
+  if (!rl.success) {
+    return { ok: false, status: 429, code: 'rate_limited', error: 'This channel is publishing too often, try again later', retryAfter: rl.retryAfter ?? 60 };
+  }
+  if (!(await ensureScheduledEventSchema())) return { ok: false, status: 503, code: 'unavailable', error: 'Publishing is unavailable right now' };
+  // Exactly once, even with two clicks or two instances.
+  const m = schema.messages;
+  const [updated] = await db.update(m)
+    .set({ flags: sql`${m.flags} | ${CROSSPOST_FLAGS.CROSSPOSTED}` })
+    .where(and(eq(m.id, message.id), sql`(${m.flags} & ${CROSSPOST_FLAGS.CROSSPOSTED}) = 0`))
+    .returning();
+  if (!updated) return { ok: false, status: 400, code: 'already_published', error: 'This message has already been published' };
+  const { publishToChannel } = await import('@/lib/api/channels');
+  publishToChannel(channel.id, { type: 'message_flags', messageId: updated.id, flags: updated.flags });
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: updated.id, channelId: channel.id, serverId: channel.serverId ?? null }))
+    .catch(() => {});
+  void crosspostToFollowers(channel, updated).catch((err) =>
+    console.error('[announcements] crosspost failed:', (err as Error)?.message ?? err));
+  return { ok: true, message: updated };
+}
+
 // ─── Follow targets ───────────────────────────────────────────────────────────
 
 type FollowTargetServer = {
@@ -186,7 +224,7 @@ export const announcementRoutes = new Elysia()
   .post('/channels/:channelId/messages/:messageId/crosspost', async ({ headers, cookie, params, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
-    const { checkChannelAccess, checkCanSpeak, publishToChannel } = await import('@/lib/api/channels');
+    const { checkChannelAccess, checkCanSpeak } = await import('@/lib/api/channels');
     const access = await checkChannelAccess(user.id, params.channelId);
     if (!access.hasAccess || !access.channel) { set.status = 403; return { error: access.error || 'Access denied' }; }
     const channel = access.channel as IChannel;
@@ -205,23 +243,13 @@ export const announcementRoutes = new Elysia()
       const perms = await permsIn(user.id, channel, access.membership);
       if (!hasPermission(perms, PERMISSION_BITS.MANAGE_MESSAGES)) { set.status = 403; return { error: 'Missing Permissions' }; }
     }
-    const rl = await checkRateLimit('crosspost', channel.id);
-    if (!rl.success) {
-      set.status = 429;
-      set.headers['Retry-After'] = String(rl.retryAfter ?? 60);
-      return { error: 'This channel is publishing too often, try again later', retryAfter: rl.retryAfter };
+    const result = await crosspostMessage(channel, message);
+    if (!result.ok) {
+      set.status = result.status;
+      if (result.retryAfter !== undefined) set.headers['Retry-After'] = String(result.retryAfter);
+      return { error: result.error, ...(result.retryAfter !== undefined ? { retryAfter: result.retryAfter } : {}) };
     }
-    if (!(await ensureScheduledEventSchema())) { set.status = 503; return { error: 'Publishing is unavailable right now' }; }
-    // Exactly once, even with two clicks or two instances.
-    const m = schema.messages;
-    const [updated] = await db.update(m)
-      .set({ flags: sql`${m.flags} | ${CROSSPOST_FLAGS.CROSSPOSTED}` })
-      .where(and(eq(m.id, message.id), sql`(${m.flags} & ${CROSSPOST_FLAGS.CROSSPOSTED}) = 0`))
-      .returning();
-    if (!updated) { set.status = 400; return { error: 'This message has already been published' }; }
-    publishToChannel(channel.id, { type: 'message_flags', messageId: updated.id, flags: updated.flags });
-    void crosspostToFollowers(channel, updated).catch((err) =>
-      console.error('[announcements] crosspost failed:', (err as Error)?.message ?? err));
+    const updated = result.message;
     return { id: updated.id, channel_id: channel.id, flags: updated.flags };
   })
   .get('/channels/:channelId/follow-targets', async ({ headers, cookie, params, set }) => {

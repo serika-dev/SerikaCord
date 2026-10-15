@@ -13,8 +13,6 @@
 import { Channel, Message, Role, ServerMember, User, type IChannel, type IMessage } from '@/lib/models';
 import { config } from '@/lib/config';
 import { decryptFromStorage } from '@/lib/security';
-import { toDiscordMessage } from '@/lib/services/gatewayEvents';
-import { parseStoredComponents } from '@/lib/botapi/components';
 import { validateMessageAttachments, type IncomingAttachment } from '@/lib/chat/attachmentPolicy';
 import type { InvocationRefs } from '@/lib/botapi/commands';
 
@@ -95,35 +93,15 @@ export function attachmentSizeLimit(): number {
   return config.MAX_FILE_SIZE;
 }
 
-/** Discord message object for a stored message (content decrypted; E2EE → empty). */
-export async function discordMessageFromRow(row: IMessage, author?: UserRow | { id: string; username: string; displayName?: string; avatar?: string | null; isBot?: boolean } | null) {
-  let content = '';
-  if (row.content && !row.e2ee) {
-    try { content = await decryptFromStorage(row.content); } catch { content = ''; }
-  }
-  const a = author ?? (row.authorId ? await User.findById(row.authorId) : null);
-  const interaction = row.interaction as { id?: string; type?: number; name?: string; user?: { id: string; username?: string } } | null;
-  return toDiscordMessage({
-    id: row.id,
-    content,
-    channelId: row.channelId,
-    serverId: row.serverId,
-    createdAt: row.createdAt ?? undefined,
-    updatedAt: row.updatedAt ?? undefined,
-    edited: Boolean(row.edited),
-    pinned: Boolean(row.pinned),
-    type: row.type ?? 'default',
-    author: a ? { id: a.id, username: a.username, displayName: a.displayName ?? undefined, avatar: a.avatar ?? null, isBot: Boolean((a as { isBot?: boolean }).isBot) } : null,
-    attachments: (Array.isArray(row.attachments) ? row.attachments : []) as Array<Record<string, unknown>>,
-    flags: row.flags ?? 0,
-    mentionEveryone: Boolean(row.mentionEveryone),
-    mentionedUserIds: (row.mentionedUserIds ?? []) as string[],
-    mentionedRoleIds: (row.mentionedRoleIds ?? []) as string[],
-    reactions: [],
-    embeds: Array.isArray(row.embeds) ? row.embeds : [],
-    components: parseStoredComponents(row.components) ?? [],
-    interaction: interaction?.id ? interaction : null,
-  });
+/**
+ * Discord message object for a stored message: the bot API's own serializer
+ * (src/lib/services/botMessages.ts), so REST, gateway and interaction /
+ * webhook replies all return the same object.
+ */
+export async function discordMessageFromRow(row: IMessage, opts: { viewerId?: string | null } = {}): Promise<Record<string, unknown>> {
+  const { loadDiscordMessages } = await import('@/lib/services/botMessages');
+  const [msg] = await loadDiscordMessages([row], { viewerId: opts.viewerId ?? null });
+  return { ...(msg as unknown as Record<string, unknown>) };
 }
 
 export interface ResolveContext {

@@ -294,7 +294,7 @@ async function deliver(app: App, state: InteractionState, token: string, payload
 export type CallbackResult = { status: number; body: unknown };
 
 function interactionRef(state: InteractionState): InteractionRef {
-  return { id: state.id, type: state.type, name: state.commandName ?? '', user: { id: state.invokerId, username: state.invokerName } };
+  return { id: state.id, type: state.type, name: state.commandName ?? '', user: { id: state.invokerId, username: state.invokerName }, applicationId: state.applicationId };
 }
 
 function failure(f: ApiFailure): CallbackResult {

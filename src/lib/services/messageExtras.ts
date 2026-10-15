@@ -247,6 +247,10 @@ export async function finalizePoll(messageId: string, opts: { early?: boolean } 
       finalizedAt: nowIso,
     };
     await publishToConversation(channel, update);
+    // The poll message itself now carries results.is_finalized (Discord sends MESSAGE_UPDATE).
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: messageId, channelId: channel.id, serverId: channel.serverId ?? null }))
+      .catch(() => {});
 
     // The "poll results" row, posted as the poll's author like Discord.
     const result = buildPollResult(messageId, poll, tally.counts, tally.totalVoters);
@@ -322,6 +326,49 @@ export async function finalizePoll(messageId: string, opts: { early?: boolean } 
   } finally {
     closing.delete(messageId);
   }
+}
+
+// ─── Forward snapshots ────────────────────────────────────────────────────────
+/**
+ * The frozen copy stored on a forward of `source` (users' forward dialog and
+ * bot `message_reference.type = 1`). Forwarding a forward passes the original
+ * along, like Discord. Content stays encrypted (copied, never decrypted).
+ * The caller has checked that the forwarder can read the source.
+ */
+export async function buildForwardSnapshot(source: MessageRow): Promise<{ snapshot: StoredForward } | { error: string }> {
+  if (source.isDeleted) return { error: 'Message not found' };
+  // An encrypted message's server copy is ciphertext: there is nothing to forward.
+  if (source.e2ee) return { error: 'Encrypted messages cannot be forwarded yet' };
+  const inner = source.messageSnapshot ? parseStoredForward(source.messageSnapshot) : null;
+  const { isForwardable } = await import('@/lib/chat/forward');
+  const forwardable = isForwardable({
+    id: source.id,
+    type: source.type as never,
+    content: source.content ? 'x' : '',
+    attachments: (source.attachments || []) as never,
+    embeds: (source.embeds || []) as never,
+    sticker: (source.sticker || undefined) as never,
+    poll: source.poll ? ({} as never) : null,
+    forward: inner ? ({} as never) : null,
+  });
+  if (!forwardable) return { error: 'This message cannot be forwarded' };
+  if (inner) return { snapshot: inner };
+  const author = await User.findById(source.authorId).catch(() => null);
+  return {
+    snapshot: {
+      messageId: source.id,
+      channelId: source.channelId,
+      serverId: source.serverId ?? null,
+      authorId: source.authorId,
+      author: author ? { id: author.id, username: author.username, displayName: author.displayName || author.username, avatar: author.avatar ?? null } : null,
+      content: source.content || '',
+      attachments: (Array.isArray(source.attachments) ? source.attachments : []) as StoredForward['attachments'],
+      embeds: (Array.isArray(source.embeds) && !source.suppressEmbeds ? source.embeds : []) as StoredForward['embeds'],
+      sticker: (source.sticker || null) as StoredForward['sticker'],
+      createdAt: new Date(source.createdAt ?? Date.now()).toISOString(),
+      edited: Boolean(source.edited),
+    },
+  };
 }
 
 // ─── Forward origins ──────────────────────────────────────────────────────────

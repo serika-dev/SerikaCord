@@ -27,6 +27,8 @@ export interface InteractionRef {
   type: number;
   name: string;
   user: { id: string; username: string };
+  /** The app that answered (serialized as message.application_id). */
+  applicationId?: string;
 }
 
 export type AppAuthor =
@@ -186,7 +188,7 @@ export interface CreatedAppMessage {
   id: string;
   ephemeral: boolean;
   /** Discord message object (for wait=true / with_response / followup replies). */
-  discord: ReturnType<typeof toDiscordMessage>;
+  discord: Record<string, unknown>;
 }
 
 /**
@@ -256,16 +258,12 @@ export async function createAppMessage(opts: {
   const message = clientMessage({ id: row.id, channel: opts.channel, author, authorId, body, interaction, createdAt: row.createdAt ?? new Date(), webhookId });
   await publishConversation(opts.channel, { type: 'message', message });
   if (!opts.loading) void signalAppMessage(opts.channel, row, author, body);
-  const discord = discordFromClient(message, { applicationId, webhookId, interaction });
-  void import('@/lib/services/gatewayEvents').then(({ emitMessageCreate }) => emitMessageCreate({
-    ...message,
-    author: message.author,
-    attachments: message.attachments as unknown as Array<Record<string, unknown>>,
-    components: message.components ?? [],
-    webhookId,
-    applicationId,
-    interaction,
-  })).catch(() => {});
+  // MESSAGE_CREATE re-reads the stored row (same object as the REST API).
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageCreate }) => emitMessageCreate({ id: row.id, channelId: opts.channel.id, serverId: opts.channel.serverId ?? null }))
+    .catch(() => {});
+  const { discordMessageFromRow } = await import('@/lib/services/interactionPayload');
+  const discord = await discordMessageFromRow(row).catch(() => discordFromClient(message, { applicationId, webhookId, interaction }));
   return { id: row.id, ephemeral: false, discord };
 }
 
@@ -370,16 +368,12 @@ export async function editAppMessage(opts: {
   const webhookId = opts.author.kind === 'webhook' ? opts.author.webhook.id : null;
   const client = clientMessage({ id: message.id, channel: opts.channel, author, authorId, body, interaction, createdAt: updated.createdAt ?? new Date(), edited: !wasLoading, webhookId });
   if (wasLoading) void signalAppMessage(opts.channel, updated, author, body);
-  void import('@/lib/services/gatewayEvents').then(({ emitMessageUpdate }) => emitMessageUpdate({
-    ...client,
-    updatedAt: new Date(),
-    attachments: client.attachments as unknown as Array<Record<string, unknown>>,
-    components: client.components ?? [],
-    webhookId,
-    applicationId,
-    interaction,
-  })).catch(() => {});
-  return { id: message.id, ephemeral: false, discord: discordFromClient(client, { applicationId, webhookId, interaction }) };
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: opts.channel.id, serverId: opts.channel.serverId ?? null }))
+    .catch(() => {});
+  const { discordMessageFromRow } = await import('@/lib/services/interactionPayload');
+  const discord = await discordMessageFromRow(updated).catch(() => discordFromClient(client, { applicationId, webhookId, interaction }));
+  return { id: message.id, ephemeral: false, discord };
 }
 
 /** Delete a persisted app message (soft delete + live delete + MESSAGE_DELETE). */

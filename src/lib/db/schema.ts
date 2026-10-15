@@ -279,6 +279,11 @@ export const messages = pgTable('messages', {
   // Webhook execute username / avatar_url override ({ username, avatar }).
   // Nullable, no default. Added at boot by ensureInteractionSchema().
   webhookAuthor: jsonb('webhook_author'),
+  // Discord `tts` on bot / webhook messages, and when the message was pinned
+  // (pins pagination, CHANNEL_PINS_UPDATE). Nullable, no default. Added at
+  // boot by ensureBotMessageSchema() (drizzle/manual_bot_message_parity.sql).
+  tts: boolean('tts'),
+  pinnedAt: timestamp('pinned_at'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

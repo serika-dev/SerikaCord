@@ -470,7 +470,7 @@ async function canMentionEveryoneInChannel(
  * @everyone/@here stay as plain text and only roles marked mentionable ping. The checks were
  * missing entirely, so the "Mention @everyone" setting did nothing (CORD-59).
  */
-async function limitMentionsToPermissions<T extends { mentionEveryone: boolean; mentionedRoleIds: string[] }>(
+export async function limitMentionsToPermissions<T extends { mentionEveryone: boolean; mentionedRoleIds: string[] }>(
   mentions: T,
   channel: { permissionOverwrites?: any[]; serverId?: string | null },
   userId: string,
@@ -538,7 +538,7 @@ function normalizeForSpamCheck(content: string): string {
 // blocked as spam. A user may send the same thing 4 times; the 5th is rejected.
 const DUPLICATE_SPAM_THRESHOLD = 4;
 
-async function extractMentionsFromContent(
+export async function extractMentionsFromContent(
   content: string,
   serverId?: string | null
 ): Promise<{
@@ -1137,6 +1137,10 @@ export async function softDeleteChannelMessage(
     type: 'delete',
     messageId: message.id,
   });
+  // Bots that can see the channel (every caller: author, moderator, bot, T&S).
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageDelete }) => emitMessageDelete({ id: message.id, channelId: channel.id, guildId: channel.serverId ?? null }))
+    .catch(() => {});
 
   // Clear stale unread: if this deletion removed the message that left the
   // channel unread for other members, recompute the newest remaining message
@@ -1555,6 +1559,12 @@ async function createChannelThread(
       mentionedChannelIds: mentionData.mentionedChannelIds,
     });
     await Channel.updateById(thread.id, { lastMessageId: firstMessage.id, messageCount: 1 });
+    {
+      const first = firstMessage;
+      void import('@/lib/services/gatewayEvents')
+        .then(({ emitMessageCreate }) => emitMessageCreate({ id: first.id, channelId: thread.id, serverId: parent.serverId ?? null }))
+        .catch(() => {});
+    }
     const joined = await addThreadMembers(thread.id, threadMembersToAdd([user.id], user.id, mentionedUserIds));
     notifyThreadMembership(parent.serverId, thread.id, joined);
     void signalChannelMessage({
@@ -1584,6 +1594,9 @@ async function createChannelThread(
       type: 'thread_created',
       threadId: thread.id,
     });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageCreate }) => emitMessageCreate({ id: notice.id, channelId: parent.id, serverId: parent.serverId ?? null }))
+      .catch(() => {});
     publishToChannel(parent.id, {
       type: 'message',
       message: {
@@ -2386,6 +2399,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       mentionedChannelIds: mentionData.mentionedChannelIds,
     });
     await Channel.updateById(thread.id, { lastMessageId: message.id });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageCreate }) => emitMessageCreate({ id: message.id, channelId: thread.id, serverId: forum.serverId ?? null }))
+      .catch(() => {});
 
     // Open forum views refetch their post list on this.
     publishToChannel(forum.id, { type: 'thread_create', threadId: thread.id });
@@ -3509,7 +3525,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    await Message.updateById(message.id, { pinned: true });
+    await Message.updateById(message.id, { pinned: true, pinnedAt: new Date() });
+    void import('@/lib/services/botMessages').then((m) => m.notifyPinsChanged(channel)).catch(() => {});
 
     publishToChannel(params.channelId, {
       type: 'pin_update',
@@ -3573,7 +3590,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    await Message.updateById(message.id, { pinned: false });
+    await Message.updateById(message.id, { pinned: false, pinnedAt: null });
+    void import('@/lib/services/botMessages').then((m) => m.notifyPinsChanged(channel)).catch(() => {});
 
     publishToChannel(params.channelId, {
       type: 'pin_update',
@@ -3752,6 +3770,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const updatedMessage = await Message.findById(message.id);
     const responseMsg = { ...updatedMessage, content: sanitizedEditContent };
     void replicateToDiscord('edit', params.channelId, responseMsg);
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: params.channelId, serverId: channel.serverId ?? null }))
+      .catch(() => {});
     return { success: true, message: responseMsg };
   }, {
     params: t.Object({
@@ -3812,6 +3833,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       type: 'suppress_embeds',
       messageId: params.messageId,
     });
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: params.channelId, serverId: channel.serverId ?? null }))
+      .catch(() => {});
 
     return { success: true };
   }, {
@@ -3939,6 +3963,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // with no messages behind it. Recompute the newest remaining message and
     // broadcast one reset. Fire-and-forget.
     if (deleted > 0) {
+      void import('@/lib/services/gatewayEvents')
+        .then(({ emitMessageDeleteBulk }) => emitMessageDeleteBulk({
+          ids: (candidates as IMessage[]).map((m) => m.id),
+          channelId: params.channelId,
+          guildId: channel.serverId ?? null,
+        }))
+        .catch(() => {});
       void (async () => {
         const [latest] = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: 1 });
         await Channel.updateById(channel.id, { lastMessageId: latest?.id ?? null }).catch(() => {});
@@ -4038,7 +4069,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Find or create reaction - match by ID for custom emojis, name for unicode.
     // Row-locked so concurrent reactions can't overwrite each other.
     let reactionCount = 0;
+    let alreadyReacted = false;
     const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
+      alreadyReacted = current.find(matchReactionEmoji(emojiData))?.userIds?.some((id) => compareIds(id, user.id)) ?? false;
       const result = addReaction(
         current,
         matchReactionEmoji(emojiData),
@@ -4062,6 +4095,18 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       userId: user.id,
       count: reactionCount,
     });
+    if (!alreadyReacted) {
+      void import('@/lib/services/gatewayEvents')
+        .then(({ emitReactionAdd }) => emitReactionAdd({
+          channelId: params.channelId,
+          guildId: channel.serverId ?? null,
+          messageId: message.id,
+          messageAuthorId: message.authorId,
+          userId: user.id,
+          emoji: emojiData,
+        }))
+        .catch(() => {});
+    }
 
     return { success: true };
   }, {
@@ -4113,8 +4158,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     
     // Row-locked so concurrent reaction changes can't overwrite each other.
     const removeMatch = matchReactionEmoji({ name: emojiData?.name || decodedEmoji, id: emojiData?.id });
+    let removed = false;
     await Message.mutateReactions<StoredReaction>(message.id, (current) => {
       const result = removeReaction(current, removeMatch, user.id, compareIds);
+      removed = result.changed;
       return result.changed ? result.reactions : null;
     });
 
@@ -4125,6 +4172,17 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       emoji: emojiData?.id || decodedEmoji,
       userId: user.id,
     });
+    if (removed) {
+      void import('@/lib/services/gatewayEvents')
+        .then(({ emitReactionRemove }) => emitReactionRemove({
+          channelId: params.channelId,
+          guildId: channel.serverId ?? null,
+          messageId: message.id,
+          userId: user.id,
+          emoji: emojiData ?? { name: decodedEmoji },
+        }))
+        .catch(() => {});
+    }
 
     return { success: true };
   }, {
@@ -4234,6 +4292,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       } else {
         publishToChannel(params.channelId, event);
       }
+      void import('@/lib/services/gatewayEvents')
+        .then(({ emitReactionRemove }) => emitReactionRemove({
+          channelId: params.channelId,
+          guildId: channel.serverId ?? null,
+          messageId: message.id,
+          userId: params.userId,
+          emoji: emojiData ?? { name: decodedEmoji },
+        }))
+        .catch(() => {});
     }
     return { success: true };
   }, {
@@ -4358,6 +4425,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       userId: user.id,
       username: user.username,
     });
+    // TYPING_START for bots that can see the channel (GUILD_MESSAGE_TYPING).
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitTypingStart }) => emitTypingStart({ channelId: params.channelId, guildId: channel.serverId ?? null, userId: user.id }))
+      .catch(() => {});
 
     return { success: true };
   }, {
