@@ -4,7 +4,7 @@
   "description": "A modern Discord-like chat application",
   "start_url": "/channels/me",
   "display": "standalone",
-  "background_color": "#0a0a0a",
+  "background_color": "#05060a",
   "theme_color": "#8B5CF6",
   "orientation": "portrait-primary",
   "icons": [

@@ -1,0 +1,423 @@
+/* ─── Homepage (serika.chat/) ────────────────────────────────────────────────
+   Loaded only by src/app/page.tsx. Follows the Serika family brand
+   (serika.moe/brand): Violet #8B5CF6 as the accent, Deep Violet #5B21B6,
+   Night Purple #22074A for dark brand bands, Black #0A0A0A, White #FAFAFA,
+   Outfit for headings. The nav, hero, closing call to action and footer are
+   brand bands (always dark, .hm-dark); everything in between follows the
+   visitor's theme through the app tokens (--app-*), so Light, Dark and
+   Midnight all work.
+
+   Radius scale: 12px (small UI), 16px (inner panels, product frames),
+   24px (cards and panels), 999px (buttons, chips). */
+
+.hm-root {
+  --brand-violet: #8b5cf6;
+  --brand-violet-light: #a78bfa;
+  --brand-deep: #5b21b6;
+  --brand-night: #22074a;
+  --brand-black: #0a0a0a;
+  --brand-white: #fafafa;
+
+  --hm-bg: var(--app-bg);
+  --hm-surface: var(--app-surface);
+  --hm-surface-2: var(--app-surface-alt);
+  --hm-line: var(--app-border);
+  --hm-ink: color-mix(in srgb, var(--app-text) 35%, var(--brand-white));
+  --hm-body: var(--app-muted);
+  --hm-faint: var(--app-muted-2);
+  --hm-accent-text: var(--brand-violet-light);
+  --hm-online: #23a55a;
+  --hm-live: #e11d48;
+  --hm-display: var(--font-hm-display), var(--font-inter), var(--font-arabic), system-ui, sans-serif;
+  --hm-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+
+  position: relative;
+  min-height: 100dvh;
+  overflow-x: clip;
+  background: var(--hm-bg);
+  color: var(--hm-body);
+}
+
+html.theme-light .hm-root {
+  --hm-ink: var(--app-text);
+  --hm-accent-text: var(--brand-deep);
+}
+
+/* Brand bands: dark in every theme. Only the marketing tokens change; the
+   app previews inside keep the visitor's real theme tokens. */
+.hm-root .hm-dark {
+  --hm-bg: var(--brand-black);
+  --hm-surface: #131118;
+  --hm-surface-2: #1c1924;
+  --hm-line: rgba(255, 255, 255, 0.1);
+  --hm-ink: var(--brand-white);
+  --hm-body: #b9b4c8;
+  --hm-faint: #8a849c;
+  --hm-accent-text: var(--brand-violet-light);
+  color: var(--hm-body);
+  color-scheme: dark;
+}
+
+.hm-root ::selection {
+  background: color-mix(in srgb, var(--brand-violet) 35%, transparent);
+}
+
+.hm-root :is(a, button, summary):focus-visible {
+  outline: 3px solid var(--brand-violet-light);
+  outline-offset: 3px;
+  border-radius: 12px;
+}
+
+/* ─── Type ─── */
+.hm-display {
+  font-family: var(--hm-display);
+  color: var(--hm-ink);
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.hm-h1 {
+  font-size: clamp(2.6rem, 1.5rem + 4.8vw, 5.25rem);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.hm-h2 {
+  font-size: clamp(1.9rem, 1.3rem + 2.3vw, 3.1rem);
+  font-weight: 700;
+  line-height: 1.06;
+}
+
+.hm-h3 {
+  font-family: var(--hm-display);
+  font-size: 1.2rem;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--hm-ink);
+}
+
+.hm-lede {
+  font-size: clamp(1.03rem, 0.96rem + 0.35vw, 1.2rem);
+  line-height: 1.6;
+  color: var(--hm-body);
+  text-wrap: pretty;
+}
+
+.hm-accent {
+  color: var(--brand-violet);
+}
+
+.hm-dark .hm-accent {
+  color: var(--brand-violet-light);
+}
+
+.hm-label {
+  font-family: var(--hm-display);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--hm-accent-text);
+}
+
+/* ─── Buttons (Serika family: 48px, pill, inner light border) ─── */
+.hm-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  padding: 0 1.5rem;
+  border-radius: 999px;
+  font-size: 0.97rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: filter 0.15s ease, transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.hm-btn:hover {
+  filter: brightness(1.08);
+}
+
+.hm-btn:active {
+  transform: scale(0.98);
+}
+
+.hm-btn-primary {
+  color: #ffffff;
+  background: var(--brand-violet);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 10px 28px -10px rgba(139, 92, 246, 0.75);
+}
+
+.hm-btn-ghost {
+  color: var(--hm-ink);
+  background: var(--hm-surface);
+  border: 1px solid var(--hm-line);
+}
+
+.hm-dark .hm-btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.hm-btn-sm {
+  min-height: 38px;
+  padding: 0 1.1rem;
+  font-size: 0.9rem;
+}
+
+.hm-link {
+  color: var(--hm-accent-text);
+  font-weight: 600;
+  text-underline-offset: 3px;
+}
+
+.hm-link:hover {
+  text-decoration: underline;
+}
+
+/* ─── Nav (brand band) ─── */
+.hm-nav {
+  background: rgba(10, 10, 10, 0.78);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: saturate(140%) blur(16px);
+  -webkit-backdrop-filter: saturate(140%) blur(16px);
+}
+
+.hm-nav-link {
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+  font-size: 0.92rem;
+  color: var(--hm-body);
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.hm-nav-link:hover {
+  color: var(--hm-ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.hm-skip {
+  position: absolute;
+  left: 1rem;
+  top: -4rem;
+  z-index: 60;
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  background: var(--brand-violet);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.hm-skip:focus {
+  top: 0.75rem;
+}
+
+/* ─── Hero (brand band on Night Purple) ─── */
+.hm-hero {
+  background:
+    radial-gradient(90% 60% at 50% 0%, var(--brand-night) 0%, color-mix(in srgb, var(--brand-night) 45%, var(--brand-black)) 55%, var(--brand-black) 100%);
+}
+
+.hm-band-night {
+  background: linear-gradient(180deg, var(--brand-black) 0%, var(--brand-night) 100%);
+}
+
+/* ─── Cards ─── */
+.hm-card {
+  position: relative;
+  border: 1px solid var(--hm-line);
+  border-radius: 24px;
+  background: var(--hm-surface);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.hm-card:hover {
+  border-color: color-mix(in srgb, var(--brand-violet) 45%, var(--hm-line));
+}
+
+.hm-card-art {
+  position: relative;
+  border-bottom: 1px solid var(--hm-line);
+  background: var(--hm-surface-2);
+}
+
+.hm-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--hm-line);
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.86rem;
+  color: var(--hm-ink);
+  background: var(--hm-surface);
+}
+
+.hm-check {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--brand-violet);
+}
+
+/* ─── App previews (src/components/home/AppPreview.tsx) ───────────────────────
+   The previews reuse the app's own classes and tokens; these rules only frame
+   them and choose which columns fit. Nothing here restyles app UI. */
+.hm-frame {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid var(--app-border);
+  background: var(--app-bg);
+  box-shadow: 0 30px 70px -35px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  color: var(--text-primary);
+  text-align: start;
+}
+
+html.theme-light .hm-frame {
+  box-shadow: 0 24px 50px -32px rgba(23, 35, 58, 0.35);
+}
+
+.hm-root .hm-dark .hm-frame {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 40px 90px -30px rgba(0, 0, 0, 0.8),
+    0 30px 80px -40px rgba(139, 92, 246, 0.4);
+}
+
+/* Like the app at each width: chat only, then the server rail, the channel
+   list and the member list. */
+.hm-app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  height: 500px;
+}
+
+.hm-app-rail,
+.hm-app-side,
+.hm-app-members {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .hm-app { grid-template-columns: 72px minmax(0, 1fr); }
+  .hm-app-rail { display: flex; }
+}
+
+@media (min-width: 900px) {
+  .hm-app { grid-template-columns: 72px 256px minmax(0, 1fr); height: 560px; }
+  .hm-app-side { display: flex; }
+}
+
+@media (min-width: 1200px) {
+  .hm-app { grid-template-columns: 72px 256px minmax(0, 1fr) 224px; }
+  .hm-app-members { display: block; }
+}
+
+.hm-code {
+  font-family: var(--hm-mono);
+  font-size: 12.5px;
+  line-height: 1.8;
+}
+
+/* FAQ */
+.hm-faq summary { list-style: none; cursor: pointer; }
+.hm-faq summary::-webkit-details-marker { display: none; }
+.hm-faq-icon { transition: transform 0.2s ease; }
+.hm-faq[open] .hm-faq-icon { transform: rotate(45deg); }
+
+/* ─── Hero stage: the app preview, flat and still. */
+.hm-stage {
+  position: relative;
+}
+
+/* ─── Motion ─── */
+@media (prefers-reduced-motion: no-preference) {
+  /* Hero chat plays once: messages arrive one after another. */
+  .hm-arrive {
+    animation: hm-arrive 560ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(350ms + var(--i, 0) * 520ms);
+  }
+
+  .hm-arrive .hm-grow {
+    animation: hm-bar 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(650ms + var(--i, 0) * 520ms);
+  }
+
+  .hm-pop {
+    animation: hm-pop 420ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+    animation-delay: calc(700ms + var(--i, 0) * 520ms);
+  }
+
+  .hm-typing-dot { animation: hm-typing 1.2s ease-in-out infinite; }
+  .hm-typing-dot:nth-child(2) { animation-delay: 0.15s; }
+  .hm-typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+  .hm-caret { animation: hm-caret 1.1s steps(1) infinite; }
+  .hm-live-dot { animation: hm-live 1.6s ease-in-out infinite; }
+
+  /* The foil card settles into place once on load (`translate`, so it
+     composes with the tilt `transform`). */
+  .hm-float-in {
+    animation: hm-float-in 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation-delay: calc(500ms + var(--i, 0) * 180ms);
+  }
+
+  /* Sections fade up as they scroll in. CSS scroll-driven animations: no JS,
+     and browsers without support simply show everything. */
+  @supports (animation-timeline: view()) {
+    [data-reveal] {
+      animation: hm-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 35%;
+    }
+  }
+}
+
+/* The app's own "Reduced motion" setting. */
+html.reduce-motion .hm-root [data-reveal] {
+  animation: none !important;
+}
+
+@keyframes hm-arrive {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes hm-bar {
+  from { transform: scaleX(0); transform-origin: left center; }
+  to { transform: scaleX(1); transform-origin: left center; }
+}
+
+@keyframes hm-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes hm-typing {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+
+@keyframes hm-caret { 50% { opacity: 0; } }
+@keyframes hm-live { 50% { opacity: 0.35; } }
+
+@keyframes hm-float-in {
+  from { opacity: 0; translate: 0 24px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+@keyframes hm-reveal {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: none; }
+}

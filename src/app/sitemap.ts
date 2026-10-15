@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-import { COMPARE_LAST_CHECKED_ISO } from "@/lib/compare";
+import { APP_IDS, COMPARE_LAST_CHECKED_ISO } from "@/lib/compare";
 
 const BASE_URL = "https://serika.chat";
 const COMPARE_LAST_CHECKED = new Date(`${COMPARE_LAST_CHECKED_ISO}T00:00:00Z`);
@@ -26,9 +26,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/register", priority: 0.7, changeFrequency: "monthly", lastModified: now },
 
     // Comparison pages (facts last checked on the date below)
-    { path: "/compare", priority: 0.7, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
-    { path: "/compare/discord", priority: 0.8, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
-    { path: "/compare/stoat", priority: 0.8, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
+    { path: "/compare", priority: 0.8, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
+    { path: "/compare/tier-list", priority: 0.8, changeFrequency: "monthly", lastModified: COMPARE_LAST_CHECKED },
+    ...APP_IDS.map((id): SitemapRoute => ({
+      path: `/compare/${id}`,
+      priority: id === "discord" ? 0.8 : 0.7,
+      changeFrequency: "monthly",
+      lastModified: COMPARE_LAST_CHECKED,
+    })),
 
     // What's new
     { path: "/changelog", priority: 0.6, changeFrequency: "weekly", lastModified: now },

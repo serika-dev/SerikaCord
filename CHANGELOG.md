@@ -7,8 +7,11 @@
 ## Unreleased
 
 ### Features
+- **New homepage and loading screen** — a redesigned serika.chat in the Serika brand, showing the real app, clear privacy facts, the live number of Serika accounts and an honest comparison; the app now opens with a branded loading screen with tips.
+- **Comparisons with 23 chat apps and a tier list** — serika.chat/compare covers Discord, Signal, Matrix, Telegram, TeamSpeak, Stoat, Fluxer and 16 more, each with a detailed fact table, where they beat us and where we beat them, and dated sources, plus a tier list ranking all 24 apps (us included) in 12 categories.
 
 ### Changes
+- SerikaCord's license now allows self-hosting for personal, non-commercial use (yourself and people you invite). Commercial use: partners@serika.dev.
 
 ### Bug Fixes
 

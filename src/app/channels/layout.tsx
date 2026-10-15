@@ -1,5 +1,5 @@
 import { buildMetadata } from "@/lib/seo";
-import { BootPrefetch } from "@/components/boot/BootPrefetch";
+import { BootPrefetch, NativeSplashHide } from "@/components/boot/BootPrefetch";
 import ChannelsLayoutClient from "./ChannelsLayoutClient";
 
 export const metadata = buildMetadata({
@@ -29,6 +29,7 @@ export default function ChannelsLayout({
     <>
       <BootPrefetch />
       <ChannelsLayoutClient>{children}</ChannelsLayoutClient>
+      <NativeSplashHide />
     </>
   );
 }

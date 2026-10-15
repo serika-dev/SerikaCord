@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { cdnImage } from "@/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
-import { Users } from "lucide-react";
+import { BadgeCheck, Compass, Users } from "lucide-react";
 import { T, useGT } from "gt-next";
 
 interface PartnerServer {
@@ -27,18 +27,18 @@ function ServerAvatar({ name, icon }: { name: string; icon: string | null }) {
     return (
       <Image
         src={cdnImage(icon)}
-        alt={name}
+        alt=""
         width={56}
         height={56}
-        className="w-14 h-14 rounded-2xl object-cover"
+        className="h-14 w-14 shrink-0 rounded-[16px] object-cover"
         unoptimized
       />
     );
   }
   const initials = name.slice(0, 2).toUpperCase();
   return (
-    <div className="w-14 h-14 rounded-2xl bg-[#8B5CF6]/20 border border-[#8B5CF6]/30 flex items-center justify-center flex-shrink-0">
-      <span className="text-[#8B5CF6] font-bold text-lg">{initials}</span>
+    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[16px] bg-[color-mix(in_srgb,var(--brand-violet)_18%,transparent)]" aria-hidden>
+      <span className="text-lg font-bold text-[var(--hm-accent-text)]">{initials}</span>
     </div>
   );
 }
@@ -59,21 +59,28 @@ export function PartnerSection() {
   if (!loading && servers.length === 0) return null;
 
   return (
-    <section id="discover" className="py-20 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        <div className="mb-10">
-          <h2 className="text-2xl sm:text-3xl font-bold mb-2"><T>Partnered Communities</T></h2>
-          <p className="text-[#666] text-sm"><T>Official partners verified by Serika Company.</T></p>
+    <section id="discover" aria-labelledby="hm-partners-title" className="scroll-mt-20 py-20 sm:py-28">
+      <div className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-10">
+        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+          <div className="max-w-2xl">
+            <p className="hm-label mb-3">{gt("Partners")}</p>
+            <h2 id="hm-partners-title" className="hm-display hm-h2">{gt("Partnered communities")}</h2>
+            <p className="hm-lede mt-5"><T>Official partners verified by Serika Company.</T></p>
+          </div>
+          <Link href="/channels/explore" className="hm-btn hm-btn-ghost shrink-0 self-start md:self-end">
+            <Compass className="h-4 w-4" aria-hidden />
+            {gt("Browse Discover")}
+          </Link>
         </div>
 
         {loading ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-28 rounded-2xl bg-[#0a0a0a] border border-white/[0.06] animate-pulse" />
+              <div key={i} className="hm-card h-[132px] animate-pulse motion-reduce:animate-none" />
             ))}
           </div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ul className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {servers.map((server) => {
               // serika.cc/<code>?join=1 joins in one step once signed in.
               const code = server.joinCode || server.vanityUrlCode;
@@ -81,47 +88,40 @@ export function PartnerSection() {
                 ? `https://serika.cc/${encodeURIComponent(code)}?join=1`
                 : `/channels/${server.id}`;
               return (
-                <Link
-                  key={server.id}
-                  href={href}
-                  className="group flex items-start gap-4 p-5 rounded-2xl bg-[#080a0f] border border-white/[0.06] hover:border-[#8B5CF6]/30 hover:bg-[#0d0f1a] transition-all duration-200"
-                >
-                  <ServerAvatar name={server.name} icon={server.icon} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-white truncate">{server.name}</span>
-                      {/* Partner badge */}
-                      <svg className="w-4 h-4 shrink-0 text-[#8B5CF6]" viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M8 0l1.8 3.6L14 4.5l-3 2.9.7 4.1L8 9.4l-3.7 2.1.7-4.1-3-2.9 4.2-.9z"/>
-                      </svg>
-                    </div>
-                    {server.description && (
-                      <p className="text-xs text-[#555] line-clamp-2 mb-2 group-hover:text-[#777] transition-colors">
-                        {server.description}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 text-xs text-[#444]">
-                      {typeof server.onlineCount === "number" && server.onlineCount > 0 && (
+                <li key={server.id}>
+                  <Link href={href} className="hm-card group flex h-full items-start gap-4 p-5">
+                    <ServerAvatar name={server.name} icon={server.icon} />
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex items-center gap-1.5">
+                        <span className="truncate font-semibold text-[var(--hm-ink)]">{server.name}</span>
+                        <BadgeCheck className="h-4 w-4 shrink-0 text-[var(--hm-accent-text)]" aria-label={gt("Partner")} />
+                      </div>
+                      {server.description && (
+                        <p className="mb-3 line-clamp-2 text-sm leading-snug">{server.description}</p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--hm-faint)]">
+                        {typeof server.onlineCount === "number" && server.onlineCount > 0 && (
+                          <span className="flex items-center gap-1">
+                            <span className="h-2 w-2 rounded-full bg-[var(--hm-online)]" aria-hidden />
+                            {gt("{count} online", { count: server.onlineCount.toLocaleString() })}
+                          </span>
+                        )}
                         <span className="flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden />
-                          {gt("{count} online", { count: server.onlineCount.toLocaleString() })}
+                          <Users className="h-3 w-3" aria-hidden />
+                          {gt("{count} members", { count: server.memberCount.toLocaleString() })}
                         </span>
-                      )}
-                      <span className="flex items-center gap-1">
-                        <Users className="w-3 h-3" />
-                        {gt("{count} members", { count: server.memberCount.toLocaleString() })}
-                      </span>
-                      {code && (
-                        <span className="ml-auto px-2.5 py-1 rounded-lg bg-[#8B5CF6]/15 text-[#a78bfa] font-semibold group-hover:bg-[#8B5CF6] group-hover:text-white transition-colors">
-                          {gt("Join")}
-                        </span>
-                      )}
+                        {code && (
+                          <span className="ms-auto rounded-full bg-[color-mix(in_srgb,var(--brand-violet)_15%,transparent)] px-3 py-1 font-semibold text-[var(--hm-accent-text)] transition-colors group-hover:bg-[var(--brand-violet)] group-hover:text-white">
+                            {gt("Join")}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                </li>
               );
             })}
-          </div>
+          </ul>
         )}
       </div>
     </section>

@@ -21,6 +21,8 @@ declare module "bun:test" {
     toHaveLength(length: number): void;
     toBeGreaterThan(expected: number | bigint): void;
     toBeLessThan(expected: number | bigint): void;
+    toBeGreaterThanOrEqual(expected: number | bigint): void;
+    toBeLessThanOrEqual(expected: number | bigint): void;
     toMatch(expected: RegExp | string): void;
     toThrow(expected?: unknown): void;
     toBeInstanceOf(expected: unknown): void;
@@ -47,4 +49,8 @@ declare module "bun:test" {
   export function afterAll(fn: TestFn): void;
   export function beforeEach(fn: TestFn): void;
   export function afterEach(fn: TestFn): void;
+  /** `mock.module(specifier, factory)` replaces a module for later (dynamic) imports. */
+  export const mock: {
+    module(specifier: string, factory: () => Record<string, unknown>): void;
+  };
 }

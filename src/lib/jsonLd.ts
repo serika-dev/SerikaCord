@@ -34,9 +34,42 @@ export const homepageJsonLd = {
       url: `${SITE_URL}/`,
       name: "SerikaCord",
       description:
-        "Free community chat platform with servers, text, voice and video, direct messages and a Discord-compatible bot API.",
+        "Free community chat platform with servers, voice and video, end-to-end encrypted DMs and a Discord-compatible bot API.",
       inLanguage: "en",
       publisher: { "@id": ORGANIZATION_ID },
     },
   ],
 };
+
+/** The app itself, for the homepage (the download page adds its version). */
+export const serikaCordAppJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "SerikaCord",
+  url: `${SITE_URL}/`,
+  downloadUrl: `${SITE_URL}/download`,
+  applicationCategory: "CommunicationApplication",
+  operatingSystem: "Windows, macOS, Linux, Android, Web",
+  description:
+    "Free chat app for communities and friends: servers, voice and video calls, screen sharing, end-to-end encrypted DMs and a Discord-compatible bot API. Run by Serika Company in the Netherlands.",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "EUR" },
+  publisher: { "@id": ORGANIZATION_ID },
+};
+
+export interface FaqEntry {
+  question: string;
+  answer: string;
+}
+
+/** FAQPage for questions that are visible on the page, in the page's language. */
+export function faqPageJsonLd(items: FaqEntry[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: items.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: { "@type": "Answer", text: item.answer },
+    })),
+  };
+}

@@ -1,5 +1,5 @@
 import { buildMetadata } from "@/lib/seo";
-import { BootPrefetch } from "@/components/boot/BootPrefetch";
+import { BootPrefetch, NativeSplashHide } from "@/components/boot/BootPrefetch";
 import DMLayoutClient from "./DMLayoutClient";
 
 export const metadata = buildMetadata({
@@ -22,6 +22,7 @@ export default function DMLayout({ children }: { children: React.ReactNode }) {
     <>
       <BootPrefetch />
       <DMLayoutClient>{children}</DMLayoutClient>
+      <NativeSplashHide />
     </>
   );
 }

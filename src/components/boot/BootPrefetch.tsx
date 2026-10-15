@@ -37,3 +37,13 @@ export function BootPrefetch() {
   }
   return <script dangerouslySetInnerHTML={{ __html: script }} />;
 }
+
+// Android app (Capacitor): hide the native launch screen as soon as the page
+// has painted, instead of waiting out its fixed duration. Placed after the
+// layout's markup, so it runs once the stylesheets and the web splash
+// (AppSplash) are ready. A no-op in browsers and the desktop app.
+const hideNativeSplash = `(function(){try{var c=window.Capacitor;if(!c||!c.isNativePlatform||!c.isNativePlatform())return;var o={fadeOutDuration:150},s=c.Plugins&&c.Plugins.SplashScreen,p=s&&s.hide?s.hide(o):c.nativePromise?c.nativePromise("SplashScreen","hide",o):null;if(p&&p.catch)p.catch(function(){});}catch(e){}})();`;
+
+export function NativeSplashHide() {
+  return <script dangerouslySetInnerHTML={{ __html: hideNativeSplash }} />;
+}

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { getGT } from "gt-next/server";
-import { ArrowRight, Check, CircleDashed, Clock, ExternalLink, HelpCircle, Minus, X } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
-import type { CompareFaqItem, CompareSource, CompareStatus } from "@/lib/compare";
+import type { CompareFaqItem } from "@/lib/compare";
 
 /**
  * Building blocks for the public comparison pages (/compare/*). Server
@@ -19,7 +19,7 @@ export async function CompareShell({ children }: { children: ReactNode }) {
         aria-label={gt("Main")}
         className="sticky top-0 z-40 border-b border-[var(--app-border)] bg-[var(--app-bg)]/85 backdrop-blur-xl"
       >
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-3 px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-bold" aria-label={gt("SerikaCord home")}>
             <Logo variant="icon" size="sm" />
             <span className="hidden sm:inline">SerikaCord</span>
@@ -28,7 +28,10 @@ export async function CompareShell({ children }: { children: ReactNode }) {
             <Link href="/compare" className="rounded-lg px-2.5 py-1.5 text-[var(--app-muted)] transition-colors hover:text-[var(--app-text)]">
               {gt("Compare")}
             </Link>
-            <Link href="/download" className="rounded-lg px-2.5 py-1.5 text-[var(--app-muted)] transition-colors hover:text-[var(--app-text)]">
+            <Link href="/compare/tier-list" className="hidden rounded-lg px-2.5 py-1.5 text-[var(--app-muted)] transition-colors hover:text-[var(--app-text)] sm:inline">
+              {gt("Tier list")}
+            </Link>
+            <Link href="/download" className="hidden rounded-lg px-2.5 py-1.5 text-[var(--app-muted)] transition-colors hover:text-[var(--app-text)] min-[400px]:inline">
               {gt("Download")}
             </Link>
             <Link
@@ -41,15 +44,15 @@ export async function CompareShell({ children }: { children: ReactNode }) {
         </div>
       </nav>
 
-      <main className="mx-auto max-w-5xl px-4 pb-20 pt-10 sm:px-6 sm:pt-14">{children}</main>
+      <main className="mx-auto max-w-6xl px-4 pb-20 pt-10 sm:px-6 sm:pt-14">{children}</main>
 
       <footer className="border-t border-[var(--app-border)] px-4 py-10 sm:px-6">
-        <div className="mx-auto flex max-w-5xl flex-col gap-6 text-sm text-[var(--app-muted)] sm:flex-row sm:items-start sm:justify-between">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 text-sm text-[var(--app-muted)] sm:flex-row sm:items-start sm:justify-between">
           <ul className="flex flex-wrap gap-x-5 gap-y-2">
             <li><Link href="/" className="hover:text-[var(--app-text)]">{gt("Home")}</Link></li>
             <li><Link href="/compare" className="hover:text-[var(--app-text)]">{gt("All comparisons")}</Link></li>
+            <li><Link href="/compare/tier-list" className="hover:text-[var(--app-text)]">{gt("Chat app tier list")}</Link></li>
             <li><Link href="/compare/discord" className="hover:text-[var(--app-text)]">{gt("SerikaCord vs Discord")}</Link></li>
-            <li><Link href="/compare/stoat" className="hover:text-[var(--app-text)]">{gt("SerikaCord vs Stoat")}</Link></li>
             <li><Link href="/download" className="hover:text-[var(--app-text)]">{gt("Download")}</Link></li>
             <li><Link href="/privacy" className="hover:text-[var(--app-text)]">{gt("Privacy Policy")}</Link></li>
             <li><Link href="/terms" className="hover:text-[var(--app-text)]">{gt("Terms of Service")}</Link></li>
@@ -142,84 +145,6 @@ export function PointList({ points }: { points: { title: string; text: string }[
   );
 }
 
-export interface CompareRow {
-  feature: string;
-  values: { status: CompareStatus; note?: string }[];
-}
-
-const STATUS_STYLE: Record<CompareStatus, string> = {
-  yes: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-  partial: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  notyet: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-  no: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
-  unknown: "bg-[var(--app-surface-alt)] text-[var(--app-muted)]",
-};
-
-const STATUS_ICON: Record<CompareStatus, typeof Check> = {
-  yes: Check,
-  partial: CircleDashed,
-  notyet: Clock,
-  no: X,
-  unknown: HelpCircle,
-};
-
-export async function ComparisonTable({ columns, rows, caption }: { columns: string[]; rows: CompareRow[]; caption: string }) {
-  const gt = await getGT();
-  const label: Record<CompareStatus, string> = {
-    yes: gt("Yes"),
-    partial: gt("Partial"),
-    notyet: gt("Not yet"),
-    no: gt("No"),
-    unknown: gt("Couldn't verify"),
-  };
-  return (
-    <div className="overflow-x-auto rounded-2xl border border-[var(--app-border)]">
-      <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-        <caption className="sr-only">{caption}</caption>
-        <thead className="bg-[var(--app-surface-alt)]">
-          <tr>
-            <th scope="col" className="w-[34%] px-4 py-3 font-semibold">{gt("Feature")}</th>
-            {columns.map((c) => (
-              <th key={c} scope="col" className="px-4 py-3 font-semibold">{c}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.feature} className="border-t border-[var(--app-border)] bg-[var(--app-surface)] align-top">
-              <th scope="row" className="px-4 py-3 font-medium">{row.feature}</th>
-              {row.values.map((v, i) => {
-                const Icon = STATUS_ICON[v.status];
-                return (
-                  <td key={`${row.feature}-${columns[i]}`} className="px-4 py-3">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[v.status]}`}>
-                      <Icon className="h-3.5 w-3.5" aria-hidden />
-                      {label[v.status]}
-                    </span>
-                    {v.note && <p className="mt-1.5 text-xs leading-relaxed text-[var(--app-muted)]">{v.note}</p>}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-export async function StatusLegend() {
-  const gt = await getGT();
-  return (
-    <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--app-muted)]">
-      <span className="inline-flex items-center gap-1"><Check className="h-3.5 w-3.5" aria-hidden />{gt("Yes: available to everyone today")}</span>
-      <span className="inline-flex items-center gap-1"><CircleDashed className="h-3.5 w-3.5" aria-hidden />{gt("Partial: limited, paid or with caveats")}</span>
-      <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" aria-hidden />{gt("Not yet: announced or in development")}</span>
-      <span className="inline-flex items-center gap-1"><Minus className="h-3.5 w-3.5" aria-hidden />{gt("No: not offered")}</span>
-    </p>
-  );
-}
-
 export function FaqList({ items }: { items: CompareFaqItem[] }) {
   return (
     <div className="divide-y divide-[var(--app-border)] rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)]">
@@ -232,27 +157,6 @@ export function FaqList({ items }: { items: CompareFaqItem[] }) {
           <p className="mt-3 text-sm leading-relaxed text-[var(--app-muted)]">{item.answer}</p>
         </details>
       ))}
-    </div>
-  );
-}
-
-export async function SourceList({ sources, note }: { sources: CompareSource[]; note: ReactNode }) {
-  const gt = await getGT();
-  return (
-    <div>
-      <div className="mb-4 max-w-3xl text-sm leading-relaxed text-[var(--app-muted)]">{note}</div>
-      <ol className="list-decimal space-y-2 pl-5 text-sm">
-        {sources.map((s) => (
-          <li key={s.url} className="break-words pl-1">
-            <a href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-start gap-1 text-[var(--app-accent)] hover:underline">
-              <span>{s.title}</span>
-              <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span className="sr-only">{gt("(opens in a new tab)")}</span>
-            </a>
-            <span className="text-[var(--app-muted)]"> · {s.publisher}</span>
-          </li>
-        ))}
-      </ol>
     </div>
   );
 }

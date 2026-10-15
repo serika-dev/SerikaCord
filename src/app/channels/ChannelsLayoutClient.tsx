@@ -22,6 +22,7 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { AnimatePresence, motion } from "framer-motion";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { AppSplash } from "@/components/boot/AppSplash";
 import { Logo } from "@/components/ui/Logo";
 import { toast } from "sonner";
 import { parseServerLinkReturn } from "@/lib/connections/serverOwned";
@@ -101,6 +102,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const gt = useGT();
   const recheckRef = useRef(false);
+  // The splash only appears for a session that was still loading when the app
+  // opened; it then stays mounted (same tree position) to fade out over the app.
+  const [splashShown] = useState(isLoading);
+  const [splashDone, setSplashDone] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user && !suspended) {
@@ -119,22 +124,11 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   // Suspended: Account Standing + appeal + log out, instead of the app.
   if (suspended && !user) return <SuspendedScreen />;
 
+  let content: React.ReactNode = null;
   if (isLoading) {
-    return (
-      <div className="h-dvh bg-[var(--bg-app)] flex flex-col items-center justify-center">
-        <div className="flex flex-col items-center gap-6">
-          <Loader size={80} />
-          <div className="flex flex-col items-center gap-2">
-            <span className="text-lg font-medium text-[var(--text-primary)]">{gt("Loading SerikaCord...")}</span>
-            <p className="text-sm text-[var(--text-muted)]">{gt("Preparing your experience")}</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
+    content = null;
+  } else if (!user) {
+    content = (
       <div className="h-dvh bg-[var(--bg-app)] flex flex-col items-center justify-center">
         <div className="flex flex-col items-center gap-6 text-center px-4">
           <Logo variant="icon" size="xl" />
@@ -163,9 +157,16 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         </div>
       </div>
     );
+  } else {
+    content = children;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {content}
+      {splashShown && !splashDone && <AppSplash exiting={!isLoading} onExited={() => setSplashDone(true)} />}
+    </>
+  );
 }
 
 function ChannelsContent({ children }: { children: React.ReactNode }) {

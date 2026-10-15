@@ -48,7 +48,9 @@
 
 namespace {
 constexpr int UPDATE_INTERVAL_MS = 4 * 60 * 60 * 1000; // every 4 hours
-const QColor WINDOW_BG(0x1a, 0x1a, 0x1e);
+// Matches the web splash / dark theme background (--app-bg), so there is no
+// colour jump between the window, the page and the splash.
+const QColor WINDOW_BG(0x05, 0x06, 0x0a);
 
 QString platformName() {
 #if defined(Q_OS_WIN)

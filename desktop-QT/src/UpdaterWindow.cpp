@@ -19,8 +19,8 @@ UpdaterWindow::UpdaterWindow(QWidget *parent)
                    Qt::Dialog | Qt::CustomizeWindowHint);
     setAttribute(Qt::WA_TranslucentBackground, false);
 
-    // Clean dark background, no gradients
-    setStyleSheet("background-color: #16161a; color: #fff; border: 1px solid #2a2a30;");
+    // Same palette as the web app's splash and dark theme (--app-bg / --app-border).
+    setStyleSheet("background-color: #05060a; color: #fff; border: 1px solid #1e2637;");
 
     auto *layout = new QVBoxLayout(this);
     layout->setAlignment(Qt::AlignCenter);
@@ -46,12 +46,12 @@ UpdaterWindow::UpdaterWindow(QWidget *parent)
     // Version
     m_versionLabel = new QLabel("", this);
     m_versionLabel->setAlignment(Qt::AlignCenter);
-    m_versionLabel->setStyleSheet("font-size: 12px; color: #6a6a7a;");
+    m_versionLabel->setStyleSheet("font-size: 12px; color: #6b7387;");
 
     // Status
     m_statusLabel = new QLabel("Checking for updates…", this);
     m_statusLabel->setAlignment(Qt::AlignCenter);
-    m_statusLabel->setStyleSheet("font-size: 13px; color: #9a9aaa;");
+    m_statusLabel->setStyleSheet("font-size: 13px; color: #8d97ad;");
 
     // Progress bar
     m_progressBar = new QProgressBar(this);
